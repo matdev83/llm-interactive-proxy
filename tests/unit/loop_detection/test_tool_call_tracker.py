@@ -398,7 +398,6 @@ class TestToolCallTrackerFunctionality:
         # Check that the consecutive count was reset
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == 1
-<<<<<<< HEAD
 
 
 class TestToolCallLoopConfigParsing:
@@ -448,5 +447,3 @@ class TestToolCallLoopConfigParsing:
         )
 
         assert config.enabled is expected
-=======
->>>>>>> d4566a8 (fix(core): Log exceptions in tool call reactor and resolve test conflicts)

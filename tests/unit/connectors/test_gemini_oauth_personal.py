@@ -690,3 +690,257 @@ class TestGeminiOAuthPersonalConnector:
 
         assert result is False
         mock_launch.assert_called_once()
+
+
+class TestFileWatchingFunctionality:
+    """Test file watching functionality for credential changes."""
+
+    def test_start_file_watching_success(self, connector):
+        """Test file watching starts successfully when credentials path exists."""
+        from pathlib import Path
+        from unittest.mock import Mock, patch
+
+        connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
+
+        with patch(
+            "src.connectors.gemini_oauth_personal.Observer"
+        ) as mock_observer_class:
+            mock_observer = Mock()
+            mock_observer_class.return_value = mock_observer
+
+            connector._start_file_watching()
+
+            assert connector._file_observer is not None
+            mock_observer.schedule.assert_called_once()
+            mock_observer.start.assert_called_once()
+
+    def test_start_file_watching_no_credentials_path(self, connector):
+        """Test file watching doesn't start when credentials path is None."""
+        from unittest.mock import patch
+
+        connector._credentials_path = None
+
+        with patch(
+            "src.connectors.gemini_oauth_personal.Observer"
+        ) as mock_observer_class:
+            connector._start_file_watching()
+
+            assert connector._file_observer is None
+            mock_observer_class.assert_not_called()
+
+    def test_stop_file_watching_success(self, connector):
+        """Test file watching stops successfully."""
+        from unittest.mock import Mock
+
+        mock_observer = Mock()
+        connector._file_observer = mock_observer
+
+        connector._stop_file_watching()
+
+        mock_observer.stop.assert_called_once()
+        mock_observer.join.assert_called_once()
+        assert connector._file_observer is None
+
+    def test_stop_file_watching_no_observer(self, connector):
+        """Test stop file watching when no observer exists."""
+        connector._file_observer = None
+
+        # Should not raise any exception
+        connector._stop_file_watching()
+
+        assert connector._file_observer is None
+
+    @pytest.mark.asyncio
+    async def test_handle_credentials_file_change_valid_update(self, connector):
+        """Test handling of valid credentials file change with force reload."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
+
+        # Mock that credentials exist and are valid
+        with (
+            patch.object(
+                connector, "_validate_credentials_file_exists", return_value=(True, [])
+            ),
+            patch.object(
+                connector, "_load_oauth_credentials", new_callable=AsyncMock
+            ) as mock_load,
+            patch.object(
+                connector, "_refresh_token_if_needed", new_callable=AsyncMock
+            ) as mock_refresh,
+        ):
+            mock_load.return_value = True
+            mock_refresh.return_value = True
+
+            await connector._handle_credentials_file_change()
+
+            # Verify force_reload was used
+            mock_load.assert_called_once_with(force_reload=True)
+            mock_refresh.assert_called_once()
+            assert connector.is_functional
+            assert len(connector._credential_validation_errors) == 0
+
+    @pytest.mark.asyncio
+    async def test_handle_credentials_file_change_invalid_file(self, connector):
+        """Test handling of invalid credentials file change."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
+
+        # Mock that credentials file is invalid
+        with patch.object(
+            connector,
+            "_validate_credentials_file_exists",
+            return_value=(False, ["File is corrupted"]),
+        ):
+            await connector._handle_credentials_file_change()
+
+            assert not connector.is_functional
+            assert len(connector._credential_validation_errors) > 0
+            assert "File is corrupted" in connector._credential_validation_errors
+
+    @pytest.mark.asyncio
+    async def test_handle_credentials_file_change_load_failure(self, connector):
+        """Test handling when credential loading fails after file change."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
+
+        with (
+            patch.object(
+                connector, "_validate_credentials_file_exists", return_value=(True, [])
+            ),
+            patch.object(
+                connector, "_load_oauth_credentials", new_callable=AsyncMock
+            ) as mock_load,
+        ):
+            mock_load.return_value = False
+
+            await connector._handle_credentials_file_change()
+
+            assert not connector.is_functional
+            assert len(connector._credential_validation_errors) > 0
+
+    @pytest.mark.asyncio
+    async def test_load_oauth_credentials_with_force_reload(self, connector):
+        """Test that force_reload bypasses cache check."""
+        import json
+        import time
+        from pathlib import Path
+        from unittest.mock import MagicMock, mock_open, patch
+
+        test_credentials = {
+            "access_token": "new_token",
+            "refresh_token": "refresh_token",
+            "expiry_date": (time.time() + 3600) * 1000,
+        }
+
+        # Set up connector with cached credentials and last_modified time
+        connector._oauth_credentials = {
+            "access_token": "old_token",
+            "refresh_token": "old_refresh",
+            "expiry_date": (time.time() + 3600) * 1000,
+        }
+        connector._last_modified = 1234567890
+        connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
+
+        with (
+            patch("pathlib.Path.home", return_value=Path("/test")),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.stat") as mock_stat,
+            patch("builtins.open", mock_open(read_data=json.dumps(test_credentials))),
+        ):
+            # Same mtime as cached
+            mock_stat.return_value = MagicMock(st_mtime=1234567890)
+
+            # Without force_reload, should use cache
+            result = await connector._load_oauth_credentials(force_reload=False)
+            assert result is True
+            assert connector._oauth_credentials["access_token"] == "old_token"
+
+            # With force_reload, should reload from file
+            result = await connector._load_oauth_credentials(force_reload=True)
+            assert result is True
+            assert connector._oauth_credentials["access_token"] == "new_token"
+
+    def test_file_handler_on_modified_path_comparison(self, connector):
+        """Test that file handler properly compares paths on Windows and Unix."""
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from src.connectors.gemini_oauth_personal import (
+            GeminiPersonalCredentialsFileHandler,
+        )
+
+        # Set up connector with credentials path
+        connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
+        connector._main_loop = MagicMock()
+
+        handler = GeminiPersonalCredentialsFileHandler(connector)
+
+        # Create mock event with path that should match
+        event = MagicMock()
+        event.is_directory = False
+        event.src_path = str(connector._credentials_path)
+
+        with patch(
+            "asyncio.run_coroutine_threadsafe", return_value=MagicMock()
+        ) as mock_run:
+            handler.on_modified(event)
+
+            # Should have scheduled the credentials reload
+            mock_run.assert_called_once()
+
+    def test_file_handler_on_modified_different_file(self, connector):
+        """Test that file handler ignores events for different files."""
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from src.connectors.gemini_oauth_personal import (
+            GeminiPersonalCredentialsFileHandler,
+        )
+
+        # Set up connector with credentials path
+        connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
+        connector._main_loop = MagicMock()
+
+        handler = GeminiPersonalCredentialsFileHandler(connector)
+
+        # Create mock event with different path
+        event = MagicMock()
+        event.is_directory = False
+        event.src_path = "/test/.gemini/other_file.json"
+
+        with patch(
+            "asyncio.run_coroutine_threadsafe", return_value=MagicMock()
+        ) as mock_run:
+            handler.on_modified(event)
+
+            # Should NOT have scheduled the credentials reload
+            mock_run.assert_not_called()
+
+    def test_file_handler_on_modified_no_event_loop(self, connector):
+        """Test that file handler handles missing event loop gracefully."""
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        from src.connectors.gemini_oauth_personal import (
+            GeminiPersonalCredentialsFileHandler,
+        )
+
+        # Set up connector without event loop
+        connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
+        connector._main_loop = None
+
+        handler = GeminiPersonalCredentialsFileHandler(connector)
+
+        # Create mock event
+        event = MagicMock()
+        event.is_directory = False
+        event.src_path = str(connector._credentials_path)
+
+        # Should not raise exception even without event loop
+        handler.on_modified(event)

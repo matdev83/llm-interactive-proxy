@@ -50,9 +50,24 @@ class OpenAICredentialsFileHandler(FileSystemEventHandler):
         self.connector = connector
 
     def on_modified(self, event) -> None:  # type: ignore[no-untyped-def]
-        if not event.is_directory and event.src_path == str(self.connector._auth_path):
-            logger.debug("OpenAI OAuth credentials file changed, scheduling reload")
-            self.connector._schedule_credentials_reload()
+        """Handle file modification events."""
+        if not event.is_directory:
+            # Compare paths using Path objects to handle Windows/Unix differences
+            try:
+                event_path = Path(event.src_path).resolve()
+                auth_path = (
+                    self.connector._auth_path.resolve()
+                    if self.connector._auth_path
+                    else None
+                )
+
+                if auth_path and event_path == auth_path:
+                    logger.debug(
+                        "OpenAI OAuth credentials file changed, scheduling reload"
+                    )
+                    self.connector._schedule_credentials_reload()
+            except Exception as e:
+                logger.error(f"Error processing file modification event: {e}")
 
 
 class OpenAIOAuthConnector(OpenAIConnector):
@@ -241,7 +256,12 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 self._file_observer = None
 
     def _schedule_credentials_reload(self) -> None:
-        """Schedule an asynchronous reload of credentials."""
+        """Schedule an asynchronous reload of credentials.
+
+        This method is called when the file system watcher detects a change to the
+        auth.json file. It forces a reload of credentials bypassing the cache
+        to ensure the latest token is loaded even if the file timestamp didn't change.
+        """
         if (
             self._pending_reload_task is not None
             and not self._pending_reload_task.done()
@@ -251,7 +271,8 @@ class OpenAIOAuthConnector(OpenAIConnector):
         async def reload_task() -> None:
             try:
                 logger.debug("Reloading OpenAI OAuth credentials due to file change")
-                loaded = await self._load_auth()
+                # Use force_reload=True to bypass cache
+                loaded = await self._load_auth(force_reload=True)
                 if loaded:
                     if self._auth_credentials is not None:
                         ok, errors = self._validate_credentials_structure(
@@ -327,7 +348,15 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 return p
         return None
 
-    async def _load_auth(self) -> bool:
+    async def _load_auth(self, force_reload: bool = False) -> bool:
+        """Load OAuth credentials from auth.json file.
+
+        Args:
+            force_reload: If True, bypass cache and force reload from file even if timestamp unchanged
+
+        Returns:
+            bool: True if credentials loaded successfully, False otherwise
+        """
         auth_path = self._discover_auth_path()
         if auth_path is None:
             logger.warning("OpenAI OAuth auth.json not found in default locations")
@@ -335,10 +364,21 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
         self._auth_path = auth_path
         try:
+            # Check if file has been modified since last load (unless force_reload is True)
+            if not force_reload:
+                try:
+                    mtime = auth_path.stat().st_mtime
+                    if mtime == self._last_modified and self.api_key:
+                        logger.debug(
+                            "OpenAI OAuth credentials file not modified, using cached."
+                        )
+                        return True
+                except OSError:
+                    pass
+
+            # Update last modified time
             try:
                 mtime = auth_path.stat().st_mtime
-                if mtime == self._last_modified and self.api_key:
-                    return True
                 self._last_modified = mtime
             except OSError:
                 pass
@@ -369,6 +409,10 @@ class OpenAIOAuthConnector(OpenAIConnector):
             self.api_key = token
             # Store credentials for validation
             self._auth_credentials = data
+            log_msg = "Successfully loaded OpenAI OAuth credentials"
+            if force_reload:
+                log_msg += " (force reload)"
+            logger.info(log_msg + ".")
             return True
         except json.JSONDecodeError as e:
             logger.error("Malformed auth.json for OpenAI OAuth: %s", e, exc_info=True)
