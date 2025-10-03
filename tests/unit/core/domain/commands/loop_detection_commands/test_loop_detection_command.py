@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 
 from pytest import MonkeyPatch
-
 from src.core.domain.commands.loop_detection_commands.loop_detection_command import (
     LoopDetectionCommand,
 )
-from src.core.domain.configuration.loop_detection_config import LoopDetectionConfiguration
+from src.core.domain.configuration.loop_detection_config import (
+    LoopDetectionConfiguration,
+)
 from src.core.domain.session import Session, SessionState, SessionStateAdapter
 
 
@@ -53,7 +54,9 @@ def test_execute_disables_loop_detection_with_falsey_argument() -> None:
     assert result.new_state.loop_config.loop_detection_enabled is False
 
 
-def test_execute_returns_failure_when_loop_update_raises(monkeypatch: MonkeyPatch) -> None:
+def test_execute_returns_failure_when_loop_update_raises(
+    monkeypatch: MonkeyPatch,
+) -> None:
     """Any exception raised while updating the loop configuration is reported."""
     session = Session(
         "session-id",
