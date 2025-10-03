@@ -67,8 +67,7 @@ class ContentRewriterService:
             mode_file_name = found_modes[0]
             mode_file_path = mode_files[mode_file_name]
 
-            with open(search_file, encoding="utf-8") as f:
-                search_text = f.read()
+            search_text = self._read_rule_file(search_file)
 
             if len(search_text) < 8:
                 logger.warning(
@@ -77,8 +76,7 @@ class ContentRewriterService:
                 )
                 continue
 
-            with open(mode_file_path, encoding="utf-8") as f:
-                action_text = f.read()
+            action_text = self._read_rule_file(mode_file_path)
 
             if not search_text:
                 continue
@@ -109,6 +107,18 @@ class ContentRewriterService:
                 )
 
         return rules
+
+    def _read_rule_file(self, path: str) -> str:
+        """Read a rule file, normalizing trailing newline characters."""
+
+        with open(path, encoding="utf-8") as file:
+            text = file.read()
+
+        if text.endswith("\r\n"):
+            return text[:-2]
+        if text.endswith("\n") or text.endswith("\r"):
+            return text[:-1]
+        return text
 
     def _apply_rules(self, content: str, rules: list[ReplacementRule]) -> str:
         """Applies a list of replacement rules to a string."""

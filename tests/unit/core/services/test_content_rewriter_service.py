@@ -190,6 +190,53 @@ class TestContentRewriterService(unittest.TestCase):
         rewritten = service.rewrite_reply(reply)
         self.assertEqual(rewritten, "This is an rewritten reply.")
 
+    def test_rules_ignore_trailing_newlines_in_files(self):
+        """Ensure rule files ending with newlines are applied correctly."""
+
+        os.makedirs(
+            os.path.join(
+                self.test_config_dir,
+                "prompts",
+                "user",
+                "003_newline",
+            ),
+            exist_ok=True,
+        )
+
+        with open(
+            os.path.join(
+                self.test_config_dir,
+                "prompts",
+                "user",
+                "003_newline",
+                "SEARCH.txt",
+            ),
+            "w",
+        ) as file:
+            file.write("newline marker\n")
+
+        with open(
+            os.path.join(
+                self.test_config_dir,
+                "prompts",
+                "user",
+                "003_newline",
+                "REPLACE.txt",
+            ),
+            "w",
+        ) as file:
+            file.write("updated marker\n")
+
+        service = ContentRewriterService(config_path=self.test_config_dir)
+
+        prompt = "The newline marker should be replaced."
+        rewritten_prompt = service.rewrite_prompt(prompt, "user")
+
+        self.assertEqual(
+            rewritten_prompt,
+            "The updated marker should be replaced.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
