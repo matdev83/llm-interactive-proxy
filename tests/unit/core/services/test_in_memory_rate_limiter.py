@@ -384,6 +384,22 @@ class TestConfigurableRateLimiter:
         await limiter.set_limit("test-key", 20, 60)
 
     @pytest.mark.asyncio
+    async def test_configuration_is_applied(
+        self, base_limiter: InMemoryRateLimiter, config: dict[str, Any]
+    ) -> None:
+        """Configured rate limits should override the base limiter defaults."""
+
+        limiter = ConfigurableRateLimiter(base_limiter, config)
+
+        user1_info = await limiter.check_limit("user1")
+        assert user1_info.limit == 100
+        assert user1_info.time_window == 300
+
+        user2_info = await limiter.check_limit("user2")
+        assert user2_info.limit == 50
+        assert user2_info.time_window == 60
+
+    @pytest.mark.asyncio
     async def test_config_with_no_rate_limits(
         self, base_limiter: InMemoryRateLimiter
     ) -> None:

@@ -4,6 +4,9 @@ Rate Limiter Service
 Implements the IRateLimiter interface for controlling API request rates.
 """
 
+from __future__ import annotations
+
+import asyncio
 import logging
 import time
 from typing import Any
@@ -157,9 +160,8 @@ class ConfigurableRateLimiter(IRateLimiter):
         """
         self._limiter = base_limiter
         self._config = config
-
-        # Apply configuration
-        self._apply_config()
+        self._config_applied = False
+        self._config_lock: asyncio.Lock | None = None
 
     async def check_limit(self, key: str) -> RateLimitInfo:
         """Check if the given key is rate limited.
@@ -170,6 +172,7 @@ class ConfigurableRateLimiter(IRateLimiter):
         Returns:
             RateLimitInfo with rate limit status
         """
+        await self._ensure_config_applied()
         return await self._limiter.check_limit(key)
 
     async def record_usage(self, key: str, cost: int = 1) -> None:
@@ -179,6 +182,7 @@ class ConfigurableRateLimiter(IRateLimiter):
             key: The key to record usage for
             cost: The cost of the operation
         """
+        await self._ensure_config_applied()
         await self._limiter.record_usage(key, cost)
 
     async def reset(self, key: str) -> None:
@@ -187,6 +191,7 @@ class ConfigurableRateLimiter(IRateLimiter):
         Args:
             key: The key to reset
         """
+        await self._ensure_config_applied()
         await self._limiter.reset(key)
 
     async def set_limit(self, key: str, limit: int, time_window: int) -> None:
@@ -197,20 +202,85 @@ class ConfigurableRateLimiter(IRateLimiter):
             limit: The maximum number of operations
             time_window: The time window in seconds
         """
+        await self._ensure_config_applied()
         await self._limiter.set_limit(key, limit, time_window)
 
-    def _apply_config(self) -> None:
-        """Apply configuration to the rate limiter."""
-        # Get rate limit configuration
-        rate_limits = self._config.get("rate_limits", {})
+    async def _ensure_config_applied(self) -> None:
+        """Apply configuration once before delegating to the base limiter."""
+        if self._config_applied:
+            return
 
-        # Apply configured limits
+        if self._config_lock is None:
+            self._config_lock = asyncio.Lock()
+
+        async with self._config_lock:
+            if self._config_applied:
+                return
+            await self._apply_config()
+            self._config_applied = True
+
+    async def _apply_config(self) -> None:
+        """Apply configuration to the rate limiter."""
+        rate_limits = self._config.get("rate_limits", {})
+        if not isinstance(rate_limits, dict):
+            logger.warning(
+                "Rate limit configuration is not a mapping: %r", rate_limits
+            )
+            return
+
+        default_limit = getattr(self._limiter, "_default_limit", 60)
+        default_time_window = getattr(self._limiter, "_default_time_window", 60)
+
+        applied = 0
         for key, settings in rate_limits.items():
-            limit = settings.get("limit", 60)
-            time_window = settings.get("time_window", 60)
-            # This would need to be awaited in an async context
-            # For now, we'll just log that we would apply these settings
-            logger.info(f"Would apply rate limit for {key}: {limit}/{time_window}s")
+            if not isinstance(settings, dict):
+                logger.warning(
+                    "Skipping rate limit for %s because settings are not a mapping: %r",
+                    key,
+                    settings,
+                )
+                continue
+
+            limit_raw = settings.get("limit", default_limit)
+            window_raw = settings.get("time_window", default_time_window)
+
+            try:
+                limit = int(limit_raw)
+                time_window = int(window_raw)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Skipping rate limit for %s due to invalid values limit=%r, time_window=%r",
+                    key,
+                    limit_raw,
+                    window_raw,
+                )
+                continue
+
+            if limit <= 0 or time_window <= 0:
+                logger.warning(
+                    "Skipping rate limit for %s because values must be positive: %s/%s",
+                    key,
+                    limit,
+                    time_window,
+                )
+                continue
+
+            try:
+                await self._limiter.set_limit(key, limit, time_window)
+                applied += 1
+                logger.info(
+                    "Applied configured rate limit for %s: %s requests per %ss",
+                    key,
+                    limit,
+                    time_window,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to apply configured rate limit for %s: %s", key, exc
+                )
+
+        if applied and logger.isEnabledFor(logging.INFO):
+            logger.info("Applied %d configured rate limit entries", applied)
 
 
 # Alias for backward compatibility
