@@ -7,6 +7,7 @@ issues like unawaited coroutines by enforcing proper patterns through the type s
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Protocol, TypeVar, runtime_checkable
 from unittest.mock import AsyncMock, MagicMock
@@ -58,11 +59,21 @@ class TestServiceValidator:
         """
         # Check that get_session returns a real session, not an AsyncMock
         if hasattr(service, "get_session"):
-            # Try to call it with a dummy session ID to see what it returns
-            try:
-                result = service.get_session("test_session_id")
+            method = getattr(service, "get_session")
 
-                # If it's an AsyncMock, that's a problem
+            if isinstance(method, AsyncMock):
+                raise TypeError(
+                    f"Session service {type(service).__name__}.get_session is an AsyncMock "
+                    "and will produce coroutine warnings. Use a real implementation or a "
+                    "properly configured MagicMock instead."
+                )
+
+            if inspect.iscoroutinefunction(method):
+                return
+
+            try:
+                result = method("test_session_id")
+
                 if isinstance(result, AsyncMock):
                     raise TypeError(
                         f"Session service {type(service).__name__} returns AsyncMock "
@@ -70,20 +81,17 @@ class TestServiceValidator:
                         "Use a real Session object or properly configured mock instead."
                     )
 
-                # If it's a coroutine but shouldn't be, that's also a problem
-                import inspect
-
-                if inspect.iscoroutine(result):
-                    # Clean up the coroutine to avoid warnings
-                    result.close()
+                if inspect.isawaitable(result):
+                    close = getattr(result, "close", None)
+                    if callable(close):
+                        close()
                     raise TypeError(
-                        f"Session service {type(service).__name__}.get_session() "
-                        "returns a coroutine but should return a Session object directly. "
-                        "This will cause coroutine warnings."
+                        f"Session service {type(service).__name__}.get_session() returns an "
+                        "awaitable but the method is not async. This will cause coroutine "
+                        "warnings."
                     )
 
             except (TypeError, AttributeError) as e:
-                # If we can't validate, log a warning but don't fail
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(f"Error validating signature: {e}", exc_info=True)
 
