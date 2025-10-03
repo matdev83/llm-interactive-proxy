@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
+from typing import Any
 
 from src.core.domain.session import Session
 from src.core.interfaces.repositories_interface import ISessionRepository
@@ -36,7 +38,7 @@ class InMemorySessionRepository(ISessionRepository):
     async def add(self, entity: Session) -> Session:
         """Add a new session."""
         self._sessions[entity.id] = entity
-        self._last_accessed[entity.id] = time.time()
+        self._last_accessed[entity.id] = self._get_last_active_timestamp(entity)
 
         # Track by user if available
         if hasattr(entity, "user_id") and entity.user_id:
@@ -52,7 +54,7 @@ class InMemorySessionRepository(ISessionRepository):
             return await self.add(entity)
 
         self._sessions[entity.id] = entity
-        self._last_accessed[entity.id] = time.time()
+        self._last_accessed[entity.id] = self._get_last_active_timestamp(entity)
         return entity
 
     async def delete(self, id: str) -> bool:
@@ -107,3 +109,15 @@ class InMemorySessionRepository(ISessionRepository):
             logger.info(f"Cleaned up {count} expired sessions")
 
         return count
+
+    def _get_last_active_timestamp(self, session: Session) -> float:
+        """Return the last activity timestamp for a session."""
+
+        last_active: Any = getattr(session, "last_active_at", None)
+        if isinstance(last_active, datetime):
+            # Ensure timezone-aware datetimes are converted safely
+            if last_active.tzinfo is None:
+                last_active = last_active.replace(tzinfo=timezone.utc)
+            return last_active.timestamp()
+
+        return time.time()
