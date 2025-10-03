@@ -47,6 +47,9 @@ class ResponseBuffer:
 
     def get_recent_content(self, length: int) -> str:
         """Get the most recent content up to specified length."""
+        if length <= 0:
+            return ""
+
         content = self.get_content()
         return content[-length:] if len(content) > length else content
 
