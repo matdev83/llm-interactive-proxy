@@ -59,7 +59,7 @@ class TestServiceValidator:
         """
         # Check that get_session returns a real session, not an AsyncMock
         if hasattr(service, "get_session"):
-            method = getattr(service, "get_session")
+            method = service.get_session
 
             if isinstance(method, AsyncMock):
                 raise TypeError(
@@ -69,7 +69,10 @@ class TestServiceValidator:
                 )
 
             if inspect.iscoroutinefunction(method):
-                return
+                raise TypeError(
+                    f"Session service {type(service).__name__}.get_session is a coroutine "
+                    "function but should be synchronous. This will cause coroutine warnings."
+                )
 
             try:
                 result = method("test_session_id")

@@ -62,20 +62,16 @@ class TestTestServiceValidator:
         # Should not raise any exception
         TestServiceValidator.validate_session_service(mock_service)
 
-    def test_validate_session_service_with_async_mock(self, caplog) -> None:
-        """Test validation with AsyncMock (should log warning)."""
+    def test_validate_session_service_with_async_mock(self) -> None:
+        """Test validation with AsyncMock (should raise TypeError)."""
         mock_service = AsyncMock(spec=ISessionService)
         mock_service.get_session = AsyncMock()
 
-        # Should log warning instead of raising exception
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(TypeError, match="is an AsyncMock"):
             TestServiceValidator.validate_session_service(mock_service)
 
-        assert "coroutine" in caplog.text.lower()
-        assert "warning" in caplog.text.lower()
-
-    def test_validate_session_service_with_coroutine(self, caplog) -> None:
-        """Test validation with a service that returns coroutine (should log warning)."""
+    def test_validate_session_service_with_coroutine(self) -> None:
+        """Test validation with a service that returns coroutine (should raise TypeError)."""
         mock_service = MagicMock(spec=ISessionService)
 
         async def bad_get_session(session_id: str) -> Session:
@@ -83,12 +79,8 @@ class TestTestServiceValidator:
 
         mock_service.get_session = bad_get_session
 
-        # Should log warning instead of raising exception
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(TypeError, match="is a coroutine function"):
             TestServiceValidator.validate_session_service(mock_service)
-
-        assert "coroutine" in caplog.text.lower()
-        assert "warning" in caplog.text.lower()
 
     def test_validate_sync_method_with_async_mock(self) -> None:
         """Test validation of sync method that is AsyncMock."""
@@ -310,17 +302,13 @@ class TestTestStageValidator:
         # Should not raise any exception
         TestStageValidator.validate_stage_services(services)
 
-    def test_validate_stage_services_with_problematic_session_service(
-        self, caplog
-    ) -> None:
+    def test_validate_stage_services_with_problematic_session_service(self) -> None:
         """Test validation with problematic session service."""
         mock_service = AsyncMock(spec=ISessionService)
         services = {ISessionService: mock_service}
 
-        # Should not raise exception but should log warnings
-        TestStageValidator.validate_stage_services(services)
-
-        assert "AsyncMock" in caplog.text
+        with pytest.raises(TypeError, match="is an AsyncMock"):
+            TestStageValidator.validate_stage_services(services)
 
     def test_validate_stage_services_with_async_mock(self, caplog) -> None:
         """Test validation with AsyncMock service."""

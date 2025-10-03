@@ -98,7 +98,7 @@ def run_secret_scan() -> bool:
     Returns True if no secrets are detected; False otherwise.
     """
     repo_root = Path(__file__).resolve().parents[1]
-    checker_path = repo_root / "tools" / "pre_commit_api_key_check.py"
+    checker_path = repo_root / "scripts" / "pre_commit_api_key_check.py"
 
     if not checker_path.exists():
         # If checker is missing, do not block commits
