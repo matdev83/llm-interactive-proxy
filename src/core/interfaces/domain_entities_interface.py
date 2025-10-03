@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import abc
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any
@@ -116,7 +115,7 @@ class ISession(IEntity):
 class ISessionStateMutator(ABC):
     """Interface for session state mutator methods."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_is_cline_agent(self, is_cline: bool) -> ISessionState:
         """Create a new state with updated is_cline_agent flag."""
 
@@ -149,89 +148,89 @@ class ISessionState(IValueObject, ISessionStateMutator):
     def project_dir(self) -> str | None:
         """Get the project directory."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_backend_config(self, config: IBackendConfig) -> ISessionState:
         """Create a new state with updated backend configuration."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_reasoning_config(self, config: IReasoningConfig) -> ISessionState:
         """Create a new state with updated reasoning configuration."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_loop_config(self, config: ILoopDetectionConfig) -> ISessionState:
         """Create a new state with updated loop detection configuration."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_project(self, project: str | None) -> ISessionState:
         """Create a new state with updated project name."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_project_dir(self, project_dir: str | None) -> ISessionState:
         """Create a new state with updated project directory."""
 
     @property
-    @abc.abstractmethod
+    @abstractmethod
     def interactive_just_enabled(self) -> bool:
         """Get whether interactive mode was just enabled."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_interactive_just_enabled(self, enabled: bool) -> ISessionState:
         """Create a new state with updated interactive_just_enabled flag."""
 
     @property
-    @abc.abstractmethod
+    @abstractmethod
     def hello_requested(self) -> bool:
         """Get whether hello was requested in this session."""
 
     @hello_requested.setter
-    @abc.abstractmethod
+    @abstractmethod
     def hello_requested(self, value: bool) -> None:
         """Set whether hello was requested in this session."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_hello_requested(self, hello_requested: bool) -> ISessionState:
         """Create a new state with updated hello_requested flag."""
 
     @property
-    @abc.abstractmethod
+    @abstractmethod
     def is_cline_agent(self) -> bool:
         """Get whether the current agent is a CLI agent."""
 
     @property
-    @abc.abstractmethod
+    @abstractmethod
     def override_model(self) -> str | None:
         """Get the override model from backend configuration."""
 
     @property
-    @abc.abstractmethod
+    @abstractmethod
     def override_backend(self) -> str | None:
         """Get the override backend from backend configuration."""
 
     @property
-    @abc.abstractmethod
+    @abstractmethod
     def pytest_compression_enabled(self) -> bool:
         """Get whether pytest output compression is enabled for this session."""
 
     @property
-    @abc.abstractmethod
+    @abstractmethod
     def compress_next_tool_call_reply(self) -> bool:
         """Get whether the next tool call reply should be compressed."""
 
     @property
-    @abc.abstractmethod
+    @abstractmethod
     def pytest_compression_min_lines(self) -> int:
         """Get minimum line threshold for pytest compression."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
         """Create a new state with updated pytest_compression_enabled flag."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_compress_next_tool_call_reply(
         self, should_compress: bool
     ) -> ISessionState:
         """Create a new state with updated compress_next_tool_call_reply flag."""
 
-    @abc.abstractmethod
+    @abstractmethod
     def with_pytest_compression_min_lines(self, min_lines: int) -> ISessionState:
         """Create a new state with updated pytest_compression_min_lines value."""
