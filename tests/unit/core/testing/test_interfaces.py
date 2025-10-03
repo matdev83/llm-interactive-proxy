@@ -306,23 +306,15 @@ class TestTestStageValidator:
         # Should not raise any exception
         TestStageValidator.validate_stage_services(services)
 
-<<<<<<< HEAD
-    def test_validate_stage_services_with_problematic_session_service(self) -> None:
-=======
     def test_validate_stage_services_with_problematic_session_service(
         self
     ) -> None:
->>>>>>> 85933f4d4adefd8d73cc04f8a412543fc188eda3
         """Test validation with problematic session service."""
         mock_service = AsyncMock(spec=ISessionService)
         services = {ISessionService: mock_service}
 
-<<<<<<< HEAD
-        with pytest.raises(TypeError, match="is an AsyncMock"):
-=======
         # Should raise exception
         with pytest.raises(TypeError, match="AsyncMock.*coroutine warnings"):
->>>>>>> 85933f4d4adefd8d73cc04f8a412543fc188eda3
             TestStageValidator.validate_stage_services(services)
 
     def test_validate_stage_services_with_async_mock(self, caplog) -> None:
