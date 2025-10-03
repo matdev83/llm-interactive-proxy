@@ -238,6 +238,11 @@ class TestRedactText:
         result = redact_text("API key: sk_test_1234567890abcdefg")
         assert "sk_test_1234567890abcdefg" not in result
 
+        # Test with modern hyphenated API key
+        modern_key = "sk-proj-1234567890abcdef1234567890"
+        result = redact_text(f"Leaked key: {modern_key}")
+        assert modern_key not in result
+
         # Test with Bearer token
         result = redact_text("Authorization: Bearer abcdefghijklmnopqrst")
         assert "Bearer abcdefghijklmnopqrst" not in result

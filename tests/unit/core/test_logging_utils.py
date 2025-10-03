@@ -87,6 +87,12 @@ class TestRedaction:
         # Just verify it's not the same as the original (redaction happened)
         assert result != text_with_api_key
 
+        # Ensure hyphenated keys are redacted
+        modern_key = "sk-proj-1234567890abcdef1234567890"
+        modern_result = redact_text(modern_key)
+        assert modern_result != modern_key
+        assert "sk-proj" not in modern_result
+
 
 class TestLogging:
     """Test logging functions."""
