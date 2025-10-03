@@ -1,5 +1,8 @@
+import asyncio
 import json
+import threading
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -21,8 +24,6 @@ async def auth_dir_tmp(tmp_path: Path):
 @pytest_asyncio.fixture(name="openai_oauth_backend")
 async def openai_oauth_backend_fixture(auth_dir: Path):
     async with httpx.AsyncClient() as client:
-        from unittest.mock import patch
-
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
 
@@ -50,8 +51,6 @@ async def openai_oauth_backend_fixture(auth_dir: Path):
 async def test_openai_oauth_uses_bearer_from_auth_json(
     openai_oauth_backend: OpenAIOAuthConnector, httpx_mock: HTTPXMock
 ):
-    from unittest.mock import patch
-
     # Mock chat completion
     httpx_mock.add_response(
         url=f"{openai_oauth_backend.api_base_url}/chat/completions",
@@ -93,3 +92,38 @@ async def test_openai_oauth_uses_bearer_from_auth_json(
     assert sent is not None
     # Ensure Authorization header uses access token
     assert sent.headers.get("Authorization") == "Bearer chatgpt_token"
+
+
+@pytest.mark.asyncio
+async def test_openai_oauth_reload_scheduled_from_thread(
+    openai_oauth_backend: OpenAIOAuthConnector,
+):
+    backend = openai_oauth_backend
+
+    reload_event = asyncio.Event()
+
+    async def fake_load() -> bool:
+        reload_event.set()
+        return True
+
+    with (
+        patch.object(backend, "_load_auth", AsyncMock(side_effect=fake_load)) as load_mock,
+        patch.object(
+            backend, "_validate_credentials_structure", return_value=(True, [])
+        ),
+    ):
+
+        def trigger() -> None:
+            backend._schedule_credentials_reload()
+
+        thread = threading.Thread(target=trigger)
+        thread.start()
+        thread.join()
+
+        await asyncio.wait_for(reload_event.wait(), timeout=1.0)
+        load_mock.assert_awaited()
+
+        # Allow callbacks to run so the pending task/future clears
+        await asyncio.sleep(0)
+        pending = backend._pending_reload_task
+        assert pending is None or pending.done()
