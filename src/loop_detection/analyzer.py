@@ -92,6 +92,29 @@ class PatternAnalyzer:
             "history_len": len(self.history),
         }
 
+    def snapshot_state(self) -> dict[str, Any]:
+        """Create a deep copy of the current internal state for later restoration."""
+        return {
+            "stream_history": self._stream_history,
+            "content_stats": {
+                key: indices.copy() for key, indices in self._content_stats.items()
+            },
+            "last_chunk_index": self._last_chunk_index,
+            "in_code_block": self._in_code_block,
+            "history": self.history.copy(),
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Restore a previously captured state snapshot."""
+        self._stream_history = state.get("stream_history", "")
+        self._content_stats = {
+            key: indices.copy()
+            for key, indices in state.get("content_stats", {}).items()
+        }
+        self._last_chunk_index = state.get("last_chunk_index", 0)
+        self._in_code_block = state.get("in_code_block", False)
+        self.history = state.get("history", []).copy()
+
     def _truncate_and_update_indices(self) -> None:
         max_history = self.config.max_history_length
         if len(self._stream_history) <= max_history:
