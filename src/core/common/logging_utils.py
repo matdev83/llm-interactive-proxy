@@ -253,7 +253,7 @@ class ApiKeyRedactionFilter(logging.Filter):
             return s
         if isinstance(obj, dict):
             return {k: self._sanitize(v) for k, v in obj.items()}
-        if isinstance(obj, list | tuple):
+        if isinstance(obj, (list, tuple)):
             sanitized = [self._sanitize(v) for v in obj]
             return type(obj)(sanitized)
         return obj

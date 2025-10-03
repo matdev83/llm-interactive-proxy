@@ -69,6 +69,40 @@ class TestApiKeyRedactionFilter:
         assert "***" in result[0]
         assert result[1] == "normal text"
 
+    def test_sanitize_tuple(self):
+        """Test sanitizing a tuple."""
+        keys = ["sk-1234567890abcdefg"]
+        filter_instance = ApiKeyRedactionFilter(keys)
+
+        test_tuple = ("sk-1234567890abcdefg", "other")
+        result = filter_instance._sanitize(test_tuple)
+        assert isinstance(result, tuple)
+        assert "sk-1234567890abcdefg" not in result[0]
+        assert "***" in result[0]
+        assert result[1] == "other"
+
+    def test_filter_handles_tuple_args(self):
+        """Test filtering log records with tuple args."""
+        keys = ["sk-1234567890abcdefg"]
+        filter_instance = ApiKeyRedactionFilter(keys)
+
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="Masked values: %s",
+            args=("sk-1234567890abcdefg",),
+            exc_info=None,
+        )
+
+        filter_instance.filter(record)
+
+        formatted = record.getMessage()
+        assert "sk-1234567890abcdefg" not in formatted
+        assert "***" in formatted
+        assert all("sk-1234567890abcdefg" not in str(arg) for arg in record.args)
+
     def test_filter_log_record(self):
         """Test filtering a log record."""
         keys = ["sk-1234567890abcdefg"]
