@@ -5,7 +5,7 @@ This module provides comprehensive test coverage for the UsageTrackingService im
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -209,34 +209,118 @@ class TestUsageTrackingService:
         self, service: UsageTrackingService, mock_repository: IUsageRepository
     ) -> None:
         """Test getting usage statistics."""
-        mock_stats = {
-            "gpt-4": {
-                "total_tokens": 1000,
-                "prompt_tokens": 600,
-                "completion_tokens": 400,
-                "cost": 0.1,
-                "requests": 5,
-            }
-        }
-        mock_repository.get_stats.return_value = mock_stats
+        now = datetime.now(timezone.utc)
+        recent_project_usage = UsageData(
+            id="usage-1",
+            session_id="session-1",
+            project="testproject",
+            model="openai:gpt-4",
+            prompt_tokens=200,
+            completion_tokens=100,
+            total_tokens=300,
+            cost=0.5,
+            timestamp=now - timedelta(days=2),
+        )
+        recent_other_project_usage = UsageData(
+            id="usage-2",
+            session_id="session-2",
+            project="other",
+            model="openai:gpt-4",
+            prompt_tokens=50,
+            completion_tokens=25,
+            total_tokens=75,
+            cost=0.1,
+            timestamp=now - timedelta(days=1),
+        )
+        old_project_usage = UsageData(
+            id="usage-3",
+            session_id="session-3",
+            project="testproject",
+            model="anthropic:claude",
+            prompt_tokens=300,
+            completion_tokens=150,
+            total_tokens=450,
+            cost=0.9,
+            timestamp=now - timedelta(days=10),
+        )
+
+        mock_repository.get_all.return_value = [
+            recent_project_usage,
+            recent_other_project_usage,
+            old_project_usage,
+        ]
 
         result = await service.get_usage_stats(project="testproject", days=7)
 
-        assert result == mock_stats
-        mock_repository.get_stats.assert_called_once_with("testproject")
+        assert result == {
+            "openai:gpt-4": {
+                "total_tokens": 300,
+                "prompt_tokens": 200,
+                "completion_tokens": 100,
+                "cost": 0.5,
+                "requests": 1,
+            }
+        }
+        mock_repository.get_all.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_usage_stats_defaults(
         self, service: UsageTrackingService, mock_repository: IUsageRepository
     ) -> None:
         """Test getting usage statistics with defaults."""
-        mock_stats = {}
-        mock_repository.get_stats.return_value = mock_stats
+        now = datetime.now(timezone.utc)
+        recent_usage = UsageData(
+            id="usage-4",
+            session_id="session-4",
+            project="project-a",
+            model="openai:gpt-4",
+            prompt_tokens=120,
+            completion_tokens=60,
+            total_tokens=180,
+            cost=0.3,
+            timestamp=now - timedelta(days=5),
+        )
+        another_recent_usage = UsageData(
+            id="usage-5",
+            session_id="session-5",
+            project="project-b",
+            model="openai:gpt-4",
+            prompt_tokens=80,
+            completion_tokens=40,
+            total_tokens=120,
+            cost=None,
+            timestamp=now - timedelta(days=12),
+        )
+        old_usage = UsageData(
+            id="usage-6",
+            session_id="session-6",
+            project="project-a",
+            model="anthropic:claude",
+            prompt_tokens=90,
+            completion_tokens=45,
+            total_tokens=135,
+            cost=0.2,
+            timestamp=now - timedelta(days=45),
+        )
+
+        mock_repository.get_all.return_value = [
+            recent_usage,
+            another_recent_usage,
+            old_usage,
+        ]
 
         result = await service.get_usage_stats()
 
-        assert result == mock_stats
-        mock_repository.get_stats.assert_called_once_with(None)
+        assert result == {
+            "openai:gpt-4": {
+                "total_tokens": 300,
+                "prompt_tokens": 200,
+                "completion_tokens": 100,
+                "cost": 0.3,
+                "requests": 2,
+            }
+        }
+        mock_repository.get_all.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_recent_usage(
@@ -314,7 +398,7 @@ class TestUsageTrackingService:
         self, service: UsageTrackingService, mock_repository: IUsageRepository
     ) -> None:
         """Test handling repository errors during stats retrieval."""
-        mock_repository.get_stats.side_effect = Exception("Repository error")
+        mock_repository.get_all.side_effect = Exception("Repository error")
 
         with pytest.raises(Exception, match="Repository error"):
             await service.get_usage_stats()
@@ -477,16 +561,56 @@ class TestUsageTrackingService:
         self, service: UsageTrackingService, mock_repository: IUsageRepository
     ) -> None:
         """Test get_usage_stats with edge cases."""
-        # Test with very large days value
+        # Non-positive day range should fall back to full-history stats
         mock_repository.get_stats.return_value = {}
-        await service.get_usage_stats(days=36500)  # 100 years
+        result = await service.get_usage_stats(days=0)
+        assert result == {}
+        mock_repository.get_stats.assert_called_once_with(None)
 
-        mock_repository.get_stats.assert_called_with(None)
+        mock_repository.get_stats.reset_mock()
+        await service.get_usage_stats(days=-5)
+        mock_repository.get_stats.assert_called_once_with(None)
 
-        # Test with empty project string
-        await service.get_usage_stats(project="")
+        # Empty project string should still trigger filtering logic via get_all
+        mock_repository.get_all.reset_mock()
+        now = datetime.now(timezone.utc)
+        mock_repository.get_all.return_value = [
+            UsageData(
+                id="edge-1",
+                session_id="edge-session",
+                project="",
+                model="model-a",
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+                cost=0.01,
+                timestamp=now - timedelta(days=1),
+            ),
+            UsageData(
+                id="edge-2",
+                session_id="edge-session-2",
+                project="other",
+                model="model-a",
+                prompt_tokens=20,
+                completion_tokens=10,
+                total_tokens=30,
+                cost=0.02,
+                timestamp=now - timedelta(days=2),
+            ),
+        ]
 
-        mock_repository.get_stats.assert_called_with("")
+        result = await service.get_usage_stats(project="")
+
+        assert result == {
+            "model-a": {
+                "total_tokens": 15,
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "cost": 0.01,
+                "requests": 1,
+            }
+        }
+        mock_repository.get_all.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_recent_usage_edge_cases(

@@ -11,7 +11,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 
@@ -200,32 +200,18 @@ class UsageTrackingService(IUsageTrackingService):
                 billing = extract_billing_info_from_headers(
                     tracker.response_headers, backend
                 )
-                usage_details = billing.get("usage", {})
-                header_prompt_tokens = usage_details.get("prompt_tokens")
-                header_completion_tokens = usage_details.get("completion_tokens")
-                header_total_tokens = usage_details.get("total_tokens")
-
-                if prompt_tokens is None and header_prompt_tokens is not None:
-                    prompt_tokens = header_prompt_tokens
-                if completion_tokens is None and header_completion_tokens is not None:
-                    completion_tokens = header_completion_tokens
-                if total_tokens is None and header_total_tokens is not None:
-                    total_tokens = header_total_tokens
+                u = billing.get("usage", {})
+                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
+                completion_tokens = completion_tokens or u.get("completion_tokens")
+                total_tokens = total_tokens or u.get("total_tokens")
 
             # Extract from response body
             if tracker.response is not None:
                 billing = extract_billing_info_from_response(tracker.response, backend)
-                usage_details = billing.get("usage", {})
-                response_prompt_tokens = usage_details.get("prompt_tokens")
-                response_completion_tokens = usage_details.get("completion_tokens")
-                response_total_tokens = usage_details.get("total_tokens")
-
-                if prompt_tokens is None and response_prompt_tokens is not None:
-                    prompt_tokens = response_prompt_tokens
-                if completion_tokens is None and response_completion_tokens is not None:
-                    completion_tokens = response_completion_tokens
-                if total_tokens is None and response_total_tokens is not None:
-                    total_tokens = response_total_tokens
+                u = billing.get("usage", {})
+                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
+                completion_tokens = completion_tokens or u.get("completion_tokens")
+                total_tokens = total_tokens or u.get("total_tokens")
 
             # Persist usage data
             usage_data = await self.track_usage(
@@ -254,7 +240,52 @@ class UsageTrackingService(IUsageTrackingService):
         Returns:
             Usage statistics dictionary
         """
-        return await self._repository.get_stats(project)
+        if days <= 0:
+            logger.warning(
+                "Received non-positive days=%s when requesting usage stats; "
+                "falling back to complete history.",
+                days,
+            )
+            return await self._repository.get_stats(project)
+
+        usage_records = await self._repository.get_all()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        stats: dict[str, dict[str, Any]] = {}
+        project_filter = project
+
+        for usage in usage_records:
+            if project_filter is not None and usage.project != project_filter:
+                continue
+
+            usage_timestamp = usage.timestamp
+            if usage_timestamp.tzinfo is None:
+                usage_timestamp = usage_timestamp.replace(tzinfo=timezone.utc)
+
+            if usage_timestamp < cutoff:
+                continue
+
+            model_stats = stats.setdefault(
+                usage.model,
+                {
+                    "total_tokens": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "cost": 0.0,
+                    "requests": 0,
+                },
+            )
+
+            model_stats["total_tokens"] += usage.total_tokens
+            model_stats["prompt_tokens"] += usage.prompt_tokens
+            model_stats["completion_tokens"] += usage.completion_tokens
+
+            if usage.cost is not None:
+                model_stats["cost"] += usage.cost
+
+            model_stats["requests"] += 1
+
+        return stats
 
     async def get_recent_usage(
         self, session_id: str | None = None, limit: int = 100
