@@ -6,6 +6,8 @@ from typing import Any
 
 from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
 
+logger = logging.getLogger(__name__)
+
 
 def anthropic_to_openai_request(
     anthropic_request: AnthropicMessagesRequest,
@@ -94,7 +96,12 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
             msg_obj["tool_calls"] = [
                 tc.model_dump(exclude_none=True) for tc in tool_calls
             ]
-        except Exception:
+        except (AttributeError, TypeError) as tool_call_error:
+            logger.debug(
+                "Falling back to raw tool_calls serialization: %s",
+                tool_call_error,
+                exc_info=True,
+            )
             msg_obj["tool_calls"] = list(tool_calls or [])
     usage_obj = getattr(openai_response, "usage", None)
     return {
@@ -122,7 +129,11 @@ def _build_content_blocks(
         args_raw = fn.get("arguments", "{}")
         try:
             args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-        except Exception:
+        except json.JSONDecodeError as json_error:
+            logger.debug("Failed to parse tool arguments JSON: %s", json_error)
+            args = {"_raw": args_raw}
+        except TypeError as type_error:
+            logger.debug("Unexpected tool argument type: %s", type_error)
             args = {"_raw": args_raw}
         content_blocks.append(
             {
@@ -180,13 +191,18 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
                 "delta": {"stop_reason": choice["finish_reason"]},
             }
             return f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as json_error:
         # Ignore bad JSON chunk
+        logger.debug("Discarding malformed OpenAI chunk JSON: %s", json_error)
         return ""
-    except Exception as e:
+    except (KeyError, TypeError, ValueError) as chunk_error:
         # Log for debugging but return empty to keep stream alive
-        if logging.getLogger(__name__).isEnabledFor(logging.DEBUG):
-            logging.getLogger(__name__).debug("Failed to convert stream chunk: %s", e)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to convert stream chunk: %s",
+                chunk_error,
+                exc_info=True,
+            )
         return ""
 
     # If we get here, it's an unhandled case - return empty string to keep stream alive
@@ -219,10 +235,12 @@ def extract_anthropic_usage(response: Any) -> dict[str, int]:
             usage_obj = response.usage
             input_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
             output_tokens = int(getattr(usage_obj, "output_tokens", 0) or 0)
-    except Exception:  # pragma: no cover - never break caller on edge-cases
-        if logging.getLogger(__name__).isEnabledFor(logging.DEBUG):
-            logging.getLogger(__name__).debug(
-                "Failed to extract anthropic usage", exc_info=True
+    except (AttributeError, TypeError, ValueError) as usage_error:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to extract anthropic usage: %s",
+                usage_error,
+                exc_info=True,
             )
 
     return {
@@ -300,9 +318,11 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
             }
             return f"{prefix}{json.dumps(payload)}\n\n"
 
-    except Exception:  # pragma: no cover - never break the stream
-        if logging.getLogger(__name__).isEnabledFor(logging.DEBUG):
-            logging.getLogger(__name__).debug("Stream conversion failed", exc_info=True)
+    except json.JSONDecodeError as json_error:  # pragma: no cover - defensive
+        logger.debug("Stream conversion received malformed JSON: %s", json_error)
+    except (KeyError, TypeError, ValueError) as stream_error:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Stream conversion failed: %s", stream_error, exc_info=True)
 
     # Fallback: return input unchanged so upstream can decide what to do
     return chunk_data

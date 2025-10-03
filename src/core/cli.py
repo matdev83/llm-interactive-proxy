@@ -376,8 +376,12 @@ def _check_privileges() -> None:
                 and ctypes.windll.shell32.IsUserAnAdmin() != 0
             ):
                 raise SystemExit("Refusing to run with administrative privileges")
-        except Exception:
-            pass
+        except (AttributeError, OSError, ValueError) as privilege_error:
+            logging.getLogger(__name__).debug(
+                "Unable to confirm Windows privilege level: %s",
+                privilege_error,
+                exc_info=True,
+            )
 
 
 def _daemonize() -> None:
