@@ -63,15 +63,16 @@ class TestTestServiceValidator:
         TestServiceValidator.validate_session_service(mock_service)
 
     def test_validate_session_service_with_async_mock(self) -> None:
-        """Test validation with AsyncMock (should raise TypeError)."""
+        """Test validation with AsyncMock (should raise exception)."""
         mock_service = AsyncMock(spec=ISessionService)
         mock_service.get_session = AsyncMock()
 
-        with pytest.raises(TypeError, match="is an AsyncMock"):
+        # Should raise exception
+        with pytest.raises(TypeError, match="AsyncMock.*coroutine warnings"):
             TestServiceValidator.validate_session_service(mock_service)
 
     def test_validate_session_service_with_coroutine(self) -> None:
-        """Test validation with a service that returns coroutine (should raise TypeError)."""
+        """Test validation with a service that returns coroutine function (should raise TypeError)."""
         mock_service = MagicMock(spec=ISessionService)
 
         async def bad_get_session(session_id: str) -> Session:
@@ -79,7 +80,10 @@ class TestTestServiceValidator:
 
         mock_service.get_session = bad_get_session
 
-        with pytest.raises(TypeError, match="is a coroutine function"):
+        # Should raise exception - coroutine functions cause coroutine warnings
+        with pytest.raises(
+            TypeError, match="is a coroutine function but should be synchronous"
+        ):
             TestServiceValidator.validate_session_service(mock_service)
 
     def test_validate_sync_method_with_async_mock(self) -> None:
@@ -302,12 +306,23 @@ class TestTestStageValidator:
         # Should not raise any exception
         TestStageValidator.validate_stage_services(services)
 
+<<<<<<< HEAD
     def test_validate_stage_services_with_problematic_session_service(self) -> None:
+=======
+    def test_validate_stage_services_with_problematic_session_service(
+        self
+    ) -> None:
+>>>>>>> 85933f4d4adefd8d73cc04f8a412543fc188eda3
         """Test validation with problematic session service."""
         mock_service = AsyncMock(spec=ISessionService)
         services = {ISessionService: mock_service}
 
+<<<<<<< HEAD
         with pytest.raises(TypeError, match="is an AsyncMock"):
+=======
+        # Should raise exception
+        with pytest.raises(TypeError, match="AsyncMock.*coroutine warnings"):
+>>>>>>> 85933f4d4adefd8d73cc04f8a412543fc188eda3
             TestStageValidator.validate_stage_services(services)
 
     def test_validate_stage_services_with_async_mock(self, caplog) -> None:
