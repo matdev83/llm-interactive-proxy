@@ -31,25 +31,30 @@ class RateLimitRegistry:
         self, combos: Iterable[tuple[str, str, str]] | None = None
     ) -> float | None:
         """Return the earliest retry timestamp for the given combinations."""
-        now = time.time()
-
-        if combos:
-            keys = [(b, m or "", k) for b, m, k in combos]
-        else:
+        keys: Iterable[tuple[str, str, str]]
+        if combos is None:
             keys = list(self._until.keys())
-
+        else:
+            combos_list = list(combos)
+            if not combos_list:  # Empty list should fall back to all entries (preserve original behavior)
+                keys = list(self._until.keys())
+            else:
+                keys = [(backend, model or "", key_name) for backend, model, key_name in combos_list]
+        now = time.time()
         valid_times: list[float] = []
+        expired_keys: list[tuple[str, str, str]] = []
+
         for key in keys:
             ts = self._until.get(key)
             if ts is None:
                 continue
-
             if now >= ts:
-                # Expired entry; clean it up to keep the registry accurate
-                self._until.pop(key, None)
+                expired_keys.append(key)
                 continue
-
             valid_times.append(ts)
+
+        for key in expired_keys:
+            self._until.pop(key, None)
 
         if not valid_times:
             return None
@@ -70,32 +75,14 @@ def _find_retry_delay_in_details(details_list: list[Any]) -> float | None:
         if not item.get("@type", "").endswith("RetryInfo"):
             continue
 
-        delay_value = item.get("retryDelay")
+        delay_str = item.get("retryDelay")
+        if not isinstance(delay_str, str) or not delay_str.endswith("s"):
+            continue
 
-        if isinstance(delay_value, str):
-            if not delay_value.endswith("s"):
-                continue
-
-            try:
-                return float(delay_value[:-1])
-            except ValueError:
-                continue
-
-        if isinstance(delay_value, dict):
-            seconds_value = delay_value.get("seconds", 0)
-            nanos_value = delay_value.get("nanos", 0)
-
-            try:
-                seconds = float(seconds_value)
-            except (TypeError, ValueError):
-                continue
-
-            try:
-                nanos = float(nanos_value)
-            except (TypeError, ValueError):
-                nanos = 0.0
-
-            return seconds + nanos / 1_000_000_000
+        try:
+            return float(delay_str[:-1])
+        except ValueError:
+            pass  # Malformed delay string in this item, try next
 
     return None
 
