@@ -253,14 +253,16 @@ class HybridLoopDetector(ILoopDetector):
         long_result = self.long_detector.add_content(chunk)
         if long_result:
             pattern, repetitions = long_result
+            pattern_length = len(pattern)
+            display_pattern = (
+                pattern
+                if pattern_length <= 100
+                else f"Long pattern detected: {pattern[:100]}..."
+            )
             event = LoopDetectionEvent(
-                pattern=(
-                    f"Long pattern detected: {pattern[:100]}..."
-                    if len(pattern) > 100
-                    else pattern
-                ),
+                pattern=display_pattern,
                 repetition_count=repetitions,
-                total_length=len(pattern) * repetitions,
+                total_length=pattern_length * repetitions,
                 confidence=1.0,
                 buffer_content=self.long_detector.content[-200:],  # Last 200 chars
                 timestamp=time.time(),
@@ -271,7 +273,7 @@ class HybridLoopDetector(ILoopDetector):
                 logger.warning(
                     "Long pattern loop detected: %d repetitions of %d-char pattern",
                     repetitions,
-                    len(pattern),
+                    pattern_length,
                 )
 
             return event
