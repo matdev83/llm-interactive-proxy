@@ -64,10 +64,12 @@ class PatternAnalyzer:
             chunk_hash = self.hasher.hash(current_chunk)
 
             if self._is_loop_detected_for_chunk(current_chunk, chunk_hash):
+                repetition_count = len(self._content_stats[chunk_hash])
+                total_repeated_chars = len(current_chunk) * repetition_count
                 event = self._create_detection_event_from_chunk(
                     pattern=current_chunk,
-                    repetition_count=len(self._content_stats[chunk_hash]),
-                    total_length=len(self._stream_history),
+                    repetition_count=repetition_count,
+                    total_length=total_repeated_chars,
                     confidence=1.0,
                     buffer_content=full_buffer_content,
                 )

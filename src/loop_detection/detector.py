@@ -230,15 +230,22 @@ class LoopDetector(ILoopDetector):
         # Record detection in history for observability without mutating prior state
         self.analyzer.history.append(event)
 
+        pattern_length = 0
+        if repetition_count > 0 and event.total_length > 0:
+            if event.total_length % repetition_count == 0:
+                pattern_length = event.total_length // repetition_count
+            elif event.pattern:
+                pattern_length = len(event.pattern)
+        elif event.pattern:
+            pattern_length = len(event.pattern)
+
         return LoopDetectionResult(
             has_loop=True,
             pattern=event.pattern,
             repetitions=repetition_count,
             details={
-                "pattern_length": len(event.pattern) if event.pattern else 0,
-                "total_repeated_chars": (
-                    (len(event.pattern) if event.pattern else 0) * repetition_count
-                ),
+                "pattern_length": pattern_length,
+                "total_repeated_chars": event.total_length,
                 "repetitions": repetition_count,
             },
         )
