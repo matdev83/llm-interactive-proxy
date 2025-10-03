@@ -171,6 +171,50 @@ async def test_process_tool_calls_from_bytes(
 
 
 @pytest.mark.asyncio
+async def test_process_streaming_tool_calls(
+    middleware: ToolCallLoopDetectionMiddleware, loop_config: LoopDetectionConfiguration
+) -> None:
+    """Streaming chunks should also trigger loop detection."""
+
+    streaming_chunk = ProcessedResponse(
+        content={
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": "call_123",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"location": "New York"}',
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ]
+        }
+    )
+
+    session_id = "stream-session"
+
+    for _ in range(loop_config.tool_loop_max_repeats - 1):
+        result = await middleware.process(
+            streaming_chunk, session_id, context={"config": loop_config}
+        )
+        assert result == streaming_chunk
+
+    with pytest.raises(ToolCallLoopError) as exc_info:
+        await middleware.process(
+            streaming_chunk, session_id, context={"config": loop_config}
+        )
+
+    assert "Tool call loop detected" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
 async def test_reset_session(middleware, loop_config, tool_call_response) -> None:
     """Test that resetting a session clears its tracking state."""
     # First call should pass through

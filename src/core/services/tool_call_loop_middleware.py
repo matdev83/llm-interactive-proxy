@@ -164,19 +164,31 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         # Check for OpenAI format
         if isinstance(data, dict):
             choices = data.get("choices", [])
-            for choice in choices:
-                message = choice.get("message", {})
-                tool_calls = message.get("tool_calls", [])
-                if (
-                    tool_calls
-                    and isinstance(tool_calls, list)
-                    and all(isinstance(item, dict) for item in tool_calls)
-                ):
-                    # Create a new list with explicit typing
-                    result: list[dict[str, Any]] = []
-                    for item in tool_calls:
-                        if isinstance(item, dict):
-                            result.append(item)
+            if isinstance(choices, list):
+                result: list[dict[str, Any]] = []
+
+                for choice in choices:
+                    if not isinstance(choice, dict):
+                        continue
+
+                    message = choice.get("message")
+                    if isinstance(message, dict):
+                        tool_calls = message.get("tool_calls")
+                        if isinstance(tool_calls, list):
+                            result.extend(
+                                item for item in tool_calls if isinstance(item, dict)
+                            )
+
+                    # Streaming chunks use the delta field instead of message
+                    delta = choice.get("delta")
+                    if isinstance(delta, dict):
+                        tool_calls = delta.get("tool_calls")
+                        if isinstance(tool_calls, list):
+                            result.extend(
+                                item for item in tool_calls if isinstance(item, dict)
+                            )
+
+                if result:
                     return result
 
         # Check for direct tool calls array
