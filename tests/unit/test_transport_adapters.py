@@ -115,6 +115,23 @@ class TestResponseAdapters:
         assert fastapi_response.headers.get("X-Custom-Header") == "test"
         assert fastapi_response.body == b"Hello, world!"
 
+    def test_to_fastapi_response_text_with_iterable_content(self):
+        """Ensure non-JSON iterable content is safely serialized."""
+
+        domain_response = ResponseEnvelope(
+            content=["Hello", "world!"],
+            headers={"X-Custom-Header": "iterable"},
+            status_code=202,
+            media_type="text/plain",
+        )
+
+        fastapi_response = to_fastapi_response(domain_response)
+
+        assert isinstance(fastapi_response, Response)
+        assert fastapi_response.status_code == 202
+        assert fastapi_response.headers.get("X-Custom-Header") == "iterable"
+        assert fastapi_response.body == b'["Hello", "world!"]'
+
     @pytest.mark.asyncio
     async def test_to_fastapi_streaming_response(self):
         """Test converting a domain streaming response envelope to a FastAPI streaming response."""
