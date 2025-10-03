@@ -214,8 +214,14 @@ class LoopDetector(ILoopDetector):
         if not content:
             return LoopDetectionResult(has_loop=False)
 
-        # Fast path: use analyzer on the whole content (non-streaming check)
-        event = self.analyzer.analyze_chunk(content, content)
+        # Fast path: use a fresh analyzer instance on the whole content.
+        #
+        # Using the streaming analyzer directly would mutate its internal
+        # state, polluting subsequent streaming checks with the full content
+        # provided here. Creating a temporary analyzer avoids that side
+        # effect while still reusing the same configuration parameters.
+        isolated_analyzer = PatternAnalyzer(self.config, self.hasher)
+        event = isolated_analyzer.analyze_chunk(content, content)
         if event is None:
             return LoopDetectionResult(has_loop=False)
 
