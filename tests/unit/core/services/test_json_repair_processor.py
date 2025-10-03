@@ -89,6 +89,16 @@ async def test_json_with_escaped_quotes_is_repaired(
 
 
 @pytest.mark.asyncio
+async def test_json_with_trailing_backslash_is_emitted(
+    processor: JsonRepairProcessor,
+) -> None:
+    json_input = json.dumps({"path": "abc\\"})
+    result = await _run_processor_chunks(processor, json_input)
+    assert result
+    assert json.loads(result) == {"path": "abc\\"}
+
+
+@pytest.mark.asyncio
 async def test_large_json_exceeding_buffer_is_repaired() -> None:
     processor = JsonRepairProcessor(
         repair_service=JsonRepairService(),
