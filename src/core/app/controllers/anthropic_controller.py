@@ -235,9 +235,16 @@ class AnthropicController:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(f"Returning streaming response: {adapted_response}")
                 if isinstance(adapted_response, StreamingResponse):
-                    # Maintain legacy test expectations by reporting JSON content type
-                    adapted_response.media_type = "application/json"
-                    adapted_response.headers["content-type"] = "application/json"
+                    # Ensure Anthropic streaming endpoints advertise proper SSE headers
+                    sse_content_type = "text/event-stream; charset=utf-8"
+                    adapted_response.media_type = sse_content_type
+
+                    # `StreamingResponse.headers` returns a MutableHeaders mapping
+                    # which may already include values from upstream responses.
+                    # Update in-place so existing references stay in sync.
+                    adapted_response.headers["content-type"] = sse_content_type
+                    adapted_response.headers.setdefault("cache-control", "no-cache")
+                    adapted_response.headers.setdefault("connection", "keep-alive")
                     return adapted_response
                 else:
                     # If somehow we got a non-streaming response but streaming was requested,

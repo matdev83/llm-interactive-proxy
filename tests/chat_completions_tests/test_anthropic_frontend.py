@@ -175,6 +175,9 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
         ) as res:
             # For streaming, we should get a 200 response
             assert res.status_code == 200
+            # Anthropic streaming endpoints must advertise SSE content type so clients
+            # keep the HTTP connection open for incremental events.
+            assert res.headers["content-type"].startswith("text/event-stream")
             text = ""
             for chunk in res.iter_text():
                 text += chunk
