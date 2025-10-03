@@ -200,6 +200,44 @@ class AuthMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
 
+        # Respect runtime auth disabling via dependency injection when available
+        app_state_service: IApplicationState | None = None
+        injected_service = getattr(self, "app_state_service", None)
+        if injected_service is not None and hasattr(injected_service, "get_setting"):
+            app_state_service = injected_service  # type: ignore[assignment]
+
+        if app_state_service is None:
+            try:
+                provider = getattr(request.app.state, "service_provider", None)
+                if provider is not None:
+                    app_state_service = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
+            except Exception:
+                app_state_service = None
+
+        if app_state_service is not None:
+            disable_auth = app_state_service.get_setting("disable_auth", False)
+        else:
+            disable_auth = getattr(request.app.state, "disable_auth", False)
+
+        if disable_auth:
+            response = await call_next(request)
+            return response
+
+        app_config = (
+            app_state_service.get_setting("app_config")
+            if app_state_service is not None
+            else getattr(request.app.state, "app_config", None)
+        )
+
+        if (
+            app_config
+            and hasattr(app_config, "auth")
+            and getattr(app_config.auth, "disable_auth", False)
+        ):
+            logger.info("Skipping auth token validation - disabled in app_config")
+            response = await call_next(request)
+            return response
+
         # Check for token in header
         token: str | None = request.headers.get("X-Auth-Token")
 
