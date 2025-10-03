@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from src.core.app.middleware.json_repair_middleware import JsonRepairMiddleware
 from src.core.config.app_config import AppConfig, SessionConfig
@@ -29,23 +31,34 @@ def json_repair_middleware(
     return JsonRepairMiddleware(config, json_repair_service)
 
 
-async def test_process_response_valid(
+def test_process_response_valid(
     json_repair_middleware: JsonRepairMiddleware,
 ) -> None:
     response = ProcessedResponse(content='{"a": 1}')
-    processed_response = await json_repair_middleware.process(
-        response, "session_id", {}
+    processed_response = asyncio.run(
+        json_repair_middleware.process(response, "session_id", {})
     )
     assert processed_response.content == '{"a": 1}'
     assert processed_response.metadata.get("repaired")
 
 
-async def test_process_response_invalid(
+def test_process_response_invalid(
     json_repair_middleware: JsonRepairMiddleware,
 ) -> None:
     response = ProcessedResponse(content="{'a': 1,}")
-    processed_response = await json_repair_middleware.process(
-        response, "session_id", {}
+    processed_response = asyncio.run(
+        json_repair_middleware.process(response, "session_id", {})
     )
     assert processed_response.content == '{"a": 1}'
     assert processed_response.metadata.get("repaired")
+
+
+def test_process_response_valid_empty_object(
+    json_repair_middleware: JsonRepairMiddleware,
+) -> None:
+    response = ProcessedResponse(content="{}")
+    processed_response = asyncio.run(
+        json_repair_middleware.process(response, "session_id", {})
+    )
+    assert processed_response.content == "{}"
+    assert processed_response.metadata.get("repaired") is True
