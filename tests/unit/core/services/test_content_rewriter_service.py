@@ -190,6 +190,43 @@ class TestContentRewriterService(unittest.TestCase):
         rewritten = service.rewrite_reply(reply)
         self.assertEqual(rewritten, "This is an rewritten reply.")
 
+    def test_rule_files_trim_trailing_newlines(self):
+        """Rules with trailing newlines in files should still apply correctly."""
+
+        os.makedirs(
+            os.path.join(self.test_config_dir, "prompts", "user", "003_newline"),
+            exist_ok=True,
+        )
+        with open(
+            os.path.join(
+                self.test_config_dir,
+                "prompts",
+                "user",
+                "003_newline",
+                "SEARCH.txt",
+            ),
+            "w",
+        ) as search_file:
+            search_file.write("target phrase\n")
+        with open(
+            os.path.join(
+                self.test_config_dir,
+                "prompts",
+                "user",
+                "003_newline",
+                "REPLACE.txt",
+            ),
+            "w",
+        ) as replace_file:
+            replace_file.write("updated phrase\n")
+
+        service = ContentRewriterService(config_path=self.test_config_dir)
+
+        prompt = "This target phrase should be updated."
+        rewritten = service.rewrite_prompt(prompt, "user")
+
+        self.assertEqual(rewritten, "This updated phrase should be updated.")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,9 +1,13 @@
 import logging
 import os
 
+from typing import Final
+
 from src.core.domain.replacement_rule import ReplacementMode, ReplacementRule
 
 logger = logging.getLogger(__name__)
+
+_BOM: Final[str] = "\ufeff"
 
 
 class ContentRewriterService:
@@ -65,10 +69,15 @@ class ContentRewriterService:
                 continue
 
             mode_file_name = found_modes[0]
+            if not os.path.exists(search_file):
+                logger.warning(
+                    "Missing SEARCH.txt in %s. Skipping this rule.", subdir_path
+                )
+                continue
+
             mode_file_path = mode_files[mode_file_name]
 
-            with open(search_file, encoding="utf-8") as f:
-                search_text = f.read()
+            search_text = self._read_rule_text(search_file)
 
             if len(search_text) < 8:
                 logger.warning(
@@ -77,8 +86,7 @@ class ContentRewriterService:
                 )
                 continue
 
-            with open(mode_file_path, encoding="utf-8") as f:
-                action_text = f.read()
+            action_text = self._read_rule_text(mode_file_path)
 
             if not search_text:
                 continue
@@ -109,6 +117,14 @@ class ContentRewriterService:
                 )
 
         return rules
+
+    def _read_rule_text(self, file_path: str) -> str:
+        """Read text from a rule file, normalizing trailing newlines and BOM."""
+        with open(file_path, encoding="utf-8") as file:
+            text = file.read()
+        if text.startswith(_BOM):
+            text = text[len(_BOM) :]
+        return text.rstrip("\r\n")
 
     def _apply_rules(self, content: str, rules: list[ReplacementRule]) -> str:
         """Applies a list of replacement rules to a string."""
