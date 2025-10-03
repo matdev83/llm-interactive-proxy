@@ -58,6 +58,14 @@ class ResponseParser(IResponseParser):
                         metadata["tool_calls"] = [
                             tc.model_dump() for tc in choice.message.tool_calls
                         ]
+                        if not content:
+                            try:
+                                content = json.dumps(metadata["tool_calls"])
+                            except Exception:
+                                logger.debug(
+                                    "Failed to serialize tool_calls; leaving content empty",
+                                    exc_info=True,
+                                )
             if raw_response.usage:
                 usage = raw_response.usage
 
