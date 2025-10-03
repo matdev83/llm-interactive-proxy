@@ -22,6 +22,7 @@ def _time_sequence(*values: float):
 
 def test_log_summary_includes_breakdown_and_overhead(monkeypatch, caplog):
     import time as original_time
+
     time_values = _time_sequence(100.1, 100.4, 100.5, 101.0, 101.6, 101.7)
     monkeypatch.setattr(performance_tracker.time, "time", time_values)
     # Also patch the logging time to avoid running out of values
