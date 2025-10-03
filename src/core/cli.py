@@ -101,6 +101,27 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Write raw LLM requests and replies to FILE (disabled if omitted)",
     )
     parser.add_argument(
+        "--capture-max-bytes",
+        dest="capture_max_bytes",
+        type=int,
+        metavar="N",
+        help="Maximum size of capture file in bytes before rotation (env: CAPTURE_MAX_BYTES)",
+    )
+    parser.add_argument(
+        "--capture-truncate-bytes",
+        dest="capture_truncate_bytes",
+        type=int,
+        metavar="N",
+        help="Truncate captures to N bytes per entry (env: CAPTURE_TRUNCATE_BYTES)",
+    )
+    parser.add_argument(
+        "--capture-max-files",
+        dest="capture_max_files",
+        type=int,
+        metavar="N",
+        help="Maximum number of capture files to retain (env: CAPTURE_MAX_FILES)",
+    )
+    parser.add_argument(
         "--capture-rotate-interval",
         dest="capture_rotate_interval_seconds",
         type=int,
