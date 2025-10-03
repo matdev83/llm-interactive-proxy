@@ -445,4 +445,21 @@ def _openai_delta_to_part(choice_fragment: dict[str, Any]) -> Part | None:
     content = delta.get("content")
     if not content:
         return None
-    return Part(text=content)  # type: ignore[call-arg]
+
+    if isinstance(content, str):
+        return Part(text=content)  # type: ignore[call-arg]
+
+    if isinstance(content, list):
+        text_segments: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type in {"text", "output_text"}:
+                text_value = item.get("text")
+                if isinstance(text_value, str) and text_value:
+                    text_segments.append(text_value)
+        if text_segments:
+            return Part(text="".join(text_segments))  # type: ignore[call-arg]
+
+    return None

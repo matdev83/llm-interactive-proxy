@@ -3,10 +3,13 @@ Unit tests for Gemini API converter functions.
 Tests the conversion logic between Gemini and OpenAI formats.
 """
 
+import json
+
 from src.core.domain.chat import ChatMessage
 from src.gemini_converters import (
     gemini_to_openai_messages,
     openai_to_gemini_contents,
+    openai_to_gemini_stream_chunk,
 )
 from src.gemini_models import (
     Blob,
@@ -96,3 +99,18 @@ class TestMessageConversion:
         assert len(contents) == 1
         assert contents[0].role == "user"
         assert contents[0].parts[0].text == "Hello!"
+
+    def test_openai_stream_chunk_with_structured_content(self) -> None:
+        """Ensure streaming conversion handles list-based delta content."""
+        chunk = (
+            'data: {"choices": [{"index": 0, "delta": {'
+            '"content": [{"type": "text", "text": "Hello"}]}}]}\n\n'
+        )
+
+        gemini_chunk = openai_to_gemini_stream_chunk(chunk)
+        assert gemini_chunk.startswith("data: ")
+
+        payload = gemini_chunk[6:].strip()
+        data = json.loads(payload)
+
+        assert data["candidates"][0]["content"]["parts"][0]["text"] == "Hello"
