@@ -65,10 +65,25 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
                 message="oneoff command requires a backend/model argument.",
             )
 
-        arg_key = next(iter(args.keys()), "")
+        # Prefer the first non-empty string value, otherwise fall back to the key
+        raw_argument: str | None = None
+        for key, value in args.items():
+            if isinstance(value, str) and value.strip():
+                raw_argument = value.strip()
+                break
+            if isinstance(key, str) and key.strip():
+                raw_argument = key.strip()
+                break
+
+        if raw_argument is None:
+            return CommandResult(
+                name=self.name,
+                success=False,
+                message="Invalid format. Use backend/model or backend:model.",
+            )
 
         # Use robust parsing that handles both slash and colon syntax
-        backend, model = parse_model_backend(arg_key)
+        backend, model = parse_model_backend(raw_argument)
         if not backend or not model:
             return CommandResult(
                 name=self.name,
