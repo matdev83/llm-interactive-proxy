@@ -148,18 +148,28 @@ class OpenRouterBackend(OpenAIConnector):
             headers_override: dict[str, str] | None = None
             if self.key_name and self.api_key and self.headers_provider:
                 try:
-                    headers_override = self.headers_provider(
-                        self.key_name, self.api_key
+                    headers_override = dict(
+                        self.headers_provider(self.key_name, self.api_key)
                     )
                 except Exception:
                     headers_override = None
 
-            # Ensure Authorization header exists when we have an api_key
             if headers_override is None:
-                headers_override = {"Authorization": f"Bearer {self.api_key}"}
-            else:
-                if "Authorization" not in headers_override and self.api_key:
-                    headers_override["Authorization"] = f"Bearer {self.api_key}"
+                headers_override = {}
+
+            if self.api_key:
+                headers_override.setdefault("Authorization", f"Bearer {self.api_key}")
+
+            if identity is not None:
+                try:
+                    identity_headers = identity.get_resolved_headers(None)
+                except Exception:
+                    identity_headers = {}
+                if identity_headers:
+                    headers_override.update(identity_headers)
+
+            if not headers_override:
+                headers_override = None
 
             # Determine the exact URL to call so tests that mock it see the
             # same value. The parent expects `openai_url` kwarg for URL
