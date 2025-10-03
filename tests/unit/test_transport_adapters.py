@@ -11,6 +11,7 @@ from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     ConfigurationError,
+    RateLimitExceededError,
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -194,3 +195,16 @@ class TestExceptionAdapters:
         backend_error = BackendError("Backend unavailable")
         http_exc = map_domain_exception_to_http_exception(backend_error)
         assert http_exc.status_code == 502
+
+        # Test rate limit error with retry hint
+        rate_limit_error = RateLimitExceededError("Rate limit exceeded", reset_at=60)
+        http_exc = map_domain_exception_to_http_exception(rate_limit_error)
+        assert http_exc.status_code == 429
+        assert http_exc.headers is not None
+        assert http_exc.headers.get("Retry-After") == "60"
+
+        # Test rate limit error without retry hint
+        rate_limit_no_hint = RateLimitExceededError("Rate limit exceeded")
+        http_exc = map_domain_exception_to_http_exception(rate_limit_no_hint)
+        assert http_exc.status_code == 429
+        assert http_exc.headers is None

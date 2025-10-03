@@ -38,6 +38,7 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     """
     # If the exception already has a status code, use it
     status_code = getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
+    headers: dict[str, str] | None = None
 
     # Map specific exception types to specific status codes
     if isinstance(exc, AuthenticationError):
@@ -58,6 +59,8 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
             status_code = status.HTTP_502_BAD_GATEWAY
     elif isinstance(exc, RateLimitExceededError):
         status_code = status.HTTP_429_TOO_MANY_REQUESTS
+        if exc.reset_at is not None:
+            headers = {"Retry-After": str(exc.reset_at)}
     elif isinstance(exc, LoopDetectionError):
         status_code = status.HTTP_400_BAD_REQUEST
 
@@ -81,7 +84,7 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
             detail["details"] = exc.details
 
     # Create and return the HTTP exception
-    return HTTPException(status_code=status_code, detail=detail)
+    return HTTPException(status_code=status_code, detail=detail, headers=headers)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
