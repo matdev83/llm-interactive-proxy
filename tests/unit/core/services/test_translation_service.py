@@ -73,6 +73,53 @@ def test_to_domain_response_openai():
     assert domain_response.choices[0].message.content == "Hello back"
 
 
+def test_to_domain_response_openai_responses_output():
+    service = TranslationService()
+    responses_payload = {
+        "id": "resp-789",
+        "object": "response",
+        "created": 1700000001,
+        "model": "gpt-4.1",
+        "output": [
+            {
+                "id": "msg-2",
+                "role": "assistant",
+                "type": "message",
+                "status": "completed",
+                "content": [
+                    {"type": "output_text", "text": "Structured reply"},
+                    {
+                        "type": "tool_call",
+                        "id": "call-2",
+                        "function": {
+                            "name": "make_call",
+                            "arguments": '{"foo": "bar"}',
+                        },
+                    },
+                ],
+            }
+        ],
+        "usage": {"input_tokens": 5, "output_tokens": 7},
+    }
+
+    domain_response = service.to_domain_response(
+        responses_payload, "openai-responses"
+    )
+
+    assert isinstance(domain_response, CanonicalChatResponse)
+    assert domain_response.object == "response"
+    assert len(domain_response.choices) == 1
+    choice = domain_response.choices[0]
+    assert choice.message is not None
+    assert choice.message.tool_calls is not None
+    assert choice.message.tool_calls[0].function.name == "make_call"
+    assert choice.finish_reason == "stop"
+    assert domain_response.usage is not None
+    if domain_response.usage:
+        assert domain_response.usage["prompt_tokens"] == 5
+        assert domain_response.usage["completion_tokens"] == 7
+
+
 def test_to_domain_request_code_assist():
     """Test translation from Code Assist API request format."""
     service = TranslationService()

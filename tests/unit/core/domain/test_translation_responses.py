@@ -76,6 +76,57 @@ class TestTranslationResponses(unittest.TestCase):
             self.assertEqual(result.usage["completion_tokens"], 5)
             self.assertEqual(result.usage["total_tokens"], 13)
 
+    def test_responses_to_domain_response_output_payload(self):
+        responses_response = {
+            "id": "resp-123",
+            "object": "response",
+            "created": 1700000000,
+            "model": "gpt-4.1",
+            "output": [
+                {
+                    "id": "msg-1",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {"type": "output_text", "text": "Hello from Responses API."},
+                        {
+                            "type": "tool_call",
+                            "id": "call_1",
+                            "function": {
+                                "name": "lookup",
+                                "arguments": '{"query": "test"}',
+                            },
+                        },
+                    ],
+                }
+            ],
+            "usage": {"input_tokens": 11, "output_tokens": 9},
+        }
+
+        result = Translation.responses_to_domain_response(responses_response)
+
+        self.assertIsInstance(result, CanonicalChatResponse)
+        self.assertEqual(result.id, "resp-123")
+        self.assertEqual(result.object, "response")
+        self.assertEqual(len(result.choices), 1)
+
+        choice = result.choices[0]
+        self.assertEqual(choice.message.role, "assistant")
+        self.assertIn("Hello from Responses API.", choice.message.content or "")
+        self.assertEqual(choice.finish_reason, "stop")
+        self.assertIsNotNone(choice.message.tool_calls)
+        if choice.message.tool_calls:
+            tool_call = choice.message.tool_calls[0]
+            self.assertEqual(tool_call.function.name, "lookup")
+            self.assertIn("query", tool_call.function.arguments)
+
+        self.assertIsNotNone(result.usage)
+        if result.usage:
+            self.assertEqual(result.usage["prompt_tokens"], 11)
+            self.assertEqual(result.usage["completion_tokens"], 9)
+            self.assertEqual(result.usage["total_tokens"], 20)
+
     def test_gemini_to_domain_response_success(self):
         gemini_response = {
             "candidates": [

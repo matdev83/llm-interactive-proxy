@@ -443,6 +443,128 @@ class Translation:
         )
 
     @staticmethod
+    def responses_to_domain_response(response: Any) -> CanonicalChatResponse:
+        """Translate an OpenAI Responses API response to a canonical response."""
+        import time
+
+        if not isinstance(response, dict):
+            return Translation.openai_to_domain_response(response)
+
+        # If the backend already returned OpenAI-style choices, reuse that logic.
+        if response.get("choices"):
+            return Translation.openai_to_domain_response(response)
+
+        output_items = response.get("output") or []
+        choices: list[ChatCompletionChoice] = []
+
+        for idx, item in enumerate(output_items):
+            if not isinstance(item, dict):
+                continue
+
+            role = item.get("role", "assistant")
+            content_parts = item.get("content")
+            if not isinstance(content_parts, list):
+                content_parts = []
+
+            text_segments: list[str] = []
+            tool_calls: list[dict[str, Any]] = []
+
+            for part in content_parts:
+                if not isinstance(part, dict):
+                    continue
+
+                part_type = part.get("type")
+                if part_type in {"output_text", "text", "input_text"}:
+                    text_value = part.get("text") or part.get("value") or ""
+                    if text_value:
+                        text_segments.append(str(text_value))
+                elif part_type == "tool_call":
+                    function_payload = part.get("function") or part.get("function_call") or {}
+                    tool_calls.append(
+                        {
+                            "id": part.get("id")
+                            or f"tool_call_{idx}_{len(tool_calls)}",
+                            "type": "function",
+                            "function": {
+                                "name": function_payload.get("name", ""),
+                                "arguments": (
+                                    function_payload.get("arguments")
+                                    or function_payload.get("args")
+                                    or function_payload.get("arguments_json")
+                                    or ""
+                                ),
+                            },
+                        }
+                    )
+
+            content_text = "\n".join(segment for segment in text_segments if segment).strip()
+
+            finish_reason = item.get("finish_reason") or item.get("status")
+            if finish_reason == "completed":
+                finish_reason = "stop"
+            elif finish_reason == "incomplete":
+                finish_reason = "length"
+            elif finish_reason in {"in_progress", "generating"}:
+                finish_reason = None
+            elif finish_reason is None and (content_text or tool_calls):
+                finish_reason = "stop"
+
+            message = ChatCompletionChoiceMessage(
+                role=role,
+                content=content_text or None,
+                tool_calls=tool_calls or None,
+            )
+
+            choices.append(
+                ChatCompletionChoice(
+                    index=idx,
+                    message=message,
+                    finish_reason=finish_reason,
+                )
+            )
+
+        if not choices:
+            # Fallback to OpenAI conversion to avoid returning an empty response
+            return Translation.openai_to_domain_response(response)
+
+        usage = response.get("usage") or {}
+        prompt_tokens = (
+            usage.get("prompt_tokens")
+            or usage.get("input_tokens")
+            or usage.get("promptTokenCount")
+            or 0
+        )
+        completion_tokens = (
+            usage.get("completion_tokens")
+            or usage.get("output_tokens")
+            or usage.get("candidatesTokenCount")
+            or 0
+        )
+        total_tokens = (
+            usage.get("total_tokens")
+            or usage.get("totalTokenCount")
+            or (prompt_tokens + completion_tokens)
+        )
+
+        normalized_usage: dict[str, Any] | None = None
+        if any([prompt_tokens, completion_tokens, total_tokens]):
+            normalized_usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            }
+
+        return CanonicalChatResponse(
+            id=response.get("id", f"resp-{int(time.time())}"),
+            object=response.get("object", "response"),
+            created=response.get("created", int(time.time())),
+            model=response.get("model", "unknown"),
+            choices=choices,
+            usage=normalized_usage,
+            system_fingerprint=response.get("system_fingerprint"),
+        )
+
+    @staticmethod
     def openai_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         """
         Translate an OpenAI streaming chunk to a canonical dictionary format.

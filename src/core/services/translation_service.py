@@ -33,6 +33,7 @@ class TranslationService:
             "response": {
                 "gemini": Translation.gemini_to_domain_response,
                 "openai": Translation.openai_to_domain_response,
+                "openai-responses": Translation.responses_to_domain_response,
                 "anthropic": Translation.anthropic_to_domain_response,
                 "code_assist": Translation.code_assist_to_domain_response,
                 "raw_text": Translation.raw_text_to_domain_response,
@@ -160,8 +161,7 @@ class TranslationService:
         elif source_format == "openai":
             return Translation.openai_to_domain_response(response)
         elif source_format == "openai-responses":
-            # OpenAI Responses API responses can be treated as OpenAI responses for domain conversion
-            return Translation.openai_to_domain_response(response)
+            return Translation.responses_to_domain_response(response)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_response(response)
         elif source_format == "code_assist":
