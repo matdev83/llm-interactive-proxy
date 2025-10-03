@@ -160,6 +160,56 @@ class TestToolCallTracker:
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == 1
 
+
+class TestToolCallLoopConfig:
+    """Tests for ToolCallLoopConfig helper methods."""
+
+    def test_merge_with_none_returns_copy(self) -> None:
+        """Ensure merge_with(None) returns a new instance."""
+        original = ToolCallLoopConfig(
+            enabled=False,
+            max_repeats=5,
+            ttl_seconds=45,
+            mode=ToolLoopMode.BREAK,
+        )
+
+        merged = original.merge_with(None)
+
+        assert merged is not original
+        assert merged == original
+
+        merged.enabled = True
+        assert original.enabled is False
+
+    def test_merge_with_override_does_not_mutate_inputs(self) -> None:
+        """Ensure overrides produce independent merged config."""
+        base = ToolCallLoopConfig(
+            enabled=False,
+            max_repeats=2,
+            ttl_seconds=30,
+            mode=ToolLoopMode.BREAK,
+        )
+        override = ToolCallLoopConfig(
+            enabled=True,
+            max_repeats=4,
+            ttl_seconds=60,
+            mode=ToolLoopMode.CHANCE_THEN_BREAK,
+        )
+
+        merged = base.merge_with(override)
+
+        assert merged is not base
+        assert merged is not override
+        assert merged.enabled is True
+        assert merged.max_repeats == 4
+        assert merged.ttl_seconds == 60
+        assert merged.mode is ToolLoopMode.CHANCE_THEN_BREAK
+
+        # Mutating the merged instance should not leak back to inputs
+        merged.max_repeats = 10
+        assert base.max_repeats == 2
+        assert override.max_repeats == 4
+
     def test_track_tool_call_different_calls(self, config) -> None:
         """Test tracking different tool calls."""
         tracker = ToolCallTracker(config)
