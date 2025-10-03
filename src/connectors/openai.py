@@ -4,7 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from typing import Any
 
 import httpx
@@ -273,55 +273,78 @@ class OpenAIConnector(LLMBackend):
         if processed_messages:
             try:
                 normalized_messages: list[dict[str, Any]] = []
-                for m in processed_messages:
-                    # If the message is a pydantic model, use model_dump
-                    if hasattr(m, "model_dump") and callable(m.model_dump):
-                        # Keep keys with None (e.g., content=None for tool messages)
-                        normalized_messages.append(
-                            dict(m.model_dump(exclude_none=False))
-                        )
-                        continue
 
-                    # Fallback: build a minimal dict, converting possible content parts
-                    msg: dict[str, Any] = {"role": getattr(m, "role", "user")}
-                    content = getattr(m, "content", None)
-                    if content is not None and any(
-                        isinstance(content, t) for t in (list, tuple)
-                    ):
-                        normalized_content: list[Any] = []
-                        for part in content:
+                def _get_value(message: Any, key: str) -> Any:
+                    if isinstance(message, Mapping):
+                        return message.get(key)
+                    return getattr(message, key, None)
+
+                def _normalize_content(value: Any) -> Any:
+                    if isinstance(value, (list, tuple)):
+                        normalized_parts: list[Any] = []
+                        for part in value:
                             if hasattr(part, "model_dump") and callable(
                                 part.model_dump
                             ):
-                                normalized_content.append(
+                                normalized_parts.append(
                                     part.model_dump(exclude_none=True)
                                 )
+                            elif isinstance(part, Mapping):
+                                normalized_parts.append(dict(part))
                             else:
-                                normalized_content.append(part)
-                        msg["content"] = normalized_content
+                                normalized_parts.append(part)
+                        return normalized_parts
+                    return value
+
+                for message in processed_messages:
+                    if hasattr(message, "model_dump") and callable(
+                        message.model_dump
+                    ):
+                        normalized_messages.append(
+                            dict(message.model_dump(exclude_none=False))
+                        )
+                        continue
+
+                    msg: dict[str, Any]
+                    if isinstance(message, Mapping):
+                        msg = dict(message)
                     else:
-                        # Include the key even when content is None
-                        msg["content"] = content
-                    name = getattr(m, "name", None)
-                    if name:
+                        msg = {}
+
+                    role = _get_value(message, "role") or msg.get("role") or "user"
+                    msg["role"] = role
+
+                    content = _get_value(message, "content")
+                    if content is None and "content" in msg:
+                        content = msg["content"]
+                    msg["content"] = _normalize_content(content)
+
+                    name = _get_value(message, "name")
+                    if name is not None:
                         msg["name"] = name
-                    tool_calls = getattr(m, "tool_calls", None)
+
+                    tool_calls = _get_value(message, "tool_calls")
+                    if tool_calls is None and isinstance(message, Mapping):
+                        tool_calls = msg.get("tool_calls")
                     if tool_calls:
-                        try:
-                            msg["tool_calls"] = [
-                                (
-                                    tc.model_dump(exclude_none=True)
-                                    if hasattr(tc, "model_dump")
-                                    and callable(tc.model_dump)
-                                    else tc
+                        normalized_tool_calls: list[Any] = []
+                        for tool_call in tool_calls:
+                            if hasattr(tool_call, "model_dump") and callable(
+                                tool_call.model_dump
+                            ):
+                                normalized_tool_calls.append(
+                                    tool_call.model_dump(exclude_none=True)
                                 )
-                                for tc in tool_calls
-                            ]
-                        except Exception:
-                            msg["tool_calls"] = tool_calls
-                    tool_call_id = getattr(m, "tool_call_id", None)
-                    if tool_call_id:
+                            elif isinstance(tool_call, Mapping):
+                                normalized_tool_calls.append(dict(tool_call))
+                            else:
+                                normalized_tool_calls.append(tool_call)
+                        msg["tool_calls"] = normalized_tool_calls
+
+                    tool_call_id = _get_value(message, "tool_call_id")
+                    if tool_call_id is not None:
                         msg["tool_call_id"] = tool_call_id
+
                     normalized_messages.append(msg)
 
                 payload["messages"] = normalized_messages
