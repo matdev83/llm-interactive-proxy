@@ -36,10 +36,15 @@ class RateLimitRegistry:
             keys = list(self._until.keys())
         else:
             combos_list = list(combos)
-            if not combos_list:  # Empty list should fall back to all entries (preserve original behavior)
+            if (
+                not combos_list
+            ):  # Empty list should fall back to all entries (preserve original behavior)
                 keys = list(self._until.keys())
             else:
-                keys = [(backend, model or "", key_name) for backend, model, key_name in combos_list]
+                keys = [
+                    (backend, model or "", key_name)
+                    for backend, model, key_name in combos_list
+                ]
         now = time.time()
         valid_times: list[float] = []
         expired_keys: list[tuple[str, str, str]] = []
