@@ -41,25 +41,26 @@ class EmptyResponseMiddleware(IResponseMiddleware):
             return self._recovery_prompt
 
         try:
-            # Get the workspace root directory
-            current_dir = Path(__file__).parent
-            workspace_root = current_dir
-            while workspace_root.parent != workspace_root:
-                if (workspace_root / "config").exists():
-                    break
-                workspace_root = workspace_root.parent
-
-            prompt_path = (
-                workspace_root
-                / "config"
+            prompt_relative = (
+                Path("config")
                 / "prompts"
                 / "empty_response_auto_retry_prompt.md"
             )
+            current_dir = Path(__file__).resolve().parent
+            prompt_path: Path | None = None
 
-            if prompt_path.exists():
+            for candidate_root in (current_dir,) + tuple(current_dir.parents):
+                candidate = candidate_root / prompt_relative
+                if candidate.exists():
+                    prompt_path = candidate
+                    break
+                if candidate_root.parent == candidate_root:
+                    break
+
+            if prompt_path and prompt_path.exists():
                 with open(prompt_path, encoding="utf-8") as f:
                     self._recovery_prompt = f.read().strip()
-                logger.debug(f"Loaded recovery prompt from {prompt_path}")
+                logger.debug("Loaded recovery prompt from %s", prompt_path)
             else:
                 # Fallback prompt if file doesn't exist
                 self._recovery_prompt = (
@@ -67,7 +68,8 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                     "with either text content or tool calls. Never return an empty response."
                 )
                 logger.warning(
-                    f"Recovery prompt file not found at {prompt_path}, using fallback"
+                    "Recovery prompt file not found at %s, using fallback",
+                    prompt_path or prompt_relative,
                 )
 
         except OSError as e:
