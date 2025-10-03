@@ -235,6 +235,14 @@ async def _list_models_impl(
         # Ensure backend service is at least resolved for DI side effects
         _ = backend_service
 
+        try:
+            functional_backends = set(config.backends.functional_backends)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.debug(
+                "Unable to determine functional backends: %s", exc, exc_info=True
+            )
+            functional_backends = set()
+
         # Iterate through dynamically discovered backend types from the registry
         for backend_type in backend_registry.get_registered_backends():
             backend_config: Any | None = None
@@ -242,49 +250,77 @@ async def _list_models_impl(
                 # Access backend config dynamically using getattr
                 backend_config = getattr(config.backends, backend_type, None)
 
-            if backend_config and backend_config.api_key:
-                try:
-                    # Create backend instance
-                    backend_instance: Any = backend_factory.create_backend(
-                        backend_type, config
-                    )
-
-                    # Get available models from the backend. Prefer async helper when available.
-                    models: list[str]
-                    get_models_async = getattr(
-                        backend_instance, "get_available_models_async", None
-                    )
-                    if callable(get_models_async):
-                        models = await get_models_async()  # type: ignore[misc]
-                    else:
-                        models = await backend_instance.get_available_models()  # type: ignore[misc]
-
-                    # Add models to the list with proper formatting
-                    for model in models:
-                        model_id: str = (
-                            f"{backend_type}:{model}"
-                            if backend_type != "openai"
-                            else model
+            has_credentials = False
+            if isinstance(backend_config, dict):
+                has_credentials = bool(backend_config.get("api_key"))
+            elif backend_config is not None:
+                api_key_value = getattr(backend_config, "api_key", None)
+                has_credentials = bool(api_key_value)
+                if not has_credentials:
+                    identity = getattr(backend_config, "identity", None)
+                    extra = getattr(backend_config, "extra", None)
+                    if identity is not None:
+                        has_credentials = True
+                    elif isinstance(extra, dict):
+                        credential_hints = {
+                            "credentials_path",
+                            "oauth_credentials_path",
+                            "token_path",
+                            "service_account_file",
+                        }
+                        has_credentials = any(
+                            bool(extra.get(hint)) for hint in credential_hints
                         )
 
-                        # Avoid duplicates
-                        if model_id not in discovered_models:
-                            discovered_models.add(model_id)
-                            all_models.append(
-                                {
-                                    "id": model_id,
-                                    "object": "model",
-                                    "owned_by": str(backend_type).lower(),
-                                }
-                            )
-                    logger.debug(f"Discovered {len(models)} models from {backend_type}")
+            should_try_backend = backend_type in functional_backends or has_credentials
 
-                except Exception as e:  # type: ignore[misc]
-                    logger.warning(
-                        f"Failed to get models from {backend_type}: {e}",
-                        exc_info=True,
+            if not should_try_backend:
+                logger.debug(
+                    "Skipping backend %s during model discovery: no credentials detected",
+                    backend_type,
+                )
+                continue
+
+            try:
+                # Create backend instance
+                backend_instance: Any = backend_factory.create_backend(
+                    backend_type, config
+                )
+
+                # Get available models from the backend. Prefer async helper when available.
+                models: list[str]
+                get_models_async = getattr(
+                    backend_instance, "get_available_models_async", None
+                )
+                if callable(get_models_async):
+                    models = await get_models_async()  # type: ignore[misc]
+                else:
+                    models = await backend_instance.get_available_models()  # type: ignore[misc]
+
+                # Add models to the list with proper formatting
+                for model in models:
+                    model_id: str = (
+                        f"{backend_type}:{model}" if backend_type != "openai" else model
                     )
-                    continue
+
+                    # Avoid duplicates
+                    if model_id not in discovered_models:
+                        discovered_models.add(model_id)
+                        all_models.append(
+                            {
+                                "id": model_id,
+                                "object": "model",
+                                "owned_by": str(backend_type).lower(),
+                            }
+                        )
+                logger.debug(f"Discovered {len(models)} models from {backend_type}")
+
+            except Exception as e:  # type: ignore[misc]
+                logger.warning(
+                    f"Failed to get models from {backend_type}: {e}",
+                    exc_info=True,
+                )
+                continue
 
         # If no models were discovered, provide default fallback models
         if not all_models:
