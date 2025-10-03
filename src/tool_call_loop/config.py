@@ -6,7 +6,7 @@ This module provides configuration structures and validation for tool call loop 
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
@@ -141,13 +141,14 @@ class ToolCallLoopConfig(InternalDTO):
         Returns:
             A new ToolCallLoopConfig instance with merged values
         """
+        merged_config = replace(self)
+
         if override is None:
-            return self
+            return merged_config
 
-        result = ToolCallLoopConfig()
-        result.enabled = override.enabled
-        result.max_repeats = override.max_repeats
-        result.ttl_seconds = override.ttl_seconds
-        result.mode = override.mode
+        merged_config.enabled = override.enabled
+        merged_config.max_repeats = override.max_repeats
+        merged_config.ttl_seconds = override.ttl_seconds
+        merged_config.mode = override.mode
 
-        return result
+        return merged_config
