@@ -59,7 +59,7 @@ class TestServiceValidator:
         """
         # Check that get_session returns a real session, not an AsyncMock
         if hasattr(service, "get_session"):
-            method = getattr(service, "get_session")
+            method = service.get_session
 
             if isinstance(method, AsyncMock):
                 raise TypeError(
