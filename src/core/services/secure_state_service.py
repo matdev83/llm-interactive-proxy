@@ -153,6 +153,7 @@ class StateAccessProxy:
         "api_key_redaction_enabled",
         "rate_limits",
         "session_manager",
+        "session_id",
         "client_api_key",
         "disable_auth",
         "httpx_client",
