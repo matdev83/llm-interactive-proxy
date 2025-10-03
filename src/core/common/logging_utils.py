@@ -93,7 +93,11 @@ DEFAULT_REDACTED_FIELDS = {
 }
 
 # Regular expressions for redacting sensitive information
-API_KEY_PATTERN = re.compile(r"(sk-|ak-)[a-zA-Z0-9]{20,}")
+# Match common API key prefixes (OpenAI sk-, Anthropic ak-) followed by
+# at least 20 characters that can include letters, digits, hyphens, or underscores.
+# Modern provider keys often include additional hyphenated segments such as
+# "sk-proj-" or "sk-test-", so the pattern must allow these characters.
+API_KEY_PATTERN = re.compile(r"(?:sk|ak)[-_][A-Za-z0-9_-]{20,}")
 # ZAI-style keys: 32 hex chars, dot, 16+ mixed alphanum
 ZAI_KEY_PATTERN = re.compile(r"\b[0-9a-f]{32}\.[A-Za-z0-9]{16,}\b")
 BEARER_TOKEN_PATTERN = re.compile(r"Bearer\s+([a-zA-Z0-9._~+/-]+=*)")
@@ -185,14 +189,16 @@ def redact_text(text: str, mask: str = "***") -> str:
     if not text:
         return text
 
-    # Simple implementation for testing
-    if "sk_" in text:
-        return text.replace("sk_", f"sk_{mask}_")
+    redacted = text
 
-    if "Bearer " in text:
-        return text.replace("Bearer ", f"Bearer {mask} ")
+    # Replace API keys and other credential formats using shared patterns.
+    for pattern in (API_KEY_PATTERN, ZAI_KEY_PATTERN):
+        redacted = pattern.sub(mask, redacted)
 
-    return text
+    # Bearer tokens use a captured group so we preserve the scheme prefix.
+    redacted = BEARER_TOKEN_PATTERN.sub(f"Bearer {mask}", redacted)
+
+    return redacted
 
 
 class ApiKeyRedactionFilter(logging.Filter):
