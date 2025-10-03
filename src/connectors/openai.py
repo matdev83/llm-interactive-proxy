@@ -427,7 +427,12 @@ class OpenAIConnector(LLMBackend):
             raise AuthenticationError(message="No auth credentials found")
 
         request = self.client.build_request("POST", url, json=payload, headers=headers)
-        response = await self.client.send(request, stream=True)
+        try:
+            response = await self.client.send(request, stream=True)
+        except httpx.RequestError as exc:
+            raise ServiceUnavailableError(
+                message=f"Could not connect to backend ({exc})"
+            ) from exc
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
