@@ -42,7 +42,7 @@ class JsonRepairService:
             if schema:
                 self.validate_json(repaired_json, schema)
             return repaired_json
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, JsonSchemaValidationError) as e:
             if strict:
                 raise e
             logger.warning(f"Failed to repair or validate JSON: {e}")
