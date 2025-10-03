@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 
 logger = logging.getLogger(__name__)
 
@@ -434,6 +435,9 @@ class OpenAIConnector(LLMBackend):
                 body = (await response.aread()).decode("utf-8")
             except Exception:
                 body = getattr(response, "text", "")
+            finally:
+                with suppress(Exception):
+                    await response.aclose()
             raise HTTPException(
                 status_code=status_code,
                 detail={
