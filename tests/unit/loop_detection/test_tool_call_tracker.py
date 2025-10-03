@@ -398,3 +398,52 @@ class TestToolCallTracker:
         # Check that the consecutive count was reset
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == 1
+
+
+class TestToolCallLoopConfig:
+    """Tests for the ToolCallLoopConfig helper methods."""
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("true", True),
+            ("TrUe", True),
+            ("1", True),
+            ("yes", True),
+            ("on", True),
+            ("false", False),
+            ("0", False),
+            ("no", False),
+            ("off", False),
+            ("", False),
+        ],
+    )
+    def test_from_dict_parses_string_booleans(self, value: str, expected: bool) -> None:
+        """Ensure string boolean values are parsed correctly."""
+
+        config = ToolCallLoopConfig.from_dict({"enabled": value})
+
+        assert config.enabled is expected
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("true", True),
+            ("FALSE", False),
+            ("On", True),
+            ("off", False),
+            ("  yes  ", True),
+            (" 0 ", False),
+            ("", False),
+        ],
+    )
+    def test_from_env_vars_parses_string_booleans(
+        self, value: str, expected: bool
+    ) -> None:
+        """Ensure environment variable boolean values are parsed correctly."""
+
+        config = ToolCallLoopConfig.from_env_vars(
+            {"TOOL_LOOP_DETECTION_ENABLED": value}
+        )
+
+        assert config.enabled is expected

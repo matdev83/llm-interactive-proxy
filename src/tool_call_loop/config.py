@@ -61,8 +61,14 @@ class ToolCallLoopConfig(InternalDTO):
         config = cls()
 
         if "TOOL_LOOP_DETECTION_ENABLED" in env_vars:
-            value = env_vars["TOOL_LOOP_DETECTION_ENABLED"].lower()
-            config.enabled = value in ("true", "1", "yes")
+            value = env_vars["TOOL_LOOP_DETECTION_ENABLED"].strip().lower()
+            truthy_values = {"true", "1", "yes", "on"}
+            falsy_values = {"false", "0", "no", "off", ""}
+
+            if value in truthy_values:
+                config.enabled = True
+            elif value in falsy_values:
+                config.enabled = False
 
         if "TOOL_LOOP_MAX_REPEATS" in env_vars:
             with contextlib.suppress(ValueError):
@@ -95,7 +101,16 @@ class ToolCallLoopConfig(InternalDTO):
         config = cls()
 
         if "enabled" in config_dict:
-            config.enabled = bool(config_dict["enabled"])
+            enabled_value = config_dict["enabled"]
+            if isinstance(enabled_value, str):
+                config.enabled = enabled_value.strip().lower() in {
+                    "true",
+                    "1",
+                    "yes",
+                    "on",
+                }
+            else:
+                config.enabled = bool(enabled_value)
 
         if "max_repeats" in config_dict:
             with contextlib.suppress(ValueError):
