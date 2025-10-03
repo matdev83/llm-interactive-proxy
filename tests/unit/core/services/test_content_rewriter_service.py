@@ -190,10 +190,6 @@ class TestContentRewriterService(unittest.TestCase):
         rewritten = service.rewrite_reply(reply)
         self.assertEqual(rewritten, "This is an rewritten reply.")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_ignore_rule_with_short_search_pattern(self):
         """Verify that a rule with a short search pattern is ignored."""
         # Create a rule with a search pattern shorter than 8 characters
@@ -213,9 +209,35 @@ if __name__ == "__main__":
             f.write("rewritten")
 
         rewriter = ContentRewriterService(config_path=self.test_config_dir)
-        self.assertEqual(len(rewriter.prompt_user_rules), 1)
+        self.assertEqual(len(rewriter.prompt_user_rules), 2)
 
         # The rule with the short search pattern should be ignored
         prompt = "This is a short test."
         rewritten_prompt = rewriter.rewrite_prompt(prompt, "user")
         self.assertEqual(rewritten_prompt, "This is a short test.")
+
+    def test_ignore_rule_when_search_file_missing(self):
+        """Verify that a rule without a SEARCH.txt file is ignored."""
+        os.makedirs(
+            os.path.join(self.test_config_dir, "prompts", "system", "003_missing"),
+            exist_ok=True,
+        )
+        with open(
+            os.path.join(
+                self.test_config_dir,
+                "prompts",
+                "system",
+                "003_missing",
+                "REPLACE.txt",
+            ),
+            "w",
+        ) as f:
+            f.write("unreachable")
+
+        # Should not raise and should ignore the rule without SEARCH.txt
+        service = ContentRewriterService(config_path=self.test_config_dir)
+        self.assertEqual(len(service.prompt_system_rules), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
