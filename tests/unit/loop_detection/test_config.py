@@ -93,3 +93,17 @@ class TestLoopDetectionConfig:
         assert isinstance(semantic_thresholds, PatternThresholds)
         assert semantic_thresholds.min_repetitions == 4
         assert semantic_thresholds.min_total_length == 200
+
+    def test_validate_catches_non_positive_chunk_settings(self) -> None:
+        """Validate rejects non-positive chunk configuration values."""
+        config = LoopDetectionConfig(
+            content_chunk_size=0,
+            content_loop_threshold=-2,
+            max_history_length=0,
+        )
+
+        errors = config.validate()
+
+        assert "content_chunk_size must be positive" in errors
+        assert "content_loop_threshold must be positive" in errors
+        assert "max_history_length must be positive" in errors

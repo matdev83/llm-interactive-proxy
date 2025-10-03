@@ -146,6 +146,18 @@ class TestLoopDetector:
             config = LoopDetectionConfig(enabled=True, max_pattern_length=0)
             LoopDetector(config=config)
 
+        with pytest.raises(ValueError):
+            config = LoopDetectionConfig(enabled=True, content_chunk_size=0)
+            LoopDetector(config=config)
+
+        with pytest.raises(ValueError):
+            config = LoopDetectionConfig(enabled=True, content_loop_threshold=0)
+            LoopDetector(config=config)
+
+        with pytest.raises(ValueError):
+            config = LoopDetectionConfig(enabled=True, max_history_length=0)
+            LoopDetector(config=config)
+
     @pytest.mark.asyncio
     async def test_check_for_loops_does_not_mutate_streaming_state(self) -> None:
         """check_for_loops should not modify the streaming analyzer state."""

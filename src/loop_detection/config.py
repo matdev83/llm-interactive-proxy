@@ -283,6 +283,15 @@ class LoopDetectionConfig(InternalDTO):
         if self.max_pattern_length <= 0:
             errors.append("max_pattern_length must be positive")
 
+        if self.content_chunk_size <= 0:
+            errors.append("content_chunk_size must be positive")
+
+        if self.content_loop_threshold <= 0:
+            errors.append("content_loop_threshold must be positive")
+
+        if self.max_history_length <= 0:
+            errors.append("max_history_length must be positive")
+
         # Allow pattern length to exceed buffer - the detector will handle
         # clipping automatically when the buffer is smaller than the maximum
         # pattern size requested by configuration/testing scenarios.
