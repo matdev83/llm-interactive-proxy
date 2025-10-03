@@ -32,7 +32,9 @@ def create_anthropic_app(config: AppConfig) -> FastAPI:
     if service_provider is not None:
         app.state.service_provider = service_provider
     else:
-        logger.warning("Service provider missing from built app; Anthropic routes may fail")
+        logger.warning(
+            "Service provider missing from built app; Anthropic routes may fail"
+        )
 
     _register_anthropic_endpoints(app, prefix="")
 
