@@ -65,17 +65,8 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
                 message="oneoff command requires a backend/model argument.",
             )
 
-        # Prefer the first non-empty string value, otherwise fall back to the key
-        raw_argument: str | None = None
-        for key, value in args.items():
-            if isinstance(value, str) and value.strip():
-                raw_argument = value.strip()
-                break
-            if isinstance(key, str) and key.strip():
-                raw_argument = key.strip()
-                break
-
-        if raw_argument is None:
+        route_value = self._extract_route_argument(args)
+        if not route_value:
             return CommandResult(
                 name=self.name,
                 success=False,
@@ -83,7 +74,7 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
             )
 
         # Use robust parsing that handles both slash and colon syntax
-        backend, model = parse_model_backend(raw_argument)
+        backend, model = parse_model_backend(route_value)
         if not backend or not model:
             return CommandResult(
                 name=self.name,
@@ -110,3 +101,30 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
             success=True,
             message=f"One-off route set to {backend}/{model}.",
         )
+
+    def _extract_route_argument(self, args: Mapping[str, Any]) -> str | None:
+        """Extract the backend/model argument from parsed command args."""
+
+        candidate_keys = ("element", "value", "route", "target")
+        for key in candidate_keys:
+            value = args.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        for key, value in args.items():
+            if isinstance(key, str):
+                key_str = key.strip()
+                if key_str and ("/" in key_str or ":" in key_str):
+                    return key_str
+
+            if isinstance(value, str):
+                value_str = value.strip()
+                if value_str and ("/" in value_str or ":" in value_str):
+                    return value_str
+
+            if value is True and isinstance(key, str):
+                key_str = key.strip()
+                if key_str and ("/" in key_str or ":" in key_str):
+                    return key_str
+
+        return None
