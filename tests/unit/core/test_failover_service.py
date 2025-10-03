@@ -84,3 +84,24 @@ def test_get_failover_attempts_invalid_element() -> None:
     # Verify the invalid attempt gets parsed with empty backend
     assert attempts[1].backend == ""
     assert attempts[1].model == "invalid-element"
+
+
+def test_get_failover_attempts_falls_back_to_default_route() -> None:
+    """Ensure the default route is used when a model specific route is absent."""
+    backend_config = Mock()
+    backend_config.failover_routes = {
+        "default": {
+            "policy": "k",
+            "elements": [
+                "openrouter:gpt-4o-mini",
+            ],
+        }
+    }
+
+    service = FailoverService({})
+
+    attempts = service.get_failover_attempts(backend_config, "unseen-model", "openai")
+
+    assert len(attempts) == 1
+    assert attempts[0].backend == "openrouter"
+    assert attempts[0].model == "gpt-4o-mini"

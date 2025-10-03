@@ -1,10 +1,6 @@
-"""
-Failover service for handling backend failover.
+"""Failover service utilities for computing fallback backend attempts."""
 
-This module provides a service for handling backend failover, which is responsible
-for determining the appropriate failover route for a given backend type.
-"""
-
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -75,7 +71,22 @@ class FailoverService:
             List of failover attempts
         """
         # Get the route configuration
-        route_config = backend_config.failover_routes.get(model)
+        routes: dict[str, Any] = getattr(backend_config, "failover_routes", {})
+        route_config = routes.get(model)
+
+        if not route_config:
+            # Fall back to the default route when a model specific route is not defined
+            for candidate in ("default", "*"):
+                if candidate in routes:
+                    route_config = routes[candidate]
+                    logger.debug(
+                        "Using fallback failover route",
+                        model=model,
+                        backend_type=backend_type,
+                        fallback=candidate,
+                    )
+                    break
+
         if not route_config:
             logger.debug("No failover route found for model", model=model)
             return []
