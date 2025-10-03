@@ -120,6 +120,74 @@ class TestResponsesAPIFrontendIntegration:
             assert "message" in response_data["choices"][0]
             assert response_data["choices"][0]["message"]["parsed"]["answer"] == "4"
 
+    @pytest.mark.parametrize(
+        "additional_properties",
+        [False, {"type": "string"}],
+        ids=["bool", "schema"],
+    )
+    def test_responses_api_accepts_additional_properties(
+        self, client: TestClient, additional_properties: bool | dict[str, str]
+    ) -> None:
+        """Ensure JSON schemas with additionalProperties are validated correctly."""
+
+        request_data = {
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Return metadata"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "metadata_envelope",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "metadata": {
+                                "type": "object",
+                                "additionalProperties": additional_properties,
+                            }
+                        },
+                        "required": ["metadata"],
+                    },
+                    "strict": True,
+                },
+            },
+        }
+
+        with patch(
+            "src.core.services.request_processor_service.RequestProcessor.process_request"
+        ) as mock_process:
+            from src.core.domain.responses import ResponseEnvelope
+
+            mock_process.return_value = ResponseEnvelope(
+                content={
+                    "id": "resp-addl-props-123",
+                    "object": "response",
+                    "created": 1677858242,
+                    "model": "mock-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"metadata": {"key": "value"}}',
+                                "parsed": {"metadata": {"key": "value"}},
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                }
+            )
+
+            response = client.post("/v1/responses", json=request_data)
+
+            assert response.status_code == 200
+            assert response.json()["choices"][0]["message"]["parsed"]["metadata"]["key"] == "value"
+            mock_process.assert_called_once()
+
     def test_responses_api_with_anthropic_backend_compatibility(
         self, client: TestClient
     ) -> None:
