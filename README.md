@@ -24,6 +24,7 @@ This project is a swiss-army knife for anyone working with language models and a
 - [Example Config (minimal)](#example-config-minimal)
 - [Popular Scenarios](#popular-scenarios)
 - [Errors and Troubleshooting](#errors-and-troubleshooting)
+- [Running Tests](#running-tests)
 - [Support](#support)
 - [License](#license)
 - [Changelog](#changelog)
@@ -628,6 +629,17 @@ models:
 - Enable wire capture for tricky issues: `--capture-file wire.jsonl`
 - Use in-chat `!/backend(...)` and `!/model(...)` to isolate provider/model problems
 - Check environment variables are set for the back-end you selected
+
+## Running Tests
+
+The pytest configuration in [`pyproject.toml`](pyproject.toml) enables async and parallel execution via `--asyncio-mode=auto` and `-n`. Those flags rely on plugins (`pytest-asyncio`, `pytest-xdist`) that are declared in the `dev` optional dependency group, so they are not installed by a plain `pip install -e .`. Install the development extras before running the suite:
+
+```bash
+python -m pip install -e .[dev]
+python -m pytest
+```
+
+The commands above work on Linux, macOS, and Windows as long as they are executed from the virtual environment you created for the project (for example `.venv/bin/python` on Unix-like systems or `.venv\Scripts\python.exe` on Windows).
 
 ## Support
 
