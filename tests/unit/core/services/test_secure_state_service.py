@@ -6,8 +6,6 @@ from src.core.services.secure_state_service import StateAccessProxy
 class _DummyState:
     """Simple stand-in for FastAPI app.state."""
 
-    pass
-
 
 def test_state_access_proxy_allows_session_id_attribute() -> None:
     """Setting session_id should be allowed for middleware compatibility."""
