@@ -15,6 +15,40 @@ from typing import Any
 
 from src.core.interfaces.model_bases import InternalDTO
 
+
+def _coerce_to_bool(value: Any) -> bool:
+    """Convert a loosely-typed configuration value into a boolean."""
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Unexpected boolean value '%s' in loop detection config; treating as truthy",
+                value,
+            )
+        return True
+
+    if isinstance(value, int | float):
+        return bool(value)
+
+    if isinstance(value, bool):
+        return value
+
+    if value is None:
+        return False
+
+    if logger.isEnabledFor(logging.WARNING):
+        logger.warning(
+            "Unexpected type %s for loop detection boolean config; treating as truthy",
+            type(value).__name__,
+        )
+    return True
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,7 +123,7 @@ class LoopDetectionConfig(InternalDTO):
         config = cls()
 
         if "enabled" in config_dict:
-            config.enabled = bool(config_dict["enabled"])
+            config.enabled = _coerce_to_bool(config_dict["enabled"])
 
         if "buffer_size" in config_dict:
             config.buffer_size = int(config_dict["buffer_size"])
