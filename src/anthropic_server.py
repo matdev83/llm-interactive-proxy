@@ -19,7 +19,7 @@ def create_anthropic_app(config: AppConfig) -> FastAPI:
     """
     Create a lightweight FastAPI application with only Anthropic routes.
     """
-    _, app_config = build_app_with_config(config)
+    full_app, app_config = build_app_with_config(config)
 
     app = FastAPI(
         title="Anthropic LLM Interactive Proxy",
@@ -27,6 +27,12 @@ def create_anthropic_app(config: AppConfig) -> FastAPI:
         version="0.1.0",
         lifespan=None,
     )
+
+    service_provider = getattr(full_app.state, "service_provider", None)
+    if service_provider is None and logger.isEnabledFor(logging.WARNING):
+        logger.warning("Service provider missing from Anthropic app state.")
+    elif service_provider is not None:
+        app.state.service_provider = service_provider
 
     _register_anthropic_endpoints(app, prefix="")
 
