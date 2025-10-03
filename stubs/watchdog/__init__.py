@@ -4,4 +4,4 @@ from __future__ import annotations
 
 from .events import FileSystemEventHandler
 
-__all__ = ["events", "observers", "FileSystemEventHandler"]
+__all__ = ["FileSystemEventHandler", "events", "observers"]

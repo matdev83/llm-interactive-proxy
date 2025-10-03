@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import timezone as _timezone
 
-__all__ = ["timezone", "UTC"]
+__all__ = ["UTC", "timezone"]
 
 
 class _Utc:
     def localize(self, dt):  # type: ignore[no-untyped-def]
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=_timezone.utc)
 
 
 UTC = _Utc()

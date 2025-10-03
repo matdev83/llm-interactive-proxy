@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__all__ = ["Fore", "Back", "Style", "init"]
+__all__ = ["Back", "Fore", "Style", "init"]
 
 
 class _BaseColor:
