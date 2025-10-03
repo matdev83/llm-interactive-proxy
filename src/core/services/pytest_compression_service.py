@@ -22,8 +22,8 @@ class PytestCompressionService:
             "container.exec",
         ]
 
-        # Pattern to detect pytest in command arguments
-        self.pytest_pattern = re.compile(r"pytest")
+        # Pattern to detect pytest in command arguments (supports pytest and py.test aliases)
+        self.pytest_pattern = re.compile(r"\bpy\.?test\b", re.IGNORECASE)
 
     def scan_tool_call_for_pytest(self, tool_call: ToolCall) -> tuple[bool, str] | None:
         """
