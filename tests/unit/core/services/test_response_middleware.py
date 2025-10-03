@@ -45,6 +45,15 @@ class TestLoggingMiddleware:
         result = await middleware.process(response, "session123", context)
         assert result == response
 
+    @pytest.mark.asyncio
+    async def test_process_handles_dict_response(self, middleware):
+        """Logging middleware should handle plain dictionary responses."""
+        response = {"content": "ok", "usage": {"tokens": 1}}
+
+        result = await middleware.process(response, "session123", {})
+
+        assert result is response
+
 
 class TestContentFilterMiddleware:
     """Test the ContentFilterMiddleware functionality."""
