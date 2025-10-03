@@ -119,7 +119,7 @@ class JsonRepairProcessor(IStreamProcessor):
     def _process_json_character(self, text: str, i: int) -> int:
         ch = text[i]
         if ch == '"':
-            if not self._buffer.endswith("\\"):
+            if not self._is_current_quote_escaped():
                 self._in_string = not self._in_string
         elif not self._in_string:
             if ch == "{" or ch == "[":
@@ -128,6 +128,17 @@ class JsonRepairProcessor(IStreamProcessor):
                 self._brace_level -= 1
         self._buffer += ch
         return i + 1
+
+    def _is_current_quote_escaped(self) -> bool:
+        """Check if the current quote character is escaped."""
+
+        backslash_count = 0
+        for existing_char in reversed(self._buffer):
+            if existing_char == "\\":
+                backslash_count += 1
+            else:
+                break
+        return backslash_count % 2 == 1
 
     def _is_json_complete(self) -> bool:
         return self._json_started and self._brace_level == 0 and not self._in_string
@@ -141,7 +152,7 @@ class JsonRepairProcessor(IStreamProcessor):
                 schema=self._schema,
                 strict=self._strict_mode,
             )
-            success = repaired is not None
+            success = True
         except Exception as e:  # pragma: no cover - strict mode rethrow
             if self._strict_mode:
                 raise JSONParsingError(
