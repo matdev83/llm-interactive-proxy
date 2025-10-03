@@ -152,7 +152,8 @@ class JsonRepairProcessor(IStreamProcessor):
                 schema=self._schema,
                 strict=self._strict_mode,
             )
-            success = True
+            if repaired is not None:
+                success = True
         except Exception as e:  # pragma: no cover - strict mode rethrow
             if self._strict_mode:
                 raise JSONParsingError(

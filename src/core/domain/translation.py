@@ -553,9 +553,7 @@ class Translation:
             config["maxOutputTokens"] = request.max_tokens
         if request.stop:
             stop_sequences = (
-                request.stop
-                if isinstance(request.stop, list)
-                else [request.stop]
+                request.stop if isinstance(request.stop, list) else [request.stop]
             )
             config["stopSequences"] = stop_sequences
         # Check for CLI override first (--thinking-budget flag)

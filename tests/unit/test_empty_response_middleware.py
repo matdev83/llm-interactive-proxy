@@ -53,7 +53,7 @@ class TestEmptyResponseMiddleware:
 
         search_root = Path(__file__).resolve().parent
         expected_prompt: str | None = None
-        for candidate_root in (search_root,) + tuple(search_root.parents):
+        for candidate_root in (search_root, *tuple(search_root.parents)):
             candidate = (
                 candidate_root
                 / "config"

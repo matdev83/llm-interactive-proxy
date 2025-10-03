@@ -6,6 +6,7 @@ from unittest.mock import Mock
 from src.core.domain.commands.oneoff_command import OneoffCommand
 from src.core.domain.session import BackendConfiguration, Session, SessionState
 
+
 def _make_command_and_session() -> tuple[OneoffCommand, Session]:
     command = OneoffCommand()
     session = Mock(spec=Session)

@@ -42,14 +42,12 @@ class EmptyResponseMiddleware(IResponseMiddleware):
 
         try:
             prompt_relative = (
-                Path("config")
-                / "prompts"
-                / "empty_response_auto_retry_prompt.md"
+                Path("config") / "prompts" / "empty_response_auto_retry_prompt.md"
             )
             current_dir = Path(__file__).resolve().parent
             prompt_path: Path | None = None
 
-            for candidate_root in (current_dir,) + tuple(current_dir.parents):
+            for candidate_root in (current_dir, *tuple(current_dir.parents)):
                 candidate = candidate_root / prompt_relative
                 if candidate.exists():
                     prompt_path = candidate

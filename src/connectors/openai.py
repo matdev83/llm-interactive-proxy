@@ -280,7 +280,7 @@ class OpenAIConnector(LLMBackend):
                     return getattr(message, key, None)
 
                 def _normalize_content(value: Any) -> Any:
-                    if isinstance(value, (list, tuple)):
+                    if isinstance(value, list | tuple):
                         normalized_parts: list[Any] = []
                         for part in value:
                             if hasattr(part, "model_dump") and callable(
@@ -297,9 +297,7 @@ class OpenAIConnector(LLMBackend):
                     return value
 
                 for message in processed_messages:
-                    if hasattr(message, "model_dump") and callable(
-                        message.model_dump
-                    ):
+                    if hasattr(message, "model_dump") and callable(message.model_dump):
                         normalized_messages.append(
                             dict(message.model_dump(exclude_none=False))
                         )

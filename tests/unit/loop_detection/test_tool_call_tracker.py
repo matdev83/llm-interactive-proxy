@@ -211,7 +211,7 @@ class TestToolCallLoopConfig:
         assert override.max_repeats == 4
 
 
-class TestToolCallTracker:
+class TestToolCallTrackerFunctionality:
     """Tests for ToolCallTracker functionality."""
 
     @pytest.fixture

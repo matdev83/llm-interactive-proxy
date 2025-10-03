@@ -268,6 +268,7 @@ class UsageTrackingService(IUsageTrackingService):
             )
             return None
         return candidate
+
     async def get_usage_stats(
         self, project: str | None = None, days: int = 30
     ) -> dict[str, Any]:
