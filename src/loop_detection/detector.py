@@ -214,18 +214,21 @@ class LoopDetector(ILoopDetector):
         if not content:
             return LoopDetectionResult(has_loop=False)
 
-        # Fast path: use a fresh analyzer instance on the whole content.
-        #
-        # Using the streaming analyzer directly would mutate its internal
-        # state, polluting subsequent streaming checks with the full content
-        # provided here. Creating a temporary analyzer avoids that side
-        # effect while still reusing the same configuration parameters.
-        isolated_analyzer = PatternAnalyzer(self.config, self.hasher)
-        event = isolated_analyzer.analyze_chunk(content, content)
+        # Use a clean analyzer snapshot so non-streaming checks don't disturb
+        # ongoing streaming state maintained by process_chunk.
+        analyzer_state = self.analyzer.snapshot_state()
+        try:
+            self.analyzer.reset()
+            event = self.analyzer.analyze_chunk(content, content)
+        finally:
+            self.analyzer.restore_state(analyzer_state)
         if event is None:
             return LoopDetectionResult(has_loop=False)
 
         repetition_count = event.repetition_count
+
+        # Record detection in history for observability without mutating prior state
+        self.analyzer.history.append(event)
 
         return LoopDetectionResult(
             has_loop=True,
