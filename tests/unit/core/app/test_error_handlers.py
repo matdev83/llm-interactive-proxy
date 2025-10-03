@@ -7,10 +7,6 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException
-from starlette.requests import Request
-from starlette.responses import Response
-
 from src.core.app.error_handlers import (
     configure_exception_handlers,
     general_exception_handler,
@@ -19,6 +15,9 @@ from src.core.app.error_handlers import (
     validation_exception_handler,
 )
 from src.core.common.exceptions import LLMProxyError
+from starlette.exceptions import HTTPException
+from starlette.requests import Request
+from starlette.responses import Response
 
 
 def make_request(path: str) -> Request:
@@ -74,7 +73,9 @@ def test_validation_exception_handler_formats_errors() -> None:
     ]
 
 
-def test_http_exception_handler_standard_response(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_http_exception_handler_standard_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr("time.time", lambda: 1700000000)
     request = make_request("/v1/models")
     exc = HTTPException(status_code=404, detail="Missing")
@@ -94,7 +95,9 @@ def test_http_exception_handler_standard_response(monkeypatch: pytest.MonkeyPatc
     }
 
 
-def test_http_exception_handler_chat_completions(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_http_exception_handler_chat_completions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr("time.time", lambda: 1700000000)
     request = make_request("/v1/chat/completions")
     exc = HTTPException(status_code=429, detail="Try again later")
