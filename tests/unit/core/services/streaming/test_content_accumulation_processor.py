@@ -81,6 +81,19 @@ async def test_content_accumulation_processor_handles_empty_chunks(
 
 
 @pytest.mark.asyncio
+async def test_content_accumulation_processor_preserves_metadata_for_empty_chunks(
+    content_accumulation_processor,
+):
+    chunk = StreamingContent(content="", metadata={"id": "chunk-1"})
+
+    processed_chunk = await content_accumulation_processor.process(chunk)
+
+    assert processed_chunk.metadata == {"id": "chunk-1"}
+    assert processed_chunk.content == ""
+    assert processed_chunk.is_done is False
+
+
+@pytest.mark.asyncio
 async def test_content_accumulation_processor_resets_buffer_after_emission(
     content_accumulation_processor,
 ):
