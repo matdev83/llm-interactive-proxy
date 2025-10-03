@@ -105,9 +105,11 @@ class TestDiscoverApiKeysFromConfigAndEnv:
         os.environ.update(
             {
                 "OPENAI_API_KEY": "sk-1234567890abcdefg",
+                "OPENAI_API_KEY_1": "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWX-123456",
                 "GEMINI_API_KEY_1": "AIzaSyD-abcdefghijklmn",
                 "GEMINI_API_KEY_14": "AIzaSyD-numbered14keyabcdef",
                 "ANTHROPIC_API_KEY": "sk-ant-api03-abcdefghijklmn",
+                "ZAI_API_KEY_2": "zai_ABCDEF1234567890",
                 "AUTH_TOKEN": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
                 "NORMAL_ENV_VAR": "this is a normal value",
             }
@@ -126,9 +128,11 @@ class TestDiscoverApiKeysFromConfigAndEnv:
         # Check that all API keys were discovered
         assert len(keys) >= 5
         assert any("sk-1234567890abcdefg" in k for k in keys)
+        assert any("sk-proj-ABCDEFGHIJKLMNOPQRSTUVWX-123456" in k for k in keys)
         assert any("AIzaSyD-abcdefghijklmn" in k for k in keys)
         assert any("AIzaSyD-numbered14keyabcdef" in k for k in keys)
         assert any("sk-ant-api03-abcdefghijklmn" in k for k in keys)
+        assert any("zai_ABCDEF1234567890" in k for k in keys)
         assert any("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" in k for k in keys)
 
         # Check that normal values were not discovered

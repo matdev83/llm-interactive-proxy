@@ -98,6 +98,10 @@ API_KEY_PATTERN = re.compile(r"(sk-|ak-)[a-zA-Z0-9]{20,}")
 ZAI_KEY_PATTERN = re.compile(r"\b[0-9a-f]{32}\.[A-Za-z0-9]{16,}\b")
 BEARER_TOKEN_PATTERN = re.compile(r"Bearer\s+([a-zA-Z0-9._~+/-]+=*)")
 
+# Environment variable name patterns for automatic discovery
+API_KEY_ENV_VAR_PATTERN = re.compile(r".*_API_KEY(?:_\d+)?$", re.IGNORECASE)
+TOKEN_ENV_VAR_PATTERN = re.compile(r".*_(?:AUTH|ACCESS|BEARER)_TOKEN(?:_\d+)?$", re.IGNORECASE)
+
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Get a structured logger.
@@ -505,6 +509,17 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
     for i in range(1, 21):
         if key := os.getenv(f"GEMINI_API_KEY_{i}"):
             found.add(key)
+
+    # Generic discovery for additional *_API_KEY style environment variables
+    for name, value in os.environ.items():
+        if not value:
+            continue
+        upper_name = name.upper()
+        if API_KEY_ENV_VAR_PATTERN.match(upper_name):
+            found.add(value)
+            continue
+        if TOKEN_ENV_VAR_PATTERN.match(upper_name):
+            found.add(value)
 
 
 def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:
