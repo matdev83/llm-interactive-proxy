@@ -207,10 +207,7 @@ class UsageTrackingService(IUsageTrackingService):
 
                 if prompt_tokens is None and header_prompt_tokens is not None:
                     prompt_tokens = header_prompt_tokens
-                if (
-                    completion_tokens is None
-                    and header_completion_tokens is not None
-                ):
+                if completion_tokens is None and header_completion_tokens is not None:
                     completion_tokens = header_completion_tokens
                 if total_tokens is None and header_total_tokens is not None:
                     total_tokens = header_total_tokens
@@ -225,10 +222,7 @@ class UsageTrackingService(IUsageTrackingService):
 
                 if prompt_tokens is None and response_prompt_tokens is not None:
                     prompt_tokens = response_prompt_tokens
-                if (
-                    completion_tokens is None
-                    and response_completion_tokens is not None
-                ):
+                if completion_tokens is None and response_completion_tokens is not None:
                     completion_tokens = response_completion_tokens
                 if total_tokens is None and response_total_tokens is not None:
                     total_tokens = response_total_tokens
