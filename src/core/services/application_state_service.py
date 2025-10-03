@@ -121,13 +121,23 @@ class ApplicationStateService(IApplicationState):
 
     def get_functional_backends(self) -> list[str]:
         """Get list of functional backends."""
+
+        def _normalize_backends(value: Any) -> list[str]:
+            if isinstance(value, list):
+                return value
+            if isinstance(value, set):
+                return list(value)
+            if isinstance(value, tuple):
+                return list(value)
+            return []
+
         if self._state_provider and hasattr(
             self._state_provider, "functional_backends"
         ):
             backends = self._state_provider.functional_backends
-            return backends if isinstance(backends, list) else []
+            return _normalize_backends(backends)
         local_backends = self._local_state.get("functional_backends", [])
-        return local_backends if isinstance(local_backends, list) else []
+        return _normalize_backends(local_backends)
 
     def set_functional_backends(self, backends: list[str]) -> None:
         """Set list of functional backends."""
