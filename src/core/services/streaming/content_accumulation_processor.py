@@ -18,7 +18,16 @@ class ContentAccumulationProcessor(IStreamProcessor):
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         if content.is_empty and not content.is_done:
-            return StreamingContent(content="")
+            # Preserve metadata/usage even when the chunk has no text so downstream
+            # processors (e.g., usage accounting) still receive the updated values.
+            return StreamingContent(
+                content="",
+                is_done=False,
+                is_cancellation=content.is_cancellation,
+                metadata=content.metadata,
+                usage=content.usage,
+                raw_data=content.raw_data,
+            )
 
         self._buffer += content.content
 
