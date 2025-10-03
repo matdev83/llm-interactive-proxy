@@ -91,12 +91,12 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
             "model": getattr(openai_response, "model", "unknown"),
             "choices": [],
             "usage": {
-                "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0)
-                if usage_obj
-                else 0,
-                "completion_tokens": getattr(usage_obj, "completion_tokens", 0)
-                if usage_obj
-                else 0,
+                "prompt_tokens": (
+                    getattr(usage_obj, "prompt_tokens", 0) if usage_obj else 0
+                ),
+                "completion_tokens": (
+                    getattr(usage_obj, "completion_tokens", 0) if usage_obj else 0
+                ),
             },
         }
 
