@@ -181,3 +181,27 @@ def test_cli_pytest_compression_flags() -> None:
         # but we enable it with the flag
         config_override = apply_cli_args(args_enable)
         assert config_override.session.pytest_compression_enabled is True
+
+
+def test_cli_capture_limits_arguments() -> None:
+    """Ensure CLI options for capture limits are parsed and applied."""
+    with patch("src.core.cli.load_config", return_value=AppConfig()):
+        args = parse_cli_args(
+            [
+                "--capture-max-bytes",
+                "1024",
+                "--capture-truncate-bytes",
+                "256",
+                "--capture-max-files",
+                "3",
+            ]
+        )
+
+        assert args.capture_max_bytes == 1024
+        assert args.capture_truncate_bytes == 256
+        assert args.capture_max_files == 3
+
+        config = apply_cli_args(args)
+        assert config.logging.capture_max_bytes == 1024
+        assert config.logging.capture_truncate_bytes == 256
+        assert config.logging.capture_max_files == 3
