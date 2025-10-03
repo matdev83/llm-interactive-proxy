@@ -416,8 +416,9 @@ def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
         subprocess.Popen(command, creationflags=creation_flags, close_fds=True)
         time.sleep(2)
         sys.exit(0)
+        return True
     _daemonize()
-    return True
+    return False
 
 
 def _configure_logging(cfg: AppConfig) -> None:
