@@ -29,12 +29,25 @@ class LoggingMiddleware(IResponseMiddleware):
             response_type = (
                 context.get("response_type", "unknown") if context else "unknown"
             )
-            usage_info = response.usage if response.usage else {}
+
+            if isinstance(response, dict):
+                raw_content = response.get("content")
+                usage_info = response.get("usage", {}) or {}
+            else:
+                raw_content = getattr(response, "content", None)
+                usage_info = getattr(response, "usage", {}) or {}
+
+            try:
+                content_length = len(raw_content) if raw_content else 0
+            except TypeError:
+                content_length = 0
 
             logger.debug(
-                f"Response processed for session {session_id} ({response_type}): "
-                f"content_len={len(response.content) if response.content else 0}, "
-                f"usage={usage_info}"
+                "Response processed for session %s (%s): content_len=%s, usage=%s",
+                session_id,
+                response_type,
+                content_length,
+                usage_info,
             )
 
         return response
