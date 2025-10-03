@@ -160,6 +160,26 @@ class TestLoopDetector:
         assert result.has_loop is False
         assert detector.get_current_state() == initial_state
 
+    @pytest.mark.asyncio
+    async def test_check_for_loops_reports_repeated_length_only(self) -> None:
+        """Ensure total_repeated_chars ignores surrounding noise."""
+
+        config = LoopDetectionConfig(
+            content_chunk_size=3,
+            content_loop_threshold=3,
+            max_history_length=50,
+        )
+        detector = LoopDetector(config=config)
+
+        noisy_content = "xyzabcxyzabcxyzabc"
+        result = await detector.check_for_loops(noisy_content)
+
+        assert result.has_loop is True
+        assert result.repetitions == config.content_loop_threshold
+        assert result.details is not None
+        assert result.details["total_repeated_chars"] == 9
+        assert result.details["pattern_length"] == 3
+
 
 class TestLoopDetectionEvent:
     """Test the LoopDetectionEvent class."""
