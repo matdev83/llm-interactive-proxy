@@ -1,7 +1,9 @@
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import load_config
+from src.core.persistence import ConfigManager
 
 
 @pytest.fixture(autouse=True)
@@ -114,7 +116,32 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY_1", raising=False)  # Clean up
 
 
-import pytest
+def test_apply_default_backend_handles_missing_backend(caplog, tmp_path) -> None:
+    """Ensure ConfigManager tolerates persisted but inactive backends."""
+
+    class DummyAppState:
+        def __init__(self) -> None:
+            self._backend_type: str | None = None
+            self._functional_backends: list[str] = []
+
+        def get_functional_backends(self) -> list[str]:
+            return self._functional_backends
+
+        def set_backend_type(self, backend_type: str | None) -> None:
+            self._backend_type = backend_type
+
+        def get_backend_type(self) -> str | None:
+            return self._backend_type
+
+    app_state = DummyAppState()
+    manager = ConfigManager(FastAPI(), str(tmp_path / "config.json"), app_state=app_state)
+
+    with caplog.at_level("WARNING"):
+        manager._apply_default_backend("missing-backend")
+
+    assert app_state.get_backend_type() == "missing-backend"
+    assert "not currently functional" in caplog.text
+
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
