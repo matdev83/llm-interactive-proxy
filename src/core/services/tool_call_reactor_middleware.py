@@ -85,8 +85,10 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             meta_calls = getattr(response, "metadata", {}).get("tool_calls")
             if isinstance(meta_calls, list):
                 tool_calls.extend([tc for tc in meta_calls if isinstance(tc, dict)])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                f"Error extracting tool calls from metadata: {e}", exc_info=True
+            )
 
         if not tool_calls:
             tool_calls = self._extract_tool_calls(response.content)

@@ -27,6 +27,8 @@ dependencies = [
     "json-repair",
     "watchdog",
     "pytz",
+    "pytest-asyncio==0.23.7",
+    "pytest-xdist==3.6.1"
 ]
 requires-python = ">=3.10"
 readme = "README.md"
