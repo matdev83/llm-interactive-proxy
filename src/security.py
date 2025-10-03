@@ -9,14 +9,14 @@ class APIKeyRedactor:
     """Redact known API keys from user provided prompts."""
 
     def __init__(self, api_keys: Iterable[str] | None = None) -> None:
-        # filter out falsy values
-        self.api_keys = [k for k in (api_keys or []) if k]
+        # Filter out falsy values and sort by length so longer keys are redacted first
+        unique_keys = {k for k in (api_keys or []) if k}
+        self.api_keys = sorted(unique_keys, key=len, reverse=True)
         # Pre-compile regex patterns for better performance
-        self._key_patterns = {}
+        self._key_patterns: dict[str, re.Pattern[str]] = {}
         for key in self.api_keys:
-            if key:
-                # Escape special regex characters and compile pattern
-                self._key_patterns[key] = re.compile(re.escape(key))
+            # Escape special regex characters and compile pattern
+            self._key_patterns[key] = re.compile(re.escape(key))
 
     def _redact_cached(self, text: str) -> str:
         """Cached version of redact for frequently processed content."""
