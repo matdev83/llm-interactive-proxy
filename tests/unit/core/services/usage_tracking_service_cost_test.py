@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
-
 from src.core.interfaces.repositories_interface import IUsageRepository
 from src.core.services.usage_tracking_service import UsageTrackingService
 
