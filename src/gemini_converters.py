@@ -379,12 +379,20 @@ def openai_models_to_gemini_models(
 
 def extract_model_from_gemini_path(path: str) -> str:
     """Extract model name from Gemini API path like /v1beta/models/gemini-pro:generateContent."""
-    # Path format: /v1beta/models/{model}:generateContent or /v1beta/models/{model}:streamGenerateContent
+    # Path format examples:
+    #   /v1beta/models/{model}:generateContent
+    #   /v1beta/models/{model}:streamGenerateContent?alt=sse
     if "/models/" in path:
-        # Extract the part between /models/ and the next :
-        parts = path.split("/models/")[1]
-        model = parts.split(":")[0]
-        return model
+        # Extract the portion that starts at the model name
+        parts = path.split("/models/", 1)[1]
+
+        # Remove any path suffix (e.g. :generateContent) and query parameters
+        model_and_suffix = parts.split(":", 1)[0]
+        model = model_and_suffix.split("?", 1)[0]
+
+        # Defensive trim for stray slashes
+        return model.strip("/") or "gemini-pro"
+
     return "gemini-pro"  # Default fallback
 
 

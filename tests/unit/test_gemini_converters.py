@@ -10,6 +10,7 @@ from src.gemini_converters import (
     gemini_to_openai_messages,
     openai_to_gemini_contents,
     openai_to_gemini_stream_chunk,
+    extract_model_from_gemini_path,
 )
 from src.gemini_models import (
     Blob,
@@ -114,3 +115,23 @@ class TestMessageConversion:
         data = json.loads(payload)
 
         assert data["candidates"][0]["content"]["parts"][0]["text"] == "Hello"
+
+
+class TestExtractModelFromGeminiPath:
+    """Tests for extract_model_from_gemini_path utility."""
+
+    def test_extracts_model_without_suffix(self) -> None:
+        path = "/v1beta/models/gemini-1.5-flash-latest:generateContent"
+        assert (
+            extract_model_from_gemini_path(path)
+            == "gemini-1.5-flash-latest"
+        )
+
+    def test_extracts_model_with_query_parameters(self) -> None:
+        path = (
+            "/v1beta/models/gemini-1.5-flash-latest:streamGenerateContent?alt=sse"
+        )
+        assert (
+            extract_model_from_gemini_path(path)
+            == "gemini-1.5-flash-latest"
+        )
