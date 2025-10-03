@@ -31,6 +31,11 @@ class TestPytestCompression:
         return Session(session_id="test-session", agent="cline", state=state)
 
     @pytest.fixture
+    def pytest_compression_service(self):
+        """Create a PytestCompressionService instance for detection tests."""
+        return PytestCompressionService()
+
+    @pytest.fixture
     def session_with_compression_disabled(self):
         """Create a session with pytest compression disabled."""
         state = SessionState(pytest_compression_enabled=False)
@@ -75,6 +80,17 @@ FAILED test_example.py::test_failure - AssertionError: assert False
         assert not agent_formatter._is_pytest_command("python -m unittest")
         assert not agent_formatter._is_pytest_command("make test")
         assert not agent_formatter._is_pytest_command("hello")
+
+    def test_scan_for_pytest_supports_list_based_commands(
+        self, pytest_compression_service
+    ):
+        """Ensure detection works when shell tools pass command lists."""
+
+        result = pytest_compression_service.scan_for_pytest(
+            "bash", {"cmd": ["pytest", "-k", "fast"]}
+        )
+
+        assert result == (True, "pytest -k fast")
 
     def test_filter_pytest_output_removes_target_lines(
         self, agent_formatter, sample_pytest_output
