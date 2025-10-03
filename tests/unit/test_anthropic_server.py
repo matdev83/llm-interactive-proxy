@@ -15,7 +15,7 @@ def test_create_anthropic_app_registers_endpoints() -> None:
     # App should be created and configured
     assert app is not None
     assert hasattr(app.state, "app_config")
-    assert getattr(app.state, "service_provider", None) is not None
+  assert getattr(app.state, "service_provider", None) is not None
 
     # Ensure key Anthropic endpoints exist without prefix
     paths = {route.path for route in app.router.routes}  # type: ignore[attr-defined]
