@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -265,6 +266,7 @@ class ConfigManager:
             )
 
         valid_model = True
+        validation_error: str | None = None
         if self.service_provider:
             try:
                 from src.core.interfaces.backend_service_interface import (
@@ -275,18 +277,31 @@ class ConfigManager:
                     IBackendService  # type: ignore[type-abstract]
                 )
                 if backend_service:
-                    # This is now an async method, but we are in a sync method.
-                    # This is a bigger issue that needs to be addressed separately.
-                    # For now, we will assume it's valid if the service exists.
-                    # A proper fix would involve making this method async.
-                    # This is a temporary workaround to unblock the current refactoring.
-                    import asyncio
-
-                    valid_model, _validation_error = asyncio.run(
-                        backend_service.validate_backend_and_model(
+                    async def _validate_model() -> tuple[bool, str | None]:
+                        return await backend_service.validate_backend_and_model(
                             backend_name, model_name
                         )
-                    )
+
+                    try:
+                        running_loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        valid_model, validation_error = asyncio.run(
+                            _validate_model()
+                        )
+                    else:
+                        if running_loop.is_running():
+                            logger.debug(
+                                (
+                                    "Skipping failover validation for %s:%s because an "
+                                    "event loop is already running."
+                                ),
+                                backend_name,
+                                model_name,
+                            )
+                        else:
+                            valid_model, validation_error = running_loop.run_until_complete(
+                                _validate_model()
+                            )
 
             except ServiceResolutionError as e:
                 logger.debug(
@@ -312,10 +327,13 @@ class ConfigManager:
                 valid_model = False
 
         if not valid_model:
-            return (
-                None,
-                f"Model '{model_name}' for backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not available, skipping.",
+            warning = (
+                f"Model '{model_name}' for backend '{backend_name}' in route '{route_name}' "
+                f"element '{elem_str}' is not available, skipping."
             )
+            if validation_error:
+                warning = f"{warning} Details: {validation_error}."
+            return (None, warning)
 
         return internal_elem_str, None  # Return internal colon syntax, no warning
 
