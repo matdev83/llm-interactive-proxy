@@ -200,18 +200,32 @@ class UsageTrackingService(IUsageTrackingService):
                 billing = extract_billing_info_from_headers(
                     tracker.response_headers, backend
                 )
-                u = billing.get("usage", {})
-                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
-                completion_tokens = completion_tokens or u.get("completion_tokens")
-                total_tokens = total_tokens or u.get("total_tokens")
+                usage_details = billing.get("usage", {})
+                header_prompt_tokens = usage_details.get("prompt_tokens")
+                header_completion_tokens = usage_details.get("completion_tokens")
+                header_total_tokens = usage_details.get("total_tokens")
+
+                if prompt_tokens is None and header_prompt_tokens is not None:
+                    prompt_tokens = header_prompt_tokens
+                if completion_tokens is None and header_completion_tokens is not None:
+                    completion_tokens = header_completion_tokens
+                if total_tokens is None and header_total_tokens is not None:
+                    total_tokens = header_total_tokens
 
             # Extract from response body
             if tracker.response is not None:
                 billing = extract_billing_info_from_response(tracker.response, backend)
-                u = billing.get("usage", {})
-                prompt_tokens = prompt_tokens or u.get("prompt_tokens")
-                completion_tokens = completion_tokens or u.get("completion_tokens")
-                total_tokens = total_tokens or u.get("total_tokens")
+                usage_details = billing.get("usage", {})
+                response_prompt_tokens = usage_details.get("prompt_tokens")
+                response_completion_tokens = usage_details.get("completion_tokens")
+                response_total_tokens = usage_details.get("total_tokens")
+
+                if prompt_tokens is None and response_prompt_tokens is not None:
+                    prompt_tokens = response_prompt_tokens
+                if completion_tokens is None and response_completion_tokens is not None:
+                    completion_tokens = response_completion_tokens
+                if total_tokens is None and response_total_tokens is not None:
+                    total_tokens = response_total_tokens
 
             # Persist usage data
             usage_data = await self.track_usage(
