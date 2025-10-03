@@ -32,9 +32,23 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
 
     # API key authentication middleware (if enabled)
     # New AppConfig object
-    disable_auth = config.auth.disable_auth if hasattr(config, "auth") else False
-    api_keys = config.auth.api_keys if hasattr(config, "auth") else []
-    trusted_ips = config.auth.trusted_ips if hasattr(config, "auth") else []
+    if hasattr(config, "auth"):
+        auth_config = config.auth
+        disable_auth = getattr(auth_config, "disable_auth", False)
+        raw_api_keys = getattr(auth_config, "api_keys", [])
+        raw_trusted_ips = getattr(auth_config, "trusted_ips", [])
+    else:
+        auth_config = None
+        disable_auth = False
+        raw_api_keys = []
+        raw_trusted_ips = []
+
+    # Ensure API keys and trusted IPs are always sequences before using them.
+    # This avoids TypeErrors when a configuration provides ``None`` (common when
+    # values are omitted in environment overrides) and keeps compatibility with
+    # DI provided config objects that may return tuples or other iterables.
+    api_keys = list(raw_api_keys or [])
+    trusted_ips = list(raw_trusted_ips or [])
 
     # Respect environment override for disabling auth (useful for tests)
     env_disable = os.getenv("DISABLE_AUTH", "").lower() == "true"
@@ -55,8 +69,8 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     # Auth middleware (for tokens) - only add if auth not disabled
     auth_token = None
     if not disable_auth:
-        if hasattr(config, "auth") and hasattr(config.auth, "auth_token"):
-            auth_token = config.auth.auth_token
+        if auth_config is not None and hasattr(auth_config, "auth_token"):
+            auth_token = auth_config.auth_token
 
         if auth_token:
             logger.info("Auth token validation is enabled")
