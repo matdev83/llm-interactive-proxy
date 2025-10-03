@@ -2,7 +2,6 @@
 
 from importlib import import_module, reload
 
-
 MODULE_PATH = "src.core.domain.commands.loop_detection_commands"
 
 
@@ -21,11 +20,21 @@ def test_loop_detection_commands_module_exports_expected_classes() -> None:
 
     assert module.__all__ == expected_exports
 
-    loop_detection_command = import_module(f"{MODULE_PATH}.loop_detection_command").LoopDetectionCommand
-    tool_loop_detection_command = import_module(f"{MODULE_PATH}.tool_loop_detection_command").ToolLoopDetectionCommand
-    tool_loop_max_repeats_command = import_module(f"{MODULE_PATH}.tool_loop_max_repeats_command").ToolLoopMaxRepeatsCommand
-    tool_loop_mode_command = import_module(f"{MODULE_PATH}.tool_loop_mode_command").ToolLoopModeCommand
-    tool_loop_ttl_command = import_module(f"{MODULE_PATH}.tool_loop_ttl_command").ToolLoopTTLCommand
+    loop_detection_command = import_module(
+        f"{MODULE_PATH}.loop_detection_command"
+    ).LoopDetectionCommand
+    tool_loop_detection_command = import_module(
+        f"{MODULE_PATH}.tool_loop_detection_command"
+    ).ToolLoopDetectionCommand
+    tool_loop_max_repeats_command = import_module(
+        f"{MODULE_PATH}.tool_loop_max_repeats_command"
+    ).ToolLoopMaxRepeatsCommand
+    tool_loop_mode_command = import_module(
+        f"{MODULE_PATH}.tool_loop_mode_command"
+    ).ToolLoopModeCommand
+    tool_loop_ttl_command = import_module(
+        f"{MODULE_PATH}.tool_loop_ttl_command"
+    ).ToolLoopTTLCommand
 
     assert module.LoopDetectionCommand is loop_detection_command
     assert module.ToolLoopDetectionCommand is tool_loop_detection_command
