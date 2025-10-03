@@ -1,6 +1,7 @@
 import pytest
 from src.loop_detection.analyzer import PatternAnalyzer
 from src.loop_detection.config import LoopDetectionConfig
+from src.loop_detection.event import LoopDetectionEvent
 from src.loop_detection.hasher import ContentHasher
 
 
@@ -115,6 +116,28 @@ def test_pattern_analyzer_loop_detection_with_noise(analyzer: PatternAnalyzer) -
     assert event.pattern == "abc"
     assert event.repetition_count == 3
     assert event.confidence == 1.0
+
+
+def test_pattern_analyzer_total_length_excludes_noise(
+    analyzer: PatternAnalyzer,
+) -> None:
+    """Ensure total_length reflects the repeated pattern only."""
+
+    chunks = ["abc", "xyz", "abc", "xyz", "abc"]
+    full = ""
+    event: LoopDetectionEvent | None = None
+
+    for chunk in chunks:
+        full += chunk
+        event = analyzer.analyze_chunk(chunk, full)
+
+    assert event is not None
+    assert event.repetition_count == analyzer.config.content_loop_threshold
+    assert event.pattern == "abc"
+    # total_length should only count the repeated pattern characters
+    expected = len(event.pattern) * event.repetition_count
+    assert event.total_length == expected
+
 
 
 def test_pattern_analyzer_reset(analyzer: PatternAnalyzer) -> None:
