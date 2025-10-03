@@ -175,9 +175,10 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
 
         # Finish reason delta
         if choice.get("finish_reason"):
+            anthropic_reason = _map_finish_reason(choice["finish_reason"])
             payload = {
                 "type": "message_delta",
-                "delta": {"stop_reason": choice["finish_reason"]},
+                "delta": {"stop_reason": anthropic_reason},
             }
             return f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
     except json.JSONDecodeError:
