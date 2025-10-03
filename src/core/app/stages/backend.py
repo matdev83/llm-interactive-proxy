@@ -140,13 +140,18 @@ class BackendStage(InitializationStage):
             )
             from src.core.services.translation_service import TranslationService
 
-            # Register concrete implementation
+            # Register concrete implementation once
             services.add_singleton(TranslationService)
 
-            # Register interface
+            # Ensure interface resolves to the same singleton instance via factory
+            def _translation_service_alias_factory(
+                provider: IServiceProvider,
+            ) -> TranslationService:
+                return provider.get_required_service(TranslationService)
+
             services.add_singleton(
                 cast(type, ITranslationService),
-                implementation_type=TranslationService,
+                implementation_factory=_translation_service_alias_factory,
             )
 
             if logger.isEnabledFor(logging.DEBUG):
