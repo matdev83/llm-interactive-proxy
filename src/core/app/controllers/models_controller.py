@@ -28,29 +28,34 @@ router = APIRouter(tags=["models"])
 class ModelsController:
     """Controller for model-related endpoints."""
 
-    def __init__(self, backend_service: IBackendService) -> None:
+    def __init__(
+        self,
+        backend_service: IBackendService,
+        config: IConfig | None = None,
+        backend_factory: BackendFactory | None = None,
+    ) -> None:
         """Initialize the models controller.
 
         Args:
             backend_service: The backend service to use
+            config: Optional configuration service provided via DI
+            backend_factory: Optional backend factory provided via DI
         """
         self.backend_service = backend_service
+        self._config = config
+        self._backend_factory = backend_factory
 
     async def list_models(self) -> dict[str, Any]:
-        """List all available models.
+        """List all available models using shared discovery logic."""
 
-        Returns:
-            Dictionary containing list of available models
-        """
-        # Implementation would go here
-        # For now, return a basic response
-        return {
-            "object": "list",
-            "data": [
-                {"id": "gpt-4", "object": "model", "owned_by": "openai"},
-                {"id": "gpt-3.5-turbo", "object": "model", "owned_by": "openai"},
-            ],
-        }
+        config = self._config or get_config_service()
+        backend_factory = self._backend_factory or get_backend_factory_service()
+
+        return await _list_models_impl(
+            backend_service=self.backend_service,
+            config=config,
+            backend_factory=backend_factory,
+        )
 
 
 async def get_backend_service() -> IBackendService:
@@ -206,17 +211,14 @@ def get_backend_factory_service() -> BackendFactory:
         )
 
 
-@router.get("/models")
-async def list_models(
-    backend_service: IBackendService = Depends(get_backend_service),
-    config: IConfig = Depends(get_config_service),
-    backend_factory: BackendFactory = Depends(get_backend_factory_service),
+async def _list_models_impl(
+    *,
+    backend_service: IBackendService,
+    config: IConfig,
+    backend_factory: BackendFactory,
 ) -> dict[str, Any]:
-    """List available models from all configured backends.
+    """Shared implementation that discovers available models."""
 
-    Returns:
-        A dictionary containing the list of available models
-    """
     try:
         logger.info("Listing available models")
 
@@ -229,6 +231,9 @@ async def list_models(
         if not isinstance(config, AppConfig):
             # Fallback to default config if we got a different config type
             config = AppConfig()
+
+        # Ensure backend service is at least resolved for DI side effects
+        _ = backend_service
 
         # Iterate through dynamically discovered backend types from the registry
         for backend_type in backend_registry.get_registered_backends():
@@ -308,3 +313,18 @@ async def list_models(
     except Exception as e:  # type: ignore[misc]
         logger.error(f"Error listing models: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/models")
+async def list_models(
+    backend_service: IBackendService = Depends(get_backend_service),
+    config: IConfig = Depends(get_config_service),
+    backend_factory: BackendFactory = Depends(get_backend_factory_service),
+) -> dict[str, Any]:
+    """List available models from all configured backends."""
+
+    return await _list_models_impl(
+        backend_service=backend_service,
+        config=config,
+        backend_factory=backend_factory,
+    )
