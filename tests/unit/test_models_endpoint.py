@@ -53,7 +53,9 @@ def test_model_listing_includes_oauth_backends(monkeypatch) -> None:
             return ["gemini-2.5-pro"]
 
     class DummyFactory:
-        def create_backend(self, backend_type: str, config_obj: AppConfig) -> DummyBackend:
+        def create_backend(
+            self, backend_type: str, config_obj: AppConfig
+        ) -> DummyBackend:
             created_backends.append(backend_type)
             return DummyBackend()
 

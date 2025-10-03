@@ -300,9 +300,7 @@ async def _list_models_impl(
                 # Add models to the list with proper formatting
                 for model in models:
                     model_id: str = (
-                        f"{backend_type}:{model}"
-                        if backend_type != "openai"
-                        else model
+                        f"{backend_type}:{model}" if backend_type != "openai" else model
                     )
 
                     # Avoid duplicates
