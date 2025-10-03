@@ -488,7 +488,37 @@ class RoutePrependCommand(StatefulCommandBase):
         # Validate element format (backend:model or model)
         if ":" in element:
             backend, _model = element.split(":", 1)
-            if context and backend not in context.backend_factory._backend_types:
+
+            backend_factory = None
+            if context:
+                if isinstance(context, dict):
+                    backend_factory = context.get("backend_factory")
+                else:
+                    backend_factory = getattr(context, "backend_factory", None)
+
+            candidate_types = None
+            if backend_factory is not None:
+                try:
+                    candidate_types = getattr(backend_factory, "_backend_types", None)
+                except Exception:
+                    candidate_types = None
+                if candidate_types is None:
+                    candidate_types = backend_factory
+
+            allowed_backends: list[str] = []
+            if candidate_types is not None:
+                try:
+                    if isinstance(candidate_types, dict) or (
+                        hasattr(candidate_types, "keys")
+                        and callable(candidate_types.keys)
+                    ):
+                        allowed_backends = list(candidate_types.keys())
+                    else:
+                        allowed_backends = list(candidate_types)
+                except Exception:
+                    allowed_backends = []
+
+            if allowed_backends and backend not in allowed_backends:
                 return CommandResult(
                     name=self.name,
                     success=False,
