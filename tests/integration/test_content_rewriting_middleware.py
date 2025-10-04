@@ -161,9 +161,7 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             new_body = json.loads(response.body)
             self.assertEqual(
                 new_body["choices"][0]["message"]["content"],
-                [
-                    {"type": "text", "text": "This is an original reply."}
-                ],
+                [{"type": "text", "text": "This is an original reply."}],
             )
 
         import asyncio
