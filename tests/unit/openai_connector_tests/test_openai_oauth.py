@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_oauth import OpenAIOAuthConnector
 from src.core.config.app_config import AppConfig
@@ -39,7 +38,9 @@ def test_openai_oauth_degrades_on_http_auth_error(monkeypatch):
         fake_validate_runtime_credentials,
     )
     monkeypatch.setattr(OpenAIOAuthConnector, "_load_auth", fake_load_auth)
-    monkeypatch.setattr(OpenAIConnector, "chat_completions", fake_super_chat_completions)
+    monkeypatch.setattr(
+        OpenAIConnector, "chat_completions", fake_super_chat_completions
+    )
 
     async def invoke_chat_completion() -> None:
         with pytest.raises(HTTPException):
