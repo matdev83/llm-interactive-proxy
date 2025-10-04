@@ -16,6 +16,7 @@ from fastapi import FastAPI
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.di.services import get_service_collection
 from src.core.interfaces.di_interface import IServiceProvider
 
 from .stages.base import InitializationStage
@@ -42,7 +43,19 @@ class ApplicationBuilder:
     def __init__(self) -> None:
         """Initialize the application builder."""
         self._stages: dict[str, InitializationStage] = {}
+
+        # Start from the globally configured service collection so that any
+        # pre-registered overrides (for example in tests) are honoured. Create a
+        # fresh ServiceCollection instance to avoid mutating the global
+        # container while still inheriting its registrations.
+        base_collection = get_service_collection()
         self._services = ServiceCollection()
+        try:
+            self._services._descriptors.update(base_collection._descriptors)
+        except AttributeError:
+            # Fallback for unexpected implementations of ServiceCollection
+            for service_type, descriptor in getattr(base_collection, "_descriptors", {}).items():
+                self._services._descriptors[service_type] = descriptor
 
     def add_stage(self, stage: InitializationStage) -> ApplicationBuilder:
         """
