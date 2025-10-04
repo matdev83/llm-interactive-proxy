@@ -251,7 +251,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             pass
 
         looks_like_pytest = (
-            self._is_pytest_command(command_name)
+            self._is_pytest_command(command_name, message)
             or "test session starts" in message
             or "short test summary info" in message
         )
