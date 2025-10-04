@@ -60,6 +60,36 @@ class TestToolCallReactorMiddleware:
         assert result == response
 
     @pytest.mark.asyncio
+    async def test_process_metadata_tool_calls_without_content(
+        self, middleware, mock_reactor
+    ):
+        """Tool calls in metadata should be processed even when content is empty."""
+        response = ProcessedResponse(
+            content="",
+            metadata={
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {"name": "meta_tool", "arguments": "{}"},
+                    }
+                ]
+            },
+        )
+
+        mock_reactor.process_tool_call.return_value = None
+
+        result = await middleware.process(
+            response=response,
+            session_id="session-id",
+            context={"backend_name": "backend", "model_name": "model"},
+        )
+
+        assert result == response
+        mock_reactor.process_tool_call.assert_called_once()
+        tool_context = mock_reactor.process_tool_call.call_args.args[0]
+        assert tool_context.tool_name == "meta_tool"
+
+    @pytest.mark.asyncio
     async def test_process_disabled_middleware(self, mock_reactor):
         """Test processing when middleware is disabled."""
         middleware = ToolCallReactorMiddleware(mock_reactor, enabled=False)
