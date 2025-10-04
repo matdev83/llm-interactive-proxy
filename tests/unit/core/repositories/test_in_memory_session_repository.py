@@ -166,6 +166,39 @@ class TestInMemorySessionRepository:
         assert repository._sessions[sample_session.session_id] is sample_session
 
     @pytest.mark.asyncio
+    async def test_update_session_changes_user_tracking(
+        self, repository: InMemorySessionRepository, sample_session: MockSessionWithUser
+    ) -> None:
+        """Updating a session with a new user should update tracking tables."""
+        await repository.add(sample_session)
+
+        sample_session.user_id = "user-789"
+        await repository.update(sample_session)
+
+        assert sample_session.session_id not in repository._user_sessions.get(
+            "user-456", []
+        )
+        assert repository._user_sessions.get("user-789") == [sample_session.session_id]
+
+    @pytest.mark.asyncio
+    async def test_update_session_removes_user_tracking_when_user_cleared(
+        self, repository: InMemorySessionRepository, sample_session: MockSessionWithUser
+    ) -> None:
+        """Clearing the user_id should remove the session from user tracking."""
+        await repository.add(sample_session)
+
+        sample_session.user_id = None
+        await repository.update(sample_session)
+
+        assert sample_session.session_id not in repository._user_sessions.get(
+            "user-456", []
+        )
+        assert all(
+            sample_session.session_id not in sessions
+            for sessions in repository._user_sessions.values()
+        )
+
+    @pytest.mark.asyncio
     async def test_update_nonexistent_session(
         self, repository: InMemorySessionRepository, sample_session: Session
     ) -> None:
