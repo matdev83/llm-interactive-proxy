@@ -1,5 +1,6 @@
 """Tests for response middleware functionality."""
 
+import asyncio
 from unittest.mock import MagicMock
 
 import pytest
@@ -95,6 +96,21 @@ class TestContentFilterMiddleware:
         result = await middleware.process(response, "session123", {})
 
         assert result == response
+
+    def test_process_handles_dictionary_response(self, middleware):
+        """Middleware should support plain dictionary responses."""
+        response = {
+            "content": "I'll help you with that. Sanitized answer.",
+            "usage": {"prompt_tokens": 1},
+            "metadata": {"source": "test"},
+        }
+
+        result = asyncio.run(middleware.process(response, "session123", {}))
+
+        assert result is not response
+        assert result["content"] == "Sanitized answer."
+        assert result["usage"] == response["usage"]
+        assert result["metadata"] == response["metadata"]
 
 
 class TestLoopDetectionMiddleware:
