@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Iterator
+from collections.abc import Iterator
 
 import httpx
 import pytest
-
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -50,7 +49,9 @@ def backend_with_transport() -> Iterator[tuple[OpenRouterBackend, RecordingTrans
         asyncio.run(client.aclose())
 
 
-def test_identity_headers_forwarded(backend_with_transport: tuple[OpenRouterBackend, RecordingTransport]) -> None:
+def test_identity_headers_forwarded(
+    backend_with_transport: tuple[OpenRouterBackend, RecordingTransport]
+) -> None:
     backend, transport = backend_with_transport
 
     identity = AppIdentityConfig(

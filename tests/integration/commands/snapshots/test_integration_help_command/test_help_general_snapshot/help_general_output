@@ -1,1 +1,23 @@
-Mock help information
+Available commands:
+- create-failover-route - Manage failover routes.
+- delete-failover-route - Manage failover routes.
+- hello - Greets the user.
+- help - Shows a list of all available commands or help for a specific command.
+- list-failover-routes - Manage failover routes.
+- low - Activates the low reasoning mode.
+- max - Activates the max reasoning mode.
+- medium - Activates the medium reasoning mode.
+- mode - Sets the reasoning mode for the current session.
+- model - Set or unset the active model (optionally with backend)
+- no-think - Activates the no-think reasoning mode.
+- provider - Sets the provider for the current session.
+- route-append - Manage failover routes.
+- route-clear - Manage failover routes.
+- route-list - Manage failover routes.
+- route-prepend - Manage failover routes.
+- set - Set a session value.
+- tool-loop-detection - Enable or disable tool loop detection.
+- tool-loop-max-repeats - Set the maximum number of repeats for tool loop detection.
+- tool-loop-mode - Set the mode for tool loop detection.
+- tool-loop-ttl - Set the tool call loop TTL (time-to-live) in seconds
+- unset - Unset a session value.

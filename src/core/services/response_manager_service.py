@@ -679,7 +679,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             f"Pytest compression started - Original metrics: {original_tokens} tokens, {original_lines} lines"
         )
 
-        lines = output.split("\n")
+        lines = output.strip().split("\n")
         if not lines:
             return output
 

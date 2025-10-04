@@ -223,9 +223,7 @@ class ConfigurableRateLimiter(IRateLimiter):
         """Apply configuration to the rate limiter."""
         rate_limits = self._config.get("rate_limits", {})
         if not isinstance(rate_limits, dict):
-            logger.warning(
-                "Rate limit configuration is not a mapping: %r", rate_limits
-            )
+            logger.warning("Rate limit configuration is not a mapping: %r", rate_limits)
             return
 
         default_limit = getattr(self._limiter, "_default_limit", 60)
