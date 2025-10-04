@@ -1,5 +1,4 @@
-"""
-Project command implementation.
+"""Project command implementation.
 
 This module provides a domain command for setting the project name.
 """
@@ -55,7 +54,22 @@ class ProjectCommand(StatelessCommandBase, BaseCommand):
         Returns:
             CommandResult indicating success or failure
         """
-        project_name = args.get("name")
+        raw_project_value = args.get("name")
+
+        if raw_project_value is None:
+            return CommandResult(
+                success=False, message="Project name must be specified", name=self.name
+            )
+
+        if isinstance(raw_project_value, str):
+            project_name = raw_project_value.strip()
+        else:
+            logger.debug(
+                "Coercing non-string project name argument to string",
+                extra={"type": type(raw_project_value)},
+            )
+            project_name = str(raw_project_value).strip()
+
         if not project_name:
             return CommandResult(
                 success=False, message="Project name must be specified", name=self.name
