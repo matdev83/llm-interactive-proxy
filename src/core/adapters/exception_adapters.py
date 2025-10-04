@@ -46,9 +46,21 @@ def create_exception_handler() -> (
 
         # FastAPI HTTPExceptions - pass through
         if isinstance(exc, HTTPException):
+            detail = exc.detail
+
+            if isinstance(detail, dict):
+                content = detail
+            else:
+                content = {
+                    "error": {
+                        "message": str(detail),
+                        "type": "http_error",
+                    }
+                }
+
             return JSONResponse(
                 status_code=exc.status_code,
-                content={"error": {"message": str(exc.detail), "type": "http_error"}},
+                content=content,
                 headers=getattr(exc, "headers", None),
             )
 
