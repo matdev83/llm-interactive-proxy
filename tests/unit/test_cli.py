@@ -1,7 +1,8 @@
+import argparse
 from unittest.mock import patch
 
 import pytest
-from src.core.cli import apply_cli_args, parse_cli_args
+from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
 from src.core.config.app_config import AppConfig
 
 # Make sure all connectors are imported and registered
@@ -181,3 +182,27 @@ def test_cli_pytest_compression_flags() -> None:
         # but we enable it with the flag
         config_override = apply_cli_args(args_enable)
         assert config_override.session.pytest_compression_enabled is True
+
+
+def test_maybe_run_as_daemon_posix_continues(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure daemon mode continues execution on POSIX systems."""
+
+    # Prepare CLI arguments and configuration
+    args = argparse.Namespace(daemon=True)
+    cfg = AppConfig()
+    cfg.logging.log_file = "logs/proxy.log"
+
+    daemonized = {"called": False}
+
+    def fake_daemonize() -> None:
+        daemonized["called"] = True
+
+    import src.core.cli as cli
+
+    monkeypatch.setattr(cli, "_daemonize", fake_daemonize)
+    monkeypatch.setattr(cli.os, "name", "posix", raising=False)
+
+    should_exit = _maybe_run_as_daemon(args, cfg)
+
+    assert daemonized["called"] is True
+    assert should_exit is False
