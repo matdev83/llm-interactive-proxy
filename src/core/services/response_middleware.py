@@ -65,18 +65,39 @@ class ContentFilterMiddleware(IResponseMiddleware):
         stop_event: Any = None,
     ) -> Any:
         """Process a response, filtering content as needed."""
-        content = response.content
+        prefix = "I'll help you with that. "
 
-        if not content:
+        if isinstance(response, dict):
+            content = response.get("content")
+            if not isinstance(content, str) or not content:
+                return response
+            if not content.startswith(prefix):
+                return response
+
+            filtered_content = content.replace(prefix, "", 1)
+            updated_response = response.copy()
+            updated_response["content"] = filtered_content
+            return updated_response
+
+        content = getattr(response, "content", None)
+        if not isinstance(content, str) or not content:
+            return response
+        if not content.startswith(prefix):
             return response
 
-        # Example filtering logic
-        if content.startswith("I'll help you with that. "):
-            content = content.replace("I'll help you with that. ", "", 1)
+        filtered_content = content.replace(prefix, "", 1)
 
-        return ProcessedResponse(
-            content=content, usage=response.usage, metadata=response.metadata
-        )
+        try:
+            setattr(response, "content", filtered_content)
+            return response
+        except AttributeError:
+            usage = getattr(response, "usage", None)
+            metadata = getattr(response, "metadata", None)
+            return ProcessedResponse(
+                content=filtered_content,
+                usage=usage,
+                metadata=metadata,
+            )
 
 
 class LoopDetectionMiddleware(IResponseMiddleware):
