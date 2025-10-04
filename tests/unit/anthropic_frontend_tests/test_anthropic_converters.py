@@ -131,6 +131,34 @@ class TestAnthropicConverters:
         assert anthropic_response["usage"]["input_tokens"] == 10
         assert anthropic_response["usage"]["output_tokens"] == 15
 
+    def test_openai_to_anthropic_response_structured_content(self) -> None:
+        """Structured OpenAI message content should be flattened to text."""
+
+        openai_response = {
+            "id": "chatcmpl-456",
+            "object": "chat.completion",
+            "model": "claude-3-sonnet-20240229",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "Hello"},
+                            {"type": "text", "text": " world!"},
+                        ],
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        anthropic_response = openai_to_anthropic_response(openai_response)
+
+        assert len(anthropic_response["content"]) == 1
+        assert anthropic_response["content"][0]["type"] == "text"
+        assert anthropic_response["content"][0]["text"] == "Hello world!"
+
     def test_openai_stream_to_anthropic_stream_start(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - start."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant"}}]}'
