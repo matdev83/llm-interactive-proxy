@@ -6,9 +6,9 @@ import asyncio
 import logging
 import math
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
-from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -62,8 +62,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         self.brute_force_enabled = brute_force_enabled and brute_force_max_attempts > 0
         self.brute_force_ttl_seconds = max(brute_force_ttl_seconds, 1)
         self.brute_force_max_attempts = max(brute_force_max_attempts, 1)
-        self.brute_force_initial_block_seconds = max(brute_force_initial_block_seconds, 1)
-        self.brute_force_block_multiplier = brute_force_block_multiplier if brute_force_block_multiplier > 1 else 1.0
+        self.brute_force_initial_block_seconds = max(
+            brute_force_initial_block_seconds, 1
+        )
+        self.brute_force_block_multiplier = (
+            brute_force_block_multiplier if brute_force_block_multiplier > 1 else 1.0
+        )
         self.brute_force_max_block_seconds = max(brute_force_max_block_seconds, 1)
         self._attempts: dict[str, _BruteForceRecord] = {}
         self._attempts_lock = asyncio.Lock()

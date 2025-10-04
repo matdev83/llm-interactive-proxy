@@ -125,7 +125,7 @@ class AuthConfig(DomainModel):
     auth_token: str | None = None
     redact_api_keys_in_prompts: bool = True
     trusted_ips: list[str] = Field(default_factory=list)
-    brute_force_protection: "BruteForceProtectionConfig" = Field(
+    brute_force_protection: BruteForceProtectionConfig = Field(
         default_factory=lambda: BruteForceProtectionConfig()
     )
 
@@ -521,9 +521,7 @@ class AppConfig(DomainModel, IConfig):
                 "api_keys": _get_api_keys_from_env(),
                 "auth_token": os.environ.get("AUTH_TOKEN"),
                 "brute_force_protection": {
-                    "enabled": _env_to_bool(
-                        "BRUTE_FORCE_PROTECTION_ENABLED", True
-                    ),
+                    "enabled": _env_to_bool("BRUTE_FORCE_PROTECTION_ENABLED", True),
                     "max_failed_attempts": _env_to_int(
                         "BRUTE_FORCE_MAX_FAILED_ATTEMPTS", 5
                     ),

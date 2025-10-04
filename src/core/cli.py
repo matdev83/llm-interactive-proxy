@@ -411,9 +411,7 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
             multiplier = float(args.auth_block_multiplier)
             brute_force_cfg.block_multiplier = multiplier if multiplier > 1 else 1.0
         if getattr(args, "auth_max_block_seconds", None) is not None:
-            brute_force_cfg.max_block_seconds = max(
-                1, int(args.auth_max_block_seconds)
-            )
+            brute_force_cfg.max_block_seconds = max(1, int(args.auth_max_block_seconds))
 
     # Pytest compression flag
     if args.pytest_compression_enabled is not None:
