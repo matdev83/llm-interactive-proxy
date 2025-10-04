@@ -102,6 +102,7 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | `gemini` | Google Gemini | `GEMINI_API_KEY` | Metered API key |
 | `gemini-cli-oauth-personal` | Google Gemini (CLI) | OAuth (no key) | Free-tier personal OAuth like the Gemini CLI |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + `GOOGLE_CLOUD_PROJECT` (+ ADC) | Bills to your GCP project |
+| `gemini-cli-acp` | Google Gemini (CLI Agent) | OAuth (no key) | Uses gemini-cli as an agent via Agent Control Protocol (ACP) |
 | `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | Access to many hosted models |
 | `zai` | ZAI | `ZAI_API_KEY` | Zhipu/Z.ai access (OpenAI-compatible) |
 | `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
@@ -116,12 +117,14 @@ Choose the Gemini integration that fits your environment.
 | `gemini` | API key (`GEMINI_API_KEY`) | Metered (pay-per-use) | Production apps, high-volume usage |
 | `gemini-cli-oauth-personal` | OAuth (no API key) | Free tier with limits | Local development, testing, personal use |
 | `gemini-cli-cloud-project` | OAuth + `GOOGLE_CLOUD_PROJECT` (ADC/service account) | Billed to your GCP project | Enterprise, team workflows, central billing |
+| `gemini-cli-acp` | OAuth (no API key) | Free tier with limits | AI agent workflows, workspace-aware coding tasks |
 
 Notes
 
 - Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
 - The proxy now validates personal OAuth tokens on startup, watches the `oauth_creds.json` file for changes, and triggers the Gemini CLI in the background when tokens are close to expiring--no manual restarts required.
 - Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
+- **NEW**: ACP backend uses `gemini-cli` as an agent with full workspace awareness and tool usage capabilities via the Agent Control Protocol.
 
 Quick setup
 
@@ -155,6 +158,23 @@ gcloud auth application-default login
 export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
 
 python -m src.core.cli --default-backend gemini-cli-cloud-project
+```
+
+For `gemini-cli-acp` (Agent Control Protocol)
+
+```bash
+# Install and authenticate with Google Gemini CLI (one-time)
+npm install -g @google/gemini-cli
+gemini login
+
+# Set workspace directory (optional - defaults to current directory)
+export GEMINI_CLI_WORKSPACE="/path/to/your/project"
+
+# Start the proxy using gemini-cli as an agent
+python -m src.core.cli --default-backend gemini-cli-acp
+
+# Change workspace during conversation with slash command
+!/workspace(/path/to/another/project)
 ```
 
 ## Quick Start
@@ -532,7 +552,39 @@ Then launch `claude`. You can switch models during a session:
 
 ### Gemini options
 
-- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), or GCP-billed (`gemini-cli-cloud-project`). Pick one and set the required env vars.
+- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), GCP-billed (`gemini-cli-cloud-project`), or agent mode (`gemini-cli-acp`). Pick one and set the required env vars.
+
+### Gemini CLI Agent with ACP
+
+Use `gemini-cli` as an AI agent with full workspace awareness:
+
+```bash
+# Install gemini-cli (one-time)
+npm install -g @google/gemini-cli
+gemini login
+
+# Start proxy with agent backend
+python -m src.core.cli --default-backend gemini-cli-acp
+
+# Workspace control options (in priority order):
+# 1. Runtime slash command (highest priority)
+!/workspace(/home/user/myproject)
+
+# 2. Config file (config/backends/gemini-cli-acp/backend.yaml)
+workspace_path: "/path/to/your/workspace"
+
+# 3. Environment variable
+export GEMINI_CLI_WORKSPACE="/path/to/workspace"
+
+# 4. Current working directory (fallback)
+```
+
+**Features:**
+- Full workspace awareness - gemini-cli can read, analyze, and modify files
+- Tool usage - agent can execute commands and use tools
+- Dynamic workspace switching - change workspace during conversation with `!/workspace(path)`
+- Streaming responses - real-time output from the agent
+- Auto-accept mode - automatically approve safe operations (configurable)
 
 ### Force a specific model across all requests
 

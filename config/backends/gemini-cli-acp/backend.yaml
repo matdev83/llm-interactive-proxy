@@ -1,0 +1,61 @@
+# Gemini CLI ACP Backend Configuration
+# This backend delegates prompts to gemini-cli using the Agent Client Protocol (ACP)
+
+# Backend type (must match the registered name)
+backend_type: "gemini-cli-acp"
+
+# Workspace path (optional) - absolute path to the workspace directory
+# The gemini-cli agent will operate within this workspace
+#
+# Priority order for workspace path:
+# 1. Runtime slash command: !/workspace(/path/to/workspace)
+# 2. Session state (via extra config)
+# 3. This config file setting
+# 4. Environment variable: GEMINI_CLI_WORKSPACE
+# 5. Current working directory (fallback)
+workspace_path: "/path/to/your/workspace"
+
+# Path to gemini-cli executable (optional, default: "gemini")
+# If gemini-cli is not in PATH, specify the full path
+gemini_cli_executable: "gemini"
+
+# Model to use (optional, default: "gemini-2.5-flash")
+# Available models: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro
+model: "gemini-2.5-flash"
+
+# Auto-accept safe operations (optional, default: true)
+# When true, gemini-cli will automatically accept and execute safe tool calls
+# When false, user confirmation will be required
+auto_accept: true
+
+# Process timeout in seconds (optional, default: 300)
+# Maximum time to wait for gemini-cli to respond
+process_timeout: 300
+
+# ================================================================================
+# Usage Examples
+# ================================================================================
+
+# 1. Install gemini-cli:
+#    npm install -g @google/gemini-cli
+
+# 2. Authenticate:
+#    gemini login
+
+# 3. Set workspace via config (this file):
+#    workspace_path: "/home/user/myproject"
+
+# 4. OR set workspace via environment variable:
+#    export GEMINI_CLI_WORKSPACE="/home/user/myproject"
+
+# 5. OR change workspace at runtime via slash command:
+#    !/workspace(/home/user/another-project)
+
+# 6. Check current workspace:
+#    !/workspace()
+
+# 7. Configure this backend in your main config.yaml:
+#    backends:
+#      gemini-cli-acp:
+#        config_file: "config/backends/gemini-cli-acp/backend.yaml"
+

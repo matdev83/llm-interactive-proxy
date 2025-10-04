@@ -1,5 +1,84 @@
 # Changelog
 
+## 2025-10-04 - Gemini CLI ACP Backend with Full Workspace Control
+
+- **New Backend**: Added `gemini-cli-acp` backend that uses Google's `gemini-cli` as an AI agent via the Agent Control Protocol (ACP)
+  - **Agent Integration**: Spawns and manages `gemini-cli` subprocess with JSON-RPC communication over stdin/stdout
+  - **Workspace Awareness**: Full access to project files, enabling code analysis, refactoring, and multi-file editing
+  - **Tool Usage**: Agent can execute commands, use tools, and perform complex operations within the workspace
+  - **Streaming Support**: Real-time streaming responses from the agent with proper SSE formatting
+  - **Process Management**: Robust subprocess lifecycle handling with automatic restart on configuration changes
+
+- **Full Workspace Control**: Implemented 4 different mechanisms for controlling workspace directory
+  - **1. Runtime Slash Command** (highest priority): `!/workspace(/path/to/project)` - change workspace during conversation
+  - **2. Config File**: Set `workspace_path` in `config/backends/gemini-cli-acp/backend.yaml`
+  - **3. Environment Variable**: `GEMINI_CLI_WORKSPACE=/path/to/workspace`
+  - **4. Current Working Directory**: Automatic fallback to `cwd`
+  - **Dynamic Switching**: Workspace changes automatically restart the agent process with new context
+  - **Workspace Validation**: All paths validated, expanded (`~`, env vars), and converted to absolute paths
+
+- **New Slash Command**: Added `!/workspace(path)` command handler (`src/core/commands/handlers/workspace_command_handler.py`)
+  - Query current workspace: `!/workspace()`
+  - Change workspace: `!/workspace(/new/path)`
+  - Path validation and user-friendly error messages
+  - Integrated with session state (`project_dir`)
+
+- **Configuration**: Complete backend configuration system
+  - Backend config file: `config/backends/gemini-cli-acp/backend.yaml`
+  - Customizable parameters: `model`, `auto_accept`, `process_timeout`, `gemini_cli_executable`
+  - Comprehensive documentation with usage examples and priority order
+
+- **Error Handling**: Production-grade error handling with custom exceptions
+  - Configuration errors for missing/invalid workspace paths
+  - API connection errors for subprocess communication failures
+  - Timeout errors with configurable thresholds
+  - Service unavailability handling when agent is not initialized
+
+- **Testing**: Comprehensive test suite with 100% pass rate
+  - **Unit Tests**: 22 tests covering initialization, process management, communication, workspace control, and streaming
+  - Tests for all 4 workspace control mechanisms
+  - Process lifecycle tests (spawn, kill, restart)
+  - JSON-RPC communication tests
+  - Streaming response processing tests
+  - All tests passing: `tests/unit/connectors/test_gemini_cli_acp.py`
+
+- **Files Created**:
+  - `src/connectors/gemini_cli_acp.py` (598 lines) - Core connector implementation
+  - `src/core/commands/handlers/workspace_command_handler.py` (109 lines) - Workspace slash command
+  - `config/backends/gemini-cli-acp/backend.yaml` - Backend configuration with full documentation
+  - `tests/unit/connectors/test_gemini_cli_acp.py` (399 lines) - Comprehensive unit tests
+
+- **Code Quality**: All quality checks passing
+  - ✅ ruff: All checks passed
+  - ✅ black: Code formatted
+  - ✅ mypy: Type checking passed
+
+- **Documentation**: Complete user-facing documentation
+  - README updated with backend table entry, Gemini Backends Overview, Quick Start section, and Popular Scenarios
+  - Configuration examples for all 4 workspace control methods
+  - Usage examples with feature descriptions
+  - Integration requirements (npm package, authentication)
+
+## 2025-10-03 - OAuth Credential Auto-Refresh Improvements and Streaming Bug Fixes
+
+- **Enhancement**: Improved OAuth credential auto-refresh functionality across Anthropic, Gemini, and OpenAI backends
+  - **Force Reload**: Added `force_reload` parameter to credential loading methods to bypass timestamp cache when file changes are detected
+ - **Cross-Platform Path Handling**: Fixed file system watcher path comparison logic using Path objects to handle Windows/Unix differences correctly
+  - **Robust File Watching**: Enhanced error handling in file modification events to prevent crashes during path comparison operations
+  - **Immediate Reload**: File watcher now schedules immediate credential reloads when OAuth credential files change, ensuring fresh tokens are loaded without restart
+
+- **Bug Fix**: Fixed ContentAccumulationProcessor to preserve metadata and usage information for empty streaming chunks
+  - **Streaming Continuity**: Empty chunks now maintain their metadata/usage data so downstream processors (e.g., usage accounting) continue to receive updated values
+ - **Improved Streaming**: Fixed issue where empty chunks were losing important context information during processing
+
+- **Bug Fix**: Corrected tuple syntax in ToolCallLoopDetectionMiddleware type checking from `str | bytes | bytearray` to `(str, bytes, bytearray)` for proper isinstance() usage
+
+- **Testing**: Added comprehensive test coverage for OAuth credential reloading functionality
+  - **File Watching Tests**: New tests verify correct path comparison and file change detection
+  - **Force Reload Tests**: Tests confirm that force_reload bypasses timestamp caching as expected
+  - **Cross-Platform Tests**: Tests validate proper handling of different file path formats
+
+- **OAuth Backends**: Enhanced credential management for `anthropic-oauth`, `gemini-oauth-personal`, and `openai-oauth` backends with improved reliability and automatic refresh
 ## 2025-10-01 - Code Quality and Type Hinting Improvements
 
 - **Enhancement**: Added comprehensive type hints across the codebase to improve code quality, maintainability, and developer experience
