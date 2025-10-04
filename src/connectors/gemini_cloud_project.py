@@ -522,9 +522,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 )
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Using service account credentials from %s", sa_path)
-                session = google.auth.transport.requests.AuthorizedSession(
-                    credentials
-                )
+                session = google.auth.transport.requests.AuthorizedSession(credentials)
                 session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
                 return session
             except Exception as e:

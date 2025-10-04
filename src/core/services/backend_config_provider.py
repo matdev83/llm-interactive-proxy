@@ -119,16 +119,16 @@ class BackendConfigProvider(IBackendConfigProvider):
         try:
             # Handle dictionary-style configurations (e.g. when loading from YAML)
             if isinstance(backends_config, Mapping):
-                for key in backends_config.keys():
+                for key in backends_config:
                     if isinstance(key, str) and key != "default_backend":
                         registered.add(key)
 
             # Check if backends has __dict__ attribute (BackendSettings does)
             elif hasattr(backends_config, "__dict__"):
-                for key in backends_config.__dict__:
+                for attr_name in vars(backends_config):
                     # Skip default_backend and non-backend attributes
-                    if key != "default_backend" and not key.startswith("_"):
-                        registered.add(key)
+                    if attr_name != "default_backend" and not attr_name.startswith("_"):
+                        registered.add(attr_name)
         except Exception as e:
             import logging
 

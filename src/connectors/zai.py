@@ -110,9 +110,9 @@ class ZAIConnector(OpenAIConnector):
             )
         return ensure_loop_guard_header(
             {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
         )
 
     def get_available_models(self) -> list[str]:
