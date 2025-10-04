@@ -1,6 +1,9 @@
+import asyncio
 import contextlib
+import inspect
 import warnings
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -153,6 +156,33 @@ def assert_all_requests_were_expected() -> bool:
     Tests that need strict behavior can override via mark.
     """
     return False
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
+    """Execute async tests using a lightweight event loop runner."""
+
+    test_function = pyfuncitem.obj
+
+    if not inspect.iscoroutinefunction(test_function):
+        return None
+
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+
+        signature = inspect.signature(test_function)
+        call_args: dict[str, Any] = {}
+        for name in signature.parameters:
+            if name in pyfuncitem.funcargs:
+                call_args[name] = pyfuncitem.funcargs[name]
+
+        loop.run_until_complete(test_function(**call_args))
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
+
+    return True
 
 
 def _install_global_warning_filters() -> None:

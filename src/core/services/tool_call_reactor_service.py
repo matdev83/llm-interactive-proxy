@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time as _time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from src.core.common.exceptions import ToolCallReactorError
@@ -112,10 +112,16 @@ class ToolCallReactorService(IToolCallReactor):
         """
         # Record the tool call in history if tracker is available
         if self._history_tracker:
-            # Use current timestamp if context doesn't have one
-            import time as _time
+            timestamp_value = context.timestamp
 
-            timestamp = context.timestamp or _time.monotonic()
+            if isinstance(timestamp_value, datetime):
+                timestamp = (
+                    timestamp_value
+                    if timestamp_value.tzinfo is not None
+                    else timestamp_value.replace(tzinfo=timezone.utc)
+                )
+            else:
+                timestamp = datetime.now(timezone.utc)
 
             await self._history_tracker.record_tool_call(
                 context.session_id,
@@ -193,21 +199,35 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
             tool_name: The name of the tool called.
             context: Additional context about the call.
         """
+        normalized_context = dict(context)
+
+        timestamp_value = normalized_context.get("timestamp")
+
+        if isinstance(timestamp_value, datetime):
+            normalized_timestamp = (
+                timestamp_value
+                if timestamp_value.tzinfo is not None
+                else timestamp_value.replace(tzinfo=timezone.utc)
+            )
+        else:
+            normalized_timestamp = datetime.now(timezone.utc)
+
+        normalized_context["timestamp"] = normalized_timestamp
+
         async with self._lock:
-            if session_id not in self._history:
-                self._history[session_id] = []
+            session_history = self._history.setdefault(session_id, [])
 
             entry = {
                 "tool_name": tool_name,
-                "timestamp": context.get("timestamp") or _time.monotonic(),
-                "context": context,
+                "timestamp": normalized_timestamp,
+                "context": normalized_context,
             }
 
-            self._history[session_id].append(entry)
+            session_history.append(entry)
 
             # Keep only recent entries (last 1000 per session)
-            if len(self._history[session_id]) > 1000:
-                self._history[session_id] = self._history[session_id][-1000:]
+            if len(session_history) > 1000:
+                self._history[session_id] = session_history[-1000:]
 
     async def get_call_count(
         self, session_id: str, tool_name: str, time_window_seconds: int
@@ -226,14 +246,29 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
             if session_id not in self._history:
                 return 0
 
-            current_time = _time.monotonic()
-            cutoff_time = current_time - time_window_seconds
+            current_time = datetime.now(timezone.utc)
+            cutoff_time = current_time - timedelta(seconds=time_window_seconds)
 
-            return sum(
-                1
-                for entry in self._history[session_id]
-                if entry["tool_name"] == tool_name and entry["timestamp"] >= cutoff_time
-            )
+            count = 0
+            for entry in self._history[session_id]:
+                if entry["tool_name"] != tool_name:
+                    continue
+
+                entry_timestamp = entry.get("timestamp")
+
+                if not isinstance(entry_timestamp, datetime):
+                    continue
+
+                timestamp = (
+                    entry_timestamp
+                    if entry_timestamp.tzinfo is not None
+                    else entry_timestamp.replace(tzinfo=timezone.utc)
+                )
+
+                if timestamp >= cutoff_time:
+                    count += 1
+
+            return count
 
     async def clear_history(self, session_id: str | None = None) -> None:
         """Clear the call history.
