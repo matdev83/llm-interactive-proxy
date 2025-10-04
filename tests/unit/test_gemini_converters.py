@@ -102,6 +102,16 @@ class TestMessageConversion:
         assert contents[0].role == "user"
         assert contents[0].parts[0].text == "Hello!"
 
+    def test_extract_model_from_path_with_query_string(self) -> None:
+        """Model extraction should ignore query parameters."""
+        from src.gemini_converters import extract_model_from_gemini_path
+
+        path = "/v1beta/models/gemini-1.5-pro-latest:generateContent?key=secret"
+
+        model = extract_model_from_gemini_path(path)
+
+        assert model == "gemini-1.5-pro-latest"
+
     def test_openai_stream_chunk_with_structured_content(self) -> None:
         """Ensure streaming conversion handles list-based delta content."""
         chunk = (
