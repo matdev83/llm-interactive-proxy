@@ -85,7 +85,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             if record is None:
                 return None
             if record.blocked_until > now:
-                wait_seconds = max(0, int(math.ceil(record.blocked_until - now)))
+                wait_seconds = max(0, math.ceil(record.blocked_until - now))
                 logger.warning(
                     "Blocking client %s due to repeated invalid API key attempts (wait %ss)",
                     client_ip,
@@ -120,7 +120,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 record.blocked_until = max(record.blocked_until, now + block_seconds)
                 next_block = block_seconds * self.brute_force_block_multiplier
                 record.next_block_seconds = min(
-                    max(int(math.ceil(next_block)), block_seconds),
+                    max(math.ceil(next_block), block_seconds),
                     self.brute_force_max_block_seconds,
                 )
                 logger.info(

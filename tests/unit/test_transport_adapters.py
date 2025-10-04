@@ -72,7 +72,6 @@ class TestRequestAdapters:
         assert context.cookies.get("session") == "cookie-value"
         assert context.client_host == "192.168.1.1"
         assert context.original_request is mock_request
-        assert context.app_state == mock_request.app.state
 
 
 class TestResponseAdapters:

@@ -33,7 +33,7 @@ class SetCommandHandler(ICommandHandler):
     """Handler for the 'set' command."""
 
     def __init__(self, command_service: ICommandService | None = None) -> None:
-        super().__init__()
+        super().__init__(command_service)
         self._parameter_handlers = self._build_parameter_handlers()
         self.command_service = command_service
 
