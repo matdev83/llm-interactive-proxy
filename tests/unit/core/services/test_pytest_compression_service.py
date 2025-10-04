@@ -5,8 +5,10 @@ Tests for pytest output compression feature.
 from unittest.mock import patch
 
 import pytest
+from src.core.domain.chat import FunctionCall, ToolCall
 from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session, SessionState
+from src.core.services.pytest_compression_service import PytestCompressionService
 from src.core.services.response_manager_service import AgentResponseFormatter
 
 
@@ -788,3 +790,33 @@ FAILED tests/unit/test_module2.py::test_001 - AssertionError: assert False
             "========================= 1 failed, 19 passed in 0.25s ========================="
             in result
         )
+
+
+class TestPytestCompressionServiceDetection:
+    """Tests for the PytestCompressionService detection logic."""
+
+    def test_scan_for_pytest_detects_pytest_alias(self) -> None:
+        """Ensure py.test alias commands are detected for compression."""
+        service = PytestCompressionService()
+
+        detection = service.scan_for_pytest(
+            "shell",
+            {"command": "py.test -k sample"},
+        )
+
+        assert detection == (True, "py.test -k sample")
+
+    def test_scan_tool_call_for_pytest_handles_function_arguments(self) -> None:
+        """Ensure ToolCall wrappers using py.test are detected."""
+        service = PytestCompressionService()
+        tool_call = ToolCall(
+            id="call-1",
+            function=FunctionCall(
+                name="shell",
+                arguments='{"command": "py.test -q"}',
+            ),
+        )
+
+        detection = service.scan_tool_call_for_pytest(tool_call)
+
+        assert detection == (True, "py.test -q")
