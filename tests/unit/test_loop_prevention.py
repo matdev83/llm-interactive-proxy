@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
 from src.core.app.middleware.loop_prevention_middleware import LoopPreventionMiddleware
 from src.core.security.loop_prevention import (
     LOOP_GUARD_HEADER,

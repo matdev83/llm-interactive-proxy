@@ -56,25 +56,12 @@ class QwenCredentialsFileHandler(FileSystemEventHandler):
 
     def on_modified(self, event):
         """Handle file modification events."""
-        if not event.is_directory:
-            # Compare paths using Path objects to handle Windows/Unix differences
-            try:
-                event_path = Path(event.src_path).resolve()
-                credentials_path = (
-                    self.connector._credentials_path.resolve()
-                    if self.connector._credentials_path
-                    else None
-                )
-
-                if credentials_path and event_path == credentials_path:
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            f"OAuth credentials file modified: {event.src_path}"
-                        )
-                    self.connector._schedule_credentials_reload()
-            except Exception as e:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Error processing file modification event: {e}")
+        if not event.is_directory and event.src_path == str(
+            self.connector._credentials_path
+        ):
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"OAuth credentials file modified: {event.src_path}")
+            self.connector._schedule_credentials_reload()
 
 
 class QwenOAuthConnector(OpenAIConnector):
@@ -241,12 +228,7 @@ class QwenOAuthConnector(OpenAIConnector):
         )
 
     async def _handle_credentials_file_change(self) -> None:
-        """Handle changes to the OAuth credentials file.
-
-        This method is called when the file system watcher detects a change to the
-        oauth_creds.json file. It forces a reload of credentials bypassing the cache
-        to ensure the latest token is loaded even if the file timestamp didn't change.
-        """
+        """Handle changes to the OAuth credentials file."""
         try:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
@@ -264,8 +246,8 @@ class QwenOAuthConnector(OpenAIConnector):
                 self.is_functional = False
                 return
 
-            # File is valid, try to load it with force_reload=True to bypass cache
-            if await self._load_oauth_credentials(force_reload=True):
+            # File is valid, try to load it
+            if await self._load_oauth_credentials():
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
                         "Successfully reloaded OAuth credentials from updated file"
@@ -460,15 +442,8 @@ class QwenOAuthConnector(OpenAIConnector):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error saving Qwen OAuth credentials: {e}")
 
-    async def _load_oauth_credentials(self, force_reload: bool = False) -> bool:
-        """Load OAuth credentials from oauth_creds.json file.
-
-        Args:
-            force_reload: If True, bypass cache and force reload from file even if timestamp unchanged
-
-        Returns:
-            bool: True if credentials loaded successfully, False otherwise
-        """
+    async def _load_oauth_credentials(self) -> bool:
+        """Load OAuth credentials from oauth_creds.json file."""
         try:
             home_dir = Path.home()
             creds_path = home_dir / ".qwen" / "oauth_creds.json"
@@ -478,28 +453,18 @@ class QwenOAuthConnector(OpenAIConnector):
                 logger.warning(f"Qwen OAuth credentials not found at {creds_path}")
                 return False
 
-            # Check if file has been modified since last load (unless force_reload is True)
-            if not force_reload:
-                try:
-                    current_modified = creds_path.stat().st_mtime
-                    if (
-                        current_modified == self._last_modified
-                        and self._oauth_credentials
-                    ):
-                        # File hasn't changed and credentials are in memory, no need to reload
-                        logger.debug(
-                            "Qwen OAuth credentials file not modified, using cached."
-                        )
-                        return True
-                except OSError:
-                    # If cannot get file stats, proceed with reading
-                    pass
-
-            # Update last modified time
+            # Check if file has been modified since last load
             try:
                 current_modified = creds_path.stat().st_mtime
+                if current_modified == self._last_modified and self._oauth_credentials:
+                    # File hasn't changed and credentials are in memory, no need to reload
+                    logger.debug(
+                        "Qwen OAuth credentials file not modified, using cached."
+                    )
+                    return True
                 self._last_modified = current_modified
             except OSError:
+                # If cannot get file stats, proceed with reading
                 pass
 
             with open(creds_path, encoding="utf-8") as f:
@@ -520,10 +485,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 self.api_base_url = f"https://{resource_url}/v1"
                 logger.info(f"Qwen API base URL set to: {self.api_base_url}")
 
-            log_msg = "Successfully loaded Qwen OAuth credentials"
-            if force_reload:
-                log_msg += " (force reload)"
-            logger.info(log_msg + ".")
+            logger.info("Successfully loaded Qwen OAuth credentials.")
             return True
         except json.JSONDecodeError as e:
             if logger.isEnabledFor(logging.ERROR):
@@ -545,10 +507,10 @@ class QwenOAuthConnector(OpenAIConnector):
             )
         return ensure_loop_guard_header(
             {
-                "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            }
+            "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
         )
 
     async def _perform_health_check(self) -> bool:

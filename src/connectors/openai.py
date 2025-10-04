@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from contextlib import suppress
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +90,7 @@ class OpenAIConnector(LLMBackend):
 
     async def initialize(self, **kwargs: Any) -> None:
         self.api_key = kwargs.get("api_key")
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "OpenAIConnector initialize called. api_key provided: %s",
-                bool(self.api_key),
-            )
+        logger.info(f"OpenAIConnector initialize called. api_key: {self.api_key}")
         if "api_base_url" in kwargs:
             self.api_base_url = kwargs["api_base_url"]
 
@@ -436,12 +431,7 @@ class OpenAIConnector(LLMBackend):
         request = self.client.build_request(
             "POST", url, json=payload, headers=guarded_headers
         )
-        try:
-            response = await self.client.send(request, stream=True)
-        except httpx.RequestError as exc:
-            raise ServiceUnavailableError(
-                message=f"Could not connect to backend ({exc})"
-            ) from exc
+        response = await self.client.send(request, stream=True)
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
@@ -453,9 +443,6 @@ class OpenAIConnector(LLMBackend):
                 body = (await response.aread()).decode("utf-8")
             except Exception:
                 body = getattr(response, "text", "")
-            finally:
-                with suppress(Exception):
-                    await response.aclose()
             raise HTTPException(
                 status_code=status_code,
                 detail={
@@ -621,7 +608,7 @@ class OpenAIConnector(LLMBackend):
         # Convert to domain response first, then back to ensure consistency
         # We'll treat the Responses API response as a special case of OpenAI response
         domain_response = self.translation_service.to_domain_response(
-            response_data, "openai-responses"
+            response_data, "openai"
         )
 
         # Convert back to Responses API format for the final response

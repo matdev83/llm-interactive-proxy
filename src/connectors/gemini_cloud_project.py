@@ -522,7 +522,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 )
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Using service account credentials from %s", sa_path)
-                session = google.auth.transport.requests.AuthorizedSession(credentials)
+                session = google.auth.transport.requests.AuthorizedSession(
+                    credentials
+                )
                 session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
                 return session
             except Exception as e:
@@ -1162,12 +1164,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Convert to OpenAI-compatible format using the translation service
             if not domain_response:
                 raise BackendError("Failed to parse a valid response from the backend.")
-            openai_response = self._normalize_openai_response(
-                self.translation_service.from_domain_response(
-                    response=domain_response,
-                    target_format="openai",
-                )
-            )
+            openai_response = self.translation_service.from_domain_response(
+                response=domain_response,
+                target_format="openai",
+            ).model_dump(exclude_unset=True)
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
@@ -1183,34 +1183,6 @@ class GeminiCloudProjectConnector(GeminiBackend):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Unexpected error during API call: {e}", exc_info=True)
             raise BackendError(f"Unexpected error during API call: {e}")
-
-    def _normalize_openai_response(self, response: Any) -> dict[str, Any]:
-        """Normalize a translation output into an OpenAI-compatible dictionary."""
-        if isinstance(response, dict):
-            return response
-
-        model_dump = getattr(response, "model_dump", None)
-        if callable(model_dump):
-            try:
-                candidate = model_dump(exclude_unset=True)
-            except TypeError:
-                candidate = model_dump()
-            if isinstance(candidate, dict):
-                return candidate
-
-        as_dict = getattr(response, "dict", None)
-        if callable(as_dict):
-            candidate = as_dict()
-            if isinstance(candidate, dict):
-                return candidate
-
-        raise BackendError(
-            message=(
-                "TranslationService returned an unexpected response payload type: "
-                f"{type(response).__name__}"
-            ),
-            code="invalid_openai_response",
-        )
 
     async def _chat_completions_streaming(
         self,

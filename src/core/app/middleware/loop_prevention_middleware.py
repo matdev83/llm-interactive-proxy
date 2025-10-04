@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from fastapi import Request, status
-from src.core.security.loop_prevention import LOOP_GUARD_HEADER
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse, Response
+
+from src.core.security.loop_prevention import LOOP_GUARD_HEADER
 
 
 class LoopPreventionMiddleware(BaseHTTPMiddleware):
