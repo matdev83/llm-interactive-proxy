@@ -6,8 +6,10 @@ Handles model-related endpoints for the application.
 
 from __future__ import annotations
 
+import inspect
 import logging
-from typing import Any
+from collections.abc import Awaitable
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -295,7 +297,15 @@ async def _list_models_impl(
                 if callable(get_models_async):
                     models = await get_models_async()  # type: ignore[misc]
                 else:
-                    models = await backend_instance.get_available_models()  # type: ignore[misc]
+                    models_result = backend_instance.get_available_models()
+                    if inspect.isawaitable(models_result):
+                        models = await cast(Awaitable[list[str]], models_result)
+                    else:
+                        if not isinstance(models_result, list):
+                            raise TypeError(
+                                "Backend get_available_models must return a list of model identifiers"
+                            )
+                        models = models_result
 
                 # Add models to the list with proper formatting
                 for model in models:
