@@ -5,6 +5,7 @@ This file contains tests for the authentication middleware,
 refactored to use proper dependency injection instead of direct app.state access.
 """
 
+import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,10 +17,13 @@ from src.core.constants import HTTP_401_UNAUTHORIZED_MESSAGE
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.security.middleware import APIKeyMiddleware, AuthMiddleware
 
-# Suppress Windows ProactorEventLoop ResourceWarnings for this module
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
-)
+# Suppress Windows ProactorEventLoop ResourceWarnings and enable async support
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    ),
+    pytest.mark.anyio("asyncio"),
+]
 
 
 @pytest.fixture
@@ -62,6 +66,12 @@ def mock_response():
 
 
 @pytest.fixture
+def anyio_backend():
+    """Force AnyIO-based tests to run with asyncio backend only."""
+    return "asyncio"
+
+
+@pytest.fixture
 def api_key_middleware():
     """Create an APIKeyMiddleware instance with test keys."""
     app = MagicMock()
@@ -98,7 +108,6 @@ def auth_token_middleware():
 class TestAPIKeyMiddleware:
     """Test the APIKeyMiddleware class."""
 
-    @pytest.mark.asyncio
     async def test_valid_bearer_key(self, api_key_middleware, mock_request):
         """Test that a valid API key in the Authorization header is accepted."""
         # Setup
@@ -112,7 +121,6 @@ class TestAPIKeyMiddleware:
         call_next.assert_called_once_with(mock_request)
         assert response == "next_response"
 
-    @pytest.mark.asyncio
     async def test_valid_query_key(self, api_key_middleware, mock_request):
         """Test that a valid API key in the query parameters is accepted."""
         # Setup
@@ -126,7 +134,6 @@ class TestAPIKeyMiddleware:
         call_next.assert_called_once_with(mock_request)
         assert response == "next_response"
 
-    @pytest.mark.asyncio
     async def test_invalid_key(self, api_key_middleware, mock_request):
         """Test that an invalid API key is rejected."""
         # Setup
@@ -143,7 +150,6 @@ class TestAPIKeyMiddleware:
             response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
         )
 
-    @pytest.mark.asyncio
     async def test_missing_key(self, api_key_middleware, mock_request):
         """Test that a missing API key is rejected."""
         # Setup
@@ -159,7 +165,6 @@ class TestAPIKeyMiddleware:
             response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
         )
 
-    @pytest.mark.asyncio
     async def test_bypass_path(self, api_key_middleware, mock_request):
         """Test that bypass paths are allowed without authentication."""
         # Setup
@@ -173,7 +178,6 @@ class TestAPIKeyMiddleware:
         call_next.assert_called_once_with(mock_request)
         assert response == "next_response"
 
-    @pytest.mark.asyncio
     async def test_trusted_ip_bypass(self, mock_request):
         """Test that trusted IPs bypass authentication."""
         # Setup
@@ -195,7 +199,6 @@ class TestAPIKeyMiddleware:
         call_next.assert_called_once_with(mock_request)
         assert response == "next_response"
 
-    @pytest.mark.asyncio
     async def test_non_trusted_ip_requires_auth(self, mock_request):
         """Test that non-trusted IPs still require authentication."""
         from src.core.security.middleware import APIKeyMiddleware
@@ -229,11 +232,85 @@ class TestAPIKeyMiddleware:
         call_next.assert_not_called()
         assert response.status_code == 401
 
+    async def test_brute_force_protection_blocks_and_recovers(
+        self, mock_request, monkeypatch
+    ) -> None:
+        """Repeated invalid API keys trigger blocking with exponential back-off."""
+
+        from src.core.security.middleware import APIKeyMiddleware
+
+        class FakeTime:
+            def __init__(self, start: float = 1_000.0) -> None:
+                self.current = start
+
+            def time(self) -> float:
+                return self.current
+
+            def advance(self, seconds: float) -> None:
+                self.current += seconds
+
+        clock = FakeTime()
+        monkeypatch.setattr("src.core.security.middleware.time.time", clock.time)
+
+        middleware = APIKeyMiddleware(
+            app=MagicMock(),
+            valid_keys=["valid-key"],
+            brute_force_enabled=True,
+            brute_force_max_attempts=2,
+            brute_force_ttl_seconds=120,
+            brute_force_initial_block_seconds=10,
+            brute_force_block_multiplier=2.0,
+            brute_force_max_block_seconds=40,
+        )
+
+        async def _attempt(header_value: str) -> Response:
+            mock_request.headers = {"Authorization": f"Bearer {header_value}"}
+            mock_request.query_params = {}
+            call_next = AsyncMock(return_value="ok")
+            result = await middleware.dispatch(mock_request, call_next)
+            return result
+
+        # First two invalid attempts are allowed (return 401)
+        assert (await _attempt("bad-1")).status_code == 401
+        assert (await _attempt("bad-2")).status_code == 401
+
+        # Third attempt is blocked with the initial wait
+        blocked = await _attempt("bad-3")
+        assert blocked.status_code == 429
+        assert blocked.headers.get("Retry-After") == "10"
+        payload = json.loads(blocked.body.decode())
+        assert payload["retry_after_seconds"] == 10
+
+        # After the wait expires, another invalid attempt is allowed
+        clock.advance(10)
+        assert (await _attempt("bad-4")).status_code == 401
+
+        # The next failure re-triggers blocking with a doubled wait
+        blocked_again = await _attempt("bad-5")
+        assert blocked_again.status_code == 429
+        assert blocked_again.headers.get("Retry-After") == "20"
+        payload = json.loads(blocked_again.body.decode())
+        assert payload["retry_after_seconds"] == 20
+
+        # Provide a valid key to reset the tracker
+        clock.advance(20)
+        mock_request.headers = {"Authorization": "Bearer valid-key"}
+        mock_request.query_params = {}
+        call_next = AsyncMock(return_value="next")
+        assert await middleware.dispatch(mock_request, call_next) == "next"
+        call_next.assert_called_once_with(mock_request)
+
+        # Counters reset: two more invalid attempts before blocking again
+        assert (await _attempt("bad-reset-1")).status_code == 401
+        assert (await _attempt("bad-reset-2")).status_code == 401
+        blocked_reset = await _attempt("bad-reset-3")
+        assert blocked_reset.status_code == 429
+        assert blocked_reset.headers.get("Retry-After") == "10"
+
 
 class TestAuthMiddleware:
     """Test the AuthMiddleware class."""
 
-    @pytest.mark.asyncio
     async def test_valid_token(self, auth_token_middleware, mock_request):
         """Test that a valid auth token is accepted."""
         # Setup
@@ -247,7 +324,6 @@ class TestAuthMiddleware:
         call_next.assert_called_once_with(mock_request)
         assert response == "next_response"
 
-    @pytest.mark.asyncio
     async def test_invalid_token(self, auth_token_middleware, mock_request):
         """Test that an invalid auth token is rejected."""
         # Setup
@@ -264,7 +340,6 @@ class TestAuthMiddleware:
             response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
         )
 
-    @pytest.mark.asyncio
     async def test_missing_token(self, auth_token_middleware, mock_request):
         """Test that a missing auth token is rejected."""
         # Setup
@@ -280,7 +355,6 @@ class TestAuthMiddleware:
             response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
         )
 
-    @pytest.mark.asyncio
     async def test_bypass_path(self, auth_token_middleware, mock_request):
         """Test that bypass paths are allowed without authentication."""
         # Setup

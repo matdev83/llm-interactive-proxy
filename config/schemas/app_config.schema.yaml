@@ -48,6 +48,16 @@ properties:
       trusted_ips:
         type: array
         items: { type: string }
+      brute_force_protection:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          max_failed_attempts: { type: integer, minimum: 1 }
+          ttl_seconds: { type: integer, minimum: 1 }
+          initial_block_seconds: { type: integer, minimum: 1 }
+          block_multiplier: { type: number, minimum: 1 }
+          max_block_seconds: { type: integer, minimum: 1 }
   session:
     type: object
     additionalProperties: false

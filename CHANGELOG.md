@@ -59,6 +59,13 @@
   - Usage examples with feature descriptions
   - Integration requirements (npm package, authentication)
 
+## 2025-10-03 - Security: API Key Brute-Force Protection
+
+- **Feature**: Added per-IP brute-force protection to the API key middleware with exponential back-off blocking and automatic cache cleanup to prevent unbounded memory usage.
+- **Configuration**: Introduced CLI flags, environment variables, and YAML configuration (`auth.brute_force_protection`) to tune attempt thresholds, time windows, and block durations.
+- **Testing**: Added dedicated unit coverage for the new blocking flow, including retry-after escalation and reset on successful authentication.
+- **Documentation**: Updated README, config examples, and sample environment variables to explain the new security controls and usage patterns.
+
 ## 2025-10-03 - OAuth Credential Auto-Refresh Improvements and Streaming Bug Fixes
 
 - **Enhancement**: Improved OAuth credential auto-refresh functionality across Anthropic, Gemini, and OpenAI backends
