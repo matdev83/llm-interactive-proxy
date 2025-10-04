@@ -9,6 +9,8 @@ from src.core.domain.chat import (
     ChatCompletionChoiceMessage,
     ChatMessage,
     ChatResponse,
+    FunctionCall,
+    ToolCall,
 )
 
 
@@ -212,14 +214,14 @@ class Translation:
 
                             function_call = part["functionCall"]
                             tool_calls.append(
-                                {
-                                    "id": f"call_{uuid.uuid4().hex[:12]}",
-                                    "type": "function",
-                                    "function": {
-                                        "name": function_call.get("name", ""),
-                                        "arguments": function_call.get("args", "{}"),
-                                    },
-                                }
+                                ToolCall(
+                                    id=f"call_{uuid.uuid4().hex[:12]}",
+                                    type="function",
+                                    function=FunctionCall(
+                                        name=function_call.get("name", ""),
+                                        arguments=function_call.get("args", "{}"),
+                                    ),
+                                )
                             )
 
                     content = "".join(text_parts)
@@ -241,9 +243,7 @@ class Translation:
                 choice = ChatCompletionChoice(
                     index=idx,
                     message=ChatCompletionChoiceMessage(
-                        role="assistant",
-                        content=content,
-                        tool_calls=tool_calls,  # type: ignore
+                        role="assistant", content=content, tool_calls=tool_calls
                     ),
                     finish_reason=finish_reason,
                 )
@@ -467,7 +467,7 @@ class Translation:
                 content_parts = []
 
             text_segments: list[str] = []
-            tool_calls: list[dict[str, Any]] = []
+            tool_calls: list[ToolCall] = []
 
             for part in content_parts:
                 if not isinstance(part, dict):
@@ -479,25 +479,28 @@ class Translation:
                     if text_value:
                         text_segments.append(str(text_value))
                 elif part_type == "tool_call":
-                    function_payload = part.get("function") or part.get("function_call") or {}
+                    function_payload = (
+                        part.get("function") or part.get("function_call") or {}
+                    )
                     tool_calls.append(
-                        {
-                            "id": part.get("id")
-                            or f"tool_call_{idx}_{len(tool_calls)}",
-                            "type": "function",
-                            "function": {
-                                "name": function_payload.get("name", ""),
-                                "arguments": (
+                        ToolCall(
+                            id=part.get("id") or f"tool_call_{idx}_{len(tool_calls)}",
+                            type="function",
+                            function=FunctionCall(
+                                name=function_payload.get("name", ""),
+                                arguments=(
                                     function_payload.get("arguments")
                                     or function_payload.get("args")
                                     or function_payload.get("arguments_json")
                                     or ""
                                 ),
-                            },
-                        }
+                            ),
+                        )
                     )
 
-            content_text = "\n".join(segment for segment in text_segments if segment).strip()
+            content_text = "\n".join(
+                segment for segment in text_segments if segment
+            ).strip()
 
             finish_reason = item.get("finish_reason") or item.get("status")
             if finish_reason == "completed":
@@ -579,7 +582,7 @@ class Translation:
         import time
         import uuid
 
-        if isinstance(chunk, (bytes, bytearray)):
+        if isinstance(chunk, bytes | bytearray):
             try:
                 chunk = chunk.decode("utf-8")
             except Exception:

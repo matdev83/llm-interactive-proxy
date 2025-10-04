@@ -168,7 +168,9 @@ async def test_handle_interactive_mode_disable_updates_state(
 
 
 @pytest.mark.asyncio
-async def test_handle_interactive_mode_enable_updates_state(command: SetCommand) -> None:
+async def test_handle_interactive_mode_enable_updates_state(
+    command: SetCommand,
+) -> None:
     initial_state = SessionState(
         backend_config=BackendConfiguration(
             backend_type="test_backend", model="test_model", interactive_mode=False

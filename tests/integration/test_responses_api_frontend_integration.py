@@ -185,7 +185,10 @@ class TestResponsesAPIFrontendIntegration:
             response = client.post("/v1/responses", json=request_data)
 
             assert response.status_code == 200
-            assert response.json()["choices"][0]["message"]["parsed"]["metadata"]["key"] == "value"
+            assert (
+                response.json()["choices"][0]["message"]["parsed"]["metadata"]["key"]
+                == "value"
+            )
             mock_process.assert_called_once()
 
     def test_responses_api_with_anthropic_backend_compatibility(

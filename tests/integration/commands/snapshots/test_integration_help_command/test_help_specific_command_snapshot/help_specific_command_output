@@ -1,1 +1,4 @@
-Mock help information
+set - Set a session value.
+Format: !/set(key=value)
+Examples:
+  !/set(model=anthropic/claude-3-opus-20240229)

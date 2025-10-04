@@ -102,9 +102,7 @@ def test_to_domain_response_openai_responses_output():
         "usage": {"input_tokens": 5, "output_tokens": 7},
     }
 
-    domain_response = service.to_domain_response(
-        responses_payload, "openai-responses"
-    )
+    domain_response = service.to_domain_response(responses_payload, "openai-responses")
 
     assert isinstance(domain_response, CanonicalChatResponse)
     assert domain_response.object == "response"

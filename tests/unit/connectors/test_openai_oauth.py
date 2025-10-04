@@ -107,7 +107,9 @@ async def test_openai_oauth_reload_scheduled_from_thread(
         return True
 
     with (
-        patch.object(backend, "_load_auth", AsyncMock(side_effect=fake_load)) as load_mock,
+        patch.object(
+            backend, "_load_auth", AsyncMock(side_effect=fake_load)
+        ) as load_mock,
         patch.object(
             backend, "_validate_credentials_structure", return_value=(True, [])
         ),

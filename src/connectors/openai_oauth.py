@@ -17,11 +17,11 @@ Configuration:
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import Future
 import json
 import logging
 import os
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -487,7 +487,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
         except Exception as e:
             # Check if it's an auth-related error and degrade accordingly
             if (
-                isinstance(e, (AuthenticationError, HTTPException))
+                isinstance(e, AuthenticationError | HTTPException)
                 and hasattr(e, "status_code")
                 and e.status_code in (401, 403)
             ):
