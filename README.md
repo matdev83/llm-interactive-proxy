@@ -66,6 +66,7 @@ This project is a swiss-army knife for anyone working with language models and a
 - Dangerous-command prevention: steer away from destructive shell actions
 - Key hygiene: redact API keys in prompts and logs
 - Stale token handling: automatic detection and recovery for expired OAuth tokens in backends like Gemini CLI, Anthropic, and OpenAI OAuth
+- Brute-force protection: per-IP tracking of invalid API keys with exponential back-off blocking
 - Repair helpers: tool-call and JSON repair to fix malformed model outputs
 
 ### Control & Ergonomics
@@ -380,6 +381,50 @@ jq -r 'select(.direction=="inbound_response" and .payload.usage) | "\(.model) \(
 - The `key_name` field shows which environment variable was used, not the actual key
 - Capture files may contain sensitive conversation data - secure appropriately
 - Consider using `capture_total_max_bytes` to prevent unbounded disk usage
+
+### Authentication & Brute-Force Protection
+
+API key authentication is enabled by default. Each client IP is allowed a limited
+number of invalid API key attempts before the proxy responds early with a `429`
+status and a progressively increasing `Retry-After` delay. Successful
+authentications reset the counter immediately.
+
+**Default behaviour**
+
+- 5 invalid attempts per IP are allowed within a 15-minute window.
+- The first block lasts 30 seconds and doubles on each repeated failure up to a
+  one-hour cap.
+- Trusted IPs and endpoints in the bypass list (`/docs`, `/openapi.json`,
+  `/redoc`) skip brute-force checks entirely.
+
+**Configuration options** (CLI > Environment > YAML):
+
+- CLI flags:
+  - `--enable-brute-force-protection` / `--disable-brute-force-protection`
+  - `--auth-max-failed-attempts <int>`
+  - `--auth-brute-force-ttl <seconds>`
+  - `--auth-brute-force-initial-block <seconds>`
+  - `--auth-brute-force-multiplier <float>`
+  - `--auth-brute-force-max-block <seconds>`
+- Environment variables:
+  - `BRUTE_FORCE_PROTECTION_ENABLED`
+  - `BRUTE_FORCE_MAX_FAILED_ATTEMPTS`
+  - `BRUTE_FORCE_TTL_SECONDS`
+  - `BRUTE_FORCE_INITIAL_BLOCK_SECONDS`
+  - `BRUTE_FORCE_BLOCK_MULTIPLIER`
+  - `BRUTE_FORCE_MAX_BLOCK_SECONDS`
+- `config.yaml` snippet:
+
+  ```yaml
+  auth:
+    brute_force_protection:
+      enabled: true
+      max_failed_attempts: 5
+      ttl_seconds: 900
+      initial_block_seconds: 30
+      block_multiplier: 2.0
+      max_block_seconds: 3600
+  ```
 
 ### Advanced Wire Capture Documentation
 

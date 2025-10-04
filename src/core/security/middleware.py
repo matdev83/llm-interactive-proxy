@@ -1,20 +1,37 @@
-"""
-Security middleware for API key and token authentication.
-"""
+"""Security middleware for API key and token authentication."""
 
+from __future__ import annotations
+
+import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+import math
+import time
+from dataclasses import dataclass
 from typing import Any
+from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 # Import HTTP status constants
-from src.core.constants import HTTP_401_UNAUTHORIZED_MESSAGE
+from src.core.constants import (
+    HTTP_401_UNAUTHORIZED_MESSAGE,
+    HTTP_429_TOO_MANY_REQUESTS_MESSAGE,
+)
 from src.core.interfaces.application_state_interface import IApplicationState
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _BruteForceRecord:
+    """Track failed attempts and blocking metadata for a client IP."""
+
+    count: int
+    blocked_until: float
+    next_block_seconds: float
+    expires_at: float
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
@@ -31,11 +48,125 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         valid_keys: list[str],
         bypass_paths: list[str] | None = None,
         trusted_ips: list[str] | None = None,
+        brute_force_enabled: bool = True,
+        brute_force_ttl_seconds: int = 900,
+        brute_force_max_attempts: int = 5,
+        brute_force_initial_block_seconds: int = 30,
+        brute_force_block_multiplier: float = 2.0,
+        brute_force_max_block_seconds: int = 3600,
     ) -> None:
         super().__init__(app)
         self.valid_keys = set(valid_keys)
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
         self.trusted_ips = set(trusted_ips or [])
+        self.brute_force_enabled = brute_force_enabled and brute_force_max_attempts > 0
+        self.brute_force_ttl_seconds = max(brute_force_ttl_seconds, 1)
+        self.brute_force_max_attempts = max(brute_force_max_attempts, 1)
+        self.brute_force_initial_block_seconds = max(brute_force_initial_block_seconds, 1)
+        self.brute_force_block_multiplier = brute_force_block_multiplier if brute_force_block_multiplier > 1 else 1.0
+        self.brute_force_max_block_seconds = max(brute_force_max_block_seconds, 1)
+        self._attempts: dict[str, _BruteForceRecord] = {}
+        self._attempts_lock = asyncio.Lock()
+        self._last_cleanup = 0.0
+
+    async def _maybe_reject_for_bruteforce(self, client_ip: str) -> Response | None:
+        """Return a 429 response when the client IP is temporarily blocked."""
+        if not self.brute_force_enabled:
+            return None
+
+        now = time.time()
+        async with self._attempts_lock:
+            self._cleanup_locked(now)
+            record = self._attempts.get(client_ip)
+            if record is None:
+                return None
+            if record.blocked_until > now:
+                wait_seconds = max(0, int(math.ceil(record.blocked_until - now)))
+                logger.warning(
+                    "Blocking client %s due to repeated invalid API key attempts (wait %ss)",
+                    client_ip,
+                    wait_seconds,
+                )
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "detail": HTTP_429_TOO_MANY_REQUESTS_MESSAGE,
+                        "retry_after_seconds": wait_seconds,
+                    },
+                    headers={"Retry-After": str(wait_seconds)},
+                )
+            if record.expires_at <= now:
+                del self._attempts[client_ip]
+        return None
+
+    async def _register_failed_attempt(self, client_ip: str) -> None:
+        """Record a failed API key attempt for brute-force protection."""
+        if not self.brute_force_enabled:
+            return
+
+        now = time.time()
+        async with self._attempts_lock:
+            self._cleanup_locked(now)
+            record = self._ensure_record_locked(client_ip, now)
+            record.count += 1
+            if record.count >= self.brute_force_max_attempts:
+                block_seconds = min(
+                    record.next_block_seconds, self.brute_force_max_block_seconds
+                )
+                record.blocked_until = max(record.blocked_until, now + block_seconds)
+                next_block = block_seconds * self.brute_force_block_multiplier
+                record.next_block_seconds = min(
+                    max(int(math.ceil(next_block)), block_seconds),
+                    self.brute_force_max_block_seconds,
+                )
+                logger.info(
+                    "Client %s reached brute-force threshold: count=%s block=%ss",
+                    client_ip,
+                    record.count,
+                    block_seconds,
+                )
+            record.expires_at = max(
+                now + self.brute_force_ttl_seconds, record.blocked_until
+            )
+
+    async def _register_successful_attempt(self, client_ip: str) -> None:
+        """Reset brute-force tracking after a successful authentication."""
+        if not self.brute_force_enabled:
+            return
+
+        async with self._attempts_lock:
+            if client_ip in self._attempts:
+                logger.debug("Resetting brute-force tracker for client %s", client_ip)
+                del self._attempts[client_ip]
+
+    def _ensure_record_locked(self, client_ip: str, now: float) -> _BruteForceRecord:
+        """Ensure a brute-force tracking record exists for the client (lock held)."""
+        record = self._attempts.get(client_ip)
+        if record is None or record.expires_at <= now:
+            record = _BruteForceRecord(
+                count=0,
+                blocked_until=0.0,
+                next_block_seconds=self.brute_force_initial_block_seconds,
+                expires_at=now + self.brute_force_ttl_seconds,
+            )
+            self._attempts[client_ip] = record
+        return record
+
+    def _cleanup_locked(self, now: float) -> None:
+        """Remove stale brute-force tracking records (lock held)."""
+        if not self._attempts:
+            return
+        if now - self._last_cleanup < self.brute_force_ttl_seconds:
+            return
+
+        expired = [
+            ip
+            for ip, record in self._attempts.items()
+            if record.expires_at <= now and record.blocked_until <= now
+        ]
+        for ip in expired:
+            self._attempts.pop(ip, None)
+        self._last_cleanup = now
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -61,6 +192,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             logger.info("Bypassing authentication for trusted IP: %s", client_ip)
             response = await call_next(request)
             return response
+
+        # Short-circuit for clients currently blocked for repeated failures
+        if client_ip:
+            blocked_response = await self._maybe_reject_for_bruteforce(client_ip)
+            if blocked_response is not None:
+                return blocked_response
 
         # Check if auth is disabled for tests or development using DI when available
         app_state_service: IApplicationState | None = None
@@ -159,11 +296,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 request.url.path,
                 request.client.host if request.client else "unknown",
             )
+            if client_ip:
+                await self._register_failed_attempt(client_ip)
             return JSONResponse(
                 status_code=401, content={"detail": HTTP_401_UNAUTHORIZED_MESSAGE}
             )
 
         # API key is valid, continue processing
+        if client_ip:
+            await self._register_successful_attempt(client_ip)
         response = await call_next(request)
         return response
 
