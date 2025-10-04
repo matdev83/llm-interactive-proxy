@@ -1,6 +1,4 @@
-"""
-Performance tracking system for measuring execution times across the full request handling cycle.
-"""
+"""Performance tracking system for measuring execution times across the full request handling cycle."""
 
 import logging
 import time
