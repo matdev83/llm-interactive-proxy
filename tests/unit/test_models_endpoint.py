@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app
 
@@ -70,3 +72,57 @@ def test_model_listing_includes_oauth_backends(monkeypatch) -> None:
     model_ids = {model["id"] for model in result["data"]}
     assert "gemini-cli-oauth-personal:gemini-2.5-pro" in model_ids
     assert created_backends == ["gemini-cli-oauth-personal"]
+
+
+def test_model_listing_respects_config_wrappers(monkeypatch) -> None:
+    import asyncio
+
+    from src.core.app.controllers import models_controller
+    from src.core.app.controllers.models_controller import _list_models_impl
+    from src.core.config.app_config import AppConfig, BackendConfig
+    from src.core.interfaces.configuration_interface import IConfig
+
+    monkeypatch.setattr(
+        models_controller.backend_registry,
+        "get_registered_backends",
+        lambda: ["custom"],
+    )
+
+    class ProxyConfig(IConfig):
+        def __init__(self, inner: AppConfig) -> None:
+            self.inner = inner
+
+        def get(self, key: str, default: Any = None) -> Any:  # type: ignore[override]
+            return getattr(self.inner, key, default)
+
+        def set(self, key: str, value: Any) -> None:  # type: ignore[override]
+            setattr(self.inner, key, value)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.inner, name)
+
+    inner_config = AppConfig()
+    inner_config.backends.__dict__["custom"] = BackendConfig(api_key=["abc"])
+    proxy_config = ProxyConfig(inner_config)
+
+    class DummyBackend:
+        async def get_available_models(self) -> list[str]:
+            return ["alpha"]
+
+    class DummyFactory:
+        def create_backend(self, backend_type: str, config_obj: AppConfig | None = None) -> DummyBackend:
+            assert backend_type == "custom"
+            assert isinstance(config_obj, AppConfig)
+            assert config_obj.backends.custom.api_key == ["abc"]
+            return DummyBackend()
+
+    result = asyncio.run(
+        _list_models_impl(
+            backend_service=object(),
+            config=proxy_config,
+            backend_factory=DummyFactory(),
+        )
+    )
+
+    model_ids = {model["id"] for model in result["data"]}
+    assert "custom:alpha" in model_ids

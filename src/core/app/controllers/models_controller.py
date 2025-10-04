@@ -7,12 +7,14 @@ Handles model-related endpoints for the application.
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 # Import HTTP status constants
 from src.core.constants import HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+from src.core.config.app_config import AppConfig
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.services.backend_factory import BackendFactory
@@ -211,6 +213,44 @@ def get_backend_factory_service() -> BackendFactory:
         )
 
 
+def _resolve_app_config(config: IConfig) -> AppConfig:
+    """Best-effort extraction of an AppConfig instance from an IConfig value."""
+
+    if isinstance(config, AppConfig):
+        return config
+
+    candidate_attrs = (
+        "app_config",
+        "_app_config",
+        "config",
+        "_config",
+        "inner",
+        "_inner",
+        "wrapped",
+        "_wrapped",
+    )
+
+    for attr in candidate_attrs:
+        candidate = getattr(config, attr, None)
+        if isinstance(candidate, AppConfig):
+            return candidate
+
+    with suppress(Exception):
+        getter = getattr(config, "get", None)
+        if callable(getter):
+            candidate = getter("app_config", None)
+            if isinstance(candidate, AppConfig):
+                return candidate
+
+    with suppress(Exception):
+        model_dump = getattr(config, "model_dump", None)
+        if callable(model_dump):
+            data = model_dump()  # type: ignore[call-arg]
+            return AppConfig.model_validate(data)
+
+    return AppConfig()
+
+
 async def _list_models_impl(
     *,
     backend_service: IBackendService,
@@ -226,17 +266,18 @@ async def _list_models_impl(
         discovered_models: set[str] = set()
 
         # Use the injected config service
-        from src.core.config.app_config import AppConfig
-
-        if not isinstance(config, AppConfig):
-            # Fallback to default config if we got a different config type
-            config = AppConfig()
+        app_config = _resolve_app_config(config)
+        backend_settings = getattr(config, "backends", None)
+        if backend_settings is None:
+            backend_settings = getattr(app_config, "backends", None)
+        if backend_settings is None:
+            backend_settings = app_config.backends
 
         # Ensure backend service is at least resolved for DI side effects
         _ = backend_service
 
         try:
-            functional_backends = set(config.backends.functional_backends)
+            functional_backends = set(getattr(backend_settings, "functional_backends", []))
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.debug(
                 "Unable to determine functional backends: %s", exc, exc_info=True
@@ -246,9 +287,9 @@ async def _list_models_impl(
         # Iterate through dynamically discovered backend types from the registry
         for backend_type in backend_registry.get_registered_backends():
             backend_config: Any | None = None
-            if config.backends:
+            if backend_settings:
                 # Access backend config dynamically using getattr
-                backend_config = getattr(config.backends, backend_type, None)
+                backend_config = getattr(backend_settings, backend_type, None)
 
             has_credentials = False
             if isinstance(backend_config, dict):
@@ -284,7 +325,7 @@ async def _list_models_impl(
             try:
                 # Create backend instance
                 backend_instance: Any = backend_factory.create_backend(
-                    backend_type, config
+                    backend_type, app_config
                 )
 
                 # Get available models from the backend. Prefer async helper when available.
