@@ -512,7 +512,7 @@ class BackendService(IBackendService):
                 return True, None
 
             return False, f"Model {model} not available on backend {backend}"
-        except (TypeError, ValueError, AttributeError) as e:
+        except (BackendError, TypeError, ValueError, AttributeError) as e:
             logger.warning(
                 f"Backend validation failed for {backend}: {e!s}", exc_info=True
             )
