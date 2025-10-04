@@ -105,7 +105,7 @@ async def test_openai_oauth_reload_scheduled_from_thread(
 
     reload_event = asyncio.Event()
 
-    async def fake_load() -> bool:
+    async def fake_load(force_reload: bool = False) -> bool:
         reload_event.set()
         return True
 

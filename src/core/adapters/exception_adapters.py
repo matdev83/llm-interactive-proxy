@@ -35,7 +35,7 @@ def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
     if delay_seconds <= 0:
         return {"Retry-After": "0"}
 
-    return {"Retry-After": str(int(math.ceil(delay_seconds)))}
+    return {"Retry-After": str(math.ceil(delay_seconds))}
 
 
 def create_exception_handler() -> (

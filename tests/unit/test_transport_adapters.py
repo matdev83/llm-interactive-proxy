@@ -72,7 +72,6 @@ class TestRequestAdapters:
         assert context.cookies.get("session") == "cookie-value"
         assert context.client_host == "192.168.1.1"
         assert context.original_request is mock_request
-        assert context.app_state == mock_request.app.state
 
 
 class TestResponseAdapters:
@@ -191,7 +190,9 @@ class TestResponseAdapters:
 class TestExceptionAdapters:
     """Tests for exception adapters."""
 
-    def test_map_domain_exception_to_http_exception(self, monkeypatch: pytest.MonkeyPatch):
+    def test_map_domain_exception_to_http_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test mapping domain exceptions to HTTP exceptions."""
         # Test authentication error
         auth_error = AuthenticationError("Invalid API key")

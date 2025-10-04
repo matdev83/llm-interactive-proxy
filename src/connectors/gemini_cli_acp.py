@@ -236,7 +236,9 @@ class GeminiCliAcpConnector(GeminiBackend):
         # Reset message ID for new process
         self._message_id = 0
 
-        logger.info(f"Project directory changed from {old_project_dir} to {self._project_dir}")
+        logger.info(
+            f"Project directory changed from {old_project_dir} to {self._project_dir}"
+        )
 
     async def _spawn_gemini_cli_process(self) -> None:
         """Spawn gemini-cli subprocess with ACP support."""

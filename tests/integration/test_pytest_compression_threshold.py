@@ -244,7 +244,7 @@ FAILED test_example.py::test_two - AssertionError
         print("Session threshold: 10 lines")
         print("Environment threshold: 20 lines")
 
-        # With 15 lines:
+        # With 19 lines:
         # - Above session threshold (10) -> would compress
         # - Below environment threshold (20) -> would not compress
         # The environment variable should take precedence
