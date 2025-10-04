@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
@@ -27,6 +29,20 @@ from src.core.common.exceptions import (
 logger = logging.getLogger(__name__)
 
 
+def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
+    """Compute a standards-compliant Retry-After header value."""
+
+    if reset_at is None:
+        return None
+
+    now = time.time()
+    delay_seconds = reset_at - now if reset_at > now else reset_at
+    if delay_seconds <= 0:
+        return {"Retry-After": "0"}
+
+    return {"Retry-After": str(int(math.ceil(delay_seconds)))}
+
+
 def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     """Map a domain exception to a FastAPI HTTP exception.
 
@@ -38,6 +54,8 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     """
     # If the exception already has a status code, use it
     status_code = getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    headers: dict[str, str] | None = None
 
     # Map specific exception types to specific status codes
     if isinstance(exc, AuthenticationError):
@@ -58,6 +76,7 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
             status_code = status.HTTP_502_BAD_GATEWAY
     elif isinstance(exc, RateLimitExceededError):
         status_code = status.HTTP_429_TOO_MANY_REQUESTS
+        headers = _build_retry_after_header(getattr(exc, "reset_at", None))
     elif isinstance(exc, LoopDetectionError):
         status_code = status.HTTP_400_BAD_REQUEST
 
@@ -81,7 +100,7 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
             detail["details"] = exc.details
 
     # Create and return the HTTP exception
-    return HTTPException(status_code=status_code, detail=detail)
+    return HTTPException(status_code=status_code, detail=detail, headers=headers)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
