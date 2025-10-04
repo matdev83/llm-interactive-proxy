@@ -50,7 +50,7 @@ def backend_with_transport() -> Iterator[tuple[OpenRouterBackend, RecordingTrans
 
 
 def test_identity_headers_forwarded(
-    backend_with_transport: tuple[OpenRouterBackend, RecordingTransport],
+    backend_with_transport: tuple[OpenRouterBackend, RecordingTransport]
 ) -> None:
     backend, transport = backend_with_transport
 

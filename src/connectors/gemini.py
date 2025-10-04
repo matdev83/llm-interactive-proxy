@@ -171,6 +171,68 @@ class GeminiBackend(LLMBackend):
             payload_contents.append({"role": gemini_role, "parts": parts})
         return payload_contents
 
+    @staticmethod
+    def _coerce_stream_chunk(raw_chunk: Any) -> dict[str, Any] | None:
+        if isinstance(raw_chunk, dict):
+            return raw_chunk
+
+        if isinstance(raw_chunk, bytes | bytearray):
+            raw_chunk = raw_chunk.decode("utf-8", errors="ignore")
+
+        if not isinstance(raw_chunk, str):
+            return None
+
+        stripped_chunk = raw_chunk.strip()
+        if not stripped_chunk:
+            return None
+
+        data_segments: list[str] = []
+        for line in stripped_chunk.splitlines():
+            line = line.strip()
+            if not line or line.startswith(":"):
+                continue
+            if line.startswith("data:"):
+                data_value = line[5:].strip()
+                if not data_value:
+                    continue
+                if data_value == "[DONE]":
+                    return None
+                data_segments.append(data_value)
+            else:
+                data_segments.append(line)
+
+        for segment in data_segments or [stripped_chunk]:
+            try:
+                parsed = json.loads(segment)
+            except json.JSONDecodeError:
+                continue
+
+            if isinstance(parsed, dict):
+                return parsed
+
+            if isinstance(parsed, str):
+                stripped_parsed = parsed.strip()
+                if stripped_parsed:
+                    return {
+                        "candidates": [
+                            {
+                                "content": {"parts": [{"text": stripped_parsed}]},
+                            }
+                        ]
+                    }
+
+            # If parsed value is not usable, continue searching remaining segments
+            continue
+
+        # Fallback to treating the content as plain text
+        return {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": stripped_chunk}]},
+                }
+            ]
+        }
+
     async def _handle_gemini_streaming_response(
         self, base_url: str, payload: dict, headers: dict, effective_model: str
     ) -> StreamingResponseEnvelope:
@@ -206,28 +268,33 @@ class GeminiBackend(LLMBackend):
                 )
 
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
-                # Forward raw text stream; central pipeline will handle normalization/repairs
                 processed_stream = response.aiter_text()
 
                 try:
-                    async for chunk in processed_stream:
-                        # If JSON repair is enabled, the processor yields repaired JSON strings
-                        # or raw text. If disabled, it yields raw text.
-                        # Convert Gemini format to OpenAI format for consistency
-                        if chunk.startswith(("data: ", "id: ", ":")):
-                            yield ProcessedResponse(
-                                content=self.translation_service.to_domain_stream_chunk(
-                                    chunk, source_format="gemini"
-                                )
-                            )
-                        else:
-                            yield ProcessedResponse(
-                                content=self.translation_service.to_domain_stream_chunk(
-                                    f"data: {chunk}", source_format="gemini"
-                                )
-                            )
+                    async for raw_chunk in processed_stream:
+                        parsed_chunk = self._coerce_stream_chunk(raw_chunk)
+                        if parsed_chunk is None:
+                            continue
 
-                    yield ProcessedResponse(content="data: [DONE]\n\n")
+                        yield ProcessedResponse(
+                            content=self.translation_service.to_domain_stream_chunk(
+                                parsed_chunk, source_format="gemini"
+                            )
+                        )
+
+                    done_chunk = {
+                        "candidates": [
+                            {
+                                "content": {"parts": []},
+                                "finishReason": "STOP",
+                            }
+                        ]
+                    }
+                    yield ProcessedResponse(
+                        content=self.translation_service.to_domain_stream_chunk(
+                            done_chunk, source_format="gemini"
+                        )
+                    )
                 finally:
                     if hasattr(response, "aclose"):
                         await response.aclose()

@@ -62,8 +62,6 @@ celerybeat-schedule
 pip-log.txt
 
 # Project-specific ignores (already present)
-#dev/
-#.dev/
 .cursor/
 # Keep data folder in repo but ignore its contents
 data/*
@@ -75,8 +73,6 @@ WARP.md
 CLAUDE.md
 QWEN.md
 .hypothesis/
-.dev/
-dev/
 dev/thrdparty/
 .coverage
 .dependency_check_cache
@@ -85,3 +81,4 @@ dev/thrdparty/
 .kilocode/
 .python_qa_mcp_server/
 test-results.xml
+.droid-shield.json
