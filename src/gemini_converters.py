@@ -160,13 +160,19 @@ def openai_to_gemini_response(openai_response: ChatResponse) -> GenerateContentR
         content = None
 
         if choice.message:
-            # Properly map OpenAI tool_calls to Gemini functionCall part
+            parts: list[Part] = []
+
+            # Properly map OpenAI tool_calls to Gemini functionCall parts
             if choice.message.tool_calls:
-                part = _tool_call_to_function_call(choice.message.tool_calls[0])
-                content = Content(parts=[part], role="model")
-            elif choice.message.content:
-                part = Part(text=choice.message.content)  # type: ignore[call-arg]
-                content = Content(parts=[part], role="model")
+                for tool_call in choice.message.tool_calls:
+                    parts.append(_tool_call_to_function_call(tool_call))
+
+            # Include any assistant message content if present
+            if choice.message.content:
+                parts.append(Part(text=choice.message.content))  # type: ignore[call-arg]
+
+            if parts:
+                content = Content(parts=parts, role="model")
 
         # Map finish reason
         finish_reason = None

@@ -5,11 +5,19 @@ Tests the conversion logic between Gemini and OpenAI formats.
 
 import json
 
-from src.core.domain.chat import ChatMessage
+from src.core.domain.chat import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatMessage,
+    ChatResponse,
+    FunctionCall,
+    ToolCall,
+)
 from src.gemini_converters import (
     gemini_to_openai_messages,
     gemini_to_openai_request,
     openai_to_gemini_contents,
+    openai_to_gemini_response,
     openai_to_gemini_stream_chunk,
 )
 from src.gemini_models import (
@@ -165,3 +173,42 @@ class TestMessageConversion:
                 },
             }
         ]
+
+    def test_openai_to_gemini_response_multiple_tool_calls(self) -> None:
+        """Tool calls should be preserved when multiple are present."""
+        message = ChatCompletionChoiceMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="call_1",
+                    function=FunctionCall(name="first", arguments="{\"a\": 1}"),
+                ),
+                ToolCall(
+                    id="call_2",
+                    function=FunctionCall(name="second", arguments="{\"b\": 2}"),
+                ),
+            ],
+        )
+        response = ChatResponse(
+            id="resp_1",
+            created=123,
+            model="gpt-test",
+            choices=[
+                ChatCompletionChoice(index=0, message=message, finish_reason="tool_calls"),
+            ],
+        )
+
+        gemini_response = openai_to_gemini_response(response)
+
+        assert gemini_response.candidates is not None
+        candidate = gemini_response.candidates[0]
+        assert candidate.content is not None
+        assert candidate.content.parts is not None
+        assert len(candidate.content.parts) == 2
+        for part, expected_name in zip(
+            candidate.content.parts,
+            ["first", "second"],
+            strict=False,
+        ):
+            assert part.function_call is not None
+            assert part.function_call["name"] == expected_name
