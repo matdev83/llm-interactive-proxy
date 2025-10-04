@@ -5,6 +5,7 @@ to the internal OpenAI format used by existing backends.
 """
 
 import json
+from copy import deepcopy
 from typing import Any, cast
 
 from src.core.domain.chat import (
@@ -135,6 +136,7 @@ def gemini_to_openai_request(
         temperature=temperature,
         top_p=top_p,
         stop=stop,
+        tools=_convert_gemini_tools_to_openai(gemini_request.tools),
         tool_choice=None,
         stream=False,  # Will be set separately for streaming requests
         n=None,
@@ -463,3 +465,46 @@ def _openai_delta_to_part(choice_fragment: dict[str, Any]) -> Part | None:
             return Part(text="".join(text_segments))  # type: ignore[call-arg]
 
     return None
+
+
+def _convert_gemini_tools_to_openai(
+    tools: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]] | None:
+    """Convert Gemini tool declarations to OpenAI tool definitions."""
+
+    if not tools:
+        return None
+
+    openai_tools: list[dict[str, Any]] = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+
+        function_declarations = tool.get("function_declarations")
+        if function_declarations is None:
+            function_declarations = tool.get("functionDeclarations")
+
+        if not isinstance(function_declarations, list):
+            continue
+
+        for declaration in function_declarations:
+            if not isinstance(declaration, dict):
+                continue
+
+            name = declaration.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+
+            function_payload: dict[str, Any] = {"name": name}
+
+            description = declaration.get("description")
+            if isinstance(description, str) and description:
+                function_payload["description"] = description
+
+            parameters = declaration.get("parameters")
+            if isinstance(parameters, dict) and parameters:
+                function_payload["parameters"] = deepcopy(parameters)
+
+            openai_tools.append({"type": "function", "function": function_payload})
+
+    return openai_tools or None
