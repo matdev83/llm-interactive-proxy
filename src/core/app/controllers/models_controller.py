@@ -225,18 +225,23 @@ async def _list_models_impl(
         all_models: list[dict[str, Any]] = []
         discovered_models: set[str] = set()
 
-        # Use the injected config service
-        from src.core.config.app_config import AppConfig
+        # Use the injected config service without discarding custom implementations.
+        backend_settings = getattr(config, "backends", None)
+        if backend_settings is None:
+            # As a defensive fallback (e.g. in certain tests) fall back to the
+            # default AppConfig backends section, but still keep the injected
+            # config instance so any customised settings are preserved.
+            from src.core.config.app_config import AppConfig
 
-        if not isinstance(config, AppConfig):
-            # Fallback to default config if we got a different config type
-            config = AppConfig()
+            backend_settings = getattr(AppConfig(), "backends", None)
 
         # Ensure backend service is at least resolved for DI side effects
         _ = backend_service
 
         try:
-            functional_backends = set(config.backends.functional_backends)
+            functional_backends = set(
+                getattr(backend_settings, "functional_backends", []) or []
+            )
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.debug(
                 "Unable to determine functional backends: %s", exc, exc_info=True
@@ -246,9 +251,9 @@ async def _list_models_impl(
         # Iterate through dynamically discovered backend types from the registry
         for backend_type in backend_registry.get_registered_backends():
             backend_config: Any | None = None
-            if config.backends:
+            if backend_settings is not None:
                 # Access backend config dynamically using getattr
-                backend_config = getattr(config.backends, backend_type, None)
+                backend_config = getattr(backend_settings, backend_type, None)
 
             has_credentials = False
             if isinstance(backend_config, dict):
