@@ -23,3 +23,16 @@ class TestLoopDetectionConfigParsing:
 
         config_one = LoopDetectionConfig.from_dict({"enabled": 1})
         assert config_one.enabled is True
+
+    def test_from_env_vars_handles_whitespace_booleans(self) -> None:
+        """Environment flags should ignore surrounding whitespace."""
+
+        config_true = LoopDetectionConfig.from_env_vars(
+            {"LOOP_DETECTION_ENABLED": "  true  "}
+        )
+        assert config_true.enabled is True
+
+        config_false = LoopDetectionConfig.from_env_vars(
+            {"LOOP_DETECTION_ENABLED": "  off  "}
+        )
+        assert config_false.enabled is False

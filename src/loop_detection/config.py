@@ -200,12 +200,7 @@ class LoopDetectionConfig(InternalDTO):
         config = cls()
 
         if "LOOP_DETECTION_ENABLED" in env_dict:
-            config.enabled = env_dict["LOOP_DETECTION_ENABLED"].lower() in (
-                "true",
-                "1",
-                "yes",
-                "on",
-            )
+            config.enabled = _coerce_to_bool(env_dict["LOOP_DETECTION_ENABLED"])
 
         if "LOOP_DETECTION_BUFFER_SIZE" in env_dict:
             config.buffer_size = int(env_dict["LOOP_DETECTION_BUFFER_SIZE"])
