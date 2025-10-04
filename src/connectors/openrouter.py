@@ -16,6 +16,7 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
+from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -51,7 +52,7 @@ class OpenRouterBackend(OpenAIConnector):
         logger.info(
             f"OpenRouter headers: Authorization: Bearer {self.api_key[:20]}..., HTTP-Referer: {headers.get('HTTP-Referer', 'NOT_SET')}, X-Title: {headers.get('X-Title', 'NOT_SET')}"
         )
-        return headers
+        return ensure_loop_guard_header(headers)
 
     async def initialize(self, **kwargs: Any) -> None:
         """Fetch available models and cache them for later use."""

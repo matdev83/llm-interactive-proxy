@@ -21,6 +21,7 @@ from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
+from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -81,11 +82,11 @@ class OpenAIConnector(LLMBackend):
 
     def get_headers(self) -> dict[str, str]:
         if not self.api_key:
-            return {}
+            return ensure_loop_guard_header({})
         headers = {"Authorization": f"Bearer {self.api_key}"}
         if self.identity:
             headers.update(self.identity.get_resolved_headers(None))
-        return headers
+        return ensure_loop_guard_header(headers)
 
     async def initialize(self, **kwargs: Any) -> None:
         self.api_key = kwargs.get("api_key")
@@ -373,8 +374,12 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
+        guarded_headers = ensure_loop_guard_header(headers)
+
         try:
-            response = await self.client.post(url, json=payload, headers=headers)
+            response = await self.client.post(
+                url, json=payload, headers=guarded_headers
+            )
         except httpx.RequestError as e:
             raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
 
@@ -421,7 +426,11 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
-        request = self.client.build_request("POST", url, json=payload, headers=headers)
+        guarded_headers = ensure_loop_guard_header(headers)
+
+        request = self.client.build_request(
+            "POST", url, json=payload, headers=guarded_headers
+        )
         response = await self.client.send(request, stream=True)
 
         status_code = (
@@ -544,11 +553,13 @@ class OpenAIConnector(LLMBackend):
         api_base = kwargs.get("openai_url") or self.api_base_url
         url = f"{api_base.rstrip('/')}/responses"
 
+        guarded_headers = ensure_loop_guard_header(headers)
+
         if domain_request.stream:
             # Return a domain-level streaming envelope
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, headers, domain_request.session_id or ""
+                    url, payload, guarded_headers, domain_request.session_id or ""
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -560,7 +571,7 @@ class OpenAIConnector(LLMBackend):
         else:
             # Return a domain ResponseEnvelope for non-streaming
             return await self._handle_responses_non_streaming_response(
-                url, payload, headers, domain_request.session_id or ""
+                url, payload, guarded_headers, domain_request.session_id or ""
             )
 
     async def _handle_responses_non_streaming_response(
@@ -574,8 +585,12 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
+        guarded_headers = ensure_loop_guard_header(headers)
+
         try:
-            response = await self.client.post(url, json=payload, headers=headers)
+            response = await self.client.post(
+                url, json=payload, headers=guarded_headers
+            )
         except httpx.RequestError as e:
             raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
 

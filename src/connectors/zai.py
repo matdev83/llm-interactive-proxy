@@ -12,6 +12,7 @@ from src.core.common.exceptions import AuthenticationError, ConfigurationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
+from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 
 from .openai import OpenAIConnector
@@ -107,10 +108,12 @@ class ZAIConnector(OpenAIConnector):
             raise AuthenticationError(
                 message="ZAI API key is not set.", code="missing_api_key"
             )
-        return {
+        return ensure_loop_guard_header(
+            {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        )
 
     def get_available_models(self) -> list[str]:
         """
