@@ -202,32 +202,26 @@ async def test_pytest_compression_environment_variable_override():
         formatter = AgentResponseFormatter()
 
         # Create pytest output with 15 lines (between session threshold and env threshold)
-        medium_pytest_output = """============================= test session starts ==============================
+        fifteen_line_pytest_output = """============================= test session starts ==============================
 platform linux -- Python 3.9.0, pytest-6.2.5, py-1.10.0, pluggy-0.13.1
-cachedir .pytest_cache
 rootdir: /test/project
-collected 3 items
+collected 2 items
 
-test_example.py::test_one PASSED                                         [ 33%]
-test_example.py::test_two FAILED                                         [ 66%]
-test_example.py::test_three PASSED                                       [100%]
+test_example.py::test_one PASSED                                         [ 50%]
+test_example.py::test_two FAILED                                         [100%]
 
 =================================== FAILURES ===================================
 _____________________________ test_two _____________________________
-
     def test_two():
 >       assert False
 E   AssertionError
-
-test_example.py:8: AssertionError
 ========================= short test summary info ==========================
-FAILED test_example.py::test_two - AssertionError
-=================== 2 passed, 1 failed in 0.02s ===================="""
+FAILED test_example.py::test_two - AssertionError"""
 
         # Create a command result
         command_result = CommandResult(
             success=True,
-            message=medium_pytest_output,
+            message=fifteen_line_pytest_output,
             name="bash",
             data={"command": "python -m pytest test_example.py -v"},
         )
@@ -238,7 +232,7 @@ FAILED test_example.py::test_two - AssertionError
         )
 
         # Assert - Verify compression behavior
-        original_lines = len(medium_pytest_output.split("\n"))
+        original_lines = len(fifteen_line_pytest_output.split("\n"))
         compressed_lines = len(compressed_output.split("\n"))
 
         print(f"Original output: {original_lines} lines")

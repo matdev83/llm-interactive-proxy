@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-import pytest
-
 import httpx
-
+import pytest
 from src.connectors.gemini_cloud_project import GeminiCloudProjectConnector
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
@@ -49,4 +47,3 @@ def test_normalize_openai_response_rejects_unknown_type() -> None:
 
     with pytest.raises(BackendError):
         connector._normalize_openai_response(object())
-

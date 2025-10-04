@@ -154,7 +154,9 @@ class TestGeminiOAuthPersonalQuotaDetection:
         assert connector._quota_exceeded
 
         # Verify error was logged
-        mock_logger.error.assert_called()
+        mock_logger.error.assert_called_once()
+        call_args, _ = mock_logger.error.call_args
+        assert "marked as unusable due to quota exceeded" in call_args[0]
 
     def test_non_quota_error_does_not_mark_backend_unusable(
         self, connector: GeminiOAuthPersonalConnector

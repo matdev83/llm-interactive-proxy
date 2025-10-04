@@ -12,8 +12,10 @@ import pytest
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
-from src.core.di.services import get_service_provider
+from src.core.app.test_builder import build_test_app
+from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ProcessedResponse
+from src.core.domain.session import SessionState
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
@@ -22,9 +24,18 @@ class TestToolCallReactorIntegration:
     """Integration tests for the complete tool call reactor system."""
 
     @pytest.fixture
-    def service_provider(self):
-        """Get the service provider for integration tests."""
-        return get_service_provider()
+    def app(self):
+        """Build the test application with tool call reactor enabled."""
+        # The tool_call_reactor_enabled flag ensures the service is registered.
+        test_config = AppConfig(
+            session_state=SessionState(tool_call_reactor_enabled=True)
+        )
+        return build_test_app(test_config)
+
+    @pytest.fixture
+    def service_provider(self, app):
+        """Get the service provider from the test app."""
+        return app.state.service_provider
 
     @pytest.fixture
     def reactor_service(self, service_provider):

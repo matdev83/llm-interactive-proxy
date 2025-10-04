@@ -306,9 +306,7 @@ class TestTestStageValidator:
         # Should not raise any exception
         TestStageValidator.validate_stage_services(services)
 
-    def test_validate_stage_services_with_problematic_session_service(
-        self
-    ) -> None:
+    def test_validate_stage_services_with_problematic_session_service(self) -> None:
         """Test validation with problematic session service."""
         mock_service = AsyncMock(spec=ISessionService)
         services = {ISessionService: mock_service}

@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
@@ -34,7 +35,7 @@ from src.core.domain.session import (
     SessionStateAdapter,
 )
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.backend_service_interface import BackendError, IBackendService
+from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.loop_detector_interface import (
@@ -135,9 +136,7 @@ class MockBackendService(IBackendService, IBackendProcessor):
         return response
 
     async def chat_completions(
-        self,
-        request: ChatRequest,
-        **kwargs: Any,
+        self, request: ChatRequest, **kwargs: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         return await self.call_completion(request, stream=bool(request.stream))
 
@@ -397,9 +396,7 @@ class MockResponseProcessor(IResponseProcessor):
     ) -> ProcessedResponse:
         self.processed.append(response)
         processed_response = await self.non_streaming_handler.process_response(response)
-        return ProcessedResponse(
-            content=processed_response.content,
-        )
+        return ProcessedResponse(content=processed_response.content)
 
     async def register_middleware(self, middleware: Any, priority: int = 0) -> None:
         """Register a response middleware (mock implementation)."""
@@ -520,23 +517,15 @@ class TestDataBuilder:
         )
 
     @staticmethod
-    def create_chat_request(
-        messages: list[ChatMessage] | None = None,
-    ) -> ChatRequest:
+    def create_chat_request(messages: list[ChatMessage] | None = None) -> ChatRequest:
         """Create a test chat request."""
         if messages is None:
             messages = [ChatMessage(role="user", content="Hello")]
 
-        return ChatRequest(
-            messages=messages,
-            model="gpt-4",
-            stream=False,
-        )
+        return ChatRequest(messages=messages, model="gpt-4", stream=False)
 
     @staticmethod
-    def create_chat_response(
-        content: str = "Hello there!",
-    ) -> ResponseEnvelope:
+    def create_chat_response(content: str = "Hello there!") -> ResponseEnvelope:
         """Create a test chat response envelope."""
         chat_response = ChatResponse(
             id="resp-123",

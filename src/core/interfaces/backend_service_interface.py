@@ -8,6 +8,5 @@ the actual interface definition in `backend_service.py`.
 """
 
 from src.core.interfaces.backend_service import (  # noqa: F401
-    BackendError,
     IBackendService,
 )

@@ -672,14 +672,17 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         # Calculate original metrics
         from src.core.utils.token_count import count_tokens
 
-        original_tokens = count_tokens(output)
-        original_lines = len(output.split("\n")) if output else 0
+        # Strip trailing whitespace to handle potential empty last lines from command output
+        processed_output = output.strip()
+
+        original_tokens = count_tokens(processed_output)
+        original_lines = len(processed_output.split("\n")) if processed_output else 0
 
         logger.info(
             f"Pytest compression started - Original metrics: {original_tokens} tokens, {original_lines} lines"
         )
 
-        lines = output.split("\n")
+        lines = processed_output.split("\n")
         if not lines:
             return output
 

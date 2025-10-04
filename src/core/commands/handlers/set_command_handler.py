@@ -21,6 +21,7 @@ from src.core.commands.handlers.reasoning_handlers import (
 from src.core.commands.registry import command
 from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
+from src.core.interfaces.command_service_interface import ICommandService
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -30,8 +31,8 @@ if TYPE_CHECKING:
 class SetCommandHandler(ICommandHandler):
     """Handler for the 'set' command."""
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, command_service: ICommandService) -> None:
+        self._command_service = command_service
         self._parameter_handlers = self._build_parameter_handlers()
 
     @property
@@ -179,9 +180,7 @@ class SetCommandHandler(ICommandHandler):
             return None
         return None
 
-    def _apply_temperature(
-        self, value: Any, session: Session
-    ) -> CommandResult | None:
+    def _apply_temperature(self, value: Any, session: Session) -> CommandResult | None:
         if value is None:
             return CommandResult(
                 success=False,
@@ -241,5 +240,5 @@ class SetCommandHandler(ICommandHandler):
     def _has_parameter(self, args: Mapping[str, Any], name: str) -> bool:
         normalized_name = self._normalize_param(name)
         return any(
-            self._normalize_param(arg_name) == normalized_name for arg_name in args.keys()
+            self._normalize_param(arg_name) == normalized_name for arg_name in args
         )

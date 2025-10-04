@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
-
 from src.core.commands.command import Command
 from src.core.commands.handlers.set_command_handler import SetCommandHandler
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.domain.session import Session, SessionState
+from src.core.interfaces.command_service_interface import ICommandService
 
 
 def test_set_command_handler_updates_temperature() -> None:
-    handler = SetCommandHandler()
-    state = SessionState(
-        reasoning_config=ReasoningConfiguration(temperature=0.2)
-    )
+    mock_command_service = Mock(spec=ICommandService)
+    handler = SetCommandHandler(command_service=mock_command_service)
+    state = SessionState(reasoning_config=ReasoningConfiguration(temperature=0.2))
     session = Session(session_id="test", state=state)
     command = Command(name="set", args={"temperature": "0.8"})
 
@@ -27,7 +27,8 @@ def test_set_command_handler_updates_temperature() -> None:
 
 
 def test_set_command_handler_updates_project_dir(tmp_path: Path) -> None:
-    handler = SetCommandHandler()
+    mock_command_service = Mock(spec=ICommandService)
+    handler = SetCommandHandler(command_service=mock_command_service)
     session = Session(session_id="test", state=SessionState())
     project_dir = tmp_path / "project"
     project_dir.mkdir()
@@ -40,7 +41,8 @@ def test_set_command_handler_updates_project_dir(tmp_path: Path) -> None:
 
 
 def test_set_command_handler_rejects_unknown_parameter() -> None:
-    handler = SetCommandHandler()
+    mock_command_service = Mock(spec=ICommandService)
+    handler = SetCommandHandler(command_service=mock_command_service)
     session = Session(session_id="test", state=SessionState())
     command = Command(name="set", args={"unsupported": "value"})
 
@@ -51,7 +53,8 @@ def test_set_command_handler_rejects_unknown_parameter() -> None:
 
 
 def test_set_command_handler_validates_temperature_range() -> None:
-    handler = SetCommandHandler()
+    mock_command_service = Mock(spec=ICommandService)
+    handler = SetCommandHandler(command_service=mock_command_service)
     session = Session(
         session_id="test",
         state=SessionState(reasoning_config=ReasoningConfiguration()),
