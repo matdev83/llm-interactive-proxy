@@ -107,9 +107,7 @@ class ToolLoopDetectionCommandHandler(ICommandHandler):
                 ),
             )
 
-        new_config = session.state.loop_config.with_tool_loop_detection_enabled(
-            enabled
-        )
+        new_config = session.state.loop_config.with_tool_loop_detection_enabled(enabled)
         session.state = session.state.with_loop_config(new_config)
 
         return CommandResult(
