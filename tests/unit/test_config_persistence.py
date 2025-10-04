@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.core.app.test_builder import build_test_app as build_app
-from src.core.common.exceptions import ConfigurationError
+from src.core.common.exceptions import ConfigurationError, ServiceResolutionError
 from src.core.config.app_config import load_config
 from src.core.persistence import ConfigManager
 
@@ -150,3 +150,50 @@ def test_apply_default_backend_invalid_backend_raises_configuration_error() -> N
         "backend": "nonexistent",
         "functional_backends": ["openai"],
     }
+
+
+def test_apply_default_backend_di_failure_non_strict(monkeypatch) -> None:
+    app = FastAPI()
+
+    class _FailingProvider:
+        def get_required_service(self, *_args, **_kwargs):
+            raise ServiceResolutionError("boom")
+
+    app_state = _DummyAppState()
+    manager = ConfigManager(
+        app,
+        path=":memory:",
+        service_provider=_FailingProvider(),
+        app_state=app_state,
+    )
+
+    monkeypatch.setattr(
+        "src.core.persistence._STRICT_PERSISTENCE_ERRORS", False, raising=False
+    )
+
+    manager._apply_default_backend("openai")
+
+    assert app_state.backend_type == "openai"
+    assert app_state.backend is None
+
+
+def test_apply_interactive_mode_di_failure_non_strict(monkeypatch) -> None:
+    app = FastAPI()
+
+    class _FailingProvider:
+        def get_required_service(self, *_args, **_kwargs):
+            raise ServiceResolutionError("boom")
+
+    app_state = _DummyAppState()
+    manager = ConfigManager(
+        app,
+        path=":memory:",
+        service_provider=_FailingProvider(),
+        app_state=app_state,
+    )
+
+    monkeypatch.setattr(
+        "src.core.persistence._STRICT_PERSISTENCE_ERRORS", False, raising=False
+    )
+
+    manager._apply_interactive_mode(True)
