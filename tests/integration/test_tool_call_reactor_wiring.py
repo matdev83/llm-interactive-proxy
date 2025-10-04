@@ -1,4 +1,4 @@
-import time
+import asyncio
 
 import pytest
 from src.core.app.application_builder import ApplicationBuilder
@@ -18,7 +18,7 @@ async def test_tool_call_reactor_handlers_are_wired_up():
 
     # Act
     app = await builder.build(config)
-    time.sleep(0.1)  # Allow time for handlers to register
+    await asyncio.sleep(0.1)  # Allow time for handlers to register
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
