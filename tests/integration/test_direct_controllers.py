@@ -5,8 +5,11 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+
+from src.core.app.controllers import get_chat_controller_if_available
+from src.core.app.controllers.chat_controller import ChatController
 
 
 @pytest.fixture
@@ -156,3 +159,32 @@ async def test_anthropic_controller_error_handling(setup_app: dict[str, Any]) ->
     # This test is skipped until we can properly handle the mock response
     # The issue is that the mock response is being treated as a coroutine
     # but FastAPI's jsonable_encoder can't handle coroutines properly
+
+
+@pytest.mark.asyncio
+async def test_get_chat_controller_if_available_handles_missing_controller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure the dependency gracefully constructs a controller when none is registered."""
+
+    app = FastAPI()
+    provider = MagicMock()
+    provider.get_service.side_effect = lambda cls: None if cls is ChatController else MagicMock()
+    app.state.service_provider = provider
+
+    sentinel_controller = MagicMock(spec=ChatController)
+
+    def fake_get_chat_controller(sp: Any) -> ChatController:
+        assert sp is provider
+        return sentinel_controller  # type: ignore[return-value]
+
+    monkeypatch.setattr(
+        "src.core.app.controllers.get_chat_controller",
+        fake_get_chat_controller,
+    )
+
+    request = Request({"type": "http", "method": "POST", "path": "/", "app": app})
+
+    controller = await get_chat_controller_if_available(request)
+
+    assert controller is sentinel_controller
