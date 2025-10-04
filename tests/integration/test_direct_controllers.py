@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-
 from src.core.app.controllers import get_chat_controller_if_available
 from src.core.app.controllers.chat_controller import ChatController
 
