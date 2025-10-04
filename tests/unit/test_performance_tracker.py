@@ -55,26 +55,22 @@ def test_log_summary_includes_breakdown_and_overhead(monkeypatch, caplog):
     assert "overhead=0.800s" in message
 
 
-def test_log_summary_includes_overhead_without_breakdown(monkeypatch, caplog):
+def test_log_summary_reports_overhead_without_phase_timings(monkeypatch, caplog):
     import time as original_time
 
-    time_values = _time_sequence(101.0, 101.5)
+    time_values = _time_sequence(51.0, 52.0)
     monkeypatch.setattr(performance_tracker.time, "time", time_values)
     monkeypatch.setattr(original_time, "time", time_values)
 
-    metrics = PerformanceMetrics(request_start=100.0)
-    metrics.session_id = "session-456"
-    metrics.backend_used = "backend-b"
-    metrics.model_used = "model-c"
-
-    metrics.finalize()
+    metrics = PerformanceMetrics(request_start=50.0)
 
     caplog.set_level(logging.INFO)
     metrics.log_summary()
 
     assert len(caplog.records) == 1
     message = caplog.records[0].message
-    assert "breakdown=" not in message
+    assert "total=1.000s" in message
+    assert "breakdown=[" not in message
     assert "overhead=1.000s" in message
 
 

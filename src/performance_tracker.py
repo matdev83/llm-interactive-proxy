@@ -94,8 +94,9 @@ class PerformanceMetrics(InternalDTO):
             if t is not None
         )
         if self.total_time is not None:
-            overhead = max(self.total_time - accounted_time, 0.0)
-            summary_parts.append(f"overhead={overhead:.3f}s")
+            overhead = self.total_time - accounted_time
+            if overhead > 0:
+                summary_parts.append(f"overhead={overhead:.3f}s")
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(" | ".join(summary_parts))
