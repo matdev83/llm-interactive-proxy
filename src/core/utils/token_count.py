@@ -30,6 +30,8 @@ def count_tokens(text: str, model: str | None = None) -> int:
         return len(enc.encode(text))
     except Exception as e:
         logger.debug("Token counting fallback engaged: %s", e)
+        if not text:
+            return 0
         return max(1, len(text) // 4)
 
 
