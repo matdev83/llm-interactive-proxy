@@ -4,7 +4,6 @@ import asyncio
 from pathlib import Path
 
 import pytest
-
 from src.core.commands.command import Command
 from src.core.commands.handlers.set_command_handler import SetCommandHandler
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
@@ -13,9 +12,7 @@ from src.core.domain.session import Session, SessionState
 
 def test_set_command_handler_updates_temperature() -> None:
     handler = SetCommandHandler()
-    state = SessionState(
-        reasoning_config=ReasoningConfiguration(temperature=0.2)
-    )
+    state = SessionState(reasoning_config=ReasoningConfiguration(temperature=0.2))
     session = Session(session_id="test", state=state)
     command = Command(name="set", args={"temperature": "0.8"})
 

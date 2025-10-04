@@ -214,13 +214,17 @@ class NewCommandService(ICommandService):
 
     async def get_command_handler(
         self, name: str
-    ) -> type[ICommandHandler] | None:  # pragma: no cover - exercised via integration tests
+    ) -> (
+        type[ICommandHandler] | None
+    ):  # pragma: no cover - exercised via integration tests
         """Return the registered handler class for the provided command name."""
         return get_command_handler(name)
 
     async def get_all_commands(
         self,
-    ) -> dict[str, ICommandHandler]:  # pragma: no cover - exercised via integration tests
+    ) -> dict[
+        str, ICommandHandler
+    ]:  # pragma: no cover - exercised via integration tests
         """Return instantiated handlers for all registered commands."""
         handlers: dict[str, ICommandHandler] = {}
         for name, handler_class in sorted(get_all_commands().items()):

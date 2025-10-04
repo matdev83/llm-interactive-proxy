@@ -209,7 +209,7 @@ def _create_other_response(
     content: Any, status_code: int, headers: dict[str, Any], media_type: str
 ) -> Response:
     content_str = content
-    if isinstance(content, (dict, list, tuple)):
+    if isinstance(content, dict | list | tuple):
         try:
             content_str = json.dumps(content)
         except (TypeError, ValueError):
