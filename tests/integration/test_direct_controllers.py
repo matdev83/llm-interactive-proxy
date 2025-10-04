@@ -169,7 +169,9 @@ async def test_get_chat_controller_if_available_handles_missing_controller(
 
     app = FastAPI()
     provider = MagicMock()
-    provider.get_service.side_effect = lambda cls: None if cls is ChatController else MagicMock()
+    provider.get_service.side_effect = lambda cls: (
+        None if cls is ChatController else MagicMock()
+    )
     app.state.service_provider = provider
 
     sentinel_controller = MagicMock(spec=ChatController)
