@@ -48,11 +48,35 @@ class InMemorySessionRepository(ISessionRepository):
 
     async def update(self, entity: Session) -> Session:
         """Update an existing session."""
-        if entity.id not in self._sessions:
+        existing_session = self._sessions.get(entity.id)
+        if existing_session is None:
             return await self.add(entity)
+
+        previous_user_id = next(
+            (
+                user_id
+                for user_id, session_ids in self._user_sessions.items()
+                if entity.id in session_ids
+            ),
+            None,
+        )
+        new_user_id = getattr(entity, "user_id", None)
 
         self._sessions[entity.id] = entity
         self._last_accessed[entity.id] = time.time()
+
+        if previous_user_id and previous_user_id != new_user_id:
+            tracked_sessions = self._user_sessions.get(previous_user_id)
+            if tracked_sessions and entity.id in tracked_sessions:
+                tracked_sessions.remove(entity.id)
+                if not tracked_sessions:
+                    del self._user_sessions[previous_user_id]
+
+        if new_user_id:
+            tracked_sessions = self._user_sessions.setdefault(new_user_id, [])
+            if entity.id not in tracked_sessions:
+                tracked_sessions.append(entity.id)
+
         return entity
 
     async def delete(self, id: str) -> bool:
