@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import time
 import traceback
 from collections.abc import Callable, Coroutine
 from typing import Any
@@ -22,6 +24,20 @@ from src.core.common.exceptions import (
 logger = logging.getLogger(__name__)
 
 
+def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
+    """Compute a standards-compliant Retry-After header from a reset timestamp."""
+
+    if reset_at is None:
+        return None
+
+    now = time.time()
+    delay_seconds = reset_at - now if reset_at > now else reset_at
+    if delay_seconds <= 0:
+        return {"Retry-After": "0"}
+
+    return {"Retry-After": str(int(math.ceil(delay_seconds)))}
+
+
 def create_exception_handler() -> (
     Callable[[Request, Exception], Coroutine[Any, Any, Response]]
 ):
@@ -37,8 +53,8 @@ def create_exception_handler() -> (
 
             # Add additional headers for rate limit errors
             headers = None
-            if isinstance(exc, RateLimitExceededError) and exc.reset_at is not None:
-                headers = {"Retry-After": str(exc.reset_at)}
+            if isinstance(exc, RateLimitExceededError):
+                headers = _build_retry_after_header(exc.reset_at)
 
             return JSONResponse(
                 status_code=status_code, content=content, headers=headers

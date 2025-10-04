@@ -63,12 +63,16 @@ class TestCreateExceptionHandler:
 
     @pytest.mark.asyncio
     async def test_handle_rate_limit_error_with_reset(
-        self, mock_request: Mock, exception_handler
+        self, mock_request: Mock, exception_handler, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test handling RateLimitExceededError with reset time."""
+        monkeypatch.setattr(
+            "src.core.adapters.exception_adapters.time.time",
+            lambda: 100.0,
+        )
         error = RateLimitExceededError(
             message="Rate limit exceeded",
-            reset_at=60,
+            reset_at=160.0,
         )
 
         response = await exception_handler(mock_request, error)
