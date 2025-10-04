@@ -296,6 +296,19 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
             # Determine minimum line threshold, defaulting to zero (always compress)
             min_lines = 0
+
+            import os
+
+            # Environment variable should override session configuration when provided
+            env_min_lines: int | None = None
+            try:
+                env_value = os.environ.get("PYTEST_COMPRESSION_MIN_LINES")
+                if env_value is not None:
+                    env_min_lines = int(env_value)
+            except (TypeError, ValueError):
+                env_min_lines = None
+
+            session_min_lines: int | None
             try:
                 session_min_lines = session.state.pytest_compression_min_lines
             except AttributeError:
@@ -303,18 +316,11 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             except Exception:
                 session_min_lines = None
 
-            if session_min_lines is not None:
+            if env_min_lines is not None:
+                min_lines = env_min_lines
+            elif session_min_lines is not None:
                 try:
                     min_lines = int(session_min_lines)
-                except (TypeError, ValueError):
-                    min_lines = 0
-            else:
-                import os
-
-                try:
-                    env_min_lines = os.environ.get("PYTEST_COMPRESSION_MIN_LINES")
-                    if env_min_lines is not None:
-                        min_lines = int(env_min_lines)
                 except (TypeError, ValueError):
                     min_lines = 0
 

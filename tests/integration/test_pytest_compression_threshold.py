@@ -252,13 +252,12 @@ FAILED test_example.py::test_two - AssertionError
         # The environment variable should take precedence
 
         # Environment variable should override session state
-        if compressed_lines == original_lines:
-            print(
-                "PASSED: Environment variable override test passed - no compression applied due to env threshold"
-            )
-        else:
-            print("PASSED: Session state took precedence - compression applied")
-            # This is also acceptable behavior if the implementation prefers session state
+        assert (
+            compressed_lines == original_lines
+        ), "Environment variable threshold should override session state value"
+        print(
+            "PASSED: Environment variable override test passed - no compression applied due to env threshold"
+        )
 
     finally:
         # Cleanup - restore original environment variable
