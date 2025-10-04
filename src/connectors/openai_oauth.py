@@ -20,8 +20,8 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
-from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -99,9 +99,11 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self._credential_validation_errors: list[str] = []
         self._initialization_failed: bool = False
         self._last_validation_time: float = 0.0
-        self._pending_reload_task: asyncio.Task[None] | Future[None] | None = None
+        self._pending_reload_task: asyncio.Future[None] | None = None
         self._auth_credentials: dict[str, Any] | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._reload_task_lock = threading.Lock()
+        self._reload_scheduling_in_progress = False
 
     # -----------------------------
     # Health Tracking API (stale token handling pattern)
@@ -262,17 +264,24 @@ class OpenAIOAuthConnector(OpenAIConnector):
         auth.json file. It forces a reload of credentials bypassing the cache
         to ensure the latest token is loaded even if the file timestamp didn't change.
         """
-        if (
-            self._pending_reload_task is not None
-            and not self._pending_reload_task.done()
-        ):
-            return  # Already have a reload pending
+        with self._reload_task_lock:
+            if (
+                self._pending_reload_task is not None
+                and not self._pending_reload_task.done()
+            ):
+                return
+            if self._reload_scheduling_in_progress:
+                return
+            self._reload_scheduling_in_progress = True
 
         async def reload_task() -> None:
             try:
                 logger.debug("Reloading OpenAI OAuth credentials due to file change")
                 # Use force_reload=True to bypass cache
-                loaded = await self._load_auth(force_reload=True)
+                try:
+                    loaded = await self._load_auth(force_reload=True)
+                except TypeError:
+                    loaded = await self._load_auth()
                 if loaded:
                     if self._auth_credentials is not None:
                         ok, errors = self._validate_credentials_structure(
@@ -298,38 +307,59 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 logger.warning(
-                    "No running event loop available for OpenAI OAuth reload; skipping"
+                    "Cannot schedule credentials reload: no running event loop available."
                 )
+                with self._reload_task_lock:
+                    self._reload_scheduling_in_progress = False
                 return
             self._event_loop = loop
 
         if loop.is_closed():
-            logger.warning(
-                "OpenAI OAuth event loop is closed; cannot schedule credentials reload"
-            )
+            logger.warning("Cannot schedule credentials reload: event loop is closed.")
+            with self._reload_task_lock:
+                self._reload_scheduling_in_progress = False
             return
 
-        def _clear(_: object) -> None:
-            self._pending_reload_task = None
+        def _clear(_: asyncio.Future[Any]) -> None:
+            with self._reload_task_lock:
+                self._pending_reload_task = None
+                self._reload_scheduling_in_progress = False
+
+        def _assign_task(task: asyncio.Future[None]) -> None:
+            task.add_done_callback(_clear)
+            with self._reload_task_lock:
+                self._pending_reload_task = task
+                self._reload_scheduling_in_progress = False
 
         try:
             try:
-                current_loop = asyncio.get_running_loop()
+                running_loop = asyncio.get_running_loop()
             except RuntimeError:
-                current_loop = None
+                running_loop = None
 
-            if current_loop is loop:
+            if running_loop is loop:
                 task = loop.create_task(reload_task())
-                task.add_done_callback(_clear)
-                self._pending_reload_task = task
-            else:
-                future = asyncio.run_coroutine_threadsafe(reload_task(), loop)
-                future.add_done_callback(_clear)
-                self._pending_reload_task = future
+                _assign_task(task)
+                return
+
+            def schedule_task() -> None:
+                try:
+                    task = loop.create_task(reload_task())
+                    _assign_task(task)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to schedule OpenAI OAuth credentials reload: %s", exc
+                    )
+                    with self._reload_task_lock:
+                        self._reload_scheduling_in_progress = False
+
+            loop.call_soon_threadsafe(schedule_task)
         except RuntimeError as exc:
             logger.warning(
                 "Failed to schedule OpenAI OAuth credentials reload: %s", exc
             )
+            with self._reload_task_lock:
+                self._reload_scheduling_in_progress = False
 
     def _default_auth_paths(self) -> list[Path]:
         paths: list[Path] = []

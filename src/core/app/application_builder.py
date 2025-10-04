@@ -266,6 +266,54 @@ class ApplicationBuilder:
         app.state.service_provider = service_provider
         app.state.app_config = config
 
+        # Bridge application state service methods onto FastAPI state for compatibility
+        try:
+            from src.core.interfaces.application_state_interface import (
+                IApplicationState,
+            )
+
+            app_state_service: IApplicationState = (
+                service_provider.get_required_service(IApplicationState)  # type: ignore[type-abstract]
+            )
+
+            try:
+                app.state.application_state_service = app_state_service
+            except Exception:
+                logger.debug(
+                    "Failed to expose application_state_service on app.state",
+                    exc_info=True,
+                )
+
+            if hasattr(app_state_service, "set_state_provider"):
+                try:
+                    app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]
+                except Exception:
+                    logger.debug(
+                        "Failed to set state provider on application state service",
+                        exc_info=True,
+                    )
+
+            for attribute_name in dir(app_state_service):
+                if attribute_name.startswith("_"):
+                    continue
+                if hasattr(app.state, attribute_name):
+                    continue
+                attribute_value = getattr(app_state_service, attribute_name)
+                if callable(attribute_value):
+                    try:
+                        setattr(app.state, attribute_name, attribute_value)
+                    except Exception:
+                        logger.debug(
+                            "Failed to expose application state attribute '%s' on app.state",
+                            attribute_name,
+                            exc_info=True,
+                        )
+        except Exception:
+            logger.debug(
+                "Unable to bind application state service methods to FastAPI state",
+                exc_info=True,
+            )
+
         # Ensure global DI accessor is in sync for legacy helpers/dependencies
         try:
             from src.core.di.services import set_service_provider

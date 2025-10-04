@@ -191,7 +191,9 @@ class TestResponseAdapters:
 class TestExceptionAdapters:
     """Tests for exception adapters."""
 
-    def test_map_domain_exception_to_http_exception(self, monkeypatch: pytest.MonkeyPatch):
+    def test_map_domain_exception_to_http_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test mapping domain exceptions to HTTP exceptions."""
         # Test authentication error
         auth_error = AuthenticationError("Invalid API key")

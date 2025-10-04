@@ -182,7 +182,9 @@ class TestGeminiCliAcpConnectorProcessManagement:
 class TestGeminiCliAcpConnectorProjectDirControl:
     """Test project directory control mechanisms."""
 
-    async def test_change_project_dir_success(self, connector, temp_workspace, tmp_path):
+    async def test_change_project_dir_success(
+        self, connector, temp_workspace, tmp_path
+    ):
         """Test changing project directory successfully."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
             await connector.initialize(project_dir=str(temp_workspace))
@@ -322,7 +324,9 @@ class TestGeminiCliAcpConnectorChatCompletions:
 
         # Mock all the required methods
         with (
-            patch.object(connector, "change_project_dir", new=AsyncMock()) as mock_change,
+            patch.object(
+                connector, "change_project_dir", new=AsyncMock()
+            ) as mock_change,
             patch.object(connector, "_spawn_gemini_cli_process", new=AsyncMock()),
             patch.object(connector, "_initialize_agent", new=AsyncMock()),
             patch.object(connector, "_send_jsonrpc_message", new=AsyncMock()),

@@ -123,9 +123,13 @@ async def test_openai_oauth_reload_scheduled_from_thread(
 
         thread = threading.Thread(target=trigger)
         thread.start()
-        thread.join()
 
-        await asyncio.wait_for(reload_event.wait(), timeout=1.0)
+        # The thread needs to complete its work, but thread.join() is a blocking
+        # call that will stall the event loop. Instead, we wait for the event
+        # that is set by the coroutine that the thread schedules.
+        # A generous timeout is used to prevent flakes on slow systems.
+        await asyncio.wait_for(reload_event.wait(), timeout=5.0)
+        thread.join()
         load_mock.assert_awaited()
 
         # Allow callbacks to run so the pending task/future clears

@@ -79,15 +79,6 @@ class ConfigManager:
         if not isinstance(backend_value, str):
             return
 
-        cli_backend = os.getenv("LLM_BACKEND")
-        if cli_backend and cli_backend != backend_value:
-            logger.info(
-                "Skipping config file backend '%s' because CLI argument '%s' takes precedence",
-                backend_value,
-                cli_backend,
-            )
-            return
-
         if not self.app_state:
             return
 
@@ -102,6 +93,15 @@ class ConfigManager:
                     "functional_backends": sorted(functional_backends),
                 },
             )
+
+        cli_backend = os.getenv("LLM_BACKEND")
+        if cli_backend and cli_backend != backend_value:
+            logger.info(
+                "Skipping config file backend '%s' because CLI argument '%s' takes precedence",
+                backend_value,
+                cli_backend,
+            )
+            return
 
         self.app_state.set_backend_type(backend_value)
         if self.service_provider is not None:
