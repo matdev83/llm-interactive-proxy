@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Cleanup**: Removed the archived `src/core/cli_old.py` module. The modern
+  CLI implementation in `src/core/cli.py` has fully replaced it and all
+  dependencies now point to the new entry point. Keeping the unused module in
+  the tree caused confusion during maintenance and risked duplicated updates.
+
 ## 2025-10-04 - Gemini CLI ACP Backend with Full Project Directory Control
 
 - **New Backend**: Added `gemini-cli-acp` backend that uses Google's `gemini-cli` as an AI agent via the Agent Control Protocol (ACP)
