@@ -110,6 +110,38 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
     }
 
 
+def _normalize_text_content(content: Any) -> str:
+    """Return a plain string for OpenAI content payloads.
+
+    OpenAI can emit message content either as a simple string or as the newer
+    list-of-blocks structure (each block being a dict with a ``text`` field).
+    The Anthropic front-end expects plain text, so we need to flatten the
+    different shapes into a single string while being defensive against
+    unexpected payloads.
+    """
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        text_chunks: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                text_chunks.append(item)
+            elif isinstance(item, dict):
+                text_value = item.get("text")
+                if isinstance(text_value, str):
+                    text_chunks.append(text_value)
+        return "".join(text_chunks)
+
+    if isinstance(content, dict):
+        text_value = content.get("text")
+        if isinstance(text_value, str):
+            return text_value
+
+    return "" if content is None else str(content)
+
+
 def _build_content_blocks(
     choice: dict[str, Any], message: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -134,7 +166,9 @@ def _build_content_blocks(
         )
         return content_blocks
     if message.get("content") is not None:
-        content_blocks.append({"type": "text", "text": message["content"]})
+        content_blocks.append(
+            {"type": "text", "text": _normalize_text_content(message["content"])}
+        )
     return content_blocks
 
 
@@ -165,7 +199,7 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
 
         # Content delta
         if delta.get("content"):
-            content = delta["content"]
+            content = _normalize_text_content(delta["content"])
             payload = {
                 "type": "content_block_delta",
                 "index": 0,
@@ -288,7 +322,10 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
             payload = {
                 "type": "content_block_delta",
                 "index": 0,
-                "delta": {"type": "text_delta", "text": delta["content"]},
+                "delta": {
+                    "type": "text_delta",
+                    "text": _normalize_text_content(delta["content"]),
+                },
             }
             return f"{prefix}{json.dumps(payload)}\n\n"
 

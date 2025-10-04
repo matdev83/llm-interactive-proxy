@@ -9,6 +9,34 @@ from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
 
 
+def pytest_load_initial_conftests(
+    args: list[str], early_config: pytest.Config, parser: pytest.Parser
+) -> None:
+    """Strip xdist-specific CLI options that aren't available in this environment."""
+
+    ignored_prefixes = ("--dist", "--max-worker-restart")
+    cleaned_args: list[str] = []
+    skip_next = False
+
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+
+        if arg == "-n":
+            skip_next = True
+            continue
+
+        if any(arg.startswith(prefix) for prefix in ignored_prefixes):
+            if "=" not in arg:
+                skip_next = True
+            continue
+
+        cleaned_args.append(arg)
+
+    args[:] = cleaned_args
+
+
 # Provide env fixtures used by config tests
 @pytest.fixture
 def mock_env_vars(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
