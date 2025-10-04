@@ -64,6 +64,14 @@ class PatternAnalyzer:
             chunk_hash = self.hasher.hash(current_chunk)
 
             if self._is_loop_detected_for_chunk(current_chunk, chunk_hash):
+                if self._is_whitelisted_pattern(current_chunk):
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Skipping loop detection for whitelisted pattern: %r",
+                            current_chunk,
+                        )
+                    self._last_chunk_index += 1
+                    continue
                 repetition_count = len(self._content_stats[chunk_hash])
                 total_repeated_chars = len(current_chunk) * repetition_count
                 event = self._create_detection_event_from_chunk(
@@ -116,6 +124,34 @@ class PatternAnalyzer:
         self._last_chunk_index = state.get("last_chunk_index", 0)
         self._in_code_block = state.get("in_code_block", False)
         self.history = state.get("history", []).copy()
+
+    def _is_whitelisted_pattern(self, pattern: str) -> bool:
+        """Check whether a detected pattern should be ignored based on the config whitelist."""
+        whitelist = self.config.whitelist or []
+        if not whitelist:
+            return False
+
+        cleaned_pattern = pattern.strip()
+        if not cleaned_pattern:
+            return True
+
+        for entry in whitelist:
+            token = entry.strip()
+            if not token:
+                continue
+
+            if cleaned_pattern == token:
+                return True
+
+            if cleaned_pattern.replace(token, "") == "":
+                return True
+
+            token_chars = set(token)
+            pattern_chars = set(cleaned_pattern)
+            if len(token_chars) == 1 and pattern_chars == token_chars:
+                return True
+
+        return False
 
     def _truncate_and_update_indices(self) -> None:
         max_history = self.config.max_history_length
