@@ -4,6 +4,7 @@ Tests for Exception Adapters module.
 This module tests the exception handling and conversion functions.
 """
 
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -196,6 +197,20 @@ class TestCreateExceptionHandler:
         assert response.status_code == 404
         content = response.body.decode()
         assert "Not found" in content
+
+    @pytest.mark.asyncio
+    async def test_handle_fastapi_http_exception_with_dict_detail(
+        self, mock_request: Mock, exception_handler
+    ) -> None:
+        """Ensure dictionary details from HTTPException are preserved."""
+        detail = {"error": {"message": "Detailed", "code": "X123"}}
+        error = StarletteHTTPException(status_code=418, detail=detail)
+
+        response = await exception_handler(mock_request, error)
+
+        assert isinstance(response, JSONResponse)
+        assert response.status_code == 418
+        assert json.loads(response.body) == detail
 
     @pytest.mark.asyncio
     async def test_handle_generic_exception(
