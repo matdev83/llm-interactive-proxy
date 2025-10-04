@@ -8,12 +8,14 @@ import json
 from src.core.domain.chat import ChatMessage
 from src.gemini_converters import (
     gemini_to_openai_messages,
+    gemini_to_openai_request,
     openai_to_gemini_contents,
     openai_to_gemini_stream_chunk,
 )
 from src.gemini_models import (
     Blob,
     Content,
+    GenerateContentRequest,
     Part,
 )
 
@@ -114,3 +116,42 @@ class TestMessageConversion:
         data = json.loads(payload)
 
         assert data["candidates"][0]["content"]["parts"][0]["text"] == "Hello"
+
+    def test_gemini_request_tools_are_converted(self) -> None:
+        """Gemini tool declarations should be translated to OpenAI tool definitions."""
+
+        parameters = {
+            "type": "object",
+            "properties": {
+                "location": {"type": "string"},
+            },
+            "required": ["location"],
+        }
+
+        request = GenerateContentRequest(
+            contents=[Content(parts=[Part(text="What's the weather?")], role="user")],
+            tools=[
+                {
+                    "function_declarations": [
+                        {
+                            "name": "get_weather",
+                            "description": "Fetch the current weather.",
+                            "parameters": parameters,
+                        }
+                    ]
+                }
+            ],
+        )
+
+        chat_request = gemini_to_openai_request(request, model="gpt-4o")
+
+        assert chat_request.tools == [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Fetch the current weather.",
+                    "parameters": parameters,
+                },
+            }
+        ]
