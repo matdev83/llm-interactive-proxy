@@ -82,14 +82,20 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
 
     try:
         chat_controller = service_provider.get_service(ChatController)
-        logger.debug(
-            f"Got ChatController from service provider: {type(chat_controller).__name__}"
-        )
-        logger.debug(
-            f"ChatController processor type: {type(chat_controller._processor).__name__}"
-        )
-        if chat_controller:
+        if chat_controller is not None:
+            logger.debug(
+                "Got ChatController from service provider: %s",
+                type(chat_controller).__name__,
+            )
+            processor = getattr(chat_controller, "_processor", None)
+            if processor is not None:
+                logger.debug(
+                    "ChatController processor type: %s",
+                    type(processor).__name__,
+                )
             return cast(ChatController, chat_controller)
+
+        logger.debug("ChatController not pre-registered; creating via factory")
         return cast(ChatController, get_chat_controller(service_provider))
     except Exception as e:
         logger.exception(
