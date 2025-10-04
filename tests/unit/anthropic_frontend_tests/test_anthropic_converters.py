@@ -12,6 +12,7 @@ from src.anthropic_converters import (
     get_anthropic_models,
     openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
+    openai_to_anthropic_stream_chunk,
 )
 from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
 
@@ -131,6 +132,32 @@ class TestAnthropicConverters:
         assert anthropic_response["usage"]["input_tokens"] == 10
         assert anthropic_response["usage"]["output_tokens"] == 15
 
+    def test_openai_to_anthropic_response_with_list_content(self) -> None:
+        """Ensure list-based OpenAI content is flattened to text."""
+        openai_response = {
+            "id": "chatcmpl-456",
+            "object": "chat.completion",
+            "model": "claude-3-sonnet-20240229",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "Hello"},
+                            {"type": "text", "text": " world"},
+                        ],
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+        }
+
+        anthropic_response = openai_to_anthropic_response(openai_response)
+
+        assert anthropic_response["content"][0]["text"] == "Hello world"
+
     def test_openai_stream_to_anthropic_stream_start(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - start."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant"}}]}'
@@ -151,6 +178,20 @@ class TestAnthropicConverters:
         assert "content_block_delta" in anthropic_chunk
         assert "Hello" in anthropic_chunk
 
+    def test_openai_stream_to_anthropic_stream_content_list(self) -> None:
+        """List-based deltas should be flattened to plain text."""
+        openai_chunk = (
+            'data: {"id": "chatcmpl-789", "object": "chat.completion.chunk", '
+            '"choices": [{"index": 0, "delta": '
+            '{"content": [{"type": "text", "text": "Chunk"}]}}]}'
+        )
+
+        anthropic_chunk = openai_stream_to_anthropic_stream(openai_chunk)
+
+        assert anthropic_chunk.startswith("data: ")
+        assert "content_block_delta" in anthropic_chunk
+        assert "Chunk" in anthropic_chunk
+
     def test_openai_stream_to_anthropic_stream_finish(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - finish."""
         openai_chunk = 'data: {"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}'
@@ -169,6 +210,18 @@ class TestAnthropicConverters:
 
         # Should pass through unchanged
         assert anthropic_chunk == invalid_chunk
+
+    def test_openai_to_anthropic_stream_chunk_with_list_content(self) -> None:
+        """Streaming chunk converter should flatten list content."""
+        chunk = (
+            '{"id": "chatcmpl-123", "choices": '
+            '[{"delta": {"content": [{"type": "text", "text": "Hello"}]}}]}'
+        )
+
+        anthropic_chunk = openai_to_anthropic_stream_chunk(chunk, "chatcmpl-123", "claude")
+
+        assert "content_block_delta" in anthropic_chunk
+        assert "Hello" in anthropic_chunk
 
     def test_map_finish_reason(self) -> None:
         """Test finish reason mapping."""
