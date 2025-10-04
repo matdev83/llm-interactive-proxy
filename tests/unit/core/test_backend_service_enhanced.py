@@ -1,7 +1,6 @@
-"""
-Enhanced tests for the BackendService implementation.
-"""
+"""Enhanced tests for the BackendService implementation."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -222,7 +221,14 @@ class ConcreteBackendService(BackendService):
         """
         # Just pass through to the call_completion method
         stream = kwargs.get("stream", False)
-        return await self.call_completion(request, stream=stream)
+        allow_failover = kwargs.get("allow_failover", True)
+        context = kwargs.get("context")
+        return await self.call_completion(
+            request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
 
 
 class TestBackendServiceBasic:
@@ -769,6 +775,60 @@ class TestBackendServiceFailover:
         assert fallback_backend.chat_completions_called
         assert response.content["id"] == "fallback-resp"
         assert response.content["model"] == "fallback-model"
+
+    def test_chat_completions_respects_allow_failover(
+        self, service_with_simple_failover, chat_request
+    ) -> None:
+        """Ensure chat_completions honors allow_failover flag."""
+
+        async def run_test() -> None:
+            # Arrange: primary backend raises an error that would normally trigger failover
+            client1 = httpx.AsyncClient()
+            primary_backend = MockBackend(client1)
+            primary_backend.chat_completions_mock.side_effect = BackendError(
+                message="Primary backend error", backend_name=BackendType.OPENAI.value
+            )
+
+            # Fallback backend would succeed if failover occurred
+            client2 = httpx.AsyncClient()
+            fallback_backend = MockBackend(client2)
+            fallback_backend.chat_completions_mock.return_value = ResponseEnvelope(
+                content={
+                    "id": "fallback-resp",
+                    "created": 123,
+                    "model": "fallback-model",
+                    "choices": [],
+                },
+                headers={},
+            )
+
+            original_get_or_create = (
+                service_with_simple_failover._get_or_create_backend
+            )
+
+            async def mock_get_or_create(backend_type: BackendType):
+                if backend_type == BackendType.OPENAI:
+                    return primary_backend
+                if backend_type == BackendType.OPENROUTER:
+                    return fallback_backend
+                return await original_get_or_create(backend_type)
+
+            # Act & Assert: disabling failover should surface the primary error and
+            # never invoke the fallback backend.
+            with patch.object(
+                service_with_simple_failover,
+                "_get_or_create_backend",
+                side_effect=mock_get_or_create,
+            ):
+                with pytest.raises(BackendError) as exc_info:
+                    await service_with_simple_failover.chat_completions(
+                        chat_request, allow_failover=False
+                    )
+
+            assert "Primary backend error" in str(exc_info.value)
+            assert not fallback_backend.chat_completions_called
+
+        asyncio.run(run_test())
 
     @pytest.mark.asyncio
     async def test_complex_failover_first_attempt(

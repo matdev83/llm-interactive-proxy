@@ -565,9 +565,18 @@ class BackendService(IBackendService):
     async def chat_completions(
         self, request: ChatRequest, **kwargs: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope:  # type: ignore
-        """Handle chat completions with the LLM"""
+        """Handle chat completions with the LLM."""
+
         stream = kwargs.get("stream", False)
-        return await self.call_completion(request, stream=stream)
+        allow_failover = kwargs.get("allow_failover", True)
+        context = kwargs.get("context")
+
+        return await self.call_completion(
+            request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
 
     async def _resolve_backend_and_model(self, request: ChatRequest) -> tuple[str, str]:
         """Resolve backend type and effective model from request and session"""

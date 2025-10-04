@@ -205,7 +205,12 @@ class MockBackendService(IBackendService, IBackendProcessor):
     async def chat_completions(
         self, request: ChatRequest, **kwargs: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        return await self.call_completion(request, stream=bool(request.stream))
+        return await self.call_completion(
+            request,
+            stream=bool(request.stream),
+            allow_failover=kwargs.get("allow_failover", True),
+            context=kwargs.get("context"),
+        )
 
     async def process_backend_request(
         self, request: ChatRequest, session_id: str | None = None, context: Any = None

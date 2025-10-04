@@ -139,7 +139,12 @@ class MockBackendService(IBackendService, IBackendProcessor):
         request: ChatRequest,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        return await self.call_completion(request, stream=bool(request.stream))
+        return await self.call_completion(
+            request,
+            stream=bool(request.stream),
+            allow_failover=kwargs.get("allow_failover", True),
+            context=kwargs.get("context"),
+        )
 
     # Backwards-compatible helper used by RequestProcessor which expects an
     # IBackendProcessor-like API in some tests. Delegate to call_completion.

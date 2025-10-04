@@ -15,10 +15,19 @@ class MockBackendService(IBackendService):
         self.call_completion_was_called = False
 
     async def call_completion(
-        self, request: ChatRequest, stream: bool = False
+        self,
+        request: ChatRequest,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: object | None = None,
     ) -> ChatResponse | AsyncIterator[StreamingChatResponse]:
         self.call_completion_was_called = True
-        return await self.chat_completions(request, stream=stream)
+        return await self.chat_completions(
+            request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
 
     async def chat_completions(
         self, request: ChatRequest, **kwargs

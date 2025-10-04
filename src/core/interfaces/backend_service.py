@@ -56,5 +56,23 @@ class IBackendService(ABC):
 
     @abstractmethod
     async def chat_completions(
-        self, request: ChatRequest, **kwargs: Any
-    ) -> ResponseEnvelope | StreamingResponseEnvelope: ...
+        self,
+        request: ChatRequest,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: RequestContext | None = None,
+        **_: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Dispatch chat completions to :meth:`call_completion` by default.
+
+        Implementations may override this method, but the default behavior
+        ensures callers using the convenience method still respect
+        ``allow_failover`` and ``context`` parameters when provided.
+        """
+
+        return await self.call_completion(
+            request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
