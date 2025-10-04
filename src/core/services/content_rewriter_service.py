@@ -67,6 +67,13 @@ class ContentRewriterService:
             mode_file_name = found_modes[0]
             mode_file_path = mode_files[mode_file_name]
 
+            if not os.path.exists(search_file):
+                logger.warning(
+                    "Missing SEARCH.txt for replacement rule in %s. Skipping this rule.",
+                    subdir_path,
+                )
+                continue
+
             with open(search_file, encoding="utf-8") as f:
                 search_text = f.read()
 
