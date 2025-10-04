@@ -228,8 +228,15 @@ async def _list_models_impl(
         # Use the injected config service
         from src.core.config.app_config import AppConfig
 
-        if not isinstance(config, AppConfig):
-            # Fallback to default config if we got a different config type
+        # Respect the injected configuration whenever possible. Some tests and
+        # deployments provide lightweight stubs that implement ``IConfig`` but
+        # are not instances of ``AppConfig``. The previous implementation
+        # replaced those with a brand-new ``AppConfig`` which silently dropped
+        # runtime state such as ``functional_backends``. That meant the
+        # controller would never attempt to probe registered backends and would
+        # fall back to the hard-coded model list instead. Only create a default
+        # config when no usable config object was provided.
+        if config is None or not hasattr(config, "backends"):
             config = AppConfig()
 
         # Ensure backend service is at least resolved for DI side effects
