@@ -7,10 +7,6 @@ from typing import Any
 from src.core.domain.streaming_response_processor import (
     StreamingContent,
 )
-from src.core.interfaces.response_processor_interface import (
-    IResponseMiddleware,
-    ProcessedResponse,
-)
 
 
 class IStreamNormalizer(ABC):
@@ -31,27 +27,3 @@ class IStreamNormalizer(ABC):
         """
 
 
-class IStreamingResponseProcessor(ABC):
-    """Interface for processing streaming responses."""
-
-    @abstractmethod
-    async def register_middleware(self, middleware: IResponseMiddleware) -> None:
-        """Register a middleware component to process responses.
-
-        Args:
-            middleware: The middleware component to register
-        """
-
-    @abstractmethod
-    def process_streaming_response(
-        self, response_iterator: AsyncIterator[Any], session_id: str
-    ) -> AsyncIterator[ProcessedResponse]:
-        """Process a streaming response.
-
-        Args:
-            response_iterator: An async iterator of response chunks
-            session_id: The session ID associated with this request
-
-        Yields:
-            Processed response chunks
-        """

@@ -73,37 +73,3 @@ def fastapi_to_domain_request_context(
 
     return context
 
-
-def extract_request_info(request: Request) -> dict[str, Any]:
-    """Extract useful information from a FastAPI request for logging or context.
-
-    This function extracts common request attributes that are useful for
-    debugging, logging, and context tracking.
-
-    Args:
-        request: The FastAPI request object
-
-    Returns:
-        A dictionary of request information
-    """
-    info: dict[str, Any] = {
-        "method": request.method,
-        "url": str(request.url),
-        "client_host": (
-            getattr(request.client, "host", "unknown")
-            if hasattr(request, "client")
-            else "unknown"
-        ),
-        "headers": {
-            k.lower(): v
-            for k, v in request.headers.items()
-            if k.lower() not in ("authorization", "x-api-key")
-        },
-    }
-
-    # Add session ID if available
-    session_id = request.headers.get("x-session-id")
-    if session_id:
-        info["session_id"] = session_id
-
-    return info

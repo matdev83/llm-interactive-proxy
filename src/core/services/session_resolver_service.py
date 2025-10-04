@@ -89,29 +89,3 @@ class DefaultSessionResolver(ISessionResolver):
         # Fall back to default session ID
         return self.default_session_id
 
-
-class StaticSessionResolver(ISessionResolver):
-    """A session resolver that always returns the same session ID.
-
-    This implementation is useful for tests and other scenarios where
-    a fixed session ID is needed.
-    """
-
-    def __init__(self, session_id: str = "default") -> None:
-        """Initialize the static session resolver.
-
-        Args:
-            session_id: The session ID to always return
-        """
-        self.session_id = session_id
-
-    async def resolve_session_id(self, context: RequestContext) -> str:
-        """Resolve a session ID from a request context.
-
-        Args:
-            context: The request context (ignored)
-
-        Returns:
-            The static session ID
-        """
-        return self.session_id
