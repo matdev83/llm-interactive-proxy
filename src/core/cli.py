@@ -166,6 +166,56 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable LLM accounting (usage tracking and audit logging)",
     )
 
+    brute_force_toggle_group = parser.add_mutually_exclusive_group()
+    brute_force_toggle_group.add_argument(
+        "--enable-brute-force-protection",
+        dest="brute_force_protection_enabled",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Explicitly enable API key brute-force protection",
+    )
+    brute_force_toggle_group.add_argument(
+        "--disable-brute-force-protection",
+        dest="brute_force_protection_enabled",
+        action="store_const",
+        const=False,
+        help="Disable API key brute-force protection",
+    )
+    parser.add_argument(
+        "--auth-max-failed-attempts",
+        dest="auth_max_failed_attempts",
+        type=int,
+        help="Number of invalid API key attempts allowed per IP before temporary blocking",
+    )
+    parser.add_argument(
+        "--auth-brute-force-ttl",
+        dest="auth_brute_force_ttl",
+        type=int,
+        metavar="SECONDS",
+        help="Time window for tracking failed API key attempts before reset",
+    )
+    parser.add_argument(
+        "--auth-brute-force-initial-block",
+        dest="auth_initial_block_seconds",
+        type=int,
+        metavar="SECONDS",
+        help="Initial block duration applied once the failed attempt threshold is exceeded",
+    )
+    parser.add_argument(
+        "--auth-brute-force-multiplier",
+        dest="auth_block_multiplier",
+        type=float,
+        help="Multiplier applied to each subsequent block duration after repeated failures",
+    )
+    parser.add_argument(
+        "--auth-brute-force-max-block",
+        dest="auth_max_block_seconds",
+        type=int,
+        metavar="SECONDS",
+        help="Maximum block duration enforced for repeated invalid API key attempts",
+    )
+
     # Pytest output compression
     compression_group = parser.add_mutually_exclusive_group()
     compression_group.add_argument(
@@ -321,6 +371,28 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         os.environ["DISABLE_ACCOUNTING"] = (
             "true" if args.disable_accounting else "false"
         )
+
+    brute_force_cfg = getattr(cfg.auth, "brute_force_protection", None)
+    if brute_force_cfg is not None:
+        if getattr(args, "brute_force_protection_enabled", None) is not None:
+            brute_force_cfg.enabled = bool(args.brute_force_protection_enabled)
+        if getattr(args, "auth_max_failed_attempts", None) is not None:
+            brute_force_cfg.max_failed_attempts = max(
+                1, int(args.auth_max_failed_attempts)
+            )
+        if getattr(args, "auth_brute_force_ttl", None) is not None:
+            brute_force_cfg.ttl_seconds = max(1, int(args.auth_brute_force_ttl))
+        if getattr(args, "auth_initial_block_seconds", None) is not None:
+            brute_force_cfg.initial_block_seconds = max(
+                1, int(args.auth_initial_block_seconds)
+            )
+        if getattr(args, "auth_block_multiplier", None) is not None:
+            multiplier = float(args.auth_block_multiplier)
+            brute_force_cfg.block_multiplier = multiplier if multiplier > 1 else 1.0
+        if getattr(args, "auth_max_block_seconds", None) is not None:
+            brute_force_cfg.max_block_seconds = max(
+                1, int(args.auth_max_block_seconds)
+            )
 
     # Pytest compression flag
     if args.pytest_compression_enabled is not None:
