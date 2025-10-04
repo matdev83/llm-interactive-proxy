@@ -134,7 +134,9 @@ def _build_content_blocks(
         )
         return content_blocks
     if message.get("content") is not None:
-        content_blocks.append({"type": "text", "text": message["content"]})
+        content_blocks.append(
+            {"type": "text", "text": _coerce_message_content_to_text(message["content"])}
+        )
     return content_blocks
 
 
@@ -146,6 +148,38 @@ def _extract_tool_calls(
     if isinstance(choice, dict) and choice.get("tool_calls"):
         return choice.get("tool_calls")
     return None
+
+
+def _coerce_message_content_to_text(content: Any) -> str:
+    """Normalise OpenAI message ``content`` into Anthropic text payloads.
+
+    The OpenAI SDK may return ``content`` either as a plain string or as a
+    list of structured parts (e.g., ``[{"type": "text", "text": "hi"}]``).
+    Anthropic expects the text value to be a simple string inside the
+    ``{"type": "text"}`` block, so we flatten structured parts into a
+    single string while preserving ordering.
+    """
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        flattened_parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                flattened_parts.append(part)
+            elif isinstance(part, dict):
+                text_value = part.get("text")
+                if isinstance(text_value, str):
+                    flattened_parts.append(text_value)
+                else:
+                    # Preserve unexpected dict parts by serialising to JSON.
+                    flattened_parts.append(json.dumps(part, separators=(",", ":")))
+            else:
+                flattened_parts.append(str(part))
+        return "".join(flattened_parts)
+
+    return str(content)
 
 
 def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> str:
