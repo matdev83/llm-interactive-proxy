@@ -2,10 +2,6 @@ import asyncio
 import types
 from typing import Any
 
-import asyncio
-import types
-from typing import Any
-
 from src.core.app.controllers.models_controller import _list_models_impl
 from src.core.services.backend_registry import backend_registry
 
