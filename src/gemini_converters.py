@@ -384,8 +384,10 @@ def extract_model_from_gemini_path(path: str) -> str:
     # Path format: /v1beta/models/{model}:generateContent or /v1beta/models/{model}:streamGenerateContent
     if "/models/" in path:
         # Extract the part between /models/ and the next :
-        parts = path.split("/models/")[1]
-        model = parts.split(":")[0]
+        parts = path.split("/models/", 1)[1]
+        model_section = parts.split(":", 1)[0]
+        # Strip query parameters or fragments appended to the model name
+        model = model_section.split("?", 1)[0].split("#", 1)[0]
         return model
     return "gemini-pro"  # Default fallback
 
