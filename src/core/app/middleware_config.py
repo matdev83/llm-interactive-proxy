@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from src.core.app.middleware.loop_prevention_middleware import LoopPreventionMiddleware
 from src.core.common.structlog_config import get_logger
 from src.core.security import APIKeyMiddleware, AuthMiddleware
 from src.request_middleware import CustomHeaderMiddleware
@@ -104,6 +105,9 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
 
     # Custom header middleware
     app.add_middleware(CustomHeaderMiddleware)
+
+    # Loop prevention middleware (fast rejection path, minimal overhead)
+    app.add_middleware(LoopPreventionMiddleware)
 
     # Response retry-after middleware
     app.add_middleware(RetryAfterMiddleware)

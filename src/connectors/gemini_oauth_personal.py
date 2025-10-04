@@ -102,6 +102,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -1197,6 +1198,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             auth_session = google.auth.transport.requests.AuthorizedSession(
                 _StaticTokenCreds(access_token)
             )
+            auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
+            auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
 
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
