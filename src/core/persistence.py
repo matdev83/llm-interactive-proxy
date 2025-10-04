@@ -76,65 +76,70 @@ class ConfigManager:
         self.apply(data)
 
     def _apply_default_backend(self, backend_value: Any) -> None:
-        if isinstance(backend_value, str):
-            # Check if CLI argument was provided (LLM_BACKEND env var set)
-            # If so, don't override it with config file value
-            cli_backend = os.getenv("LLM_BACKEND")
-            if cli_backend and cli_backend != backend_value:
-                logger.info(
-                    f"Skipping config file backend '{backend_value}' because CLI argument '{cli_backend}' takes precedence"
-                )
-                return
+        if not isinstance(backend_value, str):
+            return
 
-            if (
-                self.app_state
-                and backend_value in self.app_state.get_functional_backends()
-            ):
-                self.app_state.set_backend_type(backend_value)
-                # Convert backend name to valid attribute name (replace hyphens with underscores)
-                # Resolve backend via DI-backed BackendService if available
-                if self.service_provider is not None:
-                    try:
-                        from src.core.interfaces.backend_service_interface import (
-                            IBackendService,
-                        )
+        cli_backend = os.getenv("LLM_BACKEND")
+        if cli_backend and cli_backend != backend_value:
+            logger.info(
+                "Skipping config file backend '%s' because CLI argument '%s' takes precedence",
+                backend_value,
+                cli_backend,
+            )
+            return
 
-                        backend_service = self.service_provider.get_required_service(
-                            IBackendService  # type: ignore[type-abstract]
-                        )
-                        if backend_service and backend_value in getattr(
-                            backend_service, "_backends", {}  # type: ignore[attr-defined]
-                        ):
-                            if self.app_state:
-                                self.app_state.set_backend(
-                                    backend_service._backends[  # type: ignore[attr-defined]
-                                        backend_value
-                                    ]
-                                )
-                            return
-                    except ServiceResolutionError as e:
-                        logger.debug(
-                            "DI resolution for IBackendService failed: %s",
-                            e,
-                            exc_info=True,
-                        )
-                        raise ServiceResolutionError(
-                            "Failed to resolve IBackendService for default backend."
-                        ) from e
-                    except Exception as e:
-                        logger.error(
-                            "An unexpected error occurred during DI resolution for IBackendService: %s",
-                            e,
-                            exc_info=True,
-                        )
-                        raise ConfigurationError(
-                            "An unexpected error occurred while applying default backend."
-                        ) from e
-                # Do not use legacy app.state.<backend>_backend attributes; require DI
-            else:
-                raise ValueError(
+        if not self.app_state:
+            return
+
+        functional_backends = set(self.app_state.get_functional_backends())
+        if backend_value not in functional_backends:
+            raise ConfigurationError(
+                message=(
                     f"Default backend '{backend_value}' is not in functional_backends."
+                ),
+                details={
+                    "backend": backend_value,
+                    "functional_backends": sorted(functional_backends),
+                },
+            )
+
+        self.app_state.set_backend_type(backend_value)
+        if self.service_provider is not None:
+            try:
+                from src.core.interfaces.backend_service_interface import (
+                    IBackendService,
                 )
+
+                backend_service = self.service_provider.get_required_service(
+                    IBackendService  # type: ignore[type-abstract]
+                )
+                if backend_service and backend_value in getattr(
+                    backend_service, "_backends", {}  # type: ignore[attr-defined]
+                ):
+                    self.app_state.set_backend(
+                        backend_service._backends[  # type: ignore[attr-defined]
+                            backend_value
+                        ]
+                    )
+                    return
+            except ServiceResolutionError as e:
+                logger.debug(
+                    "DI resolution for IBackendService failed: %s",
+                    e,
+                    exc_info=True,
+                )
+                raise ServiceResolutionError(
+                    "Failed to resolve IBackendService for default backend."
+                ) from e
+            except Exception as e:
+                logger.error(
+                    "An unexpected error occurred during DI resolution for IBackendService: %s",
+                    e,
+                    exc_info=True,
+                )
+                raise ConfigurationError(
+                    "An unexpected error occurred while applying default backend."
+                ) from e
 
     def _apply_interactive_mode(self, mode_value: Any) -> None:
         if isinstance(mode_value, bool) and self.service_provider is not None:

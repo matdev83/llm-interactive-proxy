@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
+from src.core.common.exceptions import ConfigurationError
+
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
@@ -121,7 +123,7 @@ class TestQwenOAuthConfigurationMethods:
             # This should not raise an error
             try:
                 config_manager._apply_default_backend("qwen-oauth")
-            except ValueError as e:
+            except (ValueError, ConfigurationError) as e:
                 if "not in functional_backends" in str(e):
                     # Expected if qwen-oauth is not actually functional
                     pass
