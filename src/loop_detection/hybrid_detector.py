@@ -130,38 +130,50 @@ class RollingHashTracker:
 
         # Check for repetitions
         for _hash_val, positions in hash_positions.items():
-            if len(positions) >= self.min_repetitions and self._verify_pattern_match(
+            filtered_positions = self._verify_pattern_match(
                 positions, pattern_length
-            ):
+            )
+            if filtered_positions is not None:
                 # Verify actual content matches (avoid hash collisions)
-                pattern = self.content[positions[0] : positions[0] + pattern_length]
-                return pattern, len(positions)
+                pattern = self.content[
+                    filtered_positions[0] : filtered_positions[0] + pattern_length
+                ]
+                return pattern, len(filtered_positions)
 
         return None
 
-    def _verify_pattern_match(self, positions: list[int], pattern_length: int) -> bool:
-        """Verify that positions actually contain the same pattern (avoid hash collisions)."""
-        if len(positions) < 2:
-            return False
+    def _verify_pattern_match(
+        self, positions: list[int], pattern_length: int
+    ) -> list[int] | None:
+        """Verify matching positions and filter out overlapping occurrences."""
+        if len(positions) < self.min_repetitions:
+            return None
 
         reference_pattern = self.content[positions[0] : positions[0] + pattern_length]
+        distinct_positions = [positions[0]]
 
-        # Check if positions are reasonably close (not scattered across entire content)
-        # This helps identify actual loops vs. coincidental matches
-        span = positions[-1] - positions[0]
-        if (
-            span > pattern_length * len(positions) * 2
-        ):  # Allow some spacing but not too much
-            return False
-
-        # Verify all positions contain the same pattern
         for pos in positions[1:]:
             if pos + pattern_length > len(self.content):
-                return False
+                continue
             if self.content[pos : pos + pattern_length] != reference_pattern:
-                return False
+                continue
 
-        return True
+            # Only count non-overlapping occurrences. Require at least pattern_length
+            # characters between consecutive matches to avoid counting sliding-window
+            # overlaps (e.g. when the pattern itself contains smaller repetitions).
+            if pos - distinct_positions[-1] < pattern_length:
+                continue
+
+            distinct_positions.append(pos)
+
+        if len(distinct_positions) < self.min_repetitions:
+            return None
+
+        span = distinct_positions[-1] - distinct_positions[0]
+        if span > pattern_length * len(distinct_positions) * 2:
+            return None
+
+        return distinct_positions
 
     def _adjust_positions_after_truncation(self, truncate_amount: int) -> None:
         """Adjust stored positions after content truncation."""
