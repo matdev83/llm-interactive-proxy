@@ -453,6 +453,57 @@ class Translation:
         Returns:
             A dictionary representing the canonical chunk format.
         """
+        import json
+        import time
+        import uuid
+
+        if isinstance(chunk, (bytes, bytearray)):
+            try:
+                chunk = chunk.decode("utf-8")
+            except Exception:
+                return {"error": "Invalid chunk format: unable to decode bytes"}
+
+        if isinstance(chunk, str):
+            stripped_chunk = chunk.strip()
+
+            if not stripped_chunk:
+                return {"error": "Invalid chunk format: empty string"}
+
+            if stripped_chunk.startswith(":"):
+                # Comment/heartbeat lines (e.g., ": ping") should be ignored by emitting
+                # an empty delta so downstream processors keep the stream alive.
+                return {
+                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": None},
+                    ],
+                }
+
+            if stripped_chunk.startswith("data:"):
+                stripped_chunk = stripped_chunk[5:].strip()
+
+            if stripped_chunk == "[DONE]":
+                return {
+                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "stop"},
+                    ],
+                }
+
+            try:
+                chunk = json.loads(stripped_chunk)
+            except json.JSONDecodeError as exc:
+                return {
+                    "error": "Invalid chunk format: expected JSON after 'data:' prefix",
+                    "details": {"message": str(exc)},
+                }
+
         if not isinstance(chunk, dict):
             return {"error": "Invalid chunk format: expected a dictionary"}
 

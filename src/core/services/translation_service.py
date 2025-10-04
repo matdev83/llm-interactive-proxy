@@ -209,7 +209,7 @@ class TranslationService:
             # or minimally processed to match the expected stream format.
             # We will convert it to a canonical stream chunk format if needed later.
             return chunk
-        elif source_format == "openai":
+        elif source_format in {"openai", "openai-responses"}:
             return Translation.openai_to_domain_stream_chunk(chunk)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_stream_chunk(chunk)

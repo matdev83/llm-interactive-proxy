@@ -147,6 +147,34 @@ class TestResponsesApiTranslation:
         assert domain_request.model == "gpt-4"
         assert len(domain_request.messages) == 1
 
+    def test_to_domain_stream_chunk_responses_sse_input(self):
+        """Test translating SSE-formatted Responses API streaming chunks."""
+
+        sse_chunk = (
+            'data: {"id": "resp-123", "object": "response.chunk", '
+            '"choices": [{"delta": {"content": "partial"}}]}\n\n'
+        )
+
+        domain_chunk = self.service.to_domain_stream_chunk(
+            sse_chunk, "openai-responses"
+        )
+
+        assert isinstance(domain_chunk, dict)
+        assert domain_chunk["choices"][0]["delta"]["content"] == "partial"
+
+    def test_to_domain_stream_chunk_responses_done_marker(self):
+        """Test translating the [DONE] marker from Responses API streaming."""
+
+        done_chunk = "data: [DONE]\n\n"
+
+        domain_chunk = self.service.to_domain_stream_chunk(
+            done_chunk, "openai-responses"
+        )
+
+        assert isinstance(domain_chunk, dict)
+        assert domain_chunk["choices"][0]["finish_reason"] == "stop"
+        assert domain_chunk["choices"][0]["delta"] == {}
+
     def test_from_domain_to_responses_response_basic(self):
         """Test converting a ChatResponse to Responses API response format."""
         # Create a sample ChatResponse
