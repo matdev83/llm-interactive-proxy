@@ -400,8 +400,8 @@ class TestToolCallTrackerFunctionality:
         assert tracker.consecutive_repeats[full_sig] == 1
 
 
-class TestToolCallLoopConfig:
-    """Tests for the ToolCallLoopConfig helper methods."""
+class TestToolCallLoopConfigParsing:
+    """Tests for ToolCallLoopConfig parsing methods."""
 
     @pytest.mark.parametrize(
         "value, expected",

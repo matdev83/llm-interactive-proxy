@@ -3,7 +3,9 @@ import asyncio
 from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import (
     ToolLoopDetectionCommand,
 )
-from src.core.domain.configuration.loop_detection_config import LoopDetectionConfiguration
+from src.core.domain.configuration.loop_detection_config import (
+    LoopDetectionConfiguration,
+)
 from src.core.domain.session import Session, SessionState
 
 
