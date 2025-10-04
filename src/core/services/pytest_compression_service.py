@@ -55,7 +55,7 @@ class PytestCompressionService:
             normalized = value.strip()
             return normalized or None
 
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             try:
                 parts = [str(part).strip() for part in value if part is not None]
             except Exception:
