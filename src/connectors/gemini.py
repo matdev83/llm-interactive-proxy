@@ -20,6 +20,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -173,6 +174,7 @@ class GeminiBackend(LLMBackend):
     async def _handle_gemini_streaming_response(
         self, base_url: str, payload: dict, headers: dict, effective_model: str
     ) -> StreamingResponseEnvelope:
+        headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:streamGenerateContent"
         try:
             # Use simple POST call to ease testing with mocked clients
@@ -378,7 +380,7 @@ class GeminiBackend(LLMBackend):
                 status_code=500,
                 detail="Gemini API base URL and API key must be provided.",
             )
-        return base.rstrip("/"), {"x-goog-api-key": key}
+        return base.rstrip("/"), ensure_loop_guard_header({"x-goog-api-key": key})
 
     def _apply_generation_config(
         self, payload: dict[str, Any], request_data: ChatRequest
@@ -466,6 +468,7 @@ class GeminiBackend(LLMBackend):
     async def _handle_gemini_non_streaming_response(
         self, base_url: str, payload: dict, headers: dict, effective_model: str
     ) -> ResponseEnvelope:
+        headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:generateContent"
         try:
             response = await self.client.post(url, json=payload, headers=headers)
@@ -497,7 +500,7 @@ class GeminiBackend(LLMBackend):
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
     ) -> dict[str, Any]:
-        headers = {"x-goog-api-key": api_key}
+        headers = ensure_loop_guard_header({"x-goog-api-key": api_key})
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models"
         try:
             response = await self.client.get(url, headers=headers)

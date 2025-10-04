@@ -78,6 +78,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -521,7 +522,11 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 )
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Using service account credentials from %s", sa_path)
-                return google.auth.transport.requests.AuthorizedSession(credentials)
+                session = google.auth.transport.requests.AuthorizedSession(
+                    credentials
+                )
+                session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
+                return session
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -538,7 +543,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
             self.gcp_project_id = adc_project
         if logger.isEnabledFor(logging.INFO):
             logger.info("Using Application Default Credentials for Code Assist API")
-        return google.auth.transport.requests.AuthorizedSession(credentials)
+        session = google.auth.transport.requests.AuthorizedSession(credentials)
+        session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
+        return session
 
     def _is_token_expired(self) -> bool:
         """Check if the current access token is expired or close to expiring."""
@@ -869,6 +876,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Refresh underlying credentials to ensure valid token
             session.credentials.refresh(request)  # type: ignore[attr-defined]
             headers = {"Authorization": f"Bearer {session.credentials.token}"}  # type: ignore[attr-defined]
+            headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
             try:
                 response = await self.client.get(url, headers=headers, timeout=10.0)
             except httpx.TimeoutException as te:
