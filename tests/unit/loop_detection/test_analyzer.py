@@ -139,7 +139,6 @@ def test_pattern_analyzer_total_length_excludes_noise(
     assert event.total_length == expected
 
 
-
 def test_pattern_analyzer_reset(analyzer: PatternAnalyzer) -> None:
     analyzer.analyze_chunk("some content", "some content")
     analyzer.analyze_chunk("```", "```")  # Enter code block and reset history

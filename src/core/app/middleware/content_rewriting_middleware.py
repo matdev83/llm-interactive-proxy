@@ -78,7 +78,10 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                 is_rewritten = False
                 if "choices" in data and isinstance(data["choices"], list):
                     for choice in data["choices"]:
-                        if "message" not in choice or "content" not in choice["message"]:
+                        if (
+                            "message" not in choice
+                            or "content" not in choice["message"]
+                        ):
                             continue
 
                         original_content = choice["message"]["content"]
