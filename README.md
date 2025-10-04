@@ -117,14 +117,14 @@ Choose the Gemini integration that fits your environment.
 | `gemini` | API key (`GEMINI_API_KEY`) | Metered (pay-per-use) | Production apps, high-volume usage |
 | `gemini-cli-oauth-personal` | OAuth (no API key) | Free tier with limits | Local development, testing, personal use |
 | `gemini-cli-cloud-project` | OAuth + `GOOGLE_CLOUD_PROJECT` (ADC/service account) | Billed to your GCP project | Enterprise, team workflows, central billing |
-| `gemini-cli-acp` | OAuth (no API key) | Free tier with limits | AI agent workflows, workspace-aware coding tasks |
+| `gemini-cli-acp` | OAuth (no API key) | Free tier with limits | AI agent workflows, project-aware coding tasks |
 
 Notes
 
 - Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
 - The proxy now validates personal OAuth tokens on startup, watches the `oauth_creds.json` file for changes, and triggers the Gemini CLI in the background when tokens are close to expiring--no manual restarts required.
 - Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
-- **NEW**: ACP backend uses `gemini-cli` as an agent with full workspace awareness and tool usage capabilities via the Agent Control Protocol.
+- **NEW**: ACP backend uses `gemini-cli` as an agent with full project directory awareness and tool usage capabilities via the Agent Control Protocol.
 
 Quick setup
 
@@ -167,14 +167,14 @@ For `gemini-cli-acp` (Agent Control Protocol)
 npm install -g @google/gemini-cli
 gemini login
 
-# Set workspace directory (optional - defaults to current directory)
+# Set project directory (optional - defaults to current directory)
 export GEMINI_CLI_WORKSPACE="/path/to/your/project"
 
 # Start the proxy using gemini-cli as an agent
 python -m src.core.cli --default-backend gemini-cli-acp
 
-# Change workspace during conversation with slash command
-!/workspace(/path/to/another/project)
+# Change project directory during conversation with slash command
+!/project-dir(/path/to/another/project)
 ```
 
 ## Quick Start
@@ -556,7 +556,7 @@ Then launch `claude`. You can switch models during a session:
 
 ### Gemini CLI Agent with ACP
 
-Use `gemini-cli` as an AI agent with full workspace awareness:
+Use `gemini-cli` as an AI agent with full project directory awareness:
 
 ```bash
 # Install gemini-cli (one-time)
@@ -566,23 +566,23 @@ gemini login
 # Start proxy with agent backend
 python -m src.core.cli --default-backend gemini-cli-acp
 
-# Workspace control options (in priority order):
+# Project directory control options (in priority order):
 # 1. Runtime slash command (highest priority)
-!/workspace(/home/user/myproject)
+!/project-dir(/home/user/myproject)
 
 # 2. Config file (config/backends/gemini-cli-acp/backend.yaml)
-workspace_path: "/path/to/your/workspace"
+project_dir: "/path/to/your/project"
 
 # 3. Environment variable
-export GEMINI_CLI_WORKSPACE="/path/to/workspace"
+export GEMINI_CLI_WORKSPACE="/path/to/project"
 
 # 4. Current working directory (fallback)
 ```
 
 **Features:**
-- Full workspace awareness - gemini-cli can read, analyze, and modify files
+- Full project directory awareness - gemini-cli can read, analyze, and modify files
 - Tool usage - agent can execute commands and use tools
-- Dynamic workspace switching - change workspace during conversation with `!/workspace(path)`
+- Dynamic directory switching - change project directory during conversation with `!/project-dir(path)`
 - Streaming responses - real-time output from the agent
 - Auto-accept mode - automatically approve safe operations (configurable)
 

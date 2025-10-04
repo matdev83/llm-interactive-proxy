@@ -45,18 +45,18 @@ def connector(mock_client):
 class TestGeminiCliAcpConnectorInitialization:
     """Test connector initialization."""
 
-    async def test_initialize_with_workspace_path(self, connector, temp_workspace):
-        """Test initialization with explicit workspace path."""
+    async def test_initialize_with_project_dir(self, connector, temp_workspace):
+        """Test initialization with explicit project directory."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
             assert connector.is_functional is True
-            assert connector._workspace_path == temp_workspace.resolve()
+            assert connector._project_dir == temp_workspace.resolve()
 
     async def test_initialize_with_environment_variable(
         self, connector, temp_workspace
     ):
-        """Test initialization with workspace from environment variable."""
+        """Test initialization with project directory from environment variable."""
         with (
             patch.dict("os.environ", {"GEMINI_CLI_WORKSPACE": str(temp_workspace)}),
             patch.object(connector, "_check_gemini_cli_available", return_value=True),
@@ -64,7 +64,7 @@ class TestGeminiCliAcpConnectorInitialization:
             await connector.initialize()
 
             assert connector.is_functional is True
-            assert connector._workspace_path == temp_workspace.resolve()
+            assert connector._project_dir == temp_workspace.resolve()
 
     async def test_initialize_with_current_directory(self, connector):
         """Test initialization falls back to current directory."""
@@ -76,7 +76,7 @@ class TestGeminiCliAcpConnectorInitialization:
             await connector.initialize()
 
             assert connector.is_functional is True
-            assert str(connector._workspace_path).endswith("cwd")
+            assert str(connector._project_dir).endswith("cwd")
 
     async def test_initialize_gemini_cli_not_found(self, connector, temp_workspace):
         """Test initialization fails when gemini-cli not found."""
@@ -84,7 +84,7 @@ class TestGeminiCliAcpConnectorInitialization:
             patch.object(connector, "_check_gemini_cli_available", return_value=False),
             pytest.raises(ConfigurationError) as exc_info,
         ):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         assert "gemini-cli executable not found" in str(exc_info.value)
         assert connector.is_functional is False
@@ -94,7 +94,7 @@ class TestGeminiCliAcpConnectorInitialization:
         custom_path = "/usr/local/bin/gemini"
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
             await connector.initialize(
-                workspace_path=str(temp_workspace), gemini_cli_executable=custom_path
+                project_dir=str(temp_workspace), gemini_cli_executable=custom_path
             )
 
             assert connector._gemini_cli_executable == custom_path
@@ -103,7 +103,7 @@ class TestGeminiCliAcpConnectorInitialization:
         """Test initialization with custom model."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
             await connector.initialize(
-                workspace_path=str(temp_workspace), model="gemini-2.5-pro"
+                project_dir=str(temp_workspace), model="gemini-2.5-pro"
             )
 
             assert connector._model == "gemini-2.5-pro"
@@ -112,7 +112,7 @@ class TestGeminiCliAcpConnectorInitialization:
         """Test initialization with auto_accept disabled."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
             await connector.initialize(
-                workspace_path=str(temp_workspace), auto_accept=False
+                project_dir=str(temp_workspace), auto_accept=False
             )
 
             assert connector._auto_accept is False
@@ -124,7 +124,7 @@ class TestGeminiCliAcpConnectorProcessManagement:
     async def test_spawn_process_success(self, connector, temp_workspace):
         """Test spawning gemini-cli process successfully."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
         mock_process.poll.return_value = None
@@ -140,7 +140,7 @@ class TestGeminiCliAcpConnectorProcessManagement:
     async def test_spawn_process_already_running(self, connector, temp_workspace):
         """Test spawning process when already running does nothing."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
         mock_process.poll.return_value = None
@@ -154,7 +154,7 @@ class TestGeminiCliAcpConnectorProcessManagement:
     async def test_kill_process_success(self, connector, temp_workspace):
         """Test killing the gemini-cli process."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
         connector._process = mock_process
@@ -167,7 +167,7 @@ class TestGeminiCliAcpConnectorProcessManagement:
     async def test_kill_process_force_kill_on_timeout(self, connector, temp_workspace):
         """Test force killing process when terminate times out."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
         mock_process.wait.side_effect = subprocess.TimeoutExpired("gemini", 5)
@@ -179,13 +179,13 @@ class TestGeminiCliAcpConnectorProcessManagement:
         mock_process.kill.assert_called_once()
 
 
-class TestGeminiCliAcpConnectorWorkspaceControl:
-    """Test workspace control mechanisms."""
+class TestGeminiCliAcpConnectorProjectDirControl:
+    """Test project directory control mechanisms."""
 
-    async def test_change_workspace_success(self, connector, temp_workspace, tmp_path):
-        """Test changing workspace successfully."""
+    async def test_change_project_dir_success(self, connector, temp_workspace, tmp_path):
+        """Test changing project directory successfully."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         # Create new workspace
         new_workspace = tmp_path / "new_workspace"
@@ -195,32 +195,32 @@ class TestGeminiCliAcpConnectorWorkspaceControl:
         mock_process = MagicMock()
         connector._process = mock_process
 
-        await connector.change_workspace(str(new_workspace))
+        await connector.change_project_dir(str(new_workspace))
 
-        assert connector._workspace_path == new_workspace.resolve()
+        assert connector._project_dir == new_workspace.resolve()
         mock_process.terminate.assert_called_once()
 
-    async def test_change_workspace_nonexistent_directory(
+    async def test_change_project_dir_nonexistent_directory(
         self, connector, temp_workspace
     ):
-        """Test changing to nonexistent workspace fails."""
+        """Test changing to nonexistent project directory fails."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         with pytest.raises(ConfigurationError) as exc_info:
-            await connector.change_workspace("/nonexistent/path")
+            await connector.change_project_dir("/nonexistent/path")
 
-        assert "Workspace path does not exist" in str(exc_info.value)
+        assert "Project directory does not exist" in str(exc_info.value)
 
-    async def test_change_workspace_same_path_no_op(self, connector, temp_workspace):
-        """Test changing to same workspace is no-op."""
+    async def test_change_project_dir_same_path_no_op(self, connector, temp_workspace):
+        """Test changing to same project directory is no-op."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
         connector._process = mock_process
 
-        await connector.change_workspace(str(temp_workspace))
+        await connector.change_project_dir(str(temp_workspace))
 
         # Process should not be terminated
         mock_process.terminate.assert_not_called()
@@ -232,7 +232,7 @@ class TestGeminiCliAcpConnectorCommunication:
     async def test_send_jsonrpc_message_success(self, connector, temp_workspace):
         """Test sending a JSON-RPC message successfully."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
         mock_stdin = MagicMock()
@@ -254,7 +254,7 @@ class TestGeminiCliAcpConnectorCommunication:
     async def test_read_jsonrpc_response_success(self, connector, temp_workspace):
         """Test reading a JSON-RPC response successfully."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
         mock_stdout = MagicMock()
@@ -271,7 +271,7 @@ class TestGeminiCliAcpConnectorCommunication:
     async def test_read_jsonrpc_response_invalid_json(self, connector, temp_workspace):
         """Test reading invalid JSON raises error."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
         mock_stdout = MagicMock()
@@ -306,12 +306,12 @@ class TestGeminiCliAcpConnectorChatCompletions:
 
         assert "not initialized" in str(exc_info.value)
 
-    async def test_chat_completions_workspace_change_detection(
+    async def test_chat_completions_project_dir_change_detection(
         self, connector, temp_workspace, tmp_path
     ):
-        """Test chat completions detects workspace change from session."""
+        """Test chat completions detects project directory change from session."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         # Create new workspace
         new_workspace = tmp_path / "session_workspace"
@@ -322,7 +322,7 @@ class TestGeminiCliAcpConnectorChatCompletions:
 
         # Mock all the required methods
         with (
-            patch.object(connector, "change_workspace", new=AsyncMock()) as mock_change,
+            patch.object(connector, "change_project_dir", new=AsyncMock()) as mock_change,
             patch.object(connector, "_spawn_gemini_cli_process", new=AsyncMock()),
             patch.object(connector, "_initialize_agent", new=AsyncMock()),
             patch.object(connector, "_send_jsonrpc_message", new=AsyncMock()),
@@ -355,7 +355,7 @@ class TestGeminiCliAcpConnectorStreaming:
     ):
         """Test processing streaming response with text parts."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         # Mock _read_jsonrpc_response to return text response then None to end
         responses = [
@@ -381,7 +381,7 @@ class TestGeminiCliAcpConnectorStreaming:
     async def test_process_streaming_response_timeout(self, connector, temp_workspace):
         """Test streaming response timeout handling."""
         with patch.object(connector, "_check_gemini_cli_available", return_value=True):
-            await connector.initialize(workspace_path=str(temp_workspace))
+            await connector.initialize(project_dir=str(temp_workspace))
 
         connector._process_timeout = 0.1  # Very short timeout
 

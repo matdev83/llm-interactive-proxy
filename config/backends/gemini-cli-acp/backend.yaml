@@ -4,16 +4,16 @@
 # Backend type (must match the registered name)
 backend_type: "gemini-cli-acp"
 
-# Workspace path (optional) - absolute path to the workspace directory
-# The gemini-cli agent will operate within this workspace
+# Project directory (optional) - absolute path to the project directory
+# The gemini-cli agent will operate within this directory
 #
-# Priority order for workspace path:
-# 1. Runtime slash command: !/workspace(/path/to/workspace)
+# Priority order for project directory:
+# 1. Runtime slash command: !/project-dir(/path/to/project)
 # 2. Session state (via extra config)
 # 3. This config file setting
 # 4. Environment variable: GEMINI_CLI_WORKSPACE
 # 5. Current working directory (fallback)
-workspace_path: "/path/to/your/workspace"
+project_dir: "/path/to/your/project"
 
 # Path to gemini-cli executable (optional, default: "gemini")
 # If gemini-cli is not in PATH, specify the full path
@@ -42,17 +42,17 @@ process_timeout: 300
 # 2. Authenticate:
 #    gemini login
 
-# 3. Set workspace via config (this file):
-#    workspace_path: "/home/user/myproject"
+# 3. Set project directory via config (this file):
+#    project_dir: "/home/user/myproject"
 
-# 4. OR set workspace via environment variable:
+# 4. OR set project directory via environment variable:
 #    export GEMINI_CLI_WORKSPACE="/home/user/myproject"
 
-# 5. OR change workspace at runtime via slash command:
-#    !/workspace(/home/user/another-project)
+# 5. OR change project directory at runtime via slash command:
+#    !/project-dir(/home/user/another-project)
 
-# 6. Check current workspace:
-#    !/workspace()
+# 6. Check current project directory:
+#    !/project-dir()
 
 # 7. Configure this backend in your main config.yaml:
 #    backends:

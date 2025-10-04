@@ -24,7 +24,7 @@ the gemini-cli agent while providing a standardized OpenAI-compatible API to cli
    - Process lifecycle must be properly managed (spawn, monitor, cleanup)
 
 2. ACP PROTOCOL:
-   - First message must include AgentSettings with workspace_path
+   - First message must include AgentSettings with project directory
    - Messages follow JSON-RPC 2.0 specification
    - Responses come as streaming TaskStatusUpdateEvents
    - Tool calls require confirmation handling
@@ -112,7 +112,7 @@ class GeminiCliAcpConnector(GeminiBackend):
         self.name = "gemini-cli-acp"
         self.is_functional = False
         self._process: subprocess.Popen[bytes] | None = None
-        self._workspace_path: Path | None = None
+        self._project_dir: Path | None = None
         self._gemini_cli_executable: str = "gemini"
         self._model: str = "gemini-2.5-flash"
         self._auto_accept: bool = True
@@ -127,7 +127,7 @@ class GeminiCliAcpConnector(GeminiBackend):
         """Initialize the gemini-cli ACP backend.
 
         Args:
-            workspace_path: Path to workspace directory (optional, can be set later)
+            project_dir: Path to project directory (optional, can be set later)
             gemini_cli_executable: Path to gemini-cli executable (default: "gemini")
             model: Model to use (default: "gemini-2.5-flash")
             auto_accept: Auto-accept safe operations (default: True)
@@ -135,28 +135,28 @@ class GeminiCliAcpConnector(GeminiBackend):
             **kwargs: Additional configuration parameters
 
         Note:
-            workspace_path can be provided via:
-            1. Initialize parameter (workspace_path=...)
+            project_dir can be provided via:
+            1. Initialize parameter (project_dir=...)
             2. Environment variable (GEMINI_CLI_WORKSPACE)
             3. CLI parameter (via config)
-            4. Slash command (!/workspace(/path))
+            4. Slash command (!/project-dir(/path))
             5. Current working directory (fallback)
         """
         try:
-            # Get workspace path with multiple fallbacks
-            workspace_path = (
-                kwargs.get("workspace_path")  # 1. Explicit parameter
+            # Get project directory with multiple fallbacks
+            project_dir = (
+                kwargs.get("project_dir")  # 1. Explicit parameter
                 or os.getenv("GEMINI_CLI_WORKSPACE")  # 2. Environment variable
                 or os.getcwd()  # 3. Current working directory as fallback
             )
 
-            self._workspace_path = Path(workspace_path).resolve()
-            if not self._workspace_path.exists():
+            self._project_dir = Path(project_dir).resolve()
+            if not self._project_dir.exists():
                 logger.warning(
-                    f"Workspace path does not exist: {workspace_path}, "
+                    f"Project directory does not exist: {project_dir}, "
                     f"using current directory instead"
                 )
-                self._workspace_path = Path(os.getcwd()).resolve()
+                self._project_dir = Path(os.getcwd()).resolve()
 
             # Get optional configuration
             self._gemini_cli_executable = kwargs.get("gemini_cli_executable", "gemini")
@@ -178,7 +178,7 @@ class GeminiCliAcpConnector(GeminiBackend):
 
             self.is_functional = True
             logger.info(
-                f"Initialized gemini-cli-acp backend with workspace: {self._workspace_path}"
+                f"Initialized gemini-cli-acp backend with project directory: {self._project_dir}"
             )
 
         except Exception as e:
@@ -204,39 +204,39 @@ class GeminiCliAcpConnector(GeminiBackend):
         self._message_id += 1
         return self._message_id
 
-    async def change_workspace(self, workspace_path: str) -> None:
-        """Change the workspace directory and restart the gemini-cli process.
+    async def change_project_dir(self, project_dir: str) -> None:
+        """Change the project directory and restart the gemini-cli process.
 
         Args:
-            workspace_path: New workspace directory path
+            project_dir: New project directory path
 
         Raises:
-            ConfigurationError: If workspace path doesn't exist
+            ConfigurationError: If project directory doesn't exist
         """
-        new_workspace = Path(workspace_path).resolve()
+        new_project_dir = Path(project_dir).resolve()
 
-        if not new_workspace.exists():
+        if not new_project_dir.exists():
             raise ConfigurationError(
-                message=f"Workspace path does not exist: {workspace_path}",
-                details={"workspace_path": str(workspace_path)},
+                message=f"Project directory does not exist: {project_dir}",
+                details={"project_dir": str(project_dir)},
             )
 
-        # Check if workspace actually changed
-        if new_workspace == self._workspace_path:
-            logger.debug(f"Workspace already set to {workspace_path}")
+        # Check if project directory actually changed
+        if new_project_dir == self._project_dir:
+            logger.debug(f"Project directory already set to {project_dir}")
             return
 
         # Kill existing process
         await self._kill_process()
 
-        # Update workspace
-        old_workspace = self._workspace_path
-        self._workspace_path = new_workspace
+        # Update project directory
+        old_project_dir = self._project_dir
+        self._project_dir = new_project_dir
 
         # Reset message ID for new process
         self._message_id = 0
 
-        logger.info(f"Workspace changed from {old_workspace} to {self._workspace_path}")
+        logger.info(f"Project directory changed from {old_project_dir} to {self._project_dir}")
 
     async def _spawn_gemini_cli_process(self) -> None:
         """Spawn gemini-cli subprocess with ACP support."""
@@ -253,7 +253,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                 "--model",
                 self._model,
                 "--workspace",
-                str(self._workspace_path),
+                str(self._project_dir),
             ]
 
             if self._auto_accept:
@@ -266,7 +266,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                cwd=str(self._workspace_path),
+                cwd=str(self._project_dir),
             )
 
             # Wait a moment for process to start
@@ -376,13 +376,13 @@ class GeminiCliAcpConnector(GeminiBackend):
             raise APIConnectionError(message=f"Failed to read from gemini-cli: {e}")
 
     async def _initialize_agent(self) -> None:
-        """Initialize the ACP agent with workspace settings."""
+        """Initialize the ACP agent with project directory settings."""
         # Send initialization message with AgentSettings
         await self._send_jsonrpc_message(
             "initialize",
             {
                 "AgentSettings": {
-                    "workspace_path": str(self._workspace_path),
+                    "workspace_path": str(self._project_dir),
                 }
             },
         )
@@ -506,15 +506,15 @@ class GeminiCliAcpConnector(GeminiBackend):
             )
 
         try:
-            # Check if workspace was changed via session state (project_dir)
-            workspace_from_session = kwargs.get("project")  # project_dir from session
-            if workspace_from_session and str(workspace_from_session) != str(
-                self._workspace_path
+            # Check if project directory was changed via session state
+            project_dir_from_session = kwargs.get("project")  # project_dir from session
+            if project_dir_from_session and str(project_dir_from_session) != str(
+                self._project_dir
             ):
                 logger.info(
-                    f"Workspace changed via session to: {workspace_from_session}"
+                    f"Project directory changed via session to: {project_dir_from_session}"
                 )
-                await self.change_workspace(workspace_from_session)
+                await self.change_project_dir(project_dir_from_session)
 
             # Ensure process is running
             await self._spawn_gemini_cli_process()

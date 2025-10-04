@@ -1,25 +1,25 @@
 # Changelog
 
-## 2025-10-04 - Gemini CLI ACP Backend with Full Workspace Control
+## 2025-10-04 - Gemini CLI ACP Backend with Full Project Directory Control
 
 - **New Backend**: Added `gemini-cli-acp` backend that uses Google's `gemini-cli` as an AI agent via the Agent Control Protocol (ACP)
   - **Agent Integration**: Spawns and manages `gemini-cli` subprocess with JSON-RPC communication over stdin/stdout
-  - **Workspace Awareness**: Full access to project files, enabling code analysis, refactoring, and multi-file editing
-  - **Tool Usage**: Agent can execute commands, use tools, and perform complex operations within the workspace
+  - **Project Directory Awareness**: Full access to project files, enabling code analysis, refactoring, and multi-file editing
+  - **Tool Usage**: Agent can execute commands, use tools, and perform complex operations within the project
   - **Streaming Support**: Real-time streaming responses from the agent with proper SSE formatting
   - **Process Management**: Robust subprocess lifecycle handling with automatic restart on configuration changes
 
-- **Full Workspace Control**: Implemented 4 different mechanisms for controlling workspace directory
-  - **1. Runtime Slash Command** (highest priority): `!/workspace(/path/to/project)` - change workspace during conversation
-  - **2. Config File**: Set `workspace_path` in `config/backends/gemini-cli-acp/backend.yaml`
-  - **3. Environment Variable**: `GEMINI_CLI_WORKSPACE=/path/to/workspace`
+- **Full Project Directory Control**: Implemented 4 different mechanisms for controlling project directory
+  - **1. Runtime Slash Command** (highest priority): `!/project-dir(/path/to/project)` - leverages existing command infrastructure
+  - **2. Config File**: Set `project_dir` in `config/backends/gemini-cli-acp/backend.yaml`
+  - **3. Environment Variable**: `GEMINI_CLI_WORKSPACE=/path/to/project`
   - **4. Current Working Directory**: Automatic fallback to `cwd`
-  - **Dynamic Switching**: Workspace changes automatically restart the agent process with new context
-  - **Workspace Validation**: All paths validated, expanded (`~`, env vars), and converted to absolute paths
+  - **Dynamic Switching**: Project directory changes automatically restart the agent process with new context
+  - **Path Validation**: All paths validated, expanded (`~`, env vars), and converted to absolute paths
 
-- **New Slash Command**: Added `!/workspace(path)` command handler (`src/core/commands/handlers/workspace_command_handler.py`)
-  - Query current workspace: `!/workspace()`
-  - Change workspace: `!/workspace(/new/path)`
+- **Existing Command Integration**: Uses existing `!/project-dir(path)` command from `ProjectDirCommandHandler`
+  - Query current project directory: `!/project-dir()`
+  - Change project directory: `!/project-dir(/new/path)`
   - Path validation and user-friendly error messages
   - Integrated with session state (`project_dir`)
 
@@ -29,14 +29,14 @@
   - Comprehensive documentation with usage examples and priority order
 
 - **Error Handling**: Production-grade error handling with custom exceptions
-  - Configuration errors for missing/invalid workspace paths
+  - Configuration errors for missing/invalid project directories
   - API connection errors for subprocess communication failures
   - Timeout errors with configurable thresholds
   - Service unavailability handling when agent is not initialized
 
 - **Testing**: Comprehensive test suite with 100% pass rate
-  - **Unit Tests**: 22 tests covering initialization, process management, communication, workspace control, and streaming
-  - Tests for all 4 workspace control mechanisms
+  - **Unit Tests**: 22 tests covering initialization, process management, communication, project directory control, and streaming
+  - Tests for all 4 project directory control mechanisms
   - Process lifecycle tests (spawn, kill, restart)
   - JSON-RPC communication tests
   - Streaming response processing tests
@@ -44,7 +44,6 @@
 
 - **Files Created**:
   - `src/connectors/gemini_cli_acp.py` (598 lines) - Core connector implementation
-  - `src/core/commands/handlers/workspace_command_handler.py` (109 lines) - Workspace slash command
   - `config/backends/gemini-cli-acp/backend.yaml` - Backend configuration with full documentation
   - `tests/unit/connectors/test_gemini_cli_acp.py` (399 lines) - Comprehensive unit tests
 
@@ -52,10 +51,11 @@
   - ✅ ruff: All checks passed
   - ✅ black: Code formatted
   - ✅ mypy: Type checking passed
+  - Leverages existing command infrastructure (ProjectDirCommandHandler) instead of creating duplicate functionality
 
 - **Documentation**: Complete user-facing documentation
   - README updated with backend table entry, Gemini Backends Overview, Quick Start section, and Popular Scenarios
-  - Configuration examples for all 4 workspace control methods
+  - Configuration examples for all 4 project directory control methods
   - Usage examples with feature descriptions
   - Integration requirements (npm package, authentication)
 
