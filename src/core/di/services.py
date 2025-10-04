@@ -13,6 +13,7 @@ import os
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.domain.streaming_response_processor import (
@@ -177,7 +178,73 @@ def get_service_provider() -> IServiceProvider:
     This is a compatibility wrapper used by callers that expect a
     `get_service_provider` symbol.
     """
-    return get_or_build_service_provider()
+    provider = get_or_build_service_provider()
+    return _ensure_tool_call_reactor_services(provider)
+
+
+def _ensure_tool_call_reactor_services(
+    provider: IServiceProvider,
+) -> IServiceProvider:
+    """Ensure the provider can resolve ToolCallReactor components.
+
+    Args:
+        provider: The current service provider instance.
+
+    Returns:
+        A provider that can resolve the ToolCallReactor service and middleware.
+
+    Raises:
+        ServiceResolutionError: If re-registration fails to provide the required services.
+    """
+
+    from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
+    from src.core.services.tool_call_reactor_service import ToolCallReactorService
+
+    missing_components: list[str] = []
+
+    if provider.get_service(ToolCallReactorService) is None:
+        missing_components.append("ToolCallReactorService")
+    if provider.get_service(ToolCallReactorMiddleware) is None:
+        missing_components.append("ToolCallReactorMiddleware")
+
+    if not missing_components:
+        return provider
+
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "DI provider missing tool call reactor components: %s. Re-registering core services.",
+        ", ".join(missing_components),
+    )
+
+    services = get_service_collection()
+    descriptors = getattr(services, "_descriptors", {})
+
+    preserved_descriptors: dict[type, Any] = {}
+    for key in (AppConfig, cast(type, IConfig)):
+        descriptor = descriptors.get(key)
+        if descriptor is not None:
+            preserved_descriptors[key] = descriptor
+
+    register_core_services(services)
+
+    descriptors.update(preserved_descriptors)
+
+    new_provider = services.build_service_provider()
+    set_service_provider(new_provider)
+
+    still_missing: list[str] = []
+    if new_provider.get_service(ToolCallReactorService) is None:
+        still_missing.append("ToolCallReactorService")
+    if new_provider.get_service(ToolCallReactorMiddleware) is None:
+        still_missing.append("ToolCallReactorMiddleware")
+
+    if still_missing:
+        raise ServiceResolutionError(
+            "Failed to register required Tool Call Reactor services.",
+            details={"missing_components": still_missing},
+        )
+
+    return new_provider
 
 
 def register_core_services(
