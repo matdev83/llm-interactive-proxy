@@ -102,6 +102,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -150,27 +151,42 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
 
     def on_modified(self, event):
         """Handle file modification events."""
-        if not event.is_directory and event.src_path == str(
-            self.connector._credentials_path
-        ):
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(f"Credentials file modified: {event.src_path}")
+        if not event.is_directory:
+            # Compare paths using Path objects to handle Windows/Unix differences
+            try:
+                event_path = Path(event.src_path).resolve()
+                credentials_path = (
+                    self.connector._credentials_path.resolve()
+                    if self.connector._credentials_path
+                    else None
+                )
 
-            # Schedule credential reload in the connector's event loop in a thread-safe way
-            if self.connector._main_loop is not None:
-                try:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.connector._handle_credentials_file_change(),
-                        self.connector._main_loop,
-                    )
-                    # Store reference to prevent task from being garbage collected
-                    self.connector._pending_reload_task = future
-                except Exception as e:
-                    if logger.isEnabledFor(logging.ERROR):
-                        logger.error(f"Failed to schedule credentials reload: {e}")
-            else:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("No event loop available for credentials reload")
+                if credentials_path and event_path == credentials_path:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Credentials file modified: {event.src_path}")
+
+                    # Schedule credential reload in the connector's event loop in a thread-safe way
+                    if self.connector._main_loop is not None:
+                        try:
+                            future = asyncio.run_coroutine_threadsafe(
+                                self.connector._handle_credentials_file_change(),
+                                self.connector._main_loop,
+                            )
+                            # Store reference to prevent task from being garbage collected
+                            self.connector._pending_reload_task = future
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.ERROR):
+                                logger.error(
+                                    f"Failed to schedule credentials reload: {e}"
+                                )
+                    else:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "No event loop available for credentials reload"
+                            )
+            except Exception as e:
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Error processing file modification event: {e}")
 
 
 class GeminiOAuthPersonalConnector(GeminiBackend):
@@ -418,7 +434,12 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     logger.warning(f"Error stopping file watcher: {e}")
 
     async def _handle_credentials_file_change(self) -> None:
-        """Handle credentials file change event."""
+        """Handle credentials file change event.
+
+        This method is called when the file system watcher detects a change to the
+        oauth_creds.json file. It forces a reload of credentials bypassing the cache
+        to ensure the latest token is loaded even if the file timestamp didn't change.
+        """
         try:
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Handling credentials file change...")
@@ -433,8 +454,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     )
                 return
 
-            # Attempt to reload
-            if await self._load_oauth_credentials():
+            # Attempt to reload with force_reload=True to bypass cache
+            if await self._load_oauth_credentials(force_reload=True):
                 refreshed = await self._refresh_token_if_needed()
                 if refreshed:
                     self._recover()
@@ -665,8 +686,15 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     f"Error saving Gemini OAuth credentials: {e}", exc_info=True
                 )
 
-    async def _load_oauth_credentials(self) -> bool:
-        """Load OAuth credentials from oauth_creds.json file."""
+    async def _load_oauth_credentials(self, force_reload: bool = False) -> bool:
+        """Load OAuth credentials from oauth_creds.json file.
+
+        Args:
+            force_reload: If True, bypass cache and force reload from file even if timestamp unchanged
+
+        Returns:
+            bool: True if credentials loaded successfully, False otherwise
+        """
         try:
             # Use custom path if provided, otherwise default to ~/.gemini
             if self.gemini_cli_oauth_path:
@@ -683,19 +711,29 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     )
                 return False
 
-            # Check if file has been modified since last load
+            # Check if file has been modified since last load (unless force_reload is True)
+            if not force_reload:
+                try:
+                    current_modified = creds_path.stat().st_mtime
+                    if (
+                        current_modified == self._last_modified
+                        and self._oauth_credentials
+                    ):
+                        # File hasn't changed and credentials are in memory, no need to reload
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Gemini OAuth credentials file not modified, using cached."
+                            )
+                        return True
+                except OSError:
+                    # If cannot get file stats, proceed with reading
+                    pass
+
+            # Update last modified time
             try:
                 current_modified = creds_path.stat().st_mtime
-                if current_modified == self._last_modified and self._oauth_credentials:
-                    # File hasn't changed and credentials are in memory, no need to reload
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Gemini OAuth credentials file not modified, using cached."
-                        )
-                    return True
                 self._last_modified = current_modified
             except OSError:
-                # If cannot get file stats, proceed with reading
                 pass
 
             with open(creds_path, encoding="utf-8") as f:
@@ -711,7 +749,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             self._oauth_credentials = credentials
             if logger.isEnabledFor(logging.INFO):
-                logger.info("Successfully loaded Gemini OAuth credentials.")
+                log_msg = "Successfully loaded Gemini OAuth credentials"
+                if force_reload:
+                    log_msg += " (force reload)"
+                logger.info(log_msg + ".")
             return True
         except json.JSONDecodeError as e:
             if logger.isEnabledFor(logging.ERROR):
@@ -1157,6 +1198,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             auth_session = google.auth.transport.requests.AuthorizedSession(
                 _StaticTokenCreds(access_token)
             )
+            auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
+            auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
 
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)

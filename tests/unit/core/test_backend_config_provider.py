@@ -97,6 +97,22 @@ class TestBackendConfigProvider:
         assert "test_backend1" in backend_names
         assert "test_backend2" in backend_names
 
+    def test_iter_backend_names_includes_dict_backends(self) -> None:
+        """Configured dictionary backends should be included in iteration."""
+        # Arrange
+        app_config = AppConfig()
+        app_config.backends = {
+            "custom-backend": {"api_key": ["test-key"]},
+            "default_backend": "openai",
+        }  # type: ignore[assignment]
+        provider = BackendConfigProvider(app_config)
+
+        # Act
+        backend_names = provider.iter_backend_names()
+
+        # Assert
+        assert "custom-backend" in backend_names
+
     def test_get_default_backend(self) -> None:
         """Test getting the default backend."""
         # Arrange

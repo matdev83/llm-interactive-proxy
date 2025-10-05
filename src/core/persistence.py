@@ -79,15 +79,6 @@ class ConfigManager:
         if not isinstance(backend_value, str):
             return
 
-        cli_backend = os.getenv("LLM_BACKEND")
-        if cli_backend and cli_backend != backend_value:
-            logger.info(
-                "Skipping config file backend '%s' because CLI argument '%s' takes precedence",
-                backend_value,
-                cli_backend,
-            )
-            return
-
         if not self.app_state:
             return
 
@@ -102,6 +93,15 @@ class ConfigManager:
                     "functional_backends": sorted(functional_backends),
                 },
             )
+
+        cli_backend = os.getenv("LLM_BACKEND")
+        if cli_backend and cli_backend != backend_value:
+            logger.info(
+                "Skipping config file backend '%s' because CLI argument '%s' takes precedence",
+                backend_value,
+                cli_backend,
+            )
+            return
 
         self.app_state.set_backend_type(backend_value)
         if self.service_provider is not None:
@@ -128,18 +128,29 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                raise ServiceResolutionError(
-                    "Failed to resolve IBackendService for default backend."
-                ) from e
+                if _STRICT_PERSISTENCE_ERRORS:
+                    raise ServiceResolutionError(
+                        "Failed to resolve IBackendService for default backend."
+                    ) from e
+                logger.warning(
+                    "Could not resolve IBackendService while applying default backend '%s'; "
+                    "continuing without binding backend instance",
+                    backend_value,
+                )
             except Exception as e:
                 logger.error(
                     "An unexpected error occurred during DI resolution for IBackendService: %s",
                     e,
                     exc_info=True,
                 )
-                raise ConfigurationError(
-                    "An unexpected error occurred while applying default backend."
-                ) from e
+                if _STRICT_PERSISTENCE_ERRORS:
+                    raise ConfigurationError(
+                        "An unexpected error occurred while applying default backend."
+                    ) from e
+                logger.warning(
+                    "Skipping backend instance binding for default backend '%s' due to unexpected error",
+                    backend_value,
+                )
 
     def _apply_interactive_mode(self, mode_value: Any) -> None:
         if isinstance(mode_value, bool) and self.service_provider is not None:
@@ -159,18 +170,27 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                raise ServiceResolutionError(
-                    "Failed to resolve ISessionService for interactive mode."
-                ) from e
+                if _STRICT_PERSISTENCE_ERRORS:
+                    raise ServiceResolutionError(
+                        "Failed to resolve ISessionService for interactive mode."
+                    ) from e
+                logger.warning(
+                    "Could not resolve ISessionService while applying interactive mode; "
+                    "continuing without updating session service",
+                )
             except Exception as e:
                 logger.error(
                     "An unexpected error occurred during DI resolution for ISessionService: %s",
                     e,
                     exc_info=True,
                 )
-                raise ConfigurationError(
-                    "An unexpected error occurred while applying interactive mode."
-                ) from e
+                if _STRICT_PERSISTENCE_ERRORS:
+                    raise ConfigurationError(
+                        "An unexpected error occurred while applying interactive mode."
+                    ) from e
+                logger.warning(
+                    "Skipping interactive mode update due to unexpected error",
+                )
 
     def _apply_redact_api_keys(self, redact_value: Any) -> None:
         if isinstance(redact_value, bool) and self.app_state:

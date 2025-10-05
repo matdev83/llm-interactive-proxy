@@ -1,7 +1,6 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.common.exceptions import ConfigurationError
 from src.core.config.app_config import load_config
@@ -142,6 +141,23 @@ class _DummyAppState:
 def test_apply_default_backend_invalid_backend_raises_configuration_error() -> None:
     app = FastAPI()
     manager = ConfigManager(app, path=":memory:", app_state=_DummyAppState())
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        manager._apply_default_backend("nonexistent")
+
+    assert exc_info.value.details == {
+        "backend": "nonexistent",
+        "functional_backends": ["openai"],
+    }
+
+
+def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastAPI()
+    manager = ConfigManager(app, path=":memory:", app_state=_DummyAppState())
+
+    monkeypatch.setenv("LLM_BACKEND", "openai")
 
     with pytest.raises(ConfigurationError) as exc_info:
         manager._apply_default_backend("nonexistent")

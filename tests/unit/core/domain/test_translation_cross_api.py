@@ -98,18 +98,46 @@ class TestOpenAIToGeminiTranslation:
         contents = gemini_request["contents"]
         assert len(contents) == 1
 
-        # Check parts - note: the current implementation only handles the text part
-        # and doesn't process the image part correctly
         parts = contents[0]["parts"]
-        assert len(parts) == 1
+        assert len(parts) == 2
         assert parts[0]["text"] == "Describe this image:"
 
-        # TODO: Fix the implementation to handle multimodal content properly
-        # The following assertions would be valid once the implementation is fixed:
-        # assert len(parts) == 2
-        # assert "inline_data" in parts[1]
-        # assert parts[1]["inline_data"]["mime_type"] == "image/jpeg"
-        # assert parts[1]["inline_data"]["data"] == "https://example.com/image.jpg"
+        image_payload = parts[1]
+        assert "file_data" in image_payload
+        file_data = image_payload["file_data"]
+        assert file_data["file_uri"] == "https://example.com/image.jpg"
+        assert file_data["mime_type"] == "image/jpeg"
+
+    def test_multimodal_content_data_url(self) -> None:
+        """Test translation of multimodal content containing a data URL image."""
+        text_part = MessageContentPartText(text="Describe this image:")
+        image_part = MessageContentPartImage(
+            image_url=ImageURL(
+                url="data:image/png;base64,SGVsbG8sIHdvcmxkIQ==",
+                detail=None,
+            )
+        )
+
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro-vision",
+            messages=[ChatMessage(role="user", content=[text_part, image_part])],
+        )
+
+        gemini_request = Translation.from_domain_to_gemini_request(request)
+
+        assert "contents" in gemini_request
+        contents = gemini_request["contents"]
+        assert len(contents) == 1
+
+        parts = contents[0]["parts"]
+        assert len(parts) == 2
+        assert parts[0]["text"] == "Describe this image:"
+
+        inline_payload = parts[1]
+        assert "inline_data" in inline_payload
+        inline_data = inline_payload["inline_data"]
+        assert inline_data["mime_type"] == "image/png"
+        assert inline_data["data"] == "SGVsbG8sIHdvcmxkIQ=="
 
     def test_tool_calling(self) -> None:
         """Test translation of tool calling."""

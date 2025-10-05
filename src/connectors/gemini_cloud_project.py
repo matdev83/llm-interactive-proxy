@@ -78,6 +78,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -285,6 +286,26 @@ class GeminiCloudProjectConnector(GeminiBackend):
             List of validation error messages
         """
         return self._credential_validation_errors.copy()
+
+    def _normalize_openai_response(self, openai_response: Any) -> dict[str, Any]:
+        """Normalize OpenAI style responses to plain dictionaries for translation."""
+        if isinstance(openai_response, dict):
+            return openai_response
+
+        model_dump = getattr(openai_response, "model_dump", None)
+        if callable(model_dump):
+            try:
+                result = model_dump(exclude_unset=True)
+            except TypeError:
+                result = model_dump()
+
+            if isinstance(result, dict):
+                return result
+
+        raise BackendError(
+            "Unsupported OpenAI response type for normalization",
+            details={"received_type": type(openai_response).__name__},
+        )
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
@@ -521,7 +542,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 )
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Using service account credentials from %s", sa_path)
-                return google.auth.transport.requests.AuthorizedSession(credentials)
+                session = google.auth.transport.requests.AuthorizedSession(credentials)
+                session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
+                return session
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -538,7 +561,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
             self.gcp_project_id = adc_project
         if logger.isEnabledFor(logging.INFO):
             logger.info("Using Application Default Credentials for Code Assist API")
-        return google.auth.transport.requests.AuthorizedSession(credentials)
+        session = google.auth.transport.requests.AuthorizedSession(credentials)
+        session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
+        return session
 
     def _is_token_expired(self) -> bool:
         """Check if the current access token is expired or close to expiring."""
@@ -869,6 +894,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Refresh underlying credentials to ensure valid token
             session.credentials.refresh(request)  # type: ignore[attr-defined]
             headers = {"Authorization": f"Bearer {session.credentials.token}"}  # type: ignore[attr-defined]
+            headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
             try:
                 response = await self.client.get(url, headers=headers, timeout=10.0)
             except httpx.TimeoutException as te:
@@ -1156,12 +1182,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Convert to OpenAI-compatible format using the translation service
             if not domain_response:
                 raise BackendError("Failed to parse a valid response from the backend.")
-            openai_response = self._normalize_openai_response(
-                self.translation_service.from_domain_response(
-                    response=domain_response,
-                    target_format="openai",
-                )
-            )
+            openai_response = self.translation_service.from_domain_response(
+                response=domain_response,
+                target_format="openai",
+            ).model_dump(exclude_unset=True)
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
@@ -1177,34 +1201,6 @@ class GeminiCloudProjectConnector(GeminiBackend):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Unexpected error during API call: {e}", exc_info=True)
             raise BackendError(f"Unexpected error during API call: {e}")
-
-    def _normalize_openai_response(self, response: Any) -> dict[str, Any]:
-        """Normalize a translation output into an OpenAI-compatible dictionary."""
-        if isinstance(response, dict):
-            return response
-
-        model_dump = getattr(response, "model_dump", None)
-        if callable(model_dump):
-            try:
-                candidate = model_dump(exclude_unset=True)
-            except TypeError:
-                candidate = model_dump()
-            if isinstance(candidate, dict):
-                return candidate
-
-        as_dict = getattr(response, "dict", None)
-        if callable(as_dict):
-            candidate = as_dict()
-            if isinstance(candidate, dict):
-                return candidate
-
-        raise BackendError(
-            message=(
-                "TranslationService returned an unexpected response payload type: "
-                f"{type(response).__name__}"
-            ),
-            code="invalid_openai_response",
-        )
 
     async def _chat_completions_streaming(
         self,

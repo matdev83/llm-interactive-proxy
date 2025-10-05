@@ -5,6 +5,7 @@ to the internal OpenAI format used by existing backends.
 """
 
 import json
+from copy import deepcopy
 from typing import Any, cast
 
 from src.core.domain.chat import (
@@ -135,6 +136,7 @@ def gemini_to_openai_request(
         temperature=temperature,
         top_p=top_p,
         stop=stop,
+        tools=_convert_gemini_tools_to_openai(gemini_request.tools),
         tool_choice=None,
         stream=False,  # Will be set separately for streaming requests
         n=None,
@@ -158,13 +160,19 @@ def openai_to_gemini_response(openai_response: ChatResponse) -> GenerateContentR
         content = None
 
         if choice.message:
-            # Properly map OpenAI tool_calls to Gemini functionCall part
+            parts: list[Part] = []
+
+            # Properly map OpenAI tool_calls to Gemini functionCall parts
             if choice.message.tool_calls:
-                part = _tool_call_to_function_call(choice.message.tool_calls[0])
-                content = Content(parts=[part], role="model")
-            elif choice.message.content:
-                part = Part(text=choice.message.content)  # type: ignore[call-arg]
-                content = Content(parts=[part], role="model")
+                for tool_call in choice.message.tool_calls:
+                    parts.append(_tool_call_to_function_call(tool_call))
+
+            # Include any assistant message content if present
+            if choice.message.content:
+                parts.append(Part(text=choice.message.content))  # type: ignore[call-arg]
+
+            if parts:
+                content = Content(parts=parts, role="model")
 
         # Map finish reason
         finish_reason = None
@@ -382,8 +390,10 @@ def extract_model_from_gemini_path(path: str) -> str:
     # Path format: /v1beta/models/{model}:generateContent or /v1beta/models/{model}:streamGenerateContent
     if "/models/" in path:
         # Extract the part between /models/ and the next :
-        parts = path.split("/models/")[1]
-        model = parts.split(":")[0]
+        parts = path.split("/models/", 1)[1]
+        model_section = parts.split(":", 1)[0]
+        # Strip query parameters or fragments appended to the model name
+        model = model_section.split("?", 1)[0].split("#", 1)[0]
         return model
     return "gemini-pro"  # Default fallback
 
@@ -463,3 +473,46 @@ def _openai_delta_to_part(choice_fragment: dict[str, Any]) -> Part | None:
             return Part(text="".join(text_segments))  # type: ignore[call-arg]
 
     return None
+
+
+def _convert_gemini_tools_to_openai(
+    tools: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]] | None:
+    """Convert Gemini tool declarations to OpenAI tool definitions."""
+
+    if not tools:
+        return None
+
+    openai_tools: list[dict[str, Any]] = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+
+        function_declarations = tool.get("function_declarations")
+        if function_declarations is None:
+            function_declarations = tool.get("functionDeclarations")
+
+        if not isinstance(function_declarations, list):
+            continue
+
+        for declaration in function_declarations:
+            if not isinstance(declaration, dict):
+                continue
+
+            name = declaration.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+
+            function_payload: dict[str, Any] = {"name": name}
+
+            description = declaration.get("description")
+            if isinstance(description, str) and description:
+                function_payload["description"] = description
+
+            parameters = declaration.get("parameters")
+            if isinstance(parameters, dict) and parameters:
+                function_payload["parameters"] = deepcopy(parameters)
+
+            openai_tools.append({"type": "function", "function": function_payload})
+
+    return openai_tools or None

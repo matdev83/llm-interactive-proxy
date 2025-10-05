@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
@@ -34,7 +35,7 @@ from src.core.domain.session import (
     SessionStateAdapter,
 )
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.backend_service_interface import BackendError, IBackendService
+from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.loop_detector_interface import (

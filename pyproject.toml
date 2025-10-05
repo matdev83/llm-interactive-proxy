@@ -27,6 +27,8 @@ dependencies = [
     "json-repair",
     "watchdog",
     "pytz",
+    "pytest-asyncio==0.23.7",
+    "pytest-xdist==3.6.1"
 ]
 requires-python = ">=3.10"
 readme = "README.md"
@@ -261,11 +263,11 @@ exclude = ["dev/"]
 
 
 [[tool.mypy.overrides]]
-module = "google.genai"
+module = ["google.genai"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "setuptools"
+module = ["setuptools"]
 ignore_missing_imports = true
 
 
@@ -316,7 +318,6 @@ ignore_names = [
     "HEALTH_CHECK_SUPPORTED",
     "enable_health_check",
     "disable_health_check",
-    "get_chat_controller_dependency",
     "internal_health",
     "chat_completions_v1",
     "chat_completions_v2",

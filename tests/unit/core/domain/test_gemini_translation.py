@@ -1,8 +1,6 @@
-"""
-Tests for Gemini translation utilities.
+"""Tests for Gemini translation utilities."""
 
-This module tests the translation between Gemini API format and other formats.
-"""
+import json
 
 from src.core.domain.gemini_translation import (
     canonical_response_to_gemini_response,
@@ -30,7 +28,7 @@ class TestGeminiContentToMessages:
         assert len(messages) == 2
         assert messages[0].role == "user"
         assert messages[0].content == "Hello, how are you?"
-        assert messages[1].role == "model"
+        assert messages[1].role == "assistant"
         assert messages[1].content == "I'm doing well, how can I help you today?"
 
     def test_multimodal_content(self) -> None:
@@ -41,8 +39,8 @@ class TestGeminiContentToMessages:
                 "parts": [
                     {"text": "What's in this image?"},
                     {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
                             "data": "https://example.com/image.jpg",
                         }
                     },
@@ -60,6 +58,34 @@ class TestGeminiContentToMessages:
         assert messages[0].content[0].text == "What's in this image?"
         assert messages[0].content[1].type == "image_url"
         assert messages[0].content[1].image_url.url == "https://example.com/image.jpg"
+
+    def test_function_call_content(self) -> None:
+        """Test conversion of Gemini function call parts to tool calls."""
+        contents = [
+            {
+                "role": "model",
+                "parts": [
+                    {
+                        "functionCall": {
+                            "name": "call_tool",
+                            "args": {"foo": "bar"},
+                        }
+                    }
+                ],
+            }
+        ]
+
+        messages = gemini_content_to_chat_messages(contents)
+
+        assert len(messages) == 1
+        message = messages[0]
+        assert message.role == "assistant"
+        assert message.content is None
+        assert message.tool_calls is not None
+        assert len(message.tool_calls) == 1
+        tool_call = message.tool_calls[0]
+        assert tool_call.function.name == "call_tool"
+        assert json.loads(tool_call.function.arguments) == {"foo": "bar"}
 
 
 class TestGeminiRequestToCanonical:
@@ -142,6 +168,39 @@ class TestGeminiRequestToCanonical:
         assert canonical.tools[0]["function"]["name"] == "get_weather"  # type: ignore
         assert "parameters" in canonical.tools[0]["function"]  # type: ignore
         assert "location" in canonical.tools[0]["function"]["parameters"]["properties"]  # type: ignore
+
+    def test_request_with_tool_config(self) -> None:
+        """Test conversion of toolConfig to canonical tool_choice."""
+        request = {
+            "model": "gemini-1.5-pro",
+            "contents": [
+                {"role": "user", "parts": [{"text": "What's the weather in Paris?"}]}
+            ],
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "name": "get_weather",
+                            "description": "Get the current weather",
+                            "parameters": {},
+                        }
+                    ]
+                }
+            ],
+            "toolConfig": {
+                "functionCallingConfig": {
+                    "mode": "ANY",
+                    "allowedFunctionNames": ["get_weather"],
+                }
+            },
+        }
+
+        canonical = gemini_request_to_canonical_request(request)
+
+        assert canonical.tool_choice == {
+            "type": "function",
+            "function": {"name": "get_weather"},
+        }
 
 
 class TestCanonicalResponseToGemini:

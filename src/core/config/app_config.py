@@ -50,6 +50,36 @@ def _get_api_keys_from_env() -> list[str]:
     return result
 
 
+def _env_to_bool(name: str, default: bool) -> bool:
+    """Return an environment variable parsed as a boolean flag."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_to_int(name: str, default: int) -> int:
+    """Return an environment variable parsed as an integer."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_to_float(name: str, default: float | None) -> float | None:
+    """Return an environment variable parsed as a float."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class LogLevel(str, Enum):
     """Log levels for configuration."""
 
@@ -95,6 +125,20 @@ class AuthConfig(DomainModel):
     auth_token: str | None = None
     redact_api_keys_in_prompts: bool = True
     trusted_ips: list[str] = Field(default_factory=list)
+    brute_force_protection: BruteForceProtectionConfig = Field(
+        default_factory=lambda: BruteForceProtectionConfig()
+    )
+
+
+class BruteForceProtectionConfig(DomainModel):
+    """Configuration for brute-force protection on API authentication."""
+
+    enabled: bool = True
+    max_failed_attempts: int = 5
+    ttl_seconds: int = 900
+    initial_block_seconds: int = 30
+    block_multiplier: float = 2.0
+    max_block_seconds: int = 3600
 
 
 class LoggingConfig(DomainModel):
@@ -476,6 +520,22 @@ class AppConfig(DomainModel, IConfig):
                 "disable_auth": os.environ.get("DISABLE_AUTH", "").lower() == "true",
                 "api_keys": _get_api_keys_from_env(),
                 "auth_token": os.environ.get("AUTH_TOKEN"),
+                "brute_force_protection": {
+                    "enabled": _env_to_bool("BRUTE_FORCE_PROTECTION_ENABLED", True),
+                    "max_failed_attempts": _env_to_int(
+                        "BRUTE_FORCE_MAX_FAILED_ATTEMPTS", 5
+                    ),
+                    "ttl_seconds": _env_to_int("BRUTE_FORCE_TTL_SECONDS", 900),
+                    "initial_block_seconds": _env_to_int(
+                        "BRUTE_FORCE_INITIAL_BLOCK_SECONDS", 30
+                    ),
+                    "block_multiplier": _env_to_float(
+                        "BRUTE_FORCE_BLOCK_MULTIPLIER", 2.0
+                    ),
+                    "max_block_seconds": _env_to_int(
+                        "BRUTE_FORCE_MAX_BLOCK_SECONDS", 3600
+                    ),
+                },
             },
         }
 
@@ -581,27 +641,12 @@ class AppConfig(DomainModel, IConfig):
         }
 
         # Edit precision settings
-        def _env_bool(name: str, default: bool) -> bool:
-            v = os.environ.get(name)
-            if v is None:
-                return default
-            return v.lower() in ("1", "true", "yes", "on")
-
-        def _env_float(name: str, default: float | None) -> float | None:
-            v = os.environ.get(name)
-            if v is None:
-                return default
-            try:
-                return float(v)
-            except ValueError:
-                return default
-
         config["edit_precision"] = {
-            "enabled": _env_bool("EDIT_PRECISION_ENABLED", True),
-            "temperature": _env_float("EDIT_PRECISION_TEMPERATURE", 0.1) or 0.1,
-            "min_top_p": _env_float("EDIT_PRECISION_MIN_TOP_P", 0.3),
-            "override_top_p": _env_bool("EDIT_PRECISION_OVERRIDE_TOP_P", False),
-            "override_top_k": _env_bool("EDIT_PRECISION_OVERRIDE_TOP_K", False),
+            "enabled": _env_to_bool("EDIT_PRECISION_ENABLED", True),
+            "temperature": _env_to_float("EDIT_PRECISION_TEMPERATURE", 0.1) or 0.1,
+            "min_top_p": _env_to_float("EDIT_PRECISION_MIN_TOP_P", 0.3),
+            "override_top_p": _env_to_bool("EDIT_PRECISION_OVERRIDE_TOP_P", False),
+            "override_top_k": _env_to_bool("EDIT_PRECISION_OVERRIDE_TOP_K", False),
             "target_top_k": (
                 int(os.environ.get("EDIT_PRECISION_TARGET_TOP_K", "0")) or None
             ),
@@ -611,7 +656,7 @@ class AppConfig(DomainModel, IConfig):
         }
 
         config["rewriting"] = {
-            "enabled": _env_bool("REWRITING_ENABLED", False),
+            "enabled": _env_to_bool("REWRITING_ENABLED", False),
             "config_path": os.environ.get(
                 "REWRITING_CONFIG_PATH", "config/replacements"
             ),

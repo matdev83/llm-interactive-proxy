@@ -1,6 +1,7 @@
-"""
-A command handler for the 'loop-detection' command.
-"""
+"""Command handlers for loop detection toggles."""
+
+from collections.abc import Mapping
+from typing import Any
 
 from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
@@ -9,52 +10,117 @@ from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
 
 
-@command("tool-loop-detection")
+def _parse_bool_argument(
+    args: Mapping[str, Any] | None,
+) -> tuple[bool | None, str | None]:
+    """Extract a boolean flag from command arguments."""
+
+    if not args:
+        return True, None
+
+    enabled_arg = args.get("enabled")
+    if enabled_arg is None:
+        enabled_arg = next(iter(args.values()), None)
+
+    if enabled_arg is None:
+        return True, None
+
+    normalized = str(enabled_arg).strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True, None
+    if normalized in {"false", "0", "no", "off"}:
+        return False, None
+    return None, normalized
+
+
+@command("loop-detection")
 class LoopDetectionCommandHandler(ICommandHandler):
-    """
-    A command handler for the 'loop-detection' command.
-    """
+    """Handler for the `/loop-detection` command."""
 
     @property
     def command_name(self) -> str:
-        """Get the command name."""
+        return "loop-detection"
+
+    @property
+    def description(self) -> str:
+        return "Enable or disable loop detection."
+
+    @property
+    def format(self) -> str:
+        return "loop-detection(enabled=true|false)"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/loop-detection(enabled=true)", "!/loop-detection(enabled=false)"]
+
+    async def handle(self, command: Command, session: Session) -> CommandResult:
+        enabled, invalid = _parse_bool_argument(command.args)
+        if enabled is None:
+            return CommandResult(
+                success=False,
+                message=(
+                    "Error: Invalid value. Please use 'true' or 'false'."
+                    if invalid is not None
+                    else "Error: Please provide a value (true/false)."
+                ),
+            )
+
+        new_config = session.state.loop_config.with_loop_detection_enabled(enabled)
+        session.state = session.state.with_loop_config(new_config)
+
+        return CommandResult(
+            success=True,
+            message=(
+                "Loop detection enabled" if enabled else "Loop detection disabled"
+            ),
+            new_state=session.state,
+        )
+
+
+@command("tool-loop-detection")
+class ToolLoopDetectionCommandHandler(ICommandHandler):
+    """Handler for the `/tool-loop-detection` command."""
+
+    @property
+    def command_name(self) -> str:
         return "tool-loop-detection"
 
     @property
     def description(self) -> str:
-        """Get the command description."""
         return "Enable or disable tool loop detection."
 
     @property
     def format(self) -> str:
-        """Get the command format."""
-        return "tool-loop-detection <true|false>"
+        return "tool-loop-detection(enabled=true|false)"
 
     @property
     def examples(self) -> list[str]:
-        """Get command usage examples."""
-        return ["tool-loop-detection true", "tool-loop-detection false"]
+        return [
+            "!/tool-loop-detection(enabled=true)",
+            "!/tool-loop-detection(enabled=false)",
+        ]
 
     async def handle(self, command: Command, session: Session) -> CommandResult:
-        """Handle the loop-detection command."""
-        if not command.args:
-            return CommandResult(
-                success=False, message="Error: Please provide a value (true/false)."
-            )
-
-        enabled_str = next(iter(command.args.values()), "").lower()
-        if enabled_str not in ["true", "false"]:
+        enabled, invalid = _parse_bool_argument(command.args)
+        if enabled is None:
             return CommandResult(
                 success=False,
-                message="Error: Invalid value. Please use 'true' or 'false'.",
+                message=(
+                    "Error: Invalid value. Please use 'true' or 'false'."
+                    if invalid is not None
+                    else "Error: Please provide a value (true/false)."
+                ),
             )
 
-        enabled = enabled_str == "true"
         new_config = session.state.loop_config.with_tool_loop_detection_enabled(enabled)
         session.state = session.state.with_loop_config(new_config)
 
         return CommandResult(
             success=True,
-            message=f"Tool loop detection set to {enabled}.",
+            message=(
+                "Tool loop detection enabled"
+                if enabled
+                else "Tool loop detection disabled"
+            ),
             new_state=session.state,
         )

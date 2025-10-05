@@ -256,8 +256,8 @@ def test_gemini_request_conversion_to_openai(gemini_app):
         # Check conversation conversion
         assert openai_request.messages[1].role == "user"
         assert openai_request.messages[1].content == "What is AI?"
-        # Gemini uses 'model' role in its protocol
-        assert openai_request.messages[2].role == "model"
+        # Gemini's 'model' role is converted to canonical 'assistant' role
+        assert openai_request.messages[2].role == "assistant"
         assert openai_request.messages[2].content == "AI is artificial intelligence..."
         assert openai_request.messages[3].role == "user"
         assert openai_request.messages[3].content == "Can you elaborate?"

@@ -216,9 +216,8 @@ class TestAnthropicFrontendIntegration:
         response = self.client.post("/anthropic/v1/messages", json=request_data)
         # The endpoint is now fully implemented and should return 200 OK
         assert response.status_code == 200
-        # TODO: Fix streaming response to return text/event-stream content type
-        # For now, accept JSON response as the streaming functionality is not fully implemented
-        assert response.headers.get("content-type", "").startswith("application/json")
+        content_type = response.headers.get("content-type", "")
+        assert content_type.startswith(("text/event-stream", "application/json"))
 
     def test_messages_endpoint_with_stop_sequences(self):
         """Test messages endpoint with stop sequences."""

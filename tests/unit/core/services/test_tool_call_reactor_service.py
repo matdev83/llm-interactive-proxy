@@ -4,7 +4,7 @@ Unit tests for Tool Call Reactor Service.
 
 from __future__ import annotations
 
-import asyncio
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from src.core.common.exceptions import ToolCallReactorError
@@ -123,6 +123,33 @@ class TestToolCallReactorService:
         result = await reactor.process_tool_call(context)
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_process_tool_call_records_datetime_timestamp(
+        self, reactor, history_tracker
+    ):
+        """Tool call processing should record timezone-aware timestamps."""
+
+        timestamp = datetime.now(timezone.utc) - timedelta(seconds=5)
+
+        context = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="test_tool",
+            tool_arguments={"arg": "value"},
+            timestamp=timestamp,
+        )
+
+        result = await reactor.process_tool_call(context)
+
+        assert result is None
+
+        call_count = await history_tracker.get_call_count(
+            "test_session", "test_tool", time_window_seconds=10
+        )
+        assert call_count == 1
 
     @pytest.mark.asyncio
     async def test_process_tool_call_handler_can_handle_false(self, reactor):
@@ -271,10 +298,12 @@ class TestInMemoryToolCallHistoryTracker:
     @pytest.mark.asyncio
     async def test_record_tool_call(self, tracker):
         """Test recording a tool call."""
+        timestamp = datetime.now(timezone.utc)
+
         await tracker.record_tool_call(
             session_id="test_session",
             tool_name="test_tool",
-            context={"arg": "value", "timestamp": 1234567890},
+            context={"arg": "value", "timestamp": timestamp},
         )
 
         # Verify call was recorded
@@ -284,17 +313,17 @@ class TestInMemoryToolCallHistoryTracker:
     @pytest.mark.asyncio
     async def test_get_call_count_time_window(self, tracker):
         """Test getting call count within time window."""
-        current_time = asyncio.get_event_loop().time()
+        current_time = datetime.now(timezone.utc)
 
         # Record calls at different times
         await tracker.record_tool_call(
-            "session1", "tool1", {"timestamp": current_time - 100}
+            "session1", "tool1", {"timestamp": current_time - timedelta(seconds=100)}
         )
         await tracker.record_tool_call(
-            "session1", "tool1", {"timestamp": current_time - 50}
+            "session1", "tool1", {"timestamp": current_time - timedelta(seconds=50)}
         )
         await tracker.record_tool_call(
-            "session1", "tool1", {"timestamp": current_time - 10}
+            "session1", "tool1", {"timestamp": current_time - timedelta(seconds=10)}
         )
 
         # Count calls within last 60 seconds
@@ -308,12 +337,12 @@ class TestInMemoryToolCallHistoryTracker:
     @pytest.mark.asyncio
     async def test_get_call_count_different_sessions(self, tracker):
         """Test call counting for different sessions."""
-        current_time = asyncio.get_event_loop().time()
+        current_time = datetime.now(timezone.utc)
         await tracker.record_tool_call(
-            "session1", "tool1", {"timestamp": current_time - 100}
+            "session1", "tool1", {"timestamp": current_time - timedelta(seconds=100)}
         )
         await tracker.record_tool_call(
-            "session2", "tool1", {"timestamp": current_time - 100}
+            "session2", "tool1", {"timestamp": current_time - timedelta(seconds=100)}
         )
 
         count1 = await tracker.get_call_count("session1", "tool1", 3600)
@@ -325,12 +354,12 @@ class TestInMemoryToolCallHistoryTracker:
     @pytest.mark.asyncio
     async def test_clear_history_all_sessions(self, tracker):
         """Test clearing all history."""
-        current_time = asyncio.get_event_loop().time()
+        current_time = datetime.now(timezone.utc)
         await tracker.record_tool_call(
-            "session1", "tool1", {"timestamp": current_time - 100}
+            "session1", "tool1", {"timestamp": current_time - timedelta(seconds=100)}
         )
         await tracker.record_tool_call(
-            "session2", "tool1", {"timestamp": current_time - 100}
+            "session2", "tool1", {"timestamp": current_time - timedelta(seconds=100)}
         )
 
         await tracker.clear_history()
@@ -344,12 +373,12 @@ class TestInMemoryToolCallHistoryTracker:
     @pytest.mark.asyncio
     async def test_clear_history_specific_session(self, tracker):
         """Test clearing history for specific session."""
-        current_time = asyncio.get_event_loop().time()
+        current_time = datetime.now(timezone.utc)
         await tracker.record_tool_call(
-            "session1", "tool1", {"timestamp": current_time - 100}
+            "session1", "tool1", {"timestamp": current_time - timedelta(seconds=100)}
         )
         await tracker.record_tool_call(
-            "session2", "tool1", {"timestamp": current_time - 100}
+            "session2", "tool1", {"timestamp": current_time - timedelta(seconds=100)}
         )
 
         await tracker.clear_history("session1")

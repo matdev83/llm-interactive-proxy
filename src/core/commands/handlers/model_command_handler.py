@@ -1,16 +1,31 @@
-"""
-Command handler for setting/unsetting the active model (and optional backend).
-"""
+"""Command handler for the interactive ``!/model`` command."""
+
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.registry import command
 from src.core.domain.command_results import CommandResult
+from src.core.domain.commands.model_command import ModelCommand
 from src.core.domain.session import Session
+
+if TYPE_CHECKING:
+    from src.core.interfaces.command_service_interface import ICommandService
 
 
 @command("model")
 class ModelCommandHandler(ICommandHandler):
+    """Interactive handler that delegates to the domain ``ModelCommand``."""
+
+    def __init__(
+        self,
+        command_service: "ICommandService | None" = None,
+        model_command: ModelCommand | None = None,
+    ) -> None:
+        super().__init__(command_service)
+        self._model_command = model_command or ModelCommand()
+
     @property
     def command_name(self) -> str:
         return "model"
@@ -28,25 +43,17 @@ class ModelCommandHandler(ICommandHandler):
         return ["!/model(name=gpt-4)", "!/model(name=openrouter:claude-3-opus)"]
 
     async def handle(self, command: Command, session: Session) -> CommandResult:
-        name = command.args.get("name")
-        if name is None or (isinstance(name, str) and not name.strip()):
-            # Unset
-            new_state = session.state.with_backend_config(
-                session.state.backend_config.with_model(None)
-            )
-            return CommandResult(
-                success=True, message="Model command executed", new_state=new_state
-            )
+        args: Mapping[str, Any] = command.args
+        result = await self._model_command.execute(args, session)
+        if not result.success:
+            return result
 
-        # Set
-        backend_type = None
-        model = name
-        if ":" in name:
-            backend_type, model = name.split(":", 1)
-        new_backend_cfg = session.state.backend_config.with_model(model)
-        if backend_type:
-            new_backend_cfg = new_backend_cfg.with_backend(backend_type)
-        new_state = session.state.with_backend_config(new_backend_cfg)
-        return CommandResult(
-            success=True, message="Model command executed", new_state=new_state
-        )
+        if self._command_service is not None:
+            return CommandResult(
+                name=result.name,
+                success=True,
+                message="Model command executed",
+                data=getattr(result, "data", None),
+                new_state=getattr(result, "new_state", None),
+            )
+        return result

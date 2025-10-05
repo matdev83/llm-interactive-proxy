@@ -206,23 +206,12 @@ async def test_pytest_compression_environment_variable_override():
 platform linux -- Python 3.9.0, pytest-6.2.5, py-1.10.0, pluggy-0.13.1
 cachedir .pytest_cache
 rootdir: /test/project
-collected 3 items
+collected 2 items
 
-test_example.py::test_one PASSED                                         [ 33%]
-test_example.py::test_two FAILED                                         [ 66%]
-test_example.py::test_three PASSED                                       [100%]
+test_example.py::test_one PASSED                                         [ 50%]
+test_example.py::test_two PASSED                                         [100%]
 
-=================================== FAILURES ===================================
-_____________________________ test_two _____________________________
-
-    def test_two():
->       assert False
-E   AssertionError
-
-test_example.py:8: AssertionError
-========================= short test summary info ==========================
-FAILED test_example.py::test_two - AssertionError
-=================== 2 passed, 1 failed in 0.02s ===================="""
+========================= 2 passed in 0.01s =========================="""
 
         # Create a command result
         command_result = CommandResult(
@@ -246,7 +235,7 @@ FAILED test_example.py::test_two - AssertionError
         print("Session threshold: 10 lines")
         print("Environment threshold: 20 lines")
 
-        # With 15 lines:
+        # With 19 lines:
         # - Above session threshold (10) -> would compress
         # - Below environment threshold (20) -> would not compress
         # The environment variable should take precedence

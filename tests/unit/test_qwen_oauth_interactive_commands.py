@@ -2,7 +2,6 @@ import os
 from unittest.mock import patch
 
 import pytest
-
 from src.core.common.exceptions import ConfigurationError
 
 pytestmark = pytest.mark.filterwarnings(

@@ -82,14 +82,20 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
 
     try:
         chat_controller = service_provider.get_service(ChatController)
-        logger.debug(
-            f"Got ChatController from service provider: {type(chat_controller).__name__}"
-        )
-        logger.debug(
-            f"ChatController processor type: {type(chat_controller._processor).__name__}"
-        )
-        if chat_controller:
+        if chat_controller is not None:
+            logger.debug(
+                "Got ChatController from service provider: %s",
+                type(chat_controller).__name__,
+            )
+            processor = getattr(chat_controller, "_processor", None)
+            if processor is not None:
+                logger.debug(
+                    "ChatController processor type: %s",
+                    type(processor).__name__,
+                )
             return cast(ChatController, chat_controller)
+
+        logger.debug("ChatController not pre-registered; creating via factory")
         return cast(ChatController, get_chat_controller(service_provider))
     except Exception as e:
         logger.exception(
@@ -208,30 +214,6 @@ async def get_service_provider_dependency(request: Request) -> IServiceProvider:
             status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
         )
     return cast(IServiceProvider, service_provider)
-
-
-async def get_chat_controller_dependency(request: Request) -> ChatController:
-    """Get a chat controller dependency.
-
-    Args:
-        request: The FastAPI request object
-
-    Returns:
-        A configured chat controller
-    """
-    try:
-        service_provider = await get_service_provider_dependency(request)
-        return get_chat_controller(service_provider)
-    except Exception as e:
-        logger.error(f"Error getting chat controller dependency: {e}", exc_info=True)
-        if _STRICT_CONTROLLER_ERRORS:
-            raise ServiceResolutionError(
-                message="Failed to resolve ChatController in dependency",
-                service_name="ChatController",
-            ) from e
-        raise HTTPException(
-            status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
-        )
 
 
 async def get_responses_controller_if_available(

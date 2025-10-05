@@ -23,6 +23,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -169,6 +170,8 @@ class AnthropicBackend(LLMBackend):
         }
         if identity:
             request_headers.update(identity.get_resolved_headers(None))
+
+        request_headers = ensure_loop_guard_header(request_headers)
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
@@ -325,6 +328,7 @@ class AnthropicBackend(LLMBackend):
     async def _handle_non_streaming_response(
         self, url: str, payload: dict, headers: dict, original_model: str
     ) -> ResponseEnvelope:
+        headers = ensure_loop_guard_header(headers)
         try:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
@@ -360,6 +364,7 @@ class AnthropicBackend(LLMBackend):
         self, url: str, payload: dict, headers: dict, model: str
     ) -> AsyncIterator[ProcessedResponse]:
         """Handle a streaming response from Anthropic and return an async iterator of ProcessedResponse objects."""
+        headers = ensure_loop_guard_header(headers)
         request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             response = await self.client.send(request, stream=True)
@@ -433,10 +438,12 @@ class AnthropicBackend(LLMBackend):
             )
 
         url = f"{base.rstrip('/')}/models"
-        headers = {
-            self.auth_header_name: key_api,
-            "anthropic-version": ANTHROPIC_VERSION_HEADER,
-        }
+        headers = ensure_loop_guard_header(
+            {
+                self.auth_header_name: key_api,
+                "anthropic-version": ANTHROPIC_VERSION_HEADER,
+            }
+        )
         try:
             response = await self.client.get(url, headers=headers)
         except httpx.RequestError as e:

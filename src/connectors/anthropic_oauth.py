@@ -53,11 +53,24 @@ class AnthropicCredentialsFileHandler(FileSystemEventHandler):
         self.connector = connector
 
     def on_modified(self, event) -> None:  # type: ignore[no-untyped-def]
-        if not event.is_directory and event.src_path == str(
-            self.connector._credentials_path
-        ):
-            logger.debug("Anthropic OAuth credentials file changed, scheduling reload")
-            self.connector._schedule_credentials_reload()
+        if not event.is_directory:
+            # Compare paths using Path objects to handle Windows/Unix differences
+            try:
+                event_path = Path(event.src_path).resolve()
+                credentials_path = (
+                    self.connector._credentials_path.resolve()
+                    if self.connector._credentials_path
+                    else None
+                )
+
+                if credentials_path and event_path == credentials_path:
+                    logger.debug(
+                        "Anthropic OAuth credentials file changed, scheduling reload"
+                    )
+                    self.connector._schedule_credentials_reload()
+            except Exception as e:
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Error processing file modification event: {e}")
 
 
 class AnthropicOAuthBackend(AnthropicBackend):
@@ -254,9 +267,14 @@ class AnthropicOAuthBackend(AnthropicBackend):
             return  # Already have a reload pending
 
         async def reload_task() -> None:
+            """Reload credentials from file with force_reload to bypass cache.
+
+            This task is scheduled when the file system watcher detects a change
+            to ensure the latest token is loaded even if the file timestamp didn't change.
+            """
             try:
                 logger.debug("Reloading Anthropic OAuth credentials due to file change")
-                loaded = await self._load_oauth_credentials()
+                loaded = await self._load_oauth_credentials(force_reload=True)
                 if loaded:
                     if self._oauth_credentials is not None:
                         ok, errors = self._validate_credentials_structure(
@@ -312,11 +330,15 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 return p
         return None
 
-    async def _load_oauth_credentials(self) -> bool:
+    async def _load_oauth_credentials(self, force_reload: bool = False) -> bool:
         """Load OAuth credentials from oauth_creds.json if available.
 
-        Returns True when credentials were successfully loaded (or cached and
-        unchanged), False otherwise.
+        Args:
+            force_reload: If True, bypass cache and force reload from file even if timestamp unchanged
+
+        Returns:
+            bool: True when credentials were successfully loaded (or cached and
+            unchanged), False otherwise.
         """
         creds_path = self._discover_credentials_path()
         if creds_path is None:
@@ -329,14 +351,24 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._credentials_path = creds_path
 
         try:
-            # Short-circuit if unchanged and we have a cached value
+            # Short-circuit if unchanged and we have a cached value (unless force_reload is True)
+            if not force_reload:
+                try:
+                    mtime = creds_path.stat().st_mtime
+                    if (
+                        mtime == self._last_modified
+                        and self._oauth_credentials is not None
+                    ):
+                        return True
+                except OSError:
+                    # If we fail to stat, attempt to read anyway
+                    pass
+
+            # Update last modified time
             try:
                 mtime = creds_path.stat().st_mtime
-                if mtime == self._last_modified and self._oauth_credentials is not None:
-                    return True
                 self._last_modified = mtime
             except OSError:
-                # If we fail to stat, attempt to read anyway
                 pass
 
             with open(creds_path, encoding="utf-8") as f:
@@ -366,6 +398,12 @@ class AnthropicOAuthBackend(AnthropicBackend):
             # Set api_key on the base class so parent logic can operate normally
             self.api_key = token
             self.key_name = self.backend_type
+
+            log_msg = "Successfully loaded Anthropic OAuth credentials"
+            if force_reload:
+                log_msg += " (force reload)"
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(log_msg + ".")
             return True
 
         except json.JSONDecodeError as e:

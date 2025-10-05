@@ -1,6 +1,4 @@
-"""
-Performance tracking system for measuring execution times across the full request handling cycle.
-"""
+"""Performance tracking system for measuring execution times across the full request handling cycle."""
 
 import logging
 import time
@@ -95,9 +93,10 @@ class PerformanceMetrics(InternalDTO):
             ]
             if t is not None
         )
-        if accounted_time and self.total_time:
+        if self.total_time is not None:
             overhead = self.total_time - accounted_time
-            summary_parts.append(f"overhead={overhead:.3f}s")
+            if overhead > 0:
+                summary_parts.append(f"overhead={overhead:.3f}s")
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(" | ".join(summary_parts))

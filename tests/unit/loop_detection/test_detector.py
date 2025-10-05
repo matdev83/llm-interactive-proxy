@@ -63,6 +63,30 @@ class TestLoopDetector:
         assert event.pattern == pattern
         assert event.repetition_count == config.content_loop_threshold
 
+    def test_whitelist_prevents_noise_detection(self) -> None:
+        """Detector should ignore loops made of whitelisted noise tokens."""
+        config = LoopDetectionConfig(
+            enabled=True,
+            content_chunk_size=3,
+            content_loop_threshold=3,
+            whitelist=["---"],
+        )
+        detector = LoopDetector(config=config)
+
+        # Process a whitelisted pattern repeatedly; it should never trigger detection.
+        for _ in range(config.content_loop_threshold + 1):
+            event = detector.process_chunk("---")
+            assert event is None
+
+        # Reset and ensure a non-whitelisted pattern still triggers detection.
+        detector.reset()
+        for idx in range(config.content_loop_threshold):
+            event = detector.process_chunk("abc")
+            if idx < config.content_loop_threshold - 1:
+                assert event is None
+
+        assert event is not None
+
     def test_no_false_positive_normal_text(self) -> None:
         """Test that normal text doesn't trigger false positives."""
         config = LoopDetectionConfig(enabled=True)

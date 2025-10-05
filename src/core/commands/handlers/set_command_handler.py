@@ -182,9 +182,7 @@ class SetCommandHandler(ICommandHandler):
             return None
         return None
 
-    def _apply_temperature(
-        self, value: Any, session: Session
-    ) -> CommandResult | None:
+    def _apply_temperature(self, value: Any, session: Session) -> CommandResult | None:
         if value is None:
             return CommandResult(
                 success=False,

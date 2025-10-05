@@ -52,6 +52,7 @@ async def test_openrouter_payload_contains_temperature_and_top_p(
     cfg = AppConfig()
     client = httpx.AsyncClient()
     connector = OpenRouterBackend(client, cfg, translation_service=TranslationService())
+    connector.api_key = "test-api-key"  # Add API key to avoid authentication error
     req = ChatRequest(
         model="openrouter:gpt-4", messages=_messages(), temperature=0.2, top_p=0.5
     )

@@ -66,6 +66,7 @@ This project is a swiss-army knife for anyone working with language models and a
 - Dangerous-command prevention: steer away from destructive shell actions
 - Key hygiene: redact API keys in prompts and logs
 - Stale token handling: automatic detection and recovery for expired OAuth tokens in backends like Gemini CLI, Anthropic, and OpenAI OAuth
+- Brute-force protection: per-IP tracking of invalid API keys with exponential back-off blocking
 - Repair helpers: tool-call and JSON repair to fix malformed model outputs
 
 ### Control & Ergonomics
@@ -102,6 +103,7 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | `gemini` | Google Gemini | `GEMINI_API_KEY` | Metered API key |
 | `gemini-cli-oauth-personal` | Google Gemini (CLI) | OAuth (no key) | Free-tier personal OAuth like the Gemini CLI |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + `GOOGLE_CLOUD_PROJECT` (+ ADC) | Bills to your GCP project |
+| `gemini-cli-acp` | Google Gemini (CLI Agent) | OAuth (no key) | Uses gemini-cli as an agent via Agent Control Protocol (ACP) |
 | `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | Access to many hosted models |
 | `zai` | ZAI | `ZAI_API_KEY` | Zhipu/Z.ai access (OpenAI-compatible) |
 | `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
@@ -116,12 +118,14 @@ Choose the Gemini integration that fits your environment.
 | `gemini` | API key (`GEMINI_API_KEY`) | Metered (pay-per-use) | Production apps, high-volume usage |
 | `gemini-cli-oauth-personal` | OAuth (no API key) | Free tier with limits | Local development, testing, personal use |
 | `gemini-cli-cloud-project` | OAuth + `GOOGLE_CLOUD_PROJECT` (ADC/service account) | Billed to your GCP project | Enterprise, team workflows, central billing |
+| `gemini-cli-acp` | OAuth (no API key) | Free tier with limits | AI agent workflows, project-aware coding tasks |
 
 Notes
 
 - Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
 - The proxy now validates personal OAuth tokens on startup, watches the `oauth_creds.json` file for changes, and triggers the Gemini CLI in the background when tokens are close to expiring--no manual restarts required.
 - Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
+- **NEW**: ACP backend uses `gemini-cli` as an agent with full project directory awareness and tool usage capabilities via the Agent Control Protocol.
 
 Quick setup
 
@@ -155,6 +159,23 @@ gcloud auth application-default login
 export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
 
 python -m src.core.cli --default-backend gemini-cli-cloud-project
+```
+
+For `gemini-cli-acp` (Agent Control Protocol)
+
+```bash
+# Install and authenticate with Google Gemini CLI (one-time)
+npm install -g @google/gemini-cli
+gemini login
+
+# Set project directory (optional - defaults to current directory)
+export GEMINI_CLI_WORKSPACE="/path/to/your/project"
+
+# Start the proxy using gemini-cli as an agent
+python -m src.core.cli --default-backend gemini-cli-acp
+
+# Change project directory during conversation with slash command
+!/project-dir(/path/to/another/project)
 ```
 
 ## Quick Start
@@ -361,6 +382,50 @@ jq -r 'select(.direction=="inbound_response" and .payload.usage) | "\(.model) \(
 - Capture files may contain sensitive conversation data - secure appropriately
 - Consider using `capture_total_max_bytes` to prevent unbounded disk usage
 
+### Authentication & Brute-Force Protection
+
+API key authentication is enabled by default. Each client IP is allowed a limited
+number of invalid API key attempts before the proxy responds early with a `429`
+status and a progressively increasing `Retry-After` delay. Successful
+authentications reset the counter immediately.
+
+**Default behaviour**
+
+- 5 invalid attempts per IP are allowed within a 15-minute window.
+- The first block lasts 30 seconds and doubles on each repeated failure up to a
+  one-hour cap.
+- Trusted IPs and endpoints in the bypass list (`/docs`, `/openapi.json`,
+  `/redoc`) skip brute-force checks entirely.
+
+**Configuration options** (CLI > Environment > YAML):
+
+- CLI flags:
+  - `--enable-brute-force-protection` / `--disable-brute-force-protection`
+  - `--auth-max-failed-attempts <int>`
+  - `--auth-brute-force-ttl <seconds>`
+  - `--auth-brute-force-initial-block <seconds>`
+  - `--auth-brute-force-multiplier <float>`
+  - `--auth-brute-force-max-block <seconds>`
+- Environment variables:
+  - `BRUTE_FORCE_PROTECTION_ENABLED`
+  - `BRUTE_FORCE_MAX_FAILED_ATTEMPTS`
+  - `BRUTE_FORCE_TTL_SECONDS`
+  - `BRUTE_FORCE_INITIAL_BLOCK_SECONDS`
+  - `BRUTE_FORCE_BLOCK_MULTIPLIER`
+  - `BRUTE_FORCE_MAX_BLOCK_SECONDS`
+- `config.yaml` snippet:
+
+  ```yaml
+  auth:
+    brute_force_protection:
+      enabled: true
+      max_failed_attempts: 5
+      ttl_seconds: 900
+      initial_block_seconds: 30
+      block_multiplier: 2.0
+      max_block_seconds: 3600
+  ```
+
 ### Advanced Wire Capture Documentation
 
 For detailed information about wire capture formats, migration between versions, and processing examples, see [docs/wire_capture_formats.md](docs/wire_capture_formats.md).
@@ -532,7 +597,39 @@ Then launch `claude`. You can switch models during a session:
 
 ### Gemini options
 
-- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), or GCP-billed (`gemini-cli-cloud-project`). Pick one and set the required env vars.
+- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), GCP-billed (`gemini-cli-cloud-project`), or agent mode (`gemini-cli-acp`). Pick one and set the required env vars.
+
+### Gemini CLI Agent with ACP
+
+Use `gemini-cli` as an AI agent with full project directory awareness:
+
+```bash
+# Install gemini-cli (one-time)
+npm install -g @google/gemini-cli
+gemini login
+
+# Start proxy with agent backend
+python -m src.core.cli --default-backend gemini-cli-acp
+
+# Project directory control options (in priority order):
+# 1. Runtime slash command (highest priority)
+!/project-dir(/home/user/myproject)
+
+# 2. Config file (config/backends/gemini-cli-acp/backend.yaml)
+project_dir: "/path/to/your/project"
+
+# 3. Environment variable
+export GEMINI_CLI_WORKSPACE="/path/to/project"
+
+# 4. Current working directory (fallback)
+```
+
+**Features:**
+- Full project directory awareness - gemini-cli can read, analyze, and modify files
+- Tool usage - agent can execute commands and use tools
+- Dynamic directory switching - change project directory during conversation with `!/project-dir(path)`
+- Streaming responses - real-time output from the agent
+- Auto-accept mode - automatically approve safe operations (configurable)
 
 ### Force a specific model across all requests
 

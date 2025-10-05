@@ -13,6 +13,13 @@ auth:
   # Instead, set them via environment variables (see README.md)
   api_keys: []  # API keys are read from environment variables only
   auth_token: null  # Optional auth token
+  brute_force_protection:
+    enabled: true  # Enable automatic blocking for repeated invalid API keys
+    max_failed_attempts: 5  # Allow this many failures before blocking begins
+    ttl_seconds: 900  # Window (seconds) for counting failures per IP
+    initial_block_seconds: 30  # First block duration once threshold is exceeded
+    block_multiplier: 2.0  # Each subsequent block grows by this multiplier
+    max_block_seconds: 3600  # Cap the block duration to one hour
 
 # Session management
 session:

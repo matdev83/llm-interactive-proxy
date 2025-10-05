@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.chat import ChatRequest
@@ -113,19 +113,27 @@ class BackendConfigProvider(IBackendConfigProvider):
         # Include both registered backends and any backends explicitly configured
         registered = set(backend_registry.get_registered_backends())
 
+        backends_config = self._app_config.backends
+
         # Add any backends that are explicitly configured
         try:
-            # Check if backends has __dict__ attribute (BackendSettings does)
-            if hasattr(self._app_config.backends, "__dict__"):
-                for key in self._app_config.backends.__dict__:
-                    # Skip default_backend and non-backend attributes
-                    if key != "default_backend" and not key.startswith("_"):
+            # Handle dictionary-style configurations (e.g. when loading from YAML)
+            if isinstance(backends_config, Mapping):
+                for key in backends_config:
+                    if isinstance(key, str) and key != "default_backend":
                         registered.add(key)
+
+            # Check if backends has __dict__ attribute (BackendSettings does)
+            elif hasattr(backends_config, "__dict__"):
+                for attr_name in vars(backends_config):
+                    # Skip default_backend and non-backend attributes
+                    if attr_name != "default_backend" and not attr_name.startswith("_"):
+                        registered.add(attr_name)
         except Exception as e:
             import logging
 
             logging.getLogger(__name__).debug(
-                "iter_backend_names failed while inspecting __dict__: %s",
+                "iter_backend_names failed while inspecting backend configuration: %s",
                 e,
                 exc_info=True,
             )

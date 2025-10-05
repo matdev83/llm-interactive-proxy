@@ -87,7 +87,11 @@ class JsonRepairMiddleware(IResponseMiddleware):
                         else "json_repair.non_streaming.best_effort_fail"
                     )
             except Exception:
-                metrics.inc("json_repair.non_streaming.strict_fail")
+                metrics.inc(
+                    "json_repair.non_streaming.strict_fail"
+                    if strict_effective
+                    else "json_repair.non_streaming.best_effort_fail"
+                )
                 raise
             if repaired_json:
                 if logger.isEnabledFor(logging.INFO):

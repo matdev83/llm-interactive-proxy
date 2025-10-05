@@ -319,10 +319,14 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             if env_min_lines is not None:
                 min_lines = env_min_lines
             elif session_min_lines is not None:
-                try:
-                    min_lines = int(session_min_lines)
-                except (TypeError, ValueError):
-                    min_lines = 0
+                min_lines = session_min_lines
+            else:
+                min_lines = 0
+
+            try:
+                min_lines = int(min_lines)
+            except (TypeError, ValueError):
+                min_lines = 0
 
             if message_lines < min_lines:
                 logger.info(
@@ -679,7 +683,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             f"Pytest compression started - Original metrics: {original_tokens} tokens, {original_lines} lines"
         )
 
-        lines = output.split("\n")
+        lines = output.strip().split("\n")
         if not lines:
             return output
 

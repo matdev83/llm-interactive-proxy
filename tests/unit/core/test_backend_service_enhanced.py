@@ -616,6 +616,27 @@ class TestBackendServiceValidation:
             assert "Backend validation failed" in error
             assert "Backend error" in error
 
+    @pytest.mark.asyncio
+    async def test_validate_backend_and_model_backend_error_object(
+        self, backend_service
+    ):
+        """Test validating when backend creation raises BackendError."""
+        backend_error = BackendError(message="boom", backend_name="test")
+
+        with patch.object(
+            backend_service,
+            "_get_or_create_backend",
+            side_effect=backend_error,
+        ):
+            valid, error = await backend_service.validate_backend_and_model(
+                BackendType.OPENAI, "model"
+            )
+
+        assert valid is False
+        assert error is not None
+        assert "Backend validation failed" in error
+        assert "boom" in error
+
 
 class TestBackendServiceFailover:
     """Tests for the BackendService's failover capabilities."""

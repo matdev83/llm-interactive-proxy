@@ -24,15 +24,20 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                 is_rewritten = False
                 if "messages" in data and isinstance(data["messages"], list):
                     for message in data["messages"]:
-                        if "role" in message and "content" in message:
-                            role = message["role"]
-                            original_content = message["content"]
-                            rewritten_content = self.rewriter.rewrite_prompt(
-                                original_content, role
-                            )
-                            if original_content != rewritten_content:
-                                message["content"] = rewritten_content
-                                is_rewritten = True
+                        if "role" not in message or "content" not in message:
+                            continue
+
+                        original_content = message["content"]
+                        if not isinstance(original_content, str):
+                            continue
+
+                        role = message["role"]
+                        rewritten_content = self.rewriter.rewrite_prompt(
+                            original_content, role
+                        )
+                        if original_content != rewritten_content:
+                            message["content"] = rewritten_content
+                            is_rewritten = True
 
                 if is_rewritten:
                     body_bytes = json.dumps(data).encode("utf-8")
@@ -73,14 +78,22 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                 is_rewritten = False
                 if "choices" in data and isinstance(data["choices"], list):
                     for choice in data["choices"]:
-                        if "message" in choice and "content" in choice["message"]:
-                            original_content = choice["message"]["content"]
-                            rewritten_content = self.rewriter.rewrite_reply(
-                                original_content
-                            )
-                            if original_content != rewritten_content:
-                                choice["message"]["content"] = rewritten_content
-                                is_rewritten = True
+                        if (
+                            "message" not in choice
+                            or "content" not in choice["message"]
+                        ):
+                            continue
+
+                        original_content = choice["message"]["content"]
+                        if not isinstance(original_content, str):
+                            continue
+
+                        rewritten_content = self.rewriter.rewrite_reply(
+                            original_content
+                        )
+                        if original_content != rewritten_content:
+                            choice["message"]["content"] = rewritten_content
+                            is_rewritten = True
 
                 if is_rewritten:
                     new_body = json.dumps(data).encode("utf-8")

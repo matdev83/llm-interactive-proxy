@@ -102,9 +102,7 @@ def test_to_domain_response_openai_responses_output():
         "usage": {"input_tokens": 5, "output_tokens": 7},
     }
 
-    domain_response = service.to_domain_response(
-        responses_payload, "openai-responses"
-    )
+    domain_response = service.to_domain_response(responses_payload, "openai-responses")
 
     assert isinstance(domain_response, CanonicalChatResponse)
     assert domain_response.object == "response"
@@ -158,6 +156,26 @@ def test_to_domain_stream_chunk_code_assist():
     domain_chunk = service.to_domain_stream_chunk(code_assist_chunk, "code_assist")
     assert isinstance(domain_chunk, dict)
     assert domain_chunk["choices"][0]["delta"]["content"] == "streaming text"
+
+
+def test_to_domain_stream_chunk_gemini():
+    """Test translation from Gemini stream chunk format."""
+    service = TranslationService()
+    gemini_chunk = {
+        "candidates": [
+            {
+                "content": {"parts": [{"text": "Gemini streaming"}]},
+                "finishReason": "STOP",
+            }
+        ]
+    }
+
+    domain_chunk = service.to_domain_stream_chunk(gemini_chunk, "gemini")
+
+    assert isinstance(domain_chunk, dict)
+    assert domain_chunk["object"] == "chat.completion.chunk"
+    assert domain_chunk["choices"][0]["delta"]["content"] == "Gemini streaming"
+    assert domain_chunk["choices"][0]["finish_reason"] == "stop"
 
 
 def test_to_domain_request_raw_text():

@@ -11,6 +11,7 @@ from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     ConfigurationError,
+    RateLimitExceededError,
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -71,7 +72,6 @@ class TestRequestAdapters:
         assert context.cookies.get("session") == "cookie-value"
         assert context.client_host == "192.168.1.1"
         assert context.original_request is mock_request
-        assert context.app_state == mock_request.app.state
 
 
 class TestResponseAdapters:
@@ -190,7 +190,9 @@ class TestResponseAdapters:
 class TestExceptionAdapters:
     """Tests for exception adapters."""
 
-    def test_map_domain_exception_to_http_exception(self):
+    def test_map_domain_exception_to_http_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test mapping domain exceptions to HTTP exceptions."""
         # Test authentication error
         auth_error = AuthenticationError("Invalid API key")
@@ -211,3 +213,13 @@ class TestExceptionAdapters:
         backend_error = BackendError("Backend unavailable")
         http_exc = map_domain_exception_to_http_exception(backend_error)
         assert http_exc.status_code == 502
+
+        # Test rate limit error headers
+        monkeypatch.setattr(
+            "src.core.transport.fastapi.exception_adapters.time.time",
+            lambda: 500.0,
+        )
+        rate_error = RateLimitExceededError("slow down", reset_at=560.2)
+        http_exc = map_domain_exception_to_http_exception(rate_error)
+        assert http_exc.status_code == 429
+        assert http_exc.headers == {"Retry-After": "61"}

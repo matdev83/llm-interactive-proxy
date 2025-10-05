@@ -80,6 +80,33 @@ class TestServiceRegistration:
         normalizer = global_provider.get_required_service(IStreamNormalizer)  # type: ignore[type-abstract]
         assert isinstance(normalizer, StreamNormalizer)
 
+    def test_get_service_provider_recovers_tool_call_services(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ensure get_service_provider restores ToolCallReactor services if missing."""
+        import src.core.di.services as services_module
+
+        minimal_services = ServiceCollection()
+        monkeypatch.setattr(
+            services_module,
+            "_service_collection",
+            minimal_services,
+            raising=False,
+        )
+        minimal_provider = minimal_services.build_service_provider()
+        services_module.set_service_provider(minimal_provider)
+
+        from src.core.common.exceptions import ServiceResolutionError
+        from src.core.services.tool_call_reactor_service import ToolCallReactorService
+
+        with pytest.raises(ServiceResolutionError):
+            minimal_provider.get_required_service(ToolCallReactorService)
+
+        recovered_provider = services_module.get_service_provider()
+        assert (
+            recovered_provider.get_required_service(ToolCallReactorService) is not None
+        )
+
     def test_response_processor_streaming_pipeline_setup(self) -> None:
         """
         Test that ResponseProcessor is configured with StreamNormalizer and ToolCallRepairProcessor

@@ -1,3 +1,5 @@
+from typing import Any
+
 import httpx
 import pytest
 import pytest_asyncio
@@ -73,17 +75,17 @@ async def test_chat_completions_streaming_success(
 
     assert isinstance(envelope, StreamingResponseEnvelope)
 
-    chunks = []
+    first_chunk: dict[str, Any] | None = None
     async for chunk in envelope.content:  # type: ignore[union-attr]
         assert isinstance(chunk, ProcessedResponse)
-        assert isinstance(chunk.content, str | bytes)
-        chunks.append(chunk.content)
-        # Break early; presence of at least one content chunk is sufficient
-        if len(chunks) >= 1:
-            break
+        assert isinstance(chunk.content, dict)
+        choices = chunk.content.get("choices", [])  # type: ignore[assignment]
+        if choices:
+            delta = choices[0].get("delta", {})
+            if delta.get("content"):
+                first_chunk = chunk.content
+                break
 
-    assert chunks, "Expected at least one streamed chunk"
-    # Content is normalized to SSE-compatible string starting with 'data: '
-    first = chunks[0].decode("utf-8") if isinstance(chunks[0], bytes) else chunks[0]
-    assert first.startswith("data: ")
-    assert "Hello stream" in first
+    assert first_chunk is not None, "Expected at least one streamed chunk with content"
+    first_delta = first_chunk["choices"][0]["delta"]
+    assert first_delta.get("content", "").startswith("Hello")
