@@ -23,6 +23,13 @@ class Translation(BaseTranslator):
     """
 
     @staticmethod
+    def _get_request_param(request: Any, key: str, default: Any = None) -> Any:
+        """Safely get a parameter from a request, whether it's a dict or an object."""
+        if isinstance(request, dict):
+            return request.get(key, default)
+        return getattr(request, key, default)
+
+    @staticmethod
     def validate_json_against_schema(
         json_data: dict[str, Any], schema: dict[str, Any]
     ) -> tuple[bool, str | None]:
@@ -357,11 +364,17 @@ class Translation(BaseTranslator):
             stream=Translation._get_request_param(request, "stream"),
             stop=Translation._get_request_param(request, "stop"),
             max_tokens=Translation._get_request_param(request, "max_tokens"),
-            presence_penalty=Translation._get_request_param(request, "presence_penalty"),
-            frequency_penalty=Translation._get_request_param(request, "frequency_penalty"),
+            presence_penalty=Translation._get_request_param(
+                request, "presence_penalty"
+            ),
+            frequency_penalty=Translation._get_request_param(
+                request, "frequency_penalty"
+            ),
             logit_bias=Translation._get_request_param(request, "logit_bias"),
             user=Translation._get_request_param(request, "user"),
-            reasoning_effort=Translation._get_request_param(request, "reasoning_effort"),
+            reasoning_effort=Translation._get_request_param(
+                request, "reasoning_effort"
+            ),
             seed=Translation._get_request_param(request, "seed"),
             tools=Translation._get_request_param(request, "tools"),
             tool_choice=Translation._get_request_param(request, "tool_choice"),
