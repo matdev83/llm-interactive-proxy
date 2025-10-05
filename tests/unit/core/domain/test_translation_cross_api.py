@@ -59,11 +59,14 @@ class TestOpenAIToGeminiTranslation:
         assert len(user_messages) == 2
         assert user_messages[0]["parts"][0]["text"] == "Hello, how are you?"
 
-        # Check assistant message
-        assistant_messages = [m for m in contents if m["role"] == "assistant"]
-        assert len(assistant_messages) == 1
+        # Gemini API does not accept the assistant role label
+        assert all(m["role"] != "assistant" for m in contents)
+
+        # Check model-side message (assistant in canonical form)
+        model_messages = [m for m in contents if m["role"] == "model"]
+        assert len(model_messages) == 1
         assert (
-            assistant_messages[0]["parts"][0]["text"]
+            model_messages[0]["parts"][0]["text"]
             == "I'm doing well, how can I help you today?"
         )
 
