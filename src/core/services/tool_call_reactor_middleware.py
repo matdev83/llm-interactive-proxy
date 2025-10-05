@@ -102,6 +102,21 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         model_name = context.get("model_name", "unknown")
         calling_agent = context.get("calling_agent")
 
+        # Expose detected tool calls in response metadata for downstream consumers
+        try:
+            if hasattr(response, "metadata") and isinstance(response.metadata, dict):
+                response.metadata.setdefault("tool_calls", [])
+                # Only extend if not already present to avoid duplication
+                if response.metadata["tool_calls"] == []:
+                    response.metadata["tool_calls"] = list(tool_calls)
+            # Also pass via context so processors can use them even if metadata is overwritten later
+            if isinstance(context, dict):
+                context["detected_tool_calls"] = list(tool_calls)
+        except Exception:
+            logger.debug(
+                "Failed to annotate tool calls in metadata/context", exc_info=True
+            )
+
         # Process each tool call through the reactor
         for tool_call in tool_calls:
             # Parse tool arguments if they are a JSON string

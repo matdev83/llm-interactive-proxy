@@ -1,5 +1,23 @@
 # Changelog
 
+## 2025-10-05 – Planning-Phase Strong Model Overrides
+
+- **Feature**: Optional planning-phase model switch with parameter overrides for the strong model
+  - Route early session turns to a configured strong model to improve initial planning quality
+  - Automatically switch back to the default model after a max number of turns or after the first file-writing tool call
+  - Reuses existing Tool Call Reactor to detect file-touching tools (e.g., `write_file`, `edit_file`, `apply_diff`, `patch_file`, `edit_notebook`)
+  - Parameter overrides (applied only during planning-phase): `temperature`, `top_p`, `reasoning_effort`, `thinking_budget`
+- **Configuration**:
+  - YAML (`session.planning_phase`): `enabled`, `strong_model`, `max_turns`, `max_file_writes`, and `overrides.{temperature, top_p, reasoning_effort, thinking_budget}`
+  - Env: `PLANNING_PHASE_ENABLED`, `PLANNING_PHASE_STRONG_MODEL`, `PLANNING_PHASE_MAX_TURNS`, `PLANNING_PHASE_MAX_FILE_WRITES`, `PLANNING_PHASE_TEMPERATURE`, `PLANNING_PHASE_TOP_P`, `PLANNING_PHASE_REASONING_EFFORT`, `PLANNING_PHASE_THINKING_BUDGET`
+  - CLI: `--enable-planning-phase`, `--planning-phase-strong-model`, `--planning-phase-max-turns`, `--planning-phase-max-file-writes`, `--planning-phase-temperature`, `--planning-phase-top-p`, `--planning-phase-reasoning-effort`, `--planning-phase-thinking-budget`
+- **Notes**:
+  - Skips override if current model already equals the strong model
+  - After switching back, routing reverts to the normal/default model resolution
+  - Tests added/updated; full suite green
+
+# Changelog
+
 ## 2025-10-04 - Gemini CLI ACP Backend with Full Project Directory Control
 
 - **New Backend**: Added `gemini-cli-acp` backend that uses Google's `gemini-cli` as an AI agent via the Agent Control Protocol (ACP)

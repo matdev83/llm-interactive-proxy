@@ -78,6 +78,24 @@ properties:
       dangerous_command_steering_message: { type: ["string", "null"] }
       pytest_compression_enabled: { type: boolean }
       pytest_compression_min_lines: { type: integer, minimum: 1 }
+      planning_phase:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          strong_model: { type: ["string", "null"] }
+          max_turns: { type: integer, minimum: 1 }
+          max_file_writes: { type: integer, minimum: 0 }
+          overrides:
+            type: ["object", "null"]
+            additionalProperties: false
+            properties:
+              temperature: { type: ["number", "null"] }
+              top_p: { type: ["number", "null"] }
+              reasoning_effort: { type: ["string", "null"] }
+              thinking_budget: { type: ["integer", "null"], minimum: 0 }
+              reasoning: { type: ["object", "null"] }
+              generation_config: { type: ["object", "null"] }
       tool_call_reactor:
         type: object
         additionalProperties: true
