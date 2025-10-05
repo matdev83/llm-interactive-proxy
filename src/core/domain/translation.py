@@ -915,16 +915,18 @@ class Translation(BaseTranslator):
             reasoning_effort = request.get("reasoning_effort")
             extra_params = request.get("extra_params")
         else:
-            model = getattr(request, "model", None)
-            messages = getattr(request, "messages", [])
-            top_k = getattr(request, "top_k", None)
-            top_p = getattr(request, "top_p", None)
-            temperature = getattr(request, "temperature", None)
-            max_tokens = getattr(request, "max_tokens", None)
-            stop = getattr(request, "stop", None)
-            seed = getattr(request, "seed", None)
-            reasoning_effort = getattr(request, "reasoning_effort", None)
-            extra_params = getattr(request, "extra_params", None)
+            model = Translation._get_request_param(request, "model")
+            messages = Translation._get_request_param(request, "messages", [])
+            top_k = Translation._get_request_param(request, "top_k")
+            top_p = Translation._get_request_param(request, "top_p")
+            temperature = Translation._get_request_param(request, "temperature")
+            max_tokens = Translation._get_request_param(request, "max_tokens")
+            stop = Translation._get_request_param(request, "stop")
+            seed = Translation._get_request_param(request, "seed")
+            reasoning_effort = Translation._get_request_param(
+                request, "reasoning_effort"
+            )
+            extra_params = Translation._get_request_param(request, "extra_params")
 
         if not model:
             raise ValueError("Model not found in request")
@@ -1792,23 +1794,29 @@ class Translation(BaseTranslator):
         else:
             # Try to extract attributes
             responses_request = ResponsesRequest(
-                model=request.model,
-                messages=getattr(request, "messages", []),
-                response_format=request.response_format,
-                max_tokens=getattr(request, "max_tokens", None),
-                temperature=getattr(request, "temperature", None),
-                top_p=getattr(request, "top_p", None),
-                n=getattr(request, "n", None),
-                stream=getattr(request, "stream", None),
-                stop=getattr(request, "stop", None),
-                presence_penalty=getattr(request, "presence_penalty", None),
-                frequency_penalty=getattr(request, "frequency_penalty", None),
-                logit_bias=getattr(request, "logit_bias", None),
-                user=getattr(request, "user", None),
-                seed=getattr(request, "seed", None),
-                session_id=getattr(request, "session_id", None),
-                agent=getattr(request, "agent", None),
-                extra_body=getattr(request, "extra_body", None),
+                model=Translation._get_request_param(request, "model"),
+                messages=Translation._get_request_param(request, "messages", []),
+                response_format=Translation._get_request_param(
+                    request, "response_format"
+                ),
+                max_tokens=Translation._get_request_param(request, "max_tokens"),
+                temperature=Translation._get_request_param(request, "temperature"),
+                top_p=Translation._get_request_param(request, "top_p"),
+                n=Translation._get_request_param(request, "n"),
+                stream=Translation._get_request_param(request, "stream"),
+                stop=Translation._get_request_param(request, "stop"),
+                presence_penalty=Translation._get_request_param(
+                    request, "presence_penalty"
+                ),
+                frequency_penalty=Translation._get_request_param(
+                    request, "frequency_penalty"
+                ),
+                logit_bias=Translation._get_request_param(request, "logit_bias"),
+                user=Translation._get_request_param(request, "user"),
+                seed=Translation._get_request_param(request, "seed"),
+                session_id=Translation._get_request_param(request, "session_id"),
+                agent=Translation._get_request_param(request, "agent"),
+                extra_body=Translation._get_request_param(request, "extra_body"),
             )
 
         # Prepare extra_body with response format
