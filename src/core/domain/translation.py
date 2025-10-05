@@ -949,10 +949,8 @@ class Translation(BaseTranslator):
 
         for message in request.messages:
             # Process all messages including system messages (for test compatibility)
+            # Gemini API expects assistant messages to use the "model" role label.
             gemini_role = "model" if message.role == "assistant" else message.role
-            # Keep original roles in internal representation for consistency with tests
-            # Actual API conversion happens at a different layer
-            gemini_role = message.role
             msg_dict = {"role": gemini_role}
             parts = []
 
