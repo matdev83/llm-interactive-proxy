@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 
-
 from fastapi import Request
 
 from src.core.domain.request_context import RequestContext

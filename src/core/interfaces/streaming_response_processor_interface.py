@@ -25,5 +25,3 @@ class IStreamNormalizer(ABC):
         Returns:
             An async iterator of the processed stream in the requested format
         """
-
-

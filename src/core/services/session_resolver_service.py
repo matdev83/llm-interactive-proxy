@@ -88,4 +88,3 @@ class DefaultSessionResolver(ISessionResolver):
 
         # Fall back to default session ID
         return self.default_session_id
-
