@@ -24,6 +24,7 @@ from src.core.domain.session import Session
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
     from src.core.interfaces.command_service_interface import ICommandService
 
 
@@ -31,9 +32,7 @@ if TYPE_CHECKING:
 class SetCommandHandler(ICommandHandler):
     """Handler for the 'set' command."""
 
-    def __init__(
-        self, command_service: "ICommandService | None" = None
-    ) -> None:
+    def __init__(self, command_service: ICommandService | None = None) -> None:
         super().__init__(command_service=command_service)
         self._parameter_handlers = self._build_parameter_handlers()
 
@@ -242,5 +241,5 @@ class SetCommandHandler(ICommandHandler):
     def _has_parameter(self, args: Mapping[str, Any], name: str) -> bool:
         normalized_name = self._normalize_param(name)
         return any(
-            self._normalize_param(arg_name) == normalized_name for arg_name in args.keys()
+            self._normalize_param(arg_name) == normalized_name for arg_name in args
         )

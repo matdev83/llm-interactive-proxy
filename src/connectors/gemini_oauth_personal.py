@@ -1289,7 +1289,11 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    timeout=int(DEFAULT_CONNECTION_TIMEOUT),
+                    # Use (connect, read) timeout to avoid premature read timeouts on long SSE responses
+                    timeout=(
+                        int(DEFAULT_CONNECTION_TIMEOUT),
+                        int(DEFAULT_READ_TIMEOUT),
+                    ),
                 )
             except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
                 raise APITimeoutError(
@@ -1576,7 +1580,11 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                             params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            timeout=int(DEFAULT_CONNECTION_TIMEOUT),
+                            # Use (connect, read) timeout with longer read window for streaming SSE
+                            timeout=(
+                                int(DEFAULT_CONNECTION_TIMEOUT),
+                                int(DEFAULT_READ_TIMEOUT),
+                            ),
                             stream=True,
                         )
                     except requests.exceptions.Timeout as te:

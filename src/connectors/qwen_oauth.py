@@ -35,7 +35,7 @@ from src.core.services.backend_registry import backend_registry
 from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
-    pass
+    from src.core.services.translation_service import TranslationService
 
     # No legacy ChatCompletionRequest here; connectors should use domain ChatRequest
 
@@ -74,11 +74,12 @@ class QwenOAuthConnector(OpenAIConnector):
     backend_type: str = "qwen-oauth"
 
     def __init__(
-        self, client: httpx.AsyncClient, config: AppConfig
-    ) -> None:  # Modified
-        from src.core.services.translation_service import TranslationService
-
-        super().__init__(client, config, translation_service=TranslationService())
+        self,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: "TranslationService | None" = None,
+    ) -> None:
+        super().__init__(client, config, translation_service=translation_service)
         self.name = "qwen-oauth"
         self._default_endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         self.api_base_url = self._default_endpoint

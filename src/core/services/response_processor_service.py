@@ -76,7 +76,10 @@ class ResponseProcessor(IResponseProcessor):
                 # Only add LoopDetectionProcessor if explicitly provided or via old loop_detector
                 if loop_detection_processor:
                     processors.append(loop_detection_processor)
-                processors.append(ContentAccumulationProcessor())
+                # Use default 10MB buffer limit
+                processors.append(
+                    ContentAccumulationProcessor(max_buffer_bytes=10 * 1024 * 1024)
+                )
 
             self._stream_normalizer = StreamNormalizer(processors)
 
@@ -294,7 +297,10 @@ class ResponseProcessor(IResponseProcessor):
 
         if self._stream_normalizer is None:
             # Create a default stream normalizer if none was provided
-            self._stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
+            # Use default 10MB buffer limit
+            self._stream_normalizer = StreamNormalizer(
+                [ContentAccumulationProcessor(max_buffer_bytes=10 * 1024 * 1024)]
+            )
 
         # Process the stream using the normalizer
         try:

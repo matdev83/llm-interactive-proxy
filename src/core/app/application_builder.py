@@ -54,7 +54,9 @@ class ApplicationBuilder:
             self._services._descriptors.update(base_collection._descriptors)
         except AttributeError:
             # Fallback for unexpected implementations of ServiceCollection
-            for service_type, descriptor in getattr(base_collection, "_descriptors", {}).items():
+            for service_type, descriptor in getattr(
+                base_collection, "_descriptors", {}
+            ).items():
                 self._services._descriptors[service_type] = descriptor
 
     def add_stage(self, stage: InitializationStage) -> ApplicationBuilder:

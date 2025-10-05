@@ -756,7 +756,10 @@ def register_core_services(
                 f"Error creating stream processors: {e}. Using default configuration."
             )
             # Create minimal configuration with just content accumulation
-            content_accumulation_processor = ContentAccumulationProcessor()
+            # Use default 10MB buffer limit for fallback
+            content_accumulation_processor = ContentAccumulationProcessor(
+                max_buffer_bytes=10 * 1024 * 1024
+            )
             processors = [content_accumulation_processor]
 
         return StreamNormalizer(processors)
@@ -794,7 +797,23 @@ def register_core_services(
     _add_singleton(
         LoopDetectionProcessor, implementation_factory=_loop_detection_processor_factory
     )
-    _add_singleton(ContentAccumulationProcessor)
+
+    # Register ContentAccumulationProcessor with configured buffer limit
+    def _content_accumulation_processor_factory(
+        provider: IServiceProvider,
+    ) -> ContentAccumulationProcessor:
+        from src.core.config.app_config import AppConfig
+
+        config: AppConfig = provider.get_required_service(AppConfig)
+        buffer_cap = getattr(
+            config.session, "content_accumulation_buffer_cap_bytes", 10 * 1024 * 1024
+        )
+        return ContentAccumulationProcessor(max_buffer_bytes=buffer_cap)
+
+    _add_singleton(
+        ContentAccumulationProcessor,
+        implementation_factory=_content_accumulation_processor_factory,
+    )
 
     # Register JSON repair service and processor
     def _json_repair_service_factory(provider: IServiceProvider) -> JsonRepairService:

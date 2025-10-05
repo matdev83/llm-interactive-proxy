@@ -11,6 +11,8 @@ import json
 import logging
 from dataclasses import dataclass
 
+from json_repair import repair_json
+
 from src.core.interfaces.model_bases import InternalDTO
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
@@ -40,11 +42,13 @@ class ToolCallSignature(InternalDTO):
         """
         # Parse and re-dump arguments with sorted keys for stable signature
         try:
-            args_dict = json.loads(arguments)
+            # Attempt to repair the JSON before loading
+            repaired_arguments = repair_json(arguments)
+            args_dict = json.loads(repaired_arguments)
             # Stable signature for comparison (sorted keys)
             canonical_args = json.dumps(args_dict, sort_keys=True)
         except (json.JSONDecodeError, TypeError):
-            # If arguments aren't valid JSON, use as-is (unusual but possible)
+            # If arguments are still invalid after repair, use as-is
             canonical_args = arguments
 
         return cls(

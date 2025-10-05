@@ -245,6 +245,8 @@ class SessionConfig(DomainModel):
     json_repair_buffer_cap_bytes: int = 64 * 1024
     json_repair_strict_mode: bool = False
     json_repair_schema: dict[str, Any] | None = None  # Added
+    # Max buffer for content accumulation in streaming (bytes) - prevents memory leaks
+    content_accumulation_buffer_cap_bytes: int = 10 * 1024 * 1024  # 10MB default
     tool_call_reactor: ToolCallReactorConfig = Field(
         default_factory=ToolCallReactorConfig
     )
@@ -253,7 +255,6 @@ class SessionConfig(DomainModel):
     pytest_compression_enabled: bool = True
     pytest_compression_min_lines: int = 30
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
-    
 
 
 class EmptyResponseConfig(DomainModel):
@@ -590,6 +591,11 @@ class AppConfig(DomainModel, IConfig):
             "json_repair_schema": json.loads(
                 os.environ.get("JSON_REPAIR_SCHEMA", "null")
             ),  # Added
+            "content_accumulation_buffer_cap_bytes": int(
+                os.environ.get(
+                    "CONTENT_ACCUMULATION_BUFFER_CAP_BYTES", str(10 * 1024 * 1024)
+                )
+            ),
             "dangerous_command_prevention_enabled": os.environ.get(
                 "DANGEROUS_COMMAND_PREVENTION_ENABLED", "true"
             ).lower()

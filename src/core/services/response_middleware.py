@@ -88,7 +88,7 @@ class ContentFilterMiddleware(IResponseMiddleware):
         filtered_content = content.replace(prefix, "", 1)
 
         try:
-            setattr(response, "content", filtered_content)
+            response.content = filtered_content
             return response
         except AttributeError:
             usage = getattr(response, "usage", None)

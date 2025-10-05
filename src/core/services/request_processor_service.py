@@ -240,19 +240,25 @@ class RequestProcessor(IRequestProcessor):
                         # Determine effective input token limit. Prefer explicit max_input_tokens,
                         # but fall back to context_window when only that is configured.
                         max_in = None
+                        context_window = None
                         if isinstance(limits, dict):
                             max_in = limits.get("max_input_tokens") or limits.get(
                                 "context_window"
                             )
+                            context_window = limits.get("context_window")
                         else:
                             max_in = getattr(
                                 limits, "max_input_tokens", None
                             ) or getattr(limits, "context_window", None)
+                            context_window = getattr(limits, "context_window", None)
+
                         if max_in is not None and max_in > 0:
                             text = extract_prompt_text(
                                 getattr(backend_request, "messages", []) or []
                             )
                             measured = int(count_tokens(text, model=model_name))
+
+                            # Check input token limit
                             if measured > int(max_in):
                                 logger.info(
                                     "Input token limit exceeded: measured=%s limit=%s model=%s",
@@ -270,6 +276,38 @@ class RequestProcessor(IRequestProcessor):
                                         "measured": measured,
                                     },
                                 )
+
+                            # Check total token limit (input + max_tokens) against context window
+                            max_tokens = getattr(backend_request, "max_tokens", None)
+                            if (
+                                context_window is not None
+                                and context_window > 0
+                                and max_tokens is not None
+                                and max_tokens > 0
+                            ):
+                                total_requested = measured + max_tokens
+                                if total_requested > context_window:
+                                    logger.info(
+                                        "Total token limit exceeded: input=%s + max_tokens=%s = %s > context_window=%s model=%s",
+                                        measured,
+                                        max_tokens,
+                                        total_requested,
+                                        context_window,
+                                        requested_model,
+                                    )
+                                    raise InvalidRequestError(
+                                        message="Total token limit exceeded (input + max_tokens exceeds context window)",
+                                        code="total_limit_exceeded",
+                                        param="max_tokens",
+                                        details={
+                                            "model": requested_model or model_name,
+                                            "context_window": int(context_window),
+                                            "input_tokens": measured,
+                                            "max_tokens": max_tokens,
+                                            "total_requested": total_requested,
+                                            "suggestion": f"Reduce max_tokens to {context_window - measured} or less",
+                                        },
+                                    )
                     except InvalidRequestError:
                         # Re-raise structured invalid request
                         raise

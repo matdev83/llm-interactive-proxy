@@ -162,6 +162,20 @@ class LoopDetectionError(LLMProxyError):
         super().__init__(message, details, status_code=400, **kwargs)
 
 
+class TranslationError(LLMProxyError):
+    """Raised when translation between API formats fails."""
+
+    def __init__(
+        self,
+        message: str = "Translation failed",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(
+            message, details, status_code=422, **kwargs
+        )  # 422 for Unprocessable Entity
+
+
 class ParsingError(LLMProxyError):
     """Raised when parsing fails."""
 

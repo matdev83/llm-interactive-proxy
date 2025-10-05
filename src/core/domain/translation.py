@@ -4,6 +4,7 @@ import json
 import mimetypes
 from typing import Any
 
+from src.core.common.exceptions import TranslationError
 from src.core.domain.base_translator import BaseTranslator
 from src.core.domain.chat import (
     CanonicalChatRequest,
@@ -21,13 +22,6 @@ class Translation(BaseTranslator):
     """
     A class for translating requests and responses between different API formats.
     """
-
-    @staticmethod
-    def _get_request_param(request: Any, key: str, default: Any = None) -> Any:
-        """Safely get a parameter from a request, whether it's a dict or an object."""
-        if isinstance(request, dict):
-            return request.get(key, default)
-        return getattr(request, key, default)
 
     @staticmethod
     def validate_json_against_schema(
@@ -127,6 +121,10 @@ class Translation(BaseTranslator):
 
         url_str = str(part.image_url.url or "").strip()
         if not url_str:
+            return None
+
+        # Security: Validate URL scheme to prevent local file access
+        if not url_str.startswith(("data:", "http:", "https:")):
             return None
 
         mime_type = Translation._detect_image_mime_type(url_str)
@@ -237,21 +235,18 @@ class Translation(BaseTranslator):
                 json.loads(stripped)
                 return stripped
             except json.JSONDecodeError:
-                # If it fails, it might be a string using single quotes.
-                # We will try to fix it, but only if it doesn't create an invalid JSON.
+                # If it fails, it might be a malformed JSON.
+                # We will try to fix it with json_repair.
                 pass
 
             try:
-                # Attempt to replace single quotes with double quotes for JSON compatibility.
-                # This is a common issue with LLM-generated JSON in string format.
-                # However, we must be careful not to corrupt strings that contain single quotes.
-                fixed_string = stripped.replace("'", '"')
-                json.loads(fixed_string)
-                return fixed_string
-            except (json.JSONDecodeError, TypeError):
-                # If replacement fails, it's likely not a simple quote issue.
-                # This can happen if the string contains legitimate single quotes.
-                # Return empty object instead of _raw format to maintain tool calling contract.
+                from json_repair import repair_json
+
+                repaired_json = repair_json(stripped)
+                json.loads(repaired_json)  # Validate the repair
+                return repaired_json
+            except Exception:
+                # If repair fails, return an empty object to maintain the tool calling contract.
                 return "{}"
 
         if isinstance(args, dict):
@@ -844,14 +839,17 @@ class Translation(BaseTranslator):
         if isinstance(chunk, bytes | bytearray):
             try:
                 chunk = chunk.decode("utf-8")
-            except Exception:
-                return {"error": "Invalid chunk format: unable to decode bytes"}
+            except Exception as e:
+                raise TranslationError(
+                    "Invalid chunk format: unable to decode bytes",
+                    details={"message": str(e)},
+                )
 
         if isinstance(chunk, str):
             stripped_chunk = chunk.strip()
 
             if not stripped_chunk:
-                return {"error": "Invalid chunk format: empty string"}
+                raise TranslationError("Invalid chunk format: empty string")
 
             if stripped_chunk.startswith(":"):
                 # Comment/heartbeat lines (e.g., ": ping") should be ignored by emitting
@@ -880,12 +878,30 @@ class Translation(BaseTranslator):
                     ],
                 }
 
+            # Some SSE lines may be keepalive or empty after data: prefix; ignore them
+            if not stripped_chunk:
+                return {
+                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": None},
+                    ],
+                }
+
             try:
                 chunk = json.loads(stripped_chunk)
-            except json.JSONDecodeError as exc:
+            except json.JSONDecodeError:
+                # If the line isn't valid JSON, treat it as ignorable SSE noise
                 return {
-                    "error": "Invalid chunk format: expected JSON after 'data:' prefix",
-                    "details": {"message": str(exc)},
+                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": None},
+                    ],
                 }
 
         if not isinstance(chunk, dict):
@@ -893,7 +909,7 @@ class Translation(BaseTranslator):
 
         # Basic validation for essential keys
         if "id" not in chunk or "choices" not in chunk:
-            return {"error": "Invalid chunk: missing 'id' or 'choices'"}
+            raise TranslationError("Invalid chunk: missing 'id' or 'choices'")
 
         # For simplicity, we'll return the chunk as a dictionary.
         # In a more complex scenario, you might map this to a Pydantic model.
