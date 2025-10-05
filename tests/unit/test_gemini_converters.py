@@ -181,11 +181,11 @@ class TestMessageConversion:
             tool_calls=[
                 ToolCall(
                     id="call_1",
-                    function=FunctionCall(name="first", arguments="{\"a\": 1}"),
+                    function=FunctionCall(name="first", arguments='{"a": 1}'),
                 ),
                 ToolCall(
                     id="call_2",
-                    function=FunctionCall(name="second", arguments="{\"b\": 2}"),
+                    function=FunctionCall(name="second", arguments='{"b": 2}'),
                 ),
             ],
         )
@@ -194,7 +194,9 @@ class TestMessageConversion:
             created=123,
             model="gpt-test",
             choices=[
-                ChatCompletionChoice(index=0, message=message, finish_reason="tool_calls"),
+                ChatCompletionChoice(
+                    index=0, message=message, finish_reason="tool_calls"
+                ),
             ],
         )
 

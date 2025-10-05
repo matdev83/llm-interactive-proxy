@@ -8,7 +8,7 @@ to domain-specific request contexts.
 from __future__ import annotations
 
 import logging
-from typing import Any
+
 
 from fastapi import Request
 
@@ -72,4 +72,3 @@ def fastapi_to_domain_request_context(
         context.original_request = request
 
     return context
-
