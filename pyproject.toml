@@ -318,7 +318,6 @@ ignore_names = [
     "HEALTH_CHECK_SUPPORTED",
     "enable_health_check",
     "disable_health_check",
-    "get_chat_controller_dependency",
     "internal_health",
     "chat_completions_v1",
     "chat_completions_v2",

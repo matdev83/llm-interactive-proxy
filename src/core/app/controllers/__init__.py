@@ -216,30 +216,6 @@ async def get_service_provider_dependency(request: Request) -> IServiceProvider:
     return cast(IServiceProvider, service_provider)
 
 
-async def get_chat_controller_dependency(request: Request) -> ChatController:
-    """Get a chat controller dependency.
-
-    Args:
-        request: The FastAPI request object
-
-    Returns:
-        A configured chat controller
-    """
-    try:
-        service_provider = await get_service_provider_dependency(request)
-        return get_chat_controller(service_provider)
-    except Exception as e:
-        logger.error(f"Error getting chat controller dependency: {e}", exc_info=True)
-        if _STRICT_CONTROLLER_ERRORS:
-            raise ServiceResolutionError(
-                message="Failed to resolve ChatController in dependency",
-                service_name="ChatController",
-            ) from e
-        raise HTTPException(
-            status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
-        )
-
-
 async def get_responses_controller_if_available(
     request: Request,
 ) -> ResponsesController:
