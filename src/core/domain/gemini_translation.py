@@ -11,6 +11,7 @@ from src.core.domain.chat import (
     ChatMessage,
     MessageContentPartImage,
     MessageContentPartText,
+    ToolCall,
 )
 
 
@@ -30,6 +31,8 @@ def gemini_content_to_chat_messages(
 
     for content in contents:
         role = content.get("role", "user")
+        if role == "model":
+            role = "assistant"
 
         if "parts" not in content:
             continue
@@ -42,25 +45,59 @@ def gemini_content_to_chat_messages(
             continue
 
         # Complex case: multiple parts or non-text parts
-        content_parts = []
+        content_parts: list[MessageContentPartText | MessageContentPartImage] = []
+        tool_calls: list[ToolCall] = []
 
         for part in parts:
             if "text" in part:
                 content_parts.append(MessageContentPartText(text=part["text"]))
-            elif "inline_data" in part:
-                # Get image data from inline_data
-                data = part["inline_data"].get("data", "")
+                continue
+
+            if "functionCall" in part:
+                from src.core.domain.translation import Translation
+
+                tool_calls.append(
+                    Translation._process_gemini_function_call(part["functionCall"])
+                )
+                continue
+
+            inline_data = part.get("inlineData") or part.get("inline_data")
+            file_data = part.get("fileData") or part.get("file_data")
+
+            if inline_data:
+                base64_data = inline_data.get("data", "")
 
                 from src.core.domain.chat import ImageURL
 
-                # Create image content part
                 image_part = MessageContentPartImage(
-                    image_url=ImageURL(url=data, detail=None)
+                    image_url=ImageURL(url=base64_data, detail=None)
                 )
-                content_parts.append(image_part)  # type: ignore
+                content_parts.append(image_part)  # type: ignore[arg-type]
+            elif file_data:
+                from src.core.domain.chat import ImageURL
 
-        if content_parts:
-            chat_messages.append(ChatMessage(role=role, content=content_parts))
+                file_uri = file_data.get("fileUri") or file_data.get("file_uri") or ""
+                if file_uri:
+                    image_part = MessageContentPartImage(
+                        image_url=ImageURL(url=file_uri, detail=None)
+                    )
+                    content_parts.append(image_part)  # type: ignore[arg-type]
+
+        if not content_parts and not tool_calls:
+            continue
+
+        message_content: (
+            str | list[MessageContentPartText | MessageContentPartImage] | None
+        )
+        message_content = content_parts if content_parts else None
+
+        chat_messages.append(
+            ChatMessage(
+                role=role,
+                content=message_content,
+                tool_calls=tool_calls or None,
+            )
+        )
 
     return chat_messages
 
@@ -94,6 +131,7 @@ def gemini_request_to_canonical_request(
 
     # Extract tools
     tools = []
+    tool_choice: str | dict[str, Any] | None = None
     if "tools" in request:
         for tool in request["tools"]:
             if "function_declarations" in tool:
@@ -127,6 +165,30 @@ def gemini_request_to_canonical_request(
         if isinstance(thinking_config, dict) and "reasoning_effort" in thinking_config:
             reasoning_effort = thinking_config["reasoning_effort"]
 
+    tool_config = request.get("toolConfig") or request.get("tool_config")
+    if isinstance(tool_config, dict):
+        fcc = tool_config.get("functionCallingConfig") or tool_config.get(
+            "function_calling_config"
+        )
+        if isinstance(fcc, dict):
+            mode = str(fcc.get("mode", "AUTO")).upper()
+            allowed = fcc.get("allowedFunctionNames") or fcc.get(
+                "allowed_function_names"
+            )
+
+            if mode == "NONE":
+                tool_choice = "none"
+            elif mode == "AUTO":
+                tool_choice = "auto"
+            elif mode == "ANY":
+                if isinstance(allowed, list) and allowed:
+                    tool_choice = {
+                        "type": "function",
+                        "function": {"name": allowed[0]},
+                    }
+                else:
+                    tool_choice = "auto"
+
     # Create canonical request
     return CanonicalChatRequest(
         model=model,
@@ -138,6 +200,7 @@ def gemini_request_to_canonical_request(
         stop=stop,
         stream=stream,
         tools=tools,  # type: ignore
+        tool_choice=tool_choice,
         reasoning_effort=reasoning_effort,
     )
 

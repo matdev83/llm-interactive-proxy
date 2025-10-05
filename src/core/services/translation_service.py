@@ -349,22 +349,49 @@ class TranslationService:
         self, response: ChatResponse
     ) -> dict[str, Any]:
         """Translates a domain ChatResponse to an Anthropic response format."""
-        # Extract content from first choice (Anthropic always returns a single completion)
-        content = ""
-        if response.choices and response.choices[0].message:
-            content = response.choices[0].message.content or ""
+        content_blocks: list[dict[str, Any]] = []
+
+        first_choice = response.choices[0] if response.choices else None
+        message = first_choice.message if first_choice else None
+
+        if message and message.content:
+            content_blocks.append({"type": "text", "text": message.content})
+
+        if message and message.tool_calls:
+            for tool_call in message.tool_calls:
+                arguments_raw = tool_call.function.arguments
+                try:
+                    arguments = json.loads(arguments_raw)
+                except Exception:
+                    arguments = {"_raw": arguments_raw}
+
+                content_blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "input": arguments,
+                    }
+                )
+
+        stop_reason = first_choice.finish_reason if first_choice else "stop"
+
+        usage: dict[str, Any] | None = None
+        if response.usage:
+            usage = {
+                "input_tokens": response.usage.get("prompt_tokens", 0),
+                "output_tokens": response.usage.get("completion_tokens", 0),
+            }
 
         return {
             "id": response.id,
-            "type": "completion",
+            "type": "message",
             "role": "assistant",
-            "content": content,
             "model": response.model,
-            "stop_reason": (
-                response.choices[0].finish_reason if response.choices else "stop"
-            ),
+            "content": content_blocks,
+            "stop_reason": stop_reason,
             "stop_sequence": None,
-            "usage": response.usage,
+            "usage": usage,
         }
 
     def from_domain_to_gemini_response(self, response: ChatResponse) -> dict[str, Any]:
