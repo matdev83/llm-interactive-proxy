@@ -263,11 +263,11 @@ exclude = ["dev/"]
 
 
 [[tool.mypy.overrides]]
-module = "google.genai"
+module = ["google.genai"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "setuptools"
+module = ["setuptools"]
 ignore_missing_imports = true
 
 

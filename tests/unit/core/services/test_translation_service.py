@@ -158,6 +158,26 @@ def test_to_domain_stream_chunk_code_assist():
     assert domain_chunk["choices"][0]["delta"]["content"] == "streaming text"
 
 
+def test_to_domain_stream_chunk_gemini():
+    """Test translation from Gemini stream chunk format."""
+    service = TranslationService()
+    gemini_chunk = {
+        "candidates": [
+            {
+                "content": {"parts": [{"text": "Gemini streaming"}]},
+                "finishReason": "STOP",
+            }
+        ]
+    }
+
+    domain_chunk = service.to_domain_stream_chunk(gemini_chunk, "gemini")
+
+    assert isinstance(domain_chunk, dict)
+    assert domain_chunk["object"] == "chat.completion.chunk"
+    assert domain_chunk["choices"][0]["delta"]["content"] == "Gemini streaming"
+    assert domain_chunk["choices"][0]["finish_reason"] == "stop"
+
+
 def test_to_domain_request_raw_text():
     """Test translation from raw text format."""
     service = TranslationService()

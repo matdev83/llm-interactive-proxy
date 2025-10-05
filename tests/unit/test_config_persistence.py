@@ -2,7 +2,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
-from src.core.common.exceptions import ConfigurationError, ServiceResolutionError
+from src.core.common.exceptions import ConfigurationError
 from src.core.config.app_config import load_config
 from src.core.persistence import ConfigManager
 
@@ -138,77 +138,47 @@ class _DummyAppState:
         self.backend = backend
 
 
-def test_apply_default_backend_invalid_backend_raises_configuration_error(tmp_path):
-    from unittest.mock import patch
-
-    cfg_path = tmp_path / "cfg.yaml"
-    app_config = load_config(str(cfg_path))
-    app = build_app(config=app_config)
-    with TestClient(app) as client:
-        # The app_state is the service, not the general state bag
-        manager = ConfigManager(
-            client.app,
-            path=str(cfg_path),
-            app_state=client.app.state.application_state_service,
-        )
-
-        # Mock functional_backends on the service to not include the one we're trying to set
-        with patch.object(
-            client.app.state.application_state_service,
-            "get_functional_backends",
-            return_value=["openai"],
-        ):
-            with pytest.raises(ConfigurationError) as exc_info:
-                manager._apply_default_backend("nonexistent")
-
-            assert exc_info.value.details == {
-                "backend": "nonexistent",
-                "functional_backends": ["openai"],
-            }
-
-
-def test_apply_default_backend_di_failure_non_strict(monkeypatch) -> None:
+def test_apply_default_backend_invalid_backend_raises_configuration_error() -> None:
     app = FastAPI()
+    manager = ConfigManager(app, path=":memory:", app_state=_DummyAppState())
 
-    class _FailingProvider:
-        def get_required_service(self, *_args, **_kwargs):
-            raise ServiceResolutionError("boom")
+    with pytest.raises(ConfigurationError) as exc_info:
+        manager._apply_default_backend("nonexistent")
 
-    app_state = _DummyAppState()
-    manager = ConfigManager(
-        app,
-        path=":memory:",
-        service_provider=_FailingProvider(),
-        app_state=app_state,
-    )
-
-    monkeypatch.setattr(
-        "src.core.persistence._STRICT_PERSISTENCE_ERRORS", False, raising=False
-    )
-
-    manager._apply_default_backend("openai")
-
-    assert app_state.backend_type == "openai"
-    assert app_state.backend is None
+    assert exc_info.value.details == {
+        "backend": "nonexistent",
+        "functional_backends": ["openai"],
+    }
 
 
-def test_apply_interactive_mode_di_failure_non_strict(monkeypatch) -> None:
+def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app = FastAPI()
+    manager = ConfigManager(app, path=":memory:", app_state=_DummyAppState())
 
-    class _FailingProvider:
-        def get_required_service(self, *_args, **_kwargs):
-            raise ServiceResolutionError("boom")
+    monkeypatch.setenv("LLM_BACKEND", "openai")
 
-    app_state = _DummyAppState()
-    manager = ConfigManager(
-        app,
-        path=":memory:",
-        service_provider=_FailingProvider(),
-        app_state=app_state,
-    )
+    with pytest.raises(ConfigurationError) as exc_info:
+        manager._apply_default_backend("nonexistent")
 
-    monkeypatch.setattr(
-        "src.core.persistence._STRICT_PERSISTENCE_ERRORS", False, raising=False
-    )
+    assert exc_info.value.details == {
+        "backend": "nonexistent",
+        "functional_backends": ["openai"],
+    }
 
-    manager._apply_interactive_mode(True)
+def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastAPI()
+    manager = ConfigManager(app, path=":memory:", app_state=_DummyAppState())
+
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        manager._apply_default_backend("nonexistent")
+
+    assert exc_info.value.details == {
+        "backend": "nonexistent",
+        "functional_backends": ["openai"],
+    }

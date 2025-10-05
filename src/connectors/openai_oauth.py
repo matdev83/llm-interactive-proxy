@@ -22,6 +22,7 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 

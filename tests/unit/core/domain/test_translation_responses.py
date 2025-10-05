@@ -101,7 +101,7 @@ class TestTranslationResponses(unittest.TestCase):
                     ],
                 }
             ],
-            "usage": {"input_tokens": 11, "output_tokens": 9},
+            "usage": {"prompt_tokens": 11, "completion_tokens": 9, "total_tokens": 20},
         }
 
         result = Translation.responses_to_domain_response(responses_response)
@@ -156,6 +156,38 @@ class TestTranslationResponses(unittest.TestCase):
             self.assertEqual(result.usage["completion_tokens"], 6)
             self.assertEqual(result.usage["total_tokens"], 18)
 
+    def test_gemini_to_domain_response_tool_call_argument_normalization(self):
+        gemini_response = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "Using tool"},
+                            {
+                                "functionCall": {
+                                    "name": "lookup",
+                                    "args": "{'query': 'weather'}",
+                                }
+                            },
+                        ]
+                    },
+                    "finishReason": "TOOL_CALLS",
+                }
+            ]
+        }
+
+        result = Translation.gemini_to_domain_response(gemini_response)
+
+        self.assertIsInstance(result, CanonicalChatResponse)
+        self.assertEqual(len(result.choices), 1)
+        choice = result.choices[0]
+        self.assertEqual(choice.finish_reason, "tool_calls")
+        self.assertIsNotNone(choice.message.tool_calls)
+        if choice.message.tool_calls:
+            tool_call = choice.message.tool_calls[0]
+            self.assertEqual(tool_call.function.name, "lookup")
+            self.assertEqual(tool_call.function.arguments, '{"query": "weather"}')
+
     def test_openai_to_domain_stream_chunk_success(self):
         openai_chunk = {
             "id": "chatcmpl-123",
@@ -188,7 +220,7 @@ class TestTranslationResponses(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertTrue(result["id"].startswith("chatcmpl-"))
         self.assertEqual(result["choices"][0]["delta"]["content"], " from Gemini.")
-        self.assertEqual(result["choices"][0]["finish_reason"], "STOP")
+        self.assertEqual(result["choices"][0]["finish_reason"], "stop")
 
     def test_anthropic_to_domain_stream_chunk_success(self):
         anthropic_chunk = {

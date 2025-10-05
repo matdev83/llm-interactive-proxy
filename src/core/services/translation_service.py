@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from typing import Any
+
+from pydantic import ValidationError
 
 from src.core.domain.chat import (
     CanonicalChatRequest,
@@ -68,6 +71,20 @@ class TranslationService:
 
         Returns:
             A ChatRequest object.
+
+        Raises:
+            ValueError: If the source format is not supported.
+            TypeError: If the request object is not in the expected format.
+        """
+        """
+        Translates an incoming request from a specific API format to the internal domain ChatRequest.
+
+        Args:
+            request: The request object in the source format.
+            source_format: The source API format (e.g., "anthropic", "gemini").
+
+        Returns:
+            A ChatRequest object.
         """
         # If the request is already in canonical/domain form, return it as-is
         from src.core.domain.chat import (
@@ -102,9 +119,22 @@ class TranslationService:
                     f"Successfully converted Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
                 )
                 return domain_request
+            except ValidationError:
+                raise
+            except (ValueError, KeyError) as e:
+                if isinstance(e, json.JSONDecodeError):
+                    logger.error(
+                        f"JSON decode error in Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}"
+                    )
+                    raise ValueError(f"Invalid JSON in request: {e}") from e
+                logger.error(
+                    f"Invalid format in Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}"
+                )
+                raise ValueError(f"Invalid request format: {e}") from e
             except Exception as e:
                 logger.error(
-                    f"Failed to convert Responses API request to domain format - model={getattr(request, 'model', 'unknown')}, error={e}"
+                    f"Unexpected error converting Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}",
+                    exc_info=True,
                 )
                 raise
         converter = self._converters["request"].get(source_format)
@@ -205,10 +235,7 @@ class TranslationService:
             The stream chunk in the internal domain format.
         """
         if source_format == "gemini":
-            # For Gemini, the raw chunk is already in a format that can be directly yielded
-            # or minimally processed to match the expected stream format.
-            # We will convert it to a canonical stream chunk format if needed later.
-            return chunk
+            return Translation.gemini_to_domain_stream_chunk(chunk)
         elif source_format in {"openai", "openai-responses"}:
             return Translation.openai_to_domain_stream_chunk(chunk)
         elif source_format == "anthropic":
