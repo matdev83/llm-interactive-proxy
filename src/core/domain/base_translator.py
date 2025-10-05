@@ -18,8 +18,7 @@ class BaseTranslator:
             return " ".join(text_parts)
         return str(content)
 
-    @staticmethod
-    def _get_request_param(request: Any, key: str, default: Any = None) -> Any:
+    def _get_request_param(self, request: Any, key: str, default: Any = None) -> Any:
         """Safely get a parameter from a request, whether it's a dict or an object."""
         if isinstance(request, dict):
             return request.get(key, default)
