@@ -3,15 +3,24 @@ import unittest
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
     ChatMessage,
+    ChatResponse,
+    FunctionCall,
     ImageURL,
     MessageContentPartImage,
     MessageContentPartText,
+    ToolCall,
 )
 from src.core.domain.translation import Translation
+from src.core.services.translation_service import TranslationService
 
 
 class TestTranslationResponses(unittest.TestCase):
+    def setUp(self) -> None:
+        self.translation_service = TranslationService()
+
     def test_anthropic_to_domain_response_success(self):
         anthropic_response = {
             "id": "msg_01A0QnE4S7rD8nSW2C9d9gM1",
@@ -222,6 +231,32 @@ class TestTranslationResponses(unittest.TestCase):
         self.assertEqual(result["choices"][0]["delta"]["content"], " from Gemini.")
         self.assertEqual(result["choices"][0]["finish_reason"], "stop")
 
+    def test_gemini_to_domain_stream_chunk_tool_call(self):
+        gemini_chunk = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "name": "call_tool",
+                                    "args": {"foo": "bar"},
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        result = Translation.gemini_to_domain_stream_chunk(gemini_chunk)
+
+        self.assertIsInstance(result, dict)
+        delta = result["choices"][0]["delta"]
+        self.assertIn("tool_calls", delta)
+        self.assertEqual(len(delta["tool_calls"]), 1)
+        self.assertEqual(delta["tool_calls"][0]["function"]["name"], "call_tool")
+
     def test_anthropic_to_domain_stream_chunk_success(self):
         anthropic_chunk = {
             "type": "content_block_delta",
@@ -234,6 +269,57 @@ class TestTranslationResponses(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertTrue(result["id"].startswith("chatcmpl-"))
         self.assertEqual(result["choices"][0]["delta"]["content"], "Hello")
+
+    def test_from_domain_to_anthropic_response_basic(self):
+        message = ChatCompletionChoiceMessage(role="assistant", content="Hi there!")
+        response = ChatResponse(
+            id="resp_basic",
+            created=111,
+            model="claude-3-sonnet-20240229",
+            choices=[
+                ChatCompletionChoice(index=0, message=message, finish_reason="stop"),
+            ],
+            usage={"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10},
+        )
+
+        anthropic = self.translation_service.from_domain_to_anthropic_response(response)
+
+        self.assertEqual(anthropic["type"], "message")
+        self.assertEqual(anthropic["role"], "assistant")
+        self.assertEqual(anthropic["model"], "claude-3-sonnet-20240229")
+        self.assertEqual(anthropic["stop_reason"], "stop")
+        self.assertEqual(anthropic["content"], [{"type": "text", "text": "Hi there!"}])
+        self.assertEqual(anthropic["usage"], {"input_tokens": 7, "output_tokens": 3})
+
+    def test_from_domain_to_anthropic_response_with_tool_call(self):
+        tool_call = ToolCall(
+            id="call_123",
+            function=FunctionCall(name="lookup", arguments='{"query": "Paris"}'),
+        )
+        message = ChatCompletionChoiceMessage(
+            role="assistant", content=None, tool_calls=[tool_call]
+        )
+        response = ChatResponse(
+            id="resp_tool",
+            created=222,
+            model="claude-3-opus-20240229",
+            choices=[
+                ChatCompletionChoice(
+                    index=0, message=message, finish_reason="tool_use"
+                ),
+            ],
+        )
+
+        anthropic = self.translation_service.from_domain_to_anthropic_response(response)
+
+        self.assertEqual(anthropic["stop_reason"], "tool_use")
+        content = anthropic["content"]
+        self.assertEqual(len(content), 1)
+        block = content[0]
+        self.assertEqual(block["type"], "tool_use")
+        self.assertEqual(block["name"], "lookup")
+        self.assertEqual(block["id"], "call_123")
+        self.assertEqual(block["input"], {"query": "Paris"})
 
     def test_anthropic_to_domain_stream_chunk_invalid_input(self):
         result = Translation.anthropic_to_domain_stream_chunk("invalid")

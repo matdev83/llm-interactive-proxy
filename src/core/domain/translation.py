@@ -130,16 +130,16 @@ class Translation(BaseTranslator):
             except ValueError:
                 base64_data = ""
             return {
-                "inline_data": {
-                    "mime_type": mime_type,
+                "inlineData": {
+                    "mimeType": mime_type,
                     "data": base64_data,
                 }
             }
 
         return {
-            "file_data": {
-                "mime_type": mime_type,
-                "file_uri": url_str,
+            "fileData": {
+                "mimeType": mime_type,
+                "fileUri": url_str,
             }
         }
 
@@ -455,7 +455,8 @@ class Translation(BaseTranslator):
         created = int(time.time())
         model = "gemini-pro"  # Default model
 
-        content = ""
+        content_pieces: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
         finish_reason = None
 
         if "candidates" in chunk:
@@ -463,11 +464,26 @@ class Translation(BaseTranslator):
                 if "content" in candidate and "parts" in candidate["content"]:
                     for part in candidate["content"]["parts"]:
                         if "text" in part:
-                            content += part["text"]
+                            content_pieces.append(part["text"])
+                        elif "functionCall" in part:
+                            try:
+                                tool_calls.append(
+                                    Translation._process_gemini_function_call(
+                                        part["functionCall"]
+                                    ).model_dump()
+                                )
+                            except Exception:
+                                continue
                 if "finishReason" in candidate:
                     finish_reason = Translation._map_gemini_finish_reason(
                         candidate["finishReason"]
                     )
+
+        delta: dict[str, Any] = {"role": "assistant"}
+        if content_pieces:
+            delta["content"] = "".join(content_pieces)
+        if tool_calls:
+            delta["tool_calls"] = tool_calls
 
         return {
             "id": response_id,
@@ -477,7 +493,7 @@ class Translation(BaseTranslator):
             "choices": [
                 {
                     "index": 0,
-                    "delta": {"role": "assistant", "content": content},
+                    "delta": delta,
                     "finish_reason": finish_reason,
                 }
             ],
@@ -931,7 +947,8 @@ class Translation(BaseTranslator):
         # Process messages with proper handling of multimodal content and tool calls
         contents: list[dict[str, Any]] = []
         for message in request.messages:
-            msg_dict = {"role": message.role}
+            gemini_role = "model" if message.role == "assistant" else message.role
+            msg_dict = {"role": gemini_role}
             parts = []
 
             # Handle content which could be string, list of parts, or None
@@ -1009,7 +1026,6 @@ class Translation(BaseTranslator):
 
         # Handle tool_choice for Gemini
         if request.tool_choice:
-            tool_config = {}
             mode = "AUTO"  # Default
             allowed_functions = None
 
@@ -1032,9 +1048,8 @@ class Translation(BaseTranslator):
 
             fcc: dict[str, Any] = {"mode": mode}
             if allowed_functions:
-                fcc["allowed_function_names"] = allowed_functions
-            tool_config = {"function_calling_config": fcc}
-            result["tool_config"] = tool_config
+                fcc["allowedFunctionNames"] = allowed_functions
+            result["toolConfig"] = {"functionCallingConfig": fcc}
 
         # Handle structured output for Responses API
         if request.extra_body and "response_format" in request.extra_body:

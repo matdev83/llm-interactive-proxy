@@ -268,9 +268,11 @@ class TestResponsesAPITranslationScenarios:
         anthropic_response = translation_service.from_domain_response(
             domain_response, "anthropic"
         )
-        assert anthropic_response["type"] == "completion"
+        assert anthropic_response["type"] == "message"
         assert anthropic_response["role"] == "assistant"
-        assert "John Doe" in anthropic_response["content"]
+        content_blocks = anthropic_response["content"]
+        assert content_blocks and content_blocks[0]["type"] == "text"
+        assert "John Doe" in content_blocks[0]["text"]
 
         # 3. To Gemini format
         gemini_response = translation_service.from_domain_response(
