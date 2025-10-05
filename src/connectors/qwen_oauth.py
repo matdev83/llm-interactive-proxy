@@ -507,10 +507,10 @@ class QwenOAuthConnector(OpenAIConnector):
             )
         return ensure_loop_guard_header(
             {
-            "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
+                "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
         )
 
     async def _perform_health_check(self) -> bool:

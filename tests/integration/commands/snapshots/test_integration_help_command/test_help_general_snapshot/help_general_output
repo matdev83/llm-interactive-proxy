@@ -4,6 +4,7 @@ Available commands:
 - hello - Greets the user.
 - help - Shows a list of all available commands or help for a specific command.
 - list-failover-routes - Manage failover routes.
+- loop-detection - Enable or disable loop detection.
 - low - Activates the low reasoning mode.
 - max - Activates the max reasoning mode.
 - medium - Activates the medium reasoning mode.

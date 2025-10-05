@@ -287,6 +287,26 @@ class GeminiCloudProjectConnector(GeminiBackend):
         """
         return self._credential_validation_errors.copy()
 
+    def _normalize_openai_response(self, openai_response: Any) -> dict[str, Any]:
+        """Normalize OpenAI style responses to plain dictionaries for translation."""
+        if isinstance(openai_response, dict):
+            return openai_response
+
+        model_dump = getattr(openai_response, "model_dump", None)
+        if callable(model_dump):
+            try:
+                result = model_dump(exclude_unset=True)
+            except TypeError:
+                result = model_dump()
+
+            if isinstance(result, dict):
+                return result
+
+        raise BackendError(
+            "Unsupported OpenAI response type for normalization",
+            details={"received_type": type(openai_response).__name__},
+        )
+
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
     ) -> tuple[bool, list[str]]:
@@ -522,9 +542,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 )
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Using service account credentials from %s", sa_path)
-                session = google.auth.transport.requests.AuthorizedSession(
-                    credentials
-                )
+                session = google.auth.transport.requests.AuthorizedSession(credentials)
                 session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
                 return session
             except Exception as e:

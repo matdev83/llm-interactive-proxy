@@ -440,9 +440,9 @@ class AnthropicBackend(LLMBackend):
         url = f"{base.rstrip('/')}/models"
         headers = ensure_loop_guard_header(
             {
-            self.auth_header_name: key_api,
-            "anthropic-version": ANTHROPIC_VERSION_HEADER,
-        }
+                self.auth_header_name: key_api,
+                "anthropic-version": ANTHROPIC_VERSION_HEADER,
+            }
         )
         try:
             response = await self.client.get(url, headers=headers)

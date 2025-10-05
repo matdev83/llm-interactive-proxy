@@ -45,6 +45,28 @@ class InMemorySessionRepository(ISessionRepository):
         if entity.session_id not in self._sessions:
             return await self.add(entity)
 
+        previous_user_id = None
+        for tracked_user_id, sessions in self._user_sessions.items():
+            if entity.session_id in sessions:
+                previous_user_id = tracked_user_id
+                break
+
+        current_user_id = getattr(entity, "user_id", None)
+        if isinstance(current_user_id, str) and not current_user_id.strip():
+            current_user_id = None
+
+        if previous_user_id and previous_user_id != current_user_id:
+            sessions = self._user_sessions.get(previous_user_id, [])
+            if entity.session_id in sessions:
+                sessions.remove(entity.session_id)
+            if not sessions:
+                self._user_sessions.pop(previous_user_id, None)
+
+        if current_user_id:
+            sessions = self._user_sessions.setdefault(current_user_id, [])
+            if entity.session_id not in sessions:
+                sessions.append(entity.session_id)
+
         self._sessions[entity.session_id] = entity
         return entity
 

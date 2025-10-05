@@ -130,9 +130,7 @@ class RollingHashTracker:
 
         # Check for repetitions
         for _hash_val, positions in hash_positions.items():
-            filtered_positions = self._verify_pattern_match(
-                positions, pattern_length
-            )
+            filtered_positions = self._verify_pattern_match(positions, pattern_length)
             if filtered_positions is not None:
                 # Verify actual content matches (avoid hash collisions)
                 pattern = self.content[
