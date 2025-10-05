@@ -104,8 +104,7 @@ class TestServiceRegistration:
 
         recovered_provider = services_module.get_service_provider()
         assert (
-            recovered_provider.get_required_service(ToolCallReactorService)
-            is not None
+            recovered_provider.get_required_service(ToolCallReactorService) is not None
         )
 
     def test_response_processor_streaming_pipeline_setup(self) -> None:

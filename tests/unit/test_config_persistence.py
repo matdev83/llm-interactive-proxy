@@ -166,19 +166,3 @@ def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
         "backend": "nonexistent",
         "functional_backends": ["openai"],
     }
-
-def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app = FastAPI()
-    manager = ConfigManager(app, path=":memory:", app_state=_DummyAppState())
-
-    monkeypatch.setenv("LLM_BACKEND", "openai")
-
-    with pytest.raises(ConfigurationError) as exc_info:
-        manager._apply_default_backend("nonexistent")
-
-    assert exc_info.value.details == {
-        "backend": "nonexistent",
-        "functional_backends": ["openai"],
-    }
