@@ -169,6 +169,37 @@ class BackendService(IBackendService):
             ):
                 updates["generation_config"] = reasoning_config.gemini_generation_config
 
+            # Apply planning-phase overrides if active
+            try:
+                planning_cfg = getattr(session.state, "planning_phase_config", None)
+                if planning_cfg and bool(getattr(planning_cfg, "enabled", False)):
+                    overrides = getattr(planning_cfg, "overrides", None)
+                    # overrides may be dict (from AppConfig) or a VO instance (not expected here)
+                    if isinstance(overrides, dict):
+                        if overrides.get("temperature") is not None:
+                            updates["temperature"] = overrides.get("temperature")
+                        if overrides.get("top_p") is not None:
+                            updates["top_p"] = overrides.get("top_p")
+                        if overrides.get("reasoning_effort") is not None:
+                            updates["reasoning_effort"] = overrides.get(
+                                "reasoning_effort"
+                            )
+                        if overrides.get("thinking_budget") is not None:
+                            updates["thinking_budget"] = overrides.get(
+                                "thinking_budget"
+                            )
+                        if overrides.get("reasoning") is not None:
+                            updates["reasoning"] = overrides.get("reasoning")
+                        if overrides.get("generation_config") is not None:
+                            updates["generation_config"] = overrides.get(
+                                "generation_config"
+                            )
+            except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Planning-phase overrides application failed", exc_info=True
+                    )
+
             if updates:
                 request = request.model_copy(update=updates)
 
@@ -458,6 +489,7 @@ class BackendService(IBackendService):
                             effective_model,
                             exc_info=True,
                         )
+
                 return result
             except (
                 Exception
@@ -569,6 +601,183 @@ class BackendService(IBackendService):
         stream = kwargs.get("stream", False)
         return await self.call_completion(request, stream=stream)
 
+    async def _apply_planning_phase_if_needed(
+        self, session: Any, default_backend: str
+    ) -> None:
+        """Apply planning phase model override if conditions are met.
+
+        Args:
+            session: The current session
+            default_backend: Default backend for model parsing
+        """
+        if not session or not session.state:
+            return
+
+        planning_config = getattr(session.state, "planning_phase_config", None)
+        if (
+            not planning_config
+            or not bool(getattr(planning_config, "enabled", False))
+            or not getattr(planning_config, "strong_model", None)
+        ):
+            return
+
+        # Safely extract counters with defaults
+        try:
+            turn_count = int(
+                getattr(session.state, "planning_phase_turn_count", 0) or 0
+            )
+        except Exception:
+            turn_count = 0
+        try:
+            file_write_count = int(
+                getattr(session.state, "planning_phase_file_write_count", 0) or 0
+            )
+        except Exception:
+            file_write_count = 0
+
+        try:
+            _max_turns = int(getattr(planning_config, "max_turns", 0) or 0)
+        except Exception:
+            _max_turns = 0
+        try:
+            _max_writes = int(getattr(planning_config, "max_file_writes", 0) or 0)
+        except Exception:
+            _max_writes = 0
+
+        if (turn_count >= _max_turns) or (file_write_count >= _max_writes):
+            return
+
+        from src.core.domain.configuration.backend_config import BackendConfiguration
+        from src.core.domain.model_utils import parse_model_backend
+        from src.core.interfaces.configuration_interface import IBackendConfig
+
+        requested_backend, requested_model = parse_model_backend(
+            session.state.backend_config.model or "", default_backend
+        )
+        strong_backend, strong_model = parse_model_backend(
+            planning_config.strong_model, default_backend
+        )
+
+        current_full_model = f"{requested_backend}:{requested_model}"
+        strong_full_model = f"{strong_backend}:{strong_model}"
+
+        if current_full_model == strong_full_model:
+            return
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Planning phase active (turn {turn_count + 1}/{planning_config.max_turns}): "
+                f"routing from {current_full_model} to {strong_full_model}"
+            )
+
+        new_backend_config = BackendConfiguration(
+            backend_type=strong_backend,
+            model=strong_model,
+            interactive_mode=session.state.backend_config.interactive_mode,
+        )
+
+        new_state = session.state.with_backend_config(
+            cast(IBackendConfig, new_backend_config)
+        )
+        session.update_state(new_state)
+        await self._session_service.update_session(session)
+
+    async def _update_planning_phase_counters(
+        self, session_id: str, response: Any
+    ) -> None:
+        """Update planning phase counters after a successful completion.
+
+        Args:
+            session_id: The session ID
+            response: The response envelope containing metadata
+        """
+        try:
+            session = await self._session_service.get_session(session_id)
+            if not session or not session.state:
+                return
+
+            planning_config = session.state.planning_phase_config
+            if not planning_config.enabled:
+                return
+
+            turn_count = session.state.planning_phase_turn_count
+            file_write_count = session.state.planning_phase_file_write_count
+
+            if (
+                turn_count >= planning_config.max_turns
+                or file_write_count >= planning_config.max_file_writes
+            ):
+                return
+
+            new_turn_count = turn_count + 1
+            new_file_write_count = (
+                file_write_count + self._count_file_writes_in_response(response)
+            )
+
+            if new_turn_count != turn_count or new_file_write_count != file_write_count:
+                new_state = session.state.with_planning_phase_turn_count(
+                    new_turn_count
+                ).with_planning_phase_file_write_count(new_file_write_count)
+
+                session.update_state(new_state)
+                await self._session_service.update_session(session)
+
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Updated planning phase counters: turns={new_turn_count}/{planning_config.max_turns}, "
+                        f"file_writes={new_file_write_count}/{planning_config.max_file_writes}"
+                    )
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to update planning phase counters: {e}", exc_info=True
+                )
+
+    def _count_file_writes_in_response(self, response: Any) -> int:
+        """Count file write tool calls in a response.
+
+        Args:
+            response: The response envelope
+
+        Returns:
+            Number of file write operations detected
+        """
+        file_write_tools = {
+            "write_file",
+            "edit_file",
+            "patch_file",
+            "apply_diff",
+            "search_replace",
+            "str_replace_editor",
+            "write_to_file",
+            "create_file",
+            "modify_file",
+            "apply_patch",
+            "edit_notebook",
+        }
+
+        count = 0
+        tool_calls = []
+
+        if hasattr(response, "metadata") and isinstance(response.metadata, dict):
+            tool_calls = response.metadata.get("tool_calls", [])
+        elif hasattr(response, "content") and isinstance(response.content, dict):
+            choices = response.content.get("choices", [])
+            if choices and isinstance(choices[0], dict):
+                message = choices[0].get("message", {})
+                if message and isinstance(message, dict):
+                    tool_calls = message.get("tool_calls", [])
+
+        for tool_call in tool_calls:
+            if isinstance(tool_call, dict):
+                tool_name = tool_call.get("function", {}).get("name") or tool_call.get(
+                    "name"
+                )
+                if tool_name and tool_name.lower() in file_write_tools:
+                    count += 1
+
+        return count
+
     async def _resolve_backend_and_model(self, request: ChatRequest) -> tuple[str, str]:
         """Resolve backend type and effective model from request and session"""
         session_id = (
@@ -577,6 +786,17 @@ class BackendService(IBackendService):
         session = (
             await self._session_service.get_session(session_id) if session_id else None
         )
+
+        from src.core.config.app_config import AppConfig
+
+        app_config: AppConfig = cast(AppConfig, self._config)
+        default_backend: str = (
+            app_config.backends.default_backend
+            if hasattr(app_config, "backends")
+            else "openai"
+        )
+
+        await self._apply_planning_phase_if_needed(session, default_backend)
 
         backend_type: str | None = None
         if session and session.state and session.state.backend_config:
@@ -597,12 +817,6 @@ class BackendService(IBackendService):
         if not backend_type:
             from src.core.domain.model_utils import parse_model_backend
 
-            app_config: AppConfig = cast(AppConfig, self._config)
-            default_backend: str = (
-                app_config.backends.default_backend
-                if hasattr(app_config, "backends")
-                else "openai"
-            )
             parsed_backend, parsed_model = parse_model_backend(
                 request.model, default_backend
             )

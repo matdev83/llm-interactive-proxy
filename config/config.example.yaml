@@ -103,3 +103,12 @@ failover_routes:
     elements:
       - "openai:gpt-4"
       - "openrouter:anthropic/claude-3-opus-20240229"
+
+# Session configuration
+session:
+  # Planning phase: Route initial requests to a strong model for better planning
+  planning_phase:
+    enabled: false  # Set to true to enable planning phase
+    strong_model: "openai:gpt-4"  # Strong model for planning (backend:model format)
+    max_turns: 10  # Maximum turns before switching back to default model
+    max_file_writes: 1  # Maximum file writes before switching back to default model

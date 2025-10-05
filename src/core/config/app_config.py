@@ -217,6 +217,17 @@ class ToolCallReactorConfig(DomainModel):
     """
 
 
+class PlanningPhaseConfig(DomainModel):
+    """Configuration for planning phase model routing."""
+
+    enabled: bool = False
+    strong_model: str | None = None
+    max_turns: int = 10
+    max_file_writes: int = 1
+    # Optional parameter overrides for the strong model
+    overrides: dict[str, Any] | None = None
+
+
 class SessionConfig(DomainModel):
     """Session management configuration."""
 
@@ -241,6 +252,8 @@ class SessionConfig(DomainModel):
     dangerous_command_steering_message: str | None = None
     pytest_compression_enabled: bool = True
     pytest_compression_min_lines: int = 30
+    planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
+    
 
 
 class EmptyResponseConfig(DomainModel):
@@ -591,6 +604,50 @@ class AppConfig(DomainModel, IConfig):
             "pytest_compression_min_lines": int(
                 os.environ.get("PYTEST_COMPRESSION_MIN_LINES", "30")
             ),
+            "planning_phase": {
+                "enabled": os.environ.get("PLANNING_PHASE_ENABLED", "false").lower()
+                == "true",
+                "strong_model": os.environ.get("PLANNING_PHASE_STRONG_MODEL"),
+                "max_turns": int(os.environ.get("PLANNING_PHASE_MAX_TURNS", "10")),
+                "max_file_writes": int(
+                    os.environ.get("PLANNING_PHASE_MAX_FILE_WRITES", "1")
+                ),
+                "overrides": {
+                    # Only include keys that are actually provided to avoid schema validation noise
+                    **(
+                        {
+                            "temperature": _env_to_float(
+                                "PLANNING_PHASE_TEMPERATURE", None
+                            )
+                        }
+                        if os.environ.get("PLANNING_PHASE_TEMPERATURE")
+                        else {}
+                    ),
+                    **(
+                        {"top_p": _env_to_float("PLANNING_PHASE_TOP_P", None)}
+                        if os.environ.get("PLANNING_PHASE_TOP_P")
+                        else {}
+                    ),
+                    **(
+                        {
+                            "reasoning_effort": os.environ.get(
+                                "PLANNING_PHASE_REASONING_EFFORT"
+                            )
+                        }
+                        if os.environ.get("PLANNING_PHASE_REASONING_EFFORT")
+                        else {}
+                    ),
+                    **(
+                        {
+                            "thinking_budget": _env_to_int(
+                                "PLANNING_PHASE_THINKING_BUDGET", 0
+                            )
+                        }
+                        if os.environ.get("PLANNING_PHASE_THINKING_BUDGET")
+                        else {}
+                    ),
+                },
+            },
         }
 
         config["logging"] = {

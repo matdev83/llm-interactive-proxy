@@ -190,6 +190,21 @@ class ResponseProcessor(IResponseProcessor):
                     },
                 )
 
+                # If tool calls were detected by reactor, ensure they are persisted into metadata
+                try:
+                    detected_tool_calls = middleware_context.get("detected_tool_calls")
+                    if isinstance(detected_tool_calls, list):
+                        processed_response.metadata.setdefault("tool_calls", [])
+                        if not processed_response.metadata["tool_calls"]:
+                            processed_response.metadata["tool_calls"] = list(
+                                detected_tool_calls
+                            )
+                except Exception:
+                    logger.debug(
+                        "Failed to persist detected tool calls into response metadata",
+                        exc_info=True,
+                    )
+
             return processed_response
 
         except LoopDetectionError:
