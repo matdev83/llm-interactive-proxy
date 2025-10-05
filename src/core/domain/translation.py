@@ -680,16 +680,17 @@ class Translation(BaseTranslator):
                 for tc in raw_tool_calls:
                     # Convert dict to ToolCall if necessary
                     if isinstance(tc, dict):
-                        # Create a ToolCall object from the dict
-                        # Assuming the dict has the necessary structure for ToolCall
-                        # We'll need to import ToolCall if not already available
-                        # For now, we'll use a simple approach
-                        try:
-                            # Create ToolCall from dict, assuming proper structure
-                            tool_call_obj = ToolCall(**tc)
-                            validated_tool_calls.append(tool_call_obj)
-                        except (TypeError, ValueError):
-                            # If conversion fails, skip this tool call
+                        # Validate required fields for ToolCall
+                        if "id" in tc and "type" in tc and "function" in tc:
+                            try:
+                                # Create ToolCall from dict, assuming proper structure
+                                tool_call_obj = ToolCall(**tc)
+                                validated_tool_calls.append(tool_call_obj)
+                            except (TypeError, ValueError):
+                                # If conversion fails, skip this tool call
+                                pass
+                        else:
+                            # Skip if required fields are missing
                             pass
                     elif isinstance(tc, ToolCall):
                         validated_tool_calls.append(tc)
