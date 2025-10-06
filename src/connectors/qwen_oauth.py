@@ -454,9 +454,6 @@ class QwenOAuthConnector(OpenAIConnector):
         if not self._oauth_credentials:
             await self._load_oauth_credentials()
 
-        if not self._oauth_credentials:
-            return False
-
         expired = self._is_token_expired()
         near_expiry = self._should_trigger_cli_refresh()
 
@@ -464,21 +461,26 @@ class QwenOAuthConnector(OpenAIConnector):
             return True
 
         async with self._token_refresh_lock:
-            if not self._oauth_credentials:
+            credentials_missing = not self._oauth_credentials
+            if credentials_missing:
                 await self._load_oauth_credentials()
+                credentials_missing = not self._oauth_credentials
 
-            if not self._oauth_credentials:
-                return False
-
-            expired = self._is_token_expired()
-            near_expiry = self._should_trigger_cli_refresh()
+            if credentials_missing:
+                # Without credentials we cannot assess expiry accurately; treat as expired to
+                # leverage the existing CLI refresh pathway instead of failing immediately.
+                expired = True
+                near_expiry = True
+            else:
+                expired = self._is_token_expired()
+                near_expiry = self._should_trigger_cli_refresh()
 
             # If token is not expired but nearing expiry, trigger CLI refresh in background
             if not expired and near_expiry:
                 self._launch_cli_refresh_process()
                 return True
 
-            # If token is expired, prefer CLI-based refresh first (tests rely on this behavior)
+            # If token is expired (or credentials missing), prefer CLI-based refresh first
             if expired:
                 self._launch_cli_refresh_process()
                 # Wait briefly for refreshed token to appear via credentials file
