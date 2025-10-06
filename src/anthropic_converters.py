@@ -284,7 +284,7 @@ def _map_finish_reason(openai_reason: str | None) -> str | None:
     """
     if openai_reason is None:
         return None
-    return _FINISH_REASON_MAP.get(openai_reason, "end_turn")
+    return _FINISH_REASON_MAP.get(openai_reason, openai_reason)
 
 
 def openai_stream_to_anthropic_stream(chunk_data: str) -> str:

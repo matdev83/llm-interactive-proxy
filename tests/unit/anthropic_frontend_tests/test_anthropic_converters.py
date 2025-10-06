@@ -232,7 +232,7 @@ class TestAnthropicConverters:
         assert _map_finish_reason("content_filter") == "stop_sequence"
         assert _map_finish_reason("function_call") == "tool_use"
         assert _map_finish_reason(None) is None
-        assert _map_finish_reason("unknown") == "end_turn"
+        assert _map_finish_reason("unknown") == "unknown"
 
     def test_get_anthropic_models(self) -> None:
         """Test Anthropic models endpoint response."""
