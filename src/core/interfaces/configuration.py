@@ -211,6 +211,30 @@ class ILoopDetectionConfig(abc.ABC):
         """Create a new config with updated tool loop mode."""
 
 
+class IPlanningPhaseConfig(abc.ABC):
+    """Interface for planning phase configuration."""
+
+    @property
+    @abc.abstractmethod
+    def enabled(self) -> bool:
+        """Get whether planning phase is enabled."""
+
+    @property
+    @abc.abstractmethod
+    def strong_model(self) -> str | None:
+        """Get the strong model to use during planning phase."""
+
+    @property
+    @abc.abstractmethod
+    def max_turns(self) -> int:
+        """Get the maximum number of turns before switching from strong model."""
+
+    @property
+    @abc.abstractmethod
+    def max_file_writes(self) -> int:
+        """Get the maximum number of file writes before switching from strong model."""
+
+
 class IBackendSpecificConfig(abc.ABC):
     """Interface for backend-specific configuration."""
 

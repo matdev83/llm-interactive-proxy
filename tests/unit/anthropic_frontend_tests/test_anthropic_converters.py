@@ -218,7 +218,9 @@ class TestAnthropicConverters:
             '[{"delta": {"content": [{"type": "text", "text": "Hello"}]}}]}'
         )
 
-        anthropic_chunk = openai_to_anthropic_stream_chunk(chunk, "chatcmpl-123", "claude")
+        anthropic_chunk = openai_to_anthropic_stream_chunk(
+            chunk, "chatcmpl-123", "claude"
+        )
 
         assert "content_block_delta" in anthropic_chunk
         assert "Hello" in anthropic_chunk

@@ -15,11 +15,15 @@ from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
+from src.core.domain.configuration.planning_phase_config import (
+    PlanningPhaseConfiguration,
+)
 from src.core.domain.configuration.reasoning_aliases_config import ReasoningMode
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.interfaces.configuration_interface import (
     IBackendConfig,
     ILoopDetectionConfig,
+    IPlanningPhaseConfig,
     IReasoningConfig,
 )
 from src.core.interfaces.domain_entities_interface import (
@@ -59,6 +63,9 @@ class SessionState(ValueObject):
     loop_config: LoopDetectionConfiguration = Field(
         default_factory=LoopDetectionConfiguration
     )
+    planning_phase_config: PlanningPhaseConfiguration = Field(
+        default_factory=PlanningPhaseConfiguration
+    )
     project: str | None = None
     project_dir: str | None = None
     interactive_just_enabled: bool = False
@@ -67,6 +74,8 @@ class SessionState(ValueObject):
     pytest_compression_enabled: bool = True
     compress_next_tool_call_reply: bool = False
     pytest_compression_min_lines: int = 0
+    planning_phase_turn_count: int = 0
+    planning_phase_file_write_count: int = 0
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -116,6 +125,20 @@ class SessionState(ValueObject):
         """Create a new session state with updated pytest_compression_min_lines value."""
         return self.model_copy(update={"pytest_compression_min_lines": min_lines})
 
+    def with_planning_phase_config(
+        self, planning_phase_config: PlanningPhaseConfiguration
+    ) -> SessionState:
+        """Create a new session state with updated planning phase config."""
+        return self.model_copy(update={"planning_phase_config": planning_phase_config})
+
+    def with_planning_phase_turn_count(self, count: int) -> SessionState:
+        """Create a new session state with updated planning phase turn count."""
+        return self.model_copy(update={"planning_phase_turn_count": count})
+
+    def with_planning_phase_file_write_count(self, count: int) -> SessionState:
+        """Create a new session state with updated planning phase file write count."""
+        return self.model_copy(update={"planning_phase_file_write_count": count})
+
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
     """Adapter that makes SessionState implement ISessionState interface."""
@@ -137,6 +160,11 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def loop_config(self) -> ILoopDetectionConfig:
         """Get the loop detection configuration."""
         return self._state.loop_config  # type: ignore[return-value]
+
+    @property
+    def planning_phase_config(self) -> IPlanningPhaseConfig:
+        """Get the planning phase configuration."""
+        return self._state.planning_phase_config  # type: ignore[return-value]
 
     @property
     def project(self) -> str | None:
@@ -211,6 +239,16 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def pytest_compression_min_lines(self) -> int:
         """Minimum line threshold for pytest compression."""
         return self._state.pytest_compression_min_lines
+
+    @property
+    def planning_phase_turn_count(self) -> int:
+        """Number of turns completed in planning phase."""
+        return self._state.planning_phase_turn_count
+
+    @property
+    def planning_phase_file_write_count(self) -> int:
+        """Number of file writes completed in planning phase."""
+        return self._state.planning_phase_file_write_count
 
     @property
     def override_model(self) -> str | None:
@@ -309,6 +347,27 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(SessionState, self._state).with_pytest_compression_min_lines(
             min_lines
         )
+        return SessionStateAdapter(new_state)
+
+    def with_planning_phase_config(self, config: IPlanningPhaseConfig) -> ISessionState:
+        """Create a new session state with updated planning phase config."""
+        new_state = cast(SessionState, self._state).with_planning_phase_config(
+            cast(PlanningPhaseConfiguration, config)
+        )
+        return SessionStateAdapter(new_state)
+
+    def with_planning_phase_turn_count(self, count: int) -> ISessionState:
+        """Create a new session state with updated planning phase turn count."""
+        new_state = cast(SessionState, self._state).with_planning_phase_turn_count(
+            count
+        )
+        return SessionStateAdapter(new_state)
+
+    def with_planning_phase_file_write_count(self, count: int) -> ISessionState:
+        """Create a new session state with updated planning phase file write count."""
+        new_state = cast(
+            SessionState, self._state
+        ).with_planning_phase_file_write_count(count)
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests

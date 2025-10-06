@@ -18,7 +18,7 @@ from src.core.services.backend_registry import backend_registry
 from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
-    pass
+    from src.core.services.translation_service import TranslationService
 
 
 class ZAIConnector(OpenAIConnector):
@@ -27,11 +27,12 @@ class ZAIConnector(OpenAIConnector):
     backend_type: str = "zai"
 
     def __init__(
-        self, client: httpx.AsyncClient, config: AppConfig
-    ) -> None:  # Modified
-        from src.core.services.translation_service import TranslationService
-
-        super().__init__(client, config, translation_service=TranslationService())
+        self,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: "TranslationService | None" = None,
+    ) -> None:
+        super().__init__(client, config, translation_service=translation_service)
         self.api_base_url = "https://open.bigmodel.cn/api/paas/v4/"
         self.name = "zai"
         # Load default models from YAML config file

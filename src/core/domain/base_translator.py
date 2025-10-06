@@ -18,6 +18,13 @@ class BaseTranslator:
             return " ".join(text_parts)
         return str(content)
 
+    @staticmethod
+    def _get_request_param(request: Any, key: str, default: Any = None) -> Any:
+        """Safely get a parameter from a request, whether it's a dict or an object."""
+        if isinstance(request, dict):
+            return request.get(key, default)
+        return getattr(request, key, default)
+
     def _validate_and_convert_messages(
         self, messages: list[Any]
     ) -> list[dict[str, Any]]:

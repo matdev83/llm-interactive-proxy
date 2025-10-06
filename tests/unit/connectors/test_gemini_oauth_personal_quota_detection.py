@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
+from src.core.common.exceptions import BackendError
 
 
 class TestGeminiOAuthPersonalQuotaDetection:
@@ -111,9 +112,8 @@ class TestGeminiOAuthPersonalQuotaDetection:
 
         assert condition_matches_3 is False
 
-    @patch("src.connectors.gemini_oauth_personal.logger")
     def test_quota_exceeded_error_marks_backend_unusable(
-        self, mock_logger: Mock, connector: GeminiOAuthPersonalConnector
+        self, connector: GeminiOAuthPersonalConnector
     ) -> None:
         """Test that quota exceeded errors mark the backend as unusable."""
         # Mock a response with quota exceeded error
@@ -130,31 +130,17 @@ class TestGeminiOAuthPersonalQuotaDetection:
         # Initially not quota exceeded
         assert not connector._quota_exceeded
 
-        # This would be the error handling logic from the streaming response
-        # We're testing the condition that would trigger the quota detection
-        if mock_response.status_code >= 400:
-            try:
-                error_detail = mock_response.json()
-            except Exception:
-                error_detail = mock_response.text
-
-            # Check for 429 quota exceeded error
-            if (
-                mock_response.status_code == 429
-                and isinstance(error_detail, dict)
-                and "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests'"
-                in error_detail.get("error", {}).get("message", "")
-            ):
-
-                # Mark backend as unusable
-                connector._mark_backend_unusable()
+        # Call the error handling method and expect a BackendError
+        with pytest.raises(BackendError) as exc_info:
+            connector._handle_streaming_error(mock_response)
 
         # Verify backend was marked as unusable
         assert not connector.is_functional
         assert connector._quota_exceeded
 
-        # Verify error was logged
-        mock_logger.error.assert_called()
+        # Verify the exception details
+        assert exc_info.value.code == "quota_exceeded"
+        assert "quota exceeded" in str(exc_info.value).lower()
 
     def test_non_quota_error_does_not_mark_backend_unusable(
         self, connector: GeminiOAuthPersonalConnector
@@ -174,24 +160,13 @@ class TestGeminiOAuthPersonalQuotaDetection:
         # Initially not quota exceeded
         assert not connector._quota_exceeded
 
-        # This would be the error handling logic from the streaming response
-        # We're testing the condition that would NOT trigger the quota detection
-        if mock_response.status_code >= 400:
-            try:
-                error_detail = mock_response.json()
-            except Exception:
-                error_detail = mock_response.text
-
-            # Check for 429 quota exceeded error
-            if (
-                mock_response.status_code == 429
-                and isinstance(error_detail, dict)
-                and "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests'"
-                in error_detail.get("error", {}).get("message", "")
-            ):
-
-                # Mark backend as unusable
-                connector._mark_backend_unusable()
+        # Call the error handling method and expect a BackendError
+        with pytest.raises(BackendError) as exc_info:
+            connector._handle_streaming_error(mock_response)
 
         # Verify backend was NOT marked as unusable
         assert not connector._quota_exceeded
+
+        # Verify the exception details
+        assert exc_info.value.code == "code_assist_error"
+        assert "quota exceeded" not in str(exc_info.value).lower()

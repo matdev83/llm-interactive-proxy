@@ -10,6 +10,7 @@ from src.core.interfaces.configuration import (
     IBackendSpecificConfig,
     IConfig,
     ILoopDetectionConfig,
+    IPlanningPhaseConfig,
     IReasoningConfig,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "IBackendSpecificConfig",
     "IConfig",
     "ILoopDetectionConfig",
+    "IPlanningPhaseConfig",
     "IReasoningConfig",
 ]

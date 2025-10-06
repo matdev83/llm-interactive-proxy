@@ -7,10 +7,11 @@ It detects tool calls in LLM responses and passes them through registered handle
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 from typing import Any
+
+from json_repair import repair_json
 
 from src.core.domain.responses import ProcessedResponse
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
@@ -102,13 +103,41 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         model_name = context.get("model_name", "unknown")
         calling_agent = context.get("calling_agent")
 
+        # Expose detected tool calls in response metadata for downstream consumers
+        try:
+            if hasattr(response, "metadata") and isinstance(response.metadata, dict):
+                response.metadata.setdefault("tool_calls", [])
+                # Only extend if not already present to avoid duplication
+                if response.metadata["tool_calls"] == []:
+                    response.metadata["tool_calls"] = list(tool_calls)
+            # Also pass via context so processors can use them even if metadata is overwritten later
+            if isinstance(context, dict):
+                context["detected_tool_calls"] = list(tool_calls)
+        except Exception:
+            logger.debug(
+                "Failed to annotate tool calls in metadata/context", exc_info=True
+            )
+
         # Process each tool call through the reactor
         for tool_call in tool_calls:
             # Parse tool arguments if they are a JSON string
-            tool_arguments = tool_call.get("function", {}).get("arguments", {})
-            if isinstance(tool_arguments, str):
-                with contextlib.suppress(json.JSONDecodeError, TypeError):
-                    tool_arguments = json.loads(tool_arguments)
+            tool_arguments_raw = tool_call.get("function", {}).get("arguments", {})
+            tool_arguments: dict[str, Any] = {}
+            if isinstance(tool_arguments_raw, str):
+                try:
+                    # Attempt to repair the JSON before loading
+                    repaired_arguments = repair_json(tool_arguments_raw)
+                    parsed_args = json.loads(repaired_arguments)
+                    if isinstance(parsed_args, dict):
+                        tool_arguments = parsed_args
+                except (json.JSONDecodeError, TypeError):
+                    # If repair fails, log it and default to an empty dict
+                    logger.warning(
+                        f"Could not parse tool arguments after repair: {tool_arguments_raw}",
+                        exc_info=True,
+                    )
+            elif isinstance(tool_arguments_raw, dict):
+                tool_arguments = tool_arguments_raw
 
             tool_context = ToolCallContext(
                 session_id=session_id,

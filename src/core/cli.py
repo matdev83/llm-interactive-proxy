@@ -11,7 +11,7 @@ import os
 import socket
 import sys
 from collections.abc import Callable
-from typing import cast
+from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI
@@ -191,6 +191,63 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         default=None,
         help="Disable LLM accounting (usage tracking and audit logging)",
+    )
+
+    # Planning phase options
+    parser.add_argument(
+        "--enable-planning-phase",
+        action="store_true",
+        default=None,
+        help="Enable planning phase model routing for initial requests",
+    )
+    parser.add_argument(
+        "--planning-phase-strong-model",
+        type=str,
+        default=None,
+        metavar="BACKEND:MODEL",
+        help="Strong model to use during planning phase (e.g., openai:gpt-4)",
+    )
+    parser.add_argument(
+        "--planning-phase-max-turns",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Maximum number of turns before switching from strong model (default: 10)",
+    )
+    parser.add_argument(
+        "--planning-phase-max-file-writes",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Maximum number of file writes before switching from strong model (default: 1)",
+    )
+    parser.add_argument(
+        "--planning-phase-temperature",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help="Temperature override for planning strong model",
+    )
+    parser.add_argument(
+        "--planning-phase-top-p",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help="Top-p override for planning strong model",
+    )
+    parser.add_argument(
+        "--planning-phase-reasoning-effort",
+        type=str,
+        default=None,
+        metavar="EFFORT",
+        help="Reasoning effort override for planning strong model",
+    )
+    parser.add_argument(
+        "--planning-phase-thinking-budget",
+        type=int,
+        default=None,
+        metavar="TOKENS",
+        help="Reasoning tokens (thinking budget) override for planning strong model",
     )
 
     brute_force_toggle_group = parser.add_mutually_exclusive_group()
@@ -427,6 +484,35 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     # Pytest compression flag
     if args.pytest_compression_enabled is not None:
         cfg.session.pytest_compression_enabled = args.pytest_compression_enabled
+
+    # Planning phase configuration
+    if getattr(args, "enable_planning_phase", None) is not None:
+        cfg.session.planning_phase.enabled = args.enable_planning_phase
+    if getattr(args, "planning_phase_strong_model", None) is not None:
+        cfg.session.planning_phase.strong_model = args.planning_phase_strong_model
+    if getattr(args, "planning_phase_max_turns", None) is not None:
+        cfg.session.planning_phase.max_turns = max(1, args.planning_phase_max_turns)
+    if getattr(args, "planning_phase_max_file_writes", None) is not None:
+        cfg.session.planning_phase.max_file_writes = max(
+            1, args.planning_phase_max_file_writes
+        )
+
+    # Planning phase overrides
+    overrides_updates: dict[str, Any] = {}
+    if getattr(args, "planning_phase_temperature", None) is not None:
+        overrides_updates["temperature"] = args.planning_phase_temperature
+    if getattr(args, "planning_phase_top_p", None) is not None:
+        overrides_updates["top_p"] = args.planning_phase_top_p
+    if getattr(args, "planning_phase_reasoning_effort", None) is not None:
+        overrides_updates["reasoning_effort"] = args.planning_phase_reasoning_effort
+    if getattr(args, "planning_phase_thinking_budget", None) is not None:
+        overrides_updates["thinking_budget"] = args.planning_phase_thinking_budget
+    if overrides_updates:
+        existing_overrides = cfg.session.planning_phase.overrides or {}
+        if not isinstance(existing_overrides, dict):
+            existing_overrides = {}
+        existing_overrides.update(overrides_updates)
+        cfg.session.planning_phase.overrides = existing_overrides
 
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)

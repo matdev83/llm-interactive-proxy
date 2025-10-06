@@ -383,6 +383,32 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self.is_functional = True
         self._initialization_failed = False
 
+    def _handle_streaming_error(self, response: requests.Response) -> None:
+        """Handle errors from streaming responses, checking for quota issues."""
+        if response.status_code >= 400:
+            try:
+                error_detail = response.json()
+            except Exception:
+                error_detail = response.text
+
+            if (
+                response.status_code == 429
+                and isinstance(error_detail, dict)
+                and "Quota exceeded" in error_detail.get("error", {}).get("message", "")
+            ):
+                self._mark_backend_unusable()
+                raise BackendError(
+                    message=f"Gemini CLI OAuth quota exceeded: {error_detail}",
+                    code="quota_exceeded",
+                    status_code=response.status_code,
+                )
+
+            raise BackendError(
+                message=f"Code Assist API streaming error: {error_detail}",
+                code="code_assist_error",
+                status_code=response.status_code,
+            )
+
     def _mark_backend_unusable(self) -> None:
         """Mark this backend as unusable by removing it from functional backends list.
 
@@ -1289,7 +1315,11 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    timeout=int(DEFAULT_CONNECTION_TIMEOUT),
+                    # Use (connect, read) timeout to avoid premature read timeouts on long SSE responses
+                    timeout=(
+                        int(DEFAULT_CONNECTION_TIMEOUT),
+                        int(DEFAULT_READ_TIMEOUT),
+                    ),
                 )
             except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
                 raise APITimeoutError(
@@ -1576,7 +1606,11 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                             params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            timeout=int(DEFAULT_CONNECTION_TIMEOUT),
+                            # Use (connect, read) timeout with longer read window for streaming SSE
+                            timeout=(
+                                int(DEFAULT_CONNECTION_TIMEOUT),
+                                int(DEFAULT_READ_TIMEOUT),
+                            ),
                             stream=True,
                         )
                     except requests.exceptions.Timeout as te:
@@ -1602,27 +1636,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                         return
 
                     if response.status_code >= 400:
-                        try:
-                            error_detail = response.json()
-                        except Exception:
-                            error_detail = response.text
-                        if (
-                            response.status_code == 429
-                            and isinstance(error_detail, dict)
-                            and "Quota exceeded"
-                            in error_detail.get("error", {}).get("message", "")
-                        ):
-                            self._mark_backend_unusable()
-                            raise BackendError(
-                                message=f"Gemini CLI OAuth quota exceeded: {error_detail}",
-                                code="quota_exceeded",
-                                status_code=response.status_code,
-                            )
-                        raise BackendError(
-                            message=f"Code Assist API streaming error: {error_detail}",
-                            code="code_assist_error",
-                            status_code=response.status_code,
-                        )
+                        self._handle_streaming_error(response)
 
                     # Process streaming byte-by-byte for true real-time streaming
                     # Use a larger chunk_size for better performance (512 bytes is a good balance)

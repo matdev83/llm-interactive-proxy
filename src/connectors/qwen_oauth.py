@@ -6,6 +6,8 @@ import asyncio
 import contextlib
 import json
 import logging
+import shutil
+import subprocess
 import time
 from concurrent.futures import Future
 from pathlib import Path
@@ -35,11 +37,24 @@ from src.core.services.backend_registry import backend_registry
 from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
-    pass
+    from src.core.services.translation_service import TranslationService
 
     # No legacy ChatCompletionRequest here; connectors should use domain ChatRequest
 
 logger = logging.getLogger(__name__)
+
+
+TOKEN_EXPIRY_BUFFER_SECONDS = 30.0
+CLI_REFRESH_THRESHOLD_SECONDS = 120.0
+CLI_REFRESH_COOLDOWN_SECONDS = 30.0
+CLI_REFRESH_COMMAND = [
+    "qwen",
+    "chat",
+    "--model",
+    "qwen-turbo",
+    "--prompt",
+    "Hi. What's up?",
+]
 
 
 class QwenCredentialsFileHandler(FileSystemEventHandler):
@@ -74,11 +89,12 @@ class QwenOAuthConnector(OpenAIConnector):
     backend_type: str = "qwen-oauth"
 
     def __init__(
-        self, client: httpx.AsyncClient, config: AppConfig
-    ) -> None:  # Modified
-        from src.core.services.translation_service import TranslationService
-
-        super().__init__(client, config, translation_service=TranslationService())
+        self,
+        client: httpx.AsyncClient,
+        config: AppConfig,
+        translation_service: "TranslationService | None" = None,
+    ) -> None:
+        super().__init__(client, config, translation_service=translation_service)
         self.name = "qwen-oauth"
         self._default_endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         self.api_base_url = self._default_endpoint
@@ -94,25 +110,22 @@ class QwenOAuthConnector(OpenAIConnector):
         self._last_validation_time = 0.0
         self._pending_reload_task: asyncio.Task[None] | Future[None] | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._last_cli_refresh_attempt = 0.0
+        self._cli_refresh_process: subprocess.Popen[bytes] | None = None
+        self._main_loop: asyncio.AbstractEventLoop | None = None
 
-    def _is_token_expired(self) -> bool:
-        """Check if the current access token is expired or close to expiring."""
+    def _is_token_expired(
+        self, buffer_seconds: float = TOKEN_EXPIRY_BUFFER_SECONDS
+    ) -> bool:
+        """Check if the current access token is expired or within buffer window."""
         if not self._oauth_credentials:
-            return True  # No credentials means no valid token
+            return True
 
-        expiry_date_ms = self._oauth_credentials.get("expiry_date")
-        if not isinstance(expiry_date_ms, int | float):
-            return False  # No expiry date means token doesn't expire
+        seconds_remaining = self._seconds_until_token_expiry()
+        if seconds_remaining is None:
+            return False
 
-        # Convert milliseconds to seconds
-        expiry_date_s = float(expiry_date_ms) / 1000.0
-
-        # Convert milliseconds to seconds
-        expiry_date_s = expiry_date_ms / 1000
-
-        # Add a buffer for proactive refresh (e.g., 30 seconds before actual expiry)
-        refresh_buffer_s = 30
-        return time.time() >= (expiry_date_s - refresh_buffer_s)
+        return seconds_remaining <= buffer_seconds
 
     def _get_refresh_token(self) -> str | None:
         """Get refresh token, either from credentials or cached value."""
@@ -124,6 +137,89 @@ class QwenOAuthConnector(OpenAIConnector):
             return self._refresh_token
 
         return None
+
+    def _seconds_until_token_expiry(self) -> float | None:
+        """Return seconds remaining before token expiry, or None if unknown."""
+        if not self._oauth_credentials:
+            return None
+
+        expiry_value = self._oauth_credentials.get("expiry_date")
+        if not isinstance(expiry_value, int | float):
+            return None
+
+        expiry_seconds = float(expiry_value) / 1000.0
+        return expiry_seconds - time.time()
+
+    def _should_trigger_cli_refresh(self) -> bool:
+        """Determine whether we should proactively trigger CLI token refresh."""
+        if not self._oauth_credentials:
+            return True
+
+        seconds_remaining = self._seconds_until_token_expiry()
+        if seconds_remaining is None:
+            return False
+
+        if seconds_remaining > CLI_REFRESH_THRESHOLD_SECONDS:
+            return False
+
+        now = time.time()
+        if (now - self._last_cli_refresh_attempt) < CLI_REFRESH_COOLDOWN_SECONDS:
+            return False
+
+        return not (
+            self._cli_refresh_process and self._cli_refresh_process.poll() is None
+        )
+
+    def _launch_cli_refresh_process(self) -> None:
+        """Launch qwen CLI command to refresh the OAuth token in background."""
+        now = time.time()
+
+        if (now - self._last_cli_refresh_attempt) < CLI_REFRESH_COOLDOWN_SECONDS:
+            return
+
+        if self._cli_refresh_process and self._cli_refresh_process.poll() is None:
+            return
+
+        try:
+            command = list(CLI_REFRESH_COMMAND)
+            executable = shutil.which(command[0])
+            if executable:
+                command[0] = executable
+            else:
+                raise FileNotFoundError(command[0])
+
+            self._cli_refresh_process = subprocess.Popen(  # - intended CLI call
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Triggered Qwen CLI background refresh process")
+        except FileNotFoundError:
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Qwen CLI binary not found; cannot refresh OAuth token automatically."
+                )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self._last_cli_refresh_attempt = now
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to launch Qwen CLI for token refresh: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+    async def _poll_for_new_token(self) -> bool:
+        """Poll the credential file for an updated token after CLI refresh."""
+        for _ in range(5):
+            await asyncio.sleep(1)
+            loaded = await self._load_oauth_credentials()
+            if loaded and not self._is_token_expired():
+                return True
+
+        return not self._is_token_expired()
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
@@ -354,78 +450,58 @@ class QwenOAuthConnector(OpenAIConnector):
         return True
 
     async def _refresh_token_if_needed(self) -> bool:
-        """Refresh the access token if it's expired or close to expiring."""
-        if not self._is_token_expired():
-            return True  # No refresh needed
+        """Ensure a valid access token is available, refreshing when necessary."""
+        if not self._oauth_credentials:
+            await self._load_oauth_credentials()
+
+        if not self._oauth_credentials:
+            return False
+
+        expired = self._is_token_expired()
+        near_expiry = self._should_trigger_cli_refresh()
+
+        if not expired and not near_expiry:
+            return True
 
         async with self._token_refresh_lock:
-            # Re-check after acquiring lock in case another coroutine refreshed it
-            if not self._is_token_expired():
-                return True
+            if not self._oauth_credentials:
+                await self._load_oauth_credentials()
 
-            logger.info("Access token expired or near expiry, attempting to refresh...")
-
-            refresh_token = (
-                self._oauth_credentials.get("refresh_token")
-                if self._oauth_credentials
-                else None
-            )
-            if not refresh_token:
-                logger.warning("No refresh token available to perform refresh.")
+            if not self._oauth_credentials:
                 return False
 
-            token_url = "https://chat.qwen.ai/api/v1/oauth2/token"  # Qwen's OAuth token endpoint
-            headers = {"Content-Type": "application/x-www-form-urlencoded"}
-            data = {
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-            }
+            expired = self._is_token_expired()
+            near_expiry = self._should_trigger_cli_refresh()
 
-            try:
-                response = await self.client.post(token_url, headers=headers, data=data)
-                response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
-                new_credentials = response.json()
-
-                # Ensure _oauth_credentials is a dictionary before updating
-                if self._oauth_credentials is None:
-                    self._oauth_credentials = {}
-                self._oauth_credentials.update(new_credentials)
-                self._oauth_credentials["expiry_date"] = (
-                    int(time.time() * 1000)
-                    + new_credentials.get("expires_in", 3600) * 1000
-                )  # Convert to ms
-
-                # Update API base URL if resource_url is provided
-                resource_url = new_credentials.get("resource_url")
-                if resource_url:
-                    self.api_base_url = f"https://{resource_url}/v1"
-                    logger.info(f"Qwen API base URL updated to: {self.api_base_url}")
-
-                # Save updated credentials
-                await self._save_oauth_credentials(self._oauth_credentials)
-
-                logger.info("Successfully refreshed Qwen OAuth token.")
+            if not expired and near_expiry:
+                self._launch_cli_refresh_process()
                 return True
 
-            except httpx.HTTPStatusError as e:
-                logger.error(
-                    f"HTTP error during token refresh: {e.response.status_code} - {e.response.text}"
+            if not expired:
+                return True
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Access token expired; reloading credentials and invoking CLI refresh if needed."
                 )
-                return False
-            except httpx.RequestError as e:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Network error during token refresh: {e}")
-                return False
-            except json.JSONDecodeError as e:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Malformed JSON response during token refresh: {e}")
-                return False
-            except Exception as e:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        f"An unexpected error occurred during token refresh: {e}"
-                    )
-                return False
+
+            reloaded = await self._load_oauth_credentials()
+            if reloaded and not self._is_token_expired():
+                if self._should_trigger_cli_refresh():
+                    self._launch_cli_refresh_process()
+                return True
+
+            self._launch_cli_refresh_process()
+
+            refreshed = await self._poll_for_new_token()
+            if refreshed:
+                return True
+
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Automatic Qwen CLI refresh did not produce a valid token in time."
+                )
+            return False
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
@@ -725,7 +801,7 @@ class QwenOAuthConnector(OpenAIConnector):
             # Convert request_data to ChatRequest using the adapter
             if not isinstance(request_data, dict):
                 if hasattr(request_data, "model_dump"):
-                    request_data = request_data.model_dump()
+                    request_data = request_data.model_dump()  # type: ignore[attr-defined]
                 else:
                     raise TypeError(
                         f"Unsupported request_data type: {type(request_data).__name__}"

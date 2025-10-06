@@ -76,7 +76,10 @@ class ResponseProcessor(IResponseProcessor):
                 # Only add LoopDetectionProcessor if explicitly provided or via old loop_detector
                 if loop_detection_processor:
                     processors.append(loop_detection_processor)
-                processors.append(ContentAccumulationProcessor())
+                # Use default 10MB buffer limit
+                processors.append(
+                    ContentAccumulationProcessor(max_buffer_bytes=10 * 1024 * 1024)
+                )
 
             self._stream_normalizer = StreamNormalizer(processors)
 
@@ -190,6 +193,21 @@ class ResponseProcessor(IResponseProcessor):
                     },
                 )
 
+                # If tool calls were detected by reactor, ensure they are persisted into metadata
+                try:
+                    detected_tool_calls = middleware_context.get("detected_tool_calls")
+                    if isinstance(detected_tool_calls, list):
+                        processed_response.metadata.setdefault("tool_calls", [])
+                        if not processed_response.metadata["tool_calls"]:
+                            processed_response.metadata["tool_calls"] = list(
+                                detected_tool_calls
+                            )
+                except Exception:
+                    logger.debug(
+                        "Failed to persist detected tool calls into response metadata",
+                        exc_info=True,
+                    )
+
             return processed_response
 
         except LoopDetectionError:
@@ -279,7 +297,10 @@ class ResponseProcessor(IResponseProcessor):
 
         if self._stream_normalizer is None:
             # Create a default stream normalizer if none was provided
-            self._stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
+            # Use default 10MB buffer limit
+            self._stream_normalizer = StreamNormalizer(
+                [ContentAccumulationProcessor(max_buffer_bytes=10 * 1024 * 1024)]
+            )
 
         # Process the stream using the normalizer
         try:

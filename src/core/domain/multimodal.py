@@ -139,6 +139,25 @@ class ContentPart(ValueObject):
             mime_type=mime_type or "image/jpeg",
         )
 
+    @classmethod
+    def from_data_url(cls, data_url: str) -> ContentPart:
+        """Create a content part from a data URL."""
+        if not data_url.startswith("data:"):
+            raise ValueError("Invalid data URL format: must start with 'data:'")
+
+        try:
+            header, encoded_data = data_url.split(",", 1)
+            meta = header.split(";")
+            mime_type = meta[0][5:]  # Remove 'data:'
+            encoding = meta[-1] if len(meta) > 1 and "=" not in meta[-1] else ""
+
+            if encoding != "base64":
+                raise ValueError("Only 'base64' encoding is supported in data URLs")
+
+            return cls.image_base64(encoded_data, mime_type=mime_type)
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Invalid data URL format: {e}") from e
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to a dictionary."""
         result: dict[str, Any] = {
@@ -277,8 +296,6 @@ class MultimodalMessage(ValueObject):
                                 content_parts.append(part)  # type: ignore[unreachable]
                             else:
                                 # Fallback for unexpected types
-                                import logging
-
                                 logging.getLogger(__name__).warning(
                                     f"Unexpected content part type: {type(part)}"
                                 )
@@ -343,8 +360,6 @@ class MultimodalMessage(ValueObject):
                                 content_parts.append(part)  # type: ignore[unreachable]
                             else:
                                 # Fallback for unexpected types
-                                import logging
-
                                 logging.getLogger(__name__).warning(
                                     f"Unexpected content part type for OpenAI format: {type(part)}"
                                 )
@@ -401,8 +416,6 @@ class MultimodalMessage(ValueObject):
                                 content_parts.append(part)  # type: ignore[unreachable]
                             else:
                                 # Fallback for unexpected types
-                                import logging
-
                                 logging.getLogger(__name__).warning(
                                     f"Unexpected content part type for Anthropic format: {type(part)}"
                                 )
@@ -460,8 +473,6 @@ class MultimodalMessage(ValueObject):
                                 content_parts.append(part)  # type: ignore[unreachable]
                             else:
                                 # Fallback for unexpected types
-                                import logging
-
                                 logging.getLogger(__name__).warning(
                                     f"Unexpected content part type for Gemini format: {type(part)}, hasattr: {hasattr(part, 'to_gemini_format')}, callable: {callable(getattr(part, 'to_gemini_format', None))}"
                                 )

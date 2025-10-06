@@ -38,6 +38,7 @@ This project is a swiss-army knife for anyone working with language models and a
 - **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
 - **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX plans, with any third-party application, not just those developed by the LLM vendor.
 - **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts.
+- **Planning-Phase Strong Model Overrides (NEW)**: Optionally route the first part of a session to a stronger model and override its parameters (e.g., temperature, top_p, reasoning effort, thinking budget) to maximize planning quality; automatically switch back to the default model after a set number of turns or file writes.
 - **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
 - **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
 - **Block Harmful Tool Calls**: Prevent potentially destructive actions, such as deleting your git repository, by detecting and blocking harmful tool calls at the proxy level.
@@ -468,6 +469,75 @@ For detailed information about wire capture formats, migration between versions,
 ## Optional Capabilities (Short List)
 
 ### Pytest Output Compression
+### Planning-Phase Strong Model Overrides
+
+Use a more capable "strong" model for the early planning phase of a session, then switch back to your default model once execution starts. This helps ensure high-quality initial analysis and planning without paying strong-model costs for the whole session.
+
+- **Why useful**:
+  - **Better initial planning**: Early prompts often set the trajectory of an entire session. Stronger reasoning models can plan tasks more effectively.
+  - **Cost and speed control**: After planning, the system returns to your normal/default model to control costs and improve turnaround.
+  - **Minimal configuration**: No arbiter; switching is automatic based on simple counters (turns or file writes).
+
+- **Behavior**:
+  - If enabled, the proxy routes early requests to a configured strong model unless the current model is already the strong model.
+  - Switching back happens when either:
+    - The maximum number of planning turns is reached; or
+    - The model performs a file-writing tool call (e.g., write/edit/apply_diff/patch).
+  - File-tool detection is handled by the existing Tool Call Reactor for reliability.
+
+- **Configuration (precedence: CLI > Env > YAML)**:
+  - YAML (`config.yaml`):
+    ```yaml
+    session:
+      planning_phase:
+        enabled: true
+        strong_model: "openai:gpt-4o"
+        max_turns: 10
+        max_file_writes: 1
+        overrides:
+          temperature: 0.2
+          top_p: 0.9
+          reasoning_effort: "high"
+          thinking_budget: 8000
+    ```
+  - Environment variables:
+    - `PLANNING_PHASE_ENABLED=true|false`
+    - `PLANNING_PHASE_STRONG_MODEL=backend:model` (e.g., `openai:gpt-4o`)
+    - `PLANNING_PHASE_MAX_TURNS=10`
+    - `PLANNING_PHASE_MAX_FILE_WRITES=1`
+    - `PLANNING_PHASE_TEMPERATURE=0.2`
+    - `PLANNING_PHASE_TOP_P=0.9`
+    - `PLANNING_PHASE_REASONING_EFFORT=high`
+    - `PLANNING_PHASE_THINKING_BUDGET=8000`
+  - CLI flags:
+    - `--enable-planning-phase`
+    - `--planning-phase-strong-model BACKEND:MODEL`
+    - `--planning-phase-max-turns N`
+    - `--planning-phase-max-file-writes N`
+    - `--planning-phase-temperature FLOAT`
+    - `--planning-phase-top-p FLOAT`
+    - `--planning-phase-reasoning-effort EFFORT`
+    - `--planning-phase-thinking-budget TOKENS`
+
+- **Usage example**:
+  ```bash
+  python -m src.core.cli \
+    --default-backend openai \
+    --enable-planning-phase \
+    --planning-phase-strong-model openai:gpt-4o \
+    --planning-phase-max-turns 8 \
+    --planning-phase-max-file-writes 1 \
+    --planning-phase-temperature 0.2 \
+    --planning-phase-top-p 0.9 \
+    --planning-phase-reasoning-effort high \
+    --planning-phase-thinking-budget 8000
+  ```
+
+Notes:
+- If the current model already equals the strong model, no override is applied.
+- After switching back, requests use whatever the normal routing would select.
+- File-write detection reuses the Tool Call Reactor; no duplicate detection logic.
+
 
 The proxy automatically compresses verbose pytest output to preserve context window space while maintaining error information:
 

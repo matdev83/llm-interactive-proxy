@@ -7,6 +7,7 @@ from typing import Any
 from src.core.interfaces.configuration_interface import (
     IBackendConfig,
     ILoopDetectionConfig,
+    IPlanningPhaseConfig,
     IReasoningConfig,
 )
 
@@ -140,6 +141,21 @@ class ISessionState(IValueObject, ISessionStateMutator):
 
     @property
     @abstractmethod
+    def planning_phase_config(self) -> IPlanningPhaseConfig:
+        """Get the planning phase configuration."""
+
+    @property
+    @abstractmethod
+    def planning_phase_turn_count(self) -> int:
+        """Get the planning phase turn count."""
+
+    @property
+    @abstractmethod
+    def planning_phase_file_write_count(self) -> int:
+        """Get the planning phase file write count."""
+
+    @property
+    @abstractmethod
     def project(self) -> str | None:
         """Get the project name."""
 
@@ -234,3 +250,15 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def with_pytest_compression_min_lines(self, min_lines: int) -> ISessionState:
         """Create a new state with updated pytest_compression_min_lines value."""
+
+    @abstractmethod
+    def with_planning_phase_config(self, config: IPlanningPhaseConfig) -> ISessionState:
+        """Create a new state with updated planning phase configuration."""
+
+    @abstractmethod
+    def with_planning_phase_turn_count(self, count: int) -> ISessionState:
+        """Create a new state with updated planning phase turn count."""
+
+    @abstractmethod
+    def with_planning_phase_file_write_count(self, count: int) -> ISessionState:
+        """Create a new state with updated planning phase file write count."""
