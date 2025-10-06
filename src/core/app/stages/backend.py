@@ -375,16 +375,12 @@ class BackendStage(InitializationStage):
 
         # Use the BackendFactory from the service container for proper DI
         try:
-            from src.core.domain.configuration.backend_config import BackendConfig
+            from src.core.models.backend_config import BackendConfig
             from src.core.services.backend_factory import BackendFactory
 
             backend_factory_service = services.build_service_provider().get_service(
                 BackendFactory
             )
-
-            if backend_factory_service is None:
-                logger.error("BackendFactory service not available in DI container")
-                return
 
             for backend_name in configured_backends:
                 try:
