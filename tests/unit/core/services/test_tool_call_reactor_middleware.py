@@ -135,9 +135,7 @@ class TestToolCallReactorMiddleware:
         assert call_args.tool_arguments == {"arg": "value"}
 
     @pytest.mark.asyncio
-    async def test_process_with_tool_call_list_payload(
-        self, middleware, mock_reactor
-    ):
+    async def test_process_with_tool_call_list_payload(self, middleware, mock_reactor):
         """Tool calls provided as a list should be processed correctly."""
         tool_call_response = [
             {

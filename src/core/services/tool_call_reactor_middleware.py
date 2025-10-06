@@ -202,7 +202,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             return []
 
         # Normalize the content into a Python structure that can be inspected
-        if isinstance(content, (dict, list)):
+        if isinstance(content, dict | list):
             data = content
         elif isinstance(content, str):
             try:
