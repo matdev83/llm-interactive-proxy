@@ -63,6 +63,25 @@ async def test_create_failover_route(
 
 
 @pytest.mark.asyncio
+async def test_create_failover_route_does_not_toggle_interactive_flag(
+    mock_session: Mock,
+    mock_state_reader: ISecureStateAccess,
+    mock_state_modifier: ISecureStateModification,
+) -> None:
+    """Ensure creating a route leaves the interactive flag untouched."""
+
+    command = CreateFailoverRouteCommand(
+        state_reader=mock_state_reader, state_modifier=mock_state_modifier
+    )
+    # The interactive flag should remain whatever it was before execution.
+    assert mock_session.state.interactive_just_enabled is False
+
+    await command.execute({"name": "route", "policy": "k"}, mock_session)
+
+    assert mock_session.state.interactive_just_enabled is False
+
+
+@pytest.mark.asyncio
 async def test_delete_failover_route(
     mock_session: Mock,
     mock_state_reader: ISecureStateAccess,
