@@ -201,10 +201,8 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if not content:
             return []
 
-        # If content is already a dict, use it directly
-        if isinstance(content, dict):
-            data = content
-        elif isinstance(content, list):
+        # If content is already a dict or list, use it directly
+        if isinstance(content, (dict, list)):
             data = content
         elif isinstance(content, str):
             # Otherwise try to parse as JSON string
