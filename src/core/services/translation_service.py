@@ -23,24 +23,48 @@ class TranslationService:
     """
 
     def __init__(self) -> None:
-        self._converters: dict[str, dict[str, Callable[..., Any]]] = {
-            "request": {
-                "gemini": Translation.gemini_to_domain_request,
-                "openai": Translation.openai_to_domain_request,
-                "openrouter": Translation.openrouter_to_domain_request,
-                "anthropic": Translation.anthropic_to_domain_request,
-                "code_assist": Translation.code_assist_to_domain_request,
-                "raw_text": Translation.raw_text_to_domain_request,
-                "responses": Translation.responses_to_domain_request,
-            },
-            "response": {
-                "gemini": Translation.gemini_to_domain_response,
-                "openai": Translation.openai_to_domain_response,
-                "openai-responses": Translation.responses_to_domain_response,
-                "anthropic": Translation.anthropic_to_domain_response,
-                "code_assist": Translation.code_assist_to_domain_response,
-                "raw_text": Translation.raw_text_to_domain_response,
-            },
+        # Converters that translate vendor specific payloads into the canonical
+        # domain models. These are used when a frontend request/response needs to
+        # be normalized before handing it to the rest of the system.
+        self._to_domain_request_converters: dict[
+            str, Callable[..., Any]
+        ] = {
+            "gemini": Translation.gemini_to_domain_request,
+            "openai": Translation.openai_to_domain_request,
+            "openrouter": Translation.openrouter_to_domain_request,
+            "anthropic": Translation.anthropic_to_domain_request,
+            "code_assist": Translation.code_assist_to_domain_request,
+            "raw_text": Translation.raw_text_to_domain_request,
+            "responses": Translation.responses_to_domain_request,
+        }
+        self._to_domain_response_converters: dict[
+            str, Callable[..., Any]
+        ] = {
+            "gemini": Translation.gemini_to_domain_response,
+            "openai": Translation.openai_to_domain_response,
+            "openai-responses": Translation.responses_to_domain_response,
+            "anthropic": Translation.anthropic_to_domain_response,
+            "code_assist": Translation.code_assist_to_domain_response,
+            "raw_text": Translation.raw_text_to_domain_response,
+        }
+
+        # Converters that translate canonical payloads to provider specific
+        # formats. These are used when calling backends.
+        self._from_domain_request_converters: dict[
+            str, Callable[[CanonicalChatRequest], Any]
+        ] = {
+            "gemini": self.from_domain_to_gemini_request,
+            "openai": self.from_domain_to_openai_request,
+            "openai-responses": self.from_domain_to_responses_request,
+            "anthropic": self.from_domain_to_anthropic_request,
+        }
+        self._from_domain_response_converters: dict[
+            str, Callable[[ChatResponse], Any]
+        ] = {
+            "openai": self.from_domain_to_openai_response,
+            "openai-responses": self.from_domain_to_responses_response,
+            "anthropic": self.from_domain_to_anthropic_response,
+            "gemini": self.from_domain_to_gemini_response,
         }
 
     def register_converter(
@@ -57,7 +81,24 @@ class TranslationService:
             format: The API format (e.g., "anthropic", "gemini").
             converter: The converter function.
         """
-        self._converters[direction][format] = converter
+        converters = self._get_converter_mapping(direction)
+        converters[format] = converter
+
+    def _get_converter_mapping(
+        self, direction: str
+    ) -> dict[str, Callable[..., Any]]:
+        mapping: dict[str, dict[str, Callable[..., Any]]] = {
+            "request": self._to_domain_request_converters,
+            "to_domain_request": self._to_domain_request_converters,
+            "response": self._to_domain_response_converters,
+            "to_domain_response": self._to_domain_response_converters,
+            "from_domain_request": self._from_domain_request_converters,
+            "from_domain_response": self._from_domain_response_converters,
+        }
+        try:
+            return mapping[direction]
+        except KeyError as exc:  # pragma: no cover - defensive guard
+            raise KeyError(f"Unknown converter direction: {direction}") from exc
 
     def to_domain_request(
         self, request: Any, source_format: str
@@ -97,19 +138,7 @@ class TranslationService:
         if isinstance(request, _Canonical | _ChatRequest):
             return _Canonical.model_validate(request.model_dump())
 
-        if source_format == "gemini":
-            return Translation.gemini_to_domain_request(request)
-        elif source_format == "openai":
-            return Translation.openai_to_domain_request(request)
-        elif source_format == "openrouter":
-            return Translation.openrouter_to_domain_request(request)
-        elif source_format == "anthropic":
-            return Translation.anthropic_to_domain_request(request)
-        elif source_format == "code_assist":
-            return Translation.code_assist_to_domain_request(request)
-        elif source_format == "raw_text":
-            return Translation.raw_text_to_domain_request(request)
-        elif source_format == "responses":
+        if source_format == "responses":
             logger.debug(
                 f"Converting Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
             )
@@ -137,12 +166,15 @@ class TranslationService:
                     exc_info=True,
                 )
                 raise
-        converter = self._converters["request"].get(source_format)
+        converter = self._to_domain_request_converters.get(source_format)
         if not converter:
             raise NotImplementedError(
                 f"Request converter for format '{source_format}' not implemented."
             )
-        return CanonicalChatRequest.model_validate(converter(request))
+        converted = converter(request)
+        if isinstance(converted, CanonicalChatRequest):
+            return converted
+        return CanonicalChatRequest.model_validate(converted)
 
     def from_domain_request(
         self, request: CanonicalChatRequest, target_format: str
@@ -157,16 +189,7 @@ class TranslationService:
         Returns:
             The request object in the target format.
         """
-        if target_format == "gemini":
-            return Translation.from_domain_to_gemini_request(request)
-        elif target_format == "openai":
-            return Translation.from_domain_to_openai_request(request)
-        elif target_format == "openai-responses":
-            return Translation.from_domain_to_responses_request(request)
-        elif target_format == "anthropic":
-            return Translation.from_domain_to_anthropic_request(request)
-
-        converter = self._converters["request"].get(target_format)
+        converter = self._from_domain_request_converters.get(target_format)
         if not converter:
             raise NotImplementedError(
                 f"Request converter for format '{target_format}' not implemented."
@@ -186,24 +209,15 @@ class TranslationService:
         Returns:
             A ChatResponse object.
         """
-        if source_format == "gemini":
-            return Translation.gemini_to_domain_response(response)
-        elif source_format == "openai":
-            return Translation.openai_to_domain_response(response)
-        elif source_format == "openai-responses":
-            return Translation.responses_to_domain_response(response)
-        elif source_format == "anthropic":
-            return Translation.anthropic_to_domain_response(response)
-        elif source_format == "code_assist":
-            return Translation.code_assist_to_domain_response(response)
-        elif source_format == "raw_text":
-            return Translation.raw_text_to_domain_response(response)
-        converter = self._converters["response"].get(source_format)
+        converter = self._to_domain_response_converters.get(source_format)
         if not converter:
             raise NotImplementedError(
                 f"Response converter for format '{source_format}' not implemented."
             )
-        return CanonicalChatResponse.model_validate(converter(response))
+        converted = converter(response)
+        if isinstance(converted, CanonicalChatResponse):
+            return converted
+        return CanonicalChatResponse.model_validate(converted)
 
     def from_domain_to_gemini_request(
         self, request: CanonicalChatRequest
@@ -448,18 +462,12 @@ class TranslationService:
         Returns:
             The response object in the target format.
         """
-        if target_format == "openai":
-            return self.from_domain_to_openai_response(response)
-        elif target_format == "openai-responses":
-            return self.from_domain_to_responses_response(response)
-        elif target_format == "anthropic":
-            return self.from_domain_to_anthropic_response(response)
-        elif target_format == "gemini":
-            return self.from_domain_to_gemini_response(response)
-
-        raise NotImplementedError(
-            f"Response converter for format '{target_format}' not implemented."
-        )
+        converter = self._from_domain_response_converters.get(target_format)
+        if not converter:
+            raise NotImplementedError(
+                f"Response converter for format '{target_format}' not implemented."
+            )
+        return converter(response)
 
     def from_domain_to_responses_response(
         self, response: ChatResponse

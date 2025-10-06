@@ -1,6 +1,9 @@
+import pytest
+
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
+    ChatMessage,
 )
 from src.core.services.translation_service import TranslationService
 
@@ -213,3 +216,36 @@ def test_to_domain_stream_chunk_raw_text_wrapped():
     domain_chunk = service.to_domain_stream_chunk(wrapped_chunk, "raw_text")
     assert isinstance(domain_chunk, dict)
     assert domain_chunk["choices"][0]["delta"]["content"] == "wrapped streaming chunk"
+
+
+def test_from_domain_request_without_converter_raises() -> None:
+    """Ensure outbound translation fails loudly when no converter is available."""
+
+    service = TranslationService()
+    canonical_request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    with pytest.raises(NotImplementedError):
+        service.from_domain_request(canonical_request, "raw_text")
+
+
+def test_register_custom_from_domain_request_converter() -> None:
+    """Custom outbound converters should be usable via the registration API."""
+
+    service = TranslationService()
+    canonical_request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    def custom_converter(request: CanonicalChatRequest) -> dict[str, str]:
+        return {"model": request.model, "payload": "ok"}
+
+    service.register_converter(
+        "from_domain_request", "raw_text", custom_converter
+    )
+
+    converted = service.from_domain_request(canonical_request, "raw_text")
+    assert converted == {"model": "gpt-4", "payload": "ok"}
