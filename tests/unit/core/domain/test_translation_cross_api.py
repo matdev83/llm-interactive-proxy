@@ -11,13 +11,69 @@ This module tests the translation between different API formats:
 from src.core.domain.chat import (
     CanonicalChatRequest,
     ChatMessage,
+    FunctionCall,
     FunctionDefinition,
     ImageURL,
     MessageContentPartImage,
     MessageContentPartText,
+    ToolCall,
     ToolDefinition,
 )
 from src.core.domain.translation import Translation
+
+
+class TestDomainToOpenAITranslation:
+    """Tests for translating canonical requests to OpenAI format."""
+
+    def test_multimodal_messages_are_serialized(self) -> None:
+        """Multimodal content should be converted to plain dictionaries."""
+
+        parts = [
+            MessageContentPartText(text="Describe this image"),
+            MessageContentPartImage(
+                image_url=ImageURL(url="https://example.com/cat.png", detail=None)
+            ),
+        ]
+        tool_call = ToolCall(
+            id="call_1",
+            function=FunctionCall(
+                name="classify_animal", arguments="{\"target\": \"cat\"}"
+            ),
+        )
+        request = CanonicalChatRequest(
+            model="gpt-4o",
+            messages=[
+                ChatMessage(
+                    role="assistant",
+                    content=parts,
+                    tool_calls=[tool_call],
+                )
+            ],
+        )
+
+        payload = Translation.from_domain_to_openai_request(request)
+
+        assert payload["model"] == "gpt-4o"
+        assert len(payload["messages"]) == 1
+        serialized_message = payload["messages"][0]
+
+        assert serialized_message["role"] == "assistant"
+        assert isinstance(serialized_message["content"], list)
+        assert all(isinstance(part, dict) for part in serialized_message["content"])
+        assert serialized_message["content"][0] == {
+            "type": "text",
+            "text": "Describe this image",
+        }
+
+        image_part = serialized_message["content"][1]
+        assert image_part["type"] == "image_url"
+        assert image_part["image_url"]["url"] == "https://example.com/cat.png"
+
+        assert "tool_calls" in serialized_message
+        assert isinstance(serialized_message["tool_calls"], list)
+        tool_call_payload = serialized_message["tool_calls"][0]
+        assert tool_call_payload["function"]["name"] == "classify_animal"
+        assert tool_call_payload["function"]["arguments"] == "{\"target\": \"cat\"}"
 
 
 class TestOpenAIToGeminiTranslation:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+from collections.abc import Sequence
 from typing import Any
 
 from src.core.domain.base_translator import BaseTranslator
@@ -1137,12 +1138,48 @@ class Translation(BaseTranslator):
         """
         Translate a CanonicalChatRequest to an OpenAI request.
         """
+        def _serialize_message(message: ChatMessage) -> dict[str, Any]:
+            payload: dict[str, Any] = {"role": message.role}
+
+            if message.name:
+                payload["name"] = message.name
+            if message.tool_call_id:
+                payload["tool_call_id"] = message.tool_call_id
+
+            content = message.content
+            if content is not None:
+                if isinstance(content, str):
+                    payload["content"] = content
+                elif isinstance(content, Sequence):
+                    serialized_parts: list[Any] = []
+                    for part in content:
+                        if hasattr(part, "model_dump"):
+                            serialized_parts.append(
+                                part.model_dump(exclude_none=True, by_alias=True)
+                            )
+                        elif isinstance(part, dict):
+                            serialized_parts.append(part)
+                        else:
+                            serialized_parts.append(
+                                {"type": "text", "text": str(part)}
+                            )
+                    payload["content"] = serialized_parts
+                else:
+                    payload["content"] = content
+
+            if message.tool_calls:
+                payload["tool_calls"] = [
+                    tc.model_dump(exclude_none=True, by_alias=True)
+                    if hasattr(tc, "model_dump")
+                    else tc
+                    for tc in message.tool_calls
+                ]
+
+            return payload
+
         payload: dict[str, Any] = {
             "model": request.model,
-            "messages": [
-                {"role": message.role, "content": message.content}
-                for message in request.messages
-            ],
+            "messages": [_serialize_message(message) for message in request.messages],
         }
 
         # Add all supported parameters
