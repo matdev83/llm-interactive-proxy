@@ -77,7 +77,7 @@ class CommandStage(InitializationStage):
     def _register_command_registry(self, services: ServiceCollection) -> None:
         """Register the CommandRegistry service for backward compatibility."""
         try:
-            from src.core.services.command_service import CommandRegistry
+            from src.core.services.command_utils import CommandRegistry
 
             # Register CommandRegistry as singleton
             services.add_singleton(CommandRegistry)
@@ -173,7 +173,7 @@ class CommandStage(InitializationStage):
                         ISecureStateAccess,
                         ISecureStateModification,
                     )
-                    from src.core.services.command_service import CommandRegistry
+                    from src.core.services.command_utils import CommandRegistry
 
                     registry = provider.get_required_service(CommandRegistry)
                     settings_service = provider.get_required_service(

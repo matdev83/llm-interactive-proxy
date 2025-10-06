@@ -539,11 +539,11 @@ class BackendService(IBackendService):
                 app_config = cast(AppConfig, self._config)
 
             # Cast provider_cfg to BackendConfig for type compatibility
-            from src.core.config.app_config import BackendConfig
+            from src.core.config.app_config import BackendConfigModel
 
             backend_config = (
                 provider_cfg
-                if isinstance(provider_cfg, BackendConfig) or provider_cfg is None
+                if isinstance(provider_cfg, BackendConfigModel) or provider_cfg is None
                 else None
             )
             backend: LLMBackend = await self._factory.ensure_backend(

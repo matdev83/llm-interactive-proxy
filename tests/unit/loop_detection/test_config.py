@@ -6,7 +6,7 @@ This module tests the loop detection configuration classes and validation.
 
 import pytest
 from src.loop_detection.config import (
-    LoopDetectionConfig,
+    InternalLoopDetectionConfig,
     PatternThresholds,
 )
 
@@ -40,12 +40,12 @@ class TestPatternThresholds:
         assert data["min_total_length"] == 50
 
 
-class TestLoopDetectionConfig:
-    """Tests for LoopDetectionConfig class."""
+class TestInternalLoopDetectionConfig:
+    """Tests for InternalLoopDetectionConfig class."""
 
     def test_default_config_creation(self) -> None:
-        """Test LoopDetectionConfig creation with defaults."""
-        config = LoopDetectionConfig()
+        """Test InternalLoopDetectionConfig creation with defaults."""
+        config = InternalLoopDetectionConfig()
 
         assert config.enabled is True
         assert config.buffer_size == 16384
@@ -56,8 +56,8 @@ class TestLoopDetectionConfig:
         assert config.max_history_length == 4096
 
     def test_custom_config_creation(self) -> None:
-        """Test LoopDetectionConfig creation with custom values."""
-        config = LoopDetectionConfig(
+        """Test InternalLoopDetectionConfig creation with custom values."""
+        config = InternalLoopDetectionConfig(
             enabled=False,
             buffer_size=1024,
             max_pattern_length=2048,
@@ -77,7 +77,7 @@ class TestLoopDetectionConfig:
 
     def test_default_thresholds_initialization(self) -> None:
         """Test that default thresholds are properly initialized."""
-        config = LoopDetectionConfig()
+        config = InternalLoopDetectionConfig()
 
         assert isinstance(config.pattern_thresholds, dict)
         assert "exact_match" in config.pattern_thresholds
@@ -96,7 +96,7 @@ class TestLoopDetectionConfig:
 
     def test_validate_catches_non_positive_chunk_settings(self) -> None:
         """Validate rejects non-positive chunk configuration values."""
-        config = LoopDetectionConfig(
+        config = InternalLoopDetectionConfig(
             content_chunk_size=0,
             content_loop_threshold=-2,
             max_history_length=0,

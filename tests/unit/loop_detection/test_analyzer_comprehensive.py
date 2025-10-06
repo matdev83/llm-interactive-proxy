@@ -6,7 +6,7 @@ This module provides comprehensive test coverage for the PatternAnalyzer class.
 
 import pytest
 from src.loop_detection.analyzer import LoopDetectionEvent, PatternAnalyzer
-from src.loop_detection.config import LoopDetectionConfig
+from src.loop_detection.config import InternalLoopDetectionConfig
 from src.loop_detection.hasher import ContentHasher
 
 
@@ -14,9 +14,9 @@ class TestPatternAnalyzer:
     """Tests for PatternAnalyzer class."""
 
     @pytest.fixture
-    def config(self) -> LoopDetectionConfig:
+    def config(self) -> InternalLoopDetectionConfig:
         """Create a test configuration."""
-        return LoopDetectionConfig(
+        return InternalLoopDetectionConfig(
             content_chunk_size=10,
             content_loop_threshold=3,
             max_history_length=100,
@@ -29,13 +29,13 @@ class TestPatternAnalyzer:
 
     @pytest.fixture
     def analyzer(
-        self, config: LoopDetectionConfig, hasher: ContentHasher
+        self, config: InternalLoopDetectionConfig, hasher: ContentHasher
     ) -> PatternAnalyzer:
         """Create a fresh PatternAnalyzer for each test."""
         return PatternAnalyzer(config, hasher)
 
     def test_analyzer_initialization(
-        self, analyzer: PatternAnalyzer, config: LoopDetectionConfig
+        self, analyzer: PatternAnalyzer, config: InternalLoopDetectionConfig
     ) -> None:
         """Test analyzer initialization."""
         assert analyzer.config == config

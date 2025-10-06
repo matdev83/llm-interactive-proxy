@@ -11,7 +11,6 @@ from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
-from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.di_interface import (
     IServiceCollection,
     IServiceProvider,
@@ -358,9 +357,8 @@ class ServiceCollection(IServiceCollection):
         from src.core.services.backend_request_manager_service import (
             BackendRequestManager,  # type: ignore[import-untyped]
         )
-        from src.core.services.command_service import (
-            CommandService,  # type: ignore[import-untyped]
-        )
+
+        # Legacy CommandService removed - use NewCommandService from di/services.py
         from src.core.services.content_rewriter_service import ContentRewriterService
         from src.core.services.request_processor_service import RequestProcessor
         from src.core.services.session_service import (
@@ -401,7 +399,7 @@ class ServiceCollection(IServiceCollection):
         self.add_singleton(BackendRegistry, BackendRegistry)
         self.add_singleton(IUsageTrackingService, UsageTrackingService)
         self.add_singleton(ISessionService, SessionService)
-        self.add_singleton(ICommandService, CommandService)
+        # ICommandService registered in register_core_services()
         self.add_singleton(ContentRewriterService, ContentRewriterService)
 
         self.add_scoped(IBackendProcessor, BackendProcessor)

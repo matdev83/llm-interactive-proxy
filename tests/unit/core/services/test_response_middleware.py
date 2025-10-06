@@ -9,8 +9,8 @@ from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.response_middleware import (
     ContentFilterMiddleware,
-    LoggingMiddleware,
     LoopDetectionMiddleware,
+    ResponseLoggingMiddleware,
 )
 
 
@@ -19,8 +19,8 @@ class TestLoggingMiddleware:
 
     @pytest.fixture
     def middleware(self):
-        """Create a LoggingMiddleware instance."""
-        return LoggingMiddleware()
+        """Create a ResponseLoggingMiddleware instance."""
+        return ResponseLoggingMiddleware()
 
     @pytest.mark.asyncio
     async def test_process_logs_response_info(self, middleware, caplog):

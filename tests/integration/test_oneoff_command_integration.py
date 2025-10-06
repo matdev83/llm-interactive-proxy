@@ -31,7 +31,7 @@ async def app() -> AsyncGenerator[FastAPI, None]:
     app.state.functional_backends = {"openrouter"}
 
     # Ensure OneoffCommand is registered in the command registry
-    from src.core.services.command_service import CommandRegistry
+    from src.core.services.command_utils import CommandRegistry
 
     command_registry = CommandRegistry()
     command_registry.register(OneoffCommand())

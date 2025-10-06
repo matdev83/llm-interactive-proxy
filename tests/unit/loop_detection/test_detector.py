@@ -3,7 +3,7 @@ Unit tests for the main LoopDetector class.
 """
 
 import pytest
-from src.loop_detection.config import LoopDetectionConfig
+from src.loop_detection.config import InternalLoopDetectionConfig
 from src.loop_detection.detector import LoopDetectionEvent, LoopDetector
 
 
@@ -12,7 +12,7 @@ class TestLoopDetector:
 
     def test_detector_initialization(self) -> None:
         """Test that detector initializes correctly."""
-        config = LoopDetectionConfig(enabled=True, buffer_size=1024)
+        config = InternalLoopDetectionConfig(enabled=True, buffer_size=1024)
         detector = LoopDetector(config=config)
 
         assert detector.is_enabled() == True
@@ -20,7 +20,7 @@ class TestLoopDetector:
 
     def test_detector_disabled(self) -> None:
         """Test that disabled detector doesn't process chunks."""
-        config = LoopDetectionConfig(enabled=False)
+        config = InternalLoopDetectionConfig(enabled=False)
         detector = LoopDetector(config=config)
 
         # Should not process when disabled
@@ -29,7 +29,7 @@ class TestLoopDetector:
 
     def test_simple_loop_detection_with_chunking(self) -> None:
         """Test detection of simple loops with chunked processing."""
-        config = LoopDetectionConfig(
+        config = InternalLoopDetectionConfig(
             enabled=True,
             buffer_size=1024,
             content_chunk_size=10,
@@ -65,7 +65,7 @@ class TestLoopDetector:
 
     def test_whitelist_prevents_noise_detection(self) -> None:
         """Detector should ignore loops made of whitelisted noise tokens."""
-        config = LoopDetectionConfig(
+        config = InternalLoopDetectionConfig(
             enabled=True,
             content_chunk_size=3,
             content_loop_threshold=3,
@@ -89,7 +89,7 @@ class TestLoopDetector:
 
     def test_no_false_positive_normal_text(self) -> None:
         """Test that normal text doesn't trigger false positives."""
-        config = LoopDetectionConfig(enabled=True)
+        config = InternalLoopDetectionConfig(enabled=True)
         detector = LoopDetector(config=config)
 
         # Normal text that shouldn't trigger detection
@@ -105,7 +105,7 @@ class TestLoopDetector:
 
     def test_detector_reset(self) -> None:
         """Test that detector reset works correctly."""
-        config = LoopDetectionConfig(enabled=True)
+        config = InternalLoopDetectionConfig(enabled=True)
         detector = LoopDetector(config=config)
 
         # Process some text
@@ -123,7 +123,7 @@ class TestLoopDetector:
 
     def test_detector_enable_disable(self) -> None:
         """Test enabling and disabling the detector."""
-        config = LoopDetectionConfig(enabled=True)
+        config = InternalLoopDetectionConfig(enabled=True)
         detector = LoopDetector(config=config)
 
         assert detector.is_enabled() == True
@@ -136,7 +136,7 @@ class TestLoopDetector:
 
     def test_detector_stats(self) -> None:
         """Test that detector statistics are correct."""
-        config = LoopDetectionConfig(enabled=True, buffer_size=512)
+        config = InternalLoopDetectionConfig(enabled=True, buffer_size=512)
         detector = LoopDetector(config=config)
 
         stats = detector.get_stats()
@@ -148,7 +148,7 @@ class TestLoopDetector:
 
     def test_minimum_content_threshold(self) -> None:
         """Test that detector requires minimum content before analyzing."""
-        config = LoopDetectionConfig(enabled=True)
+        config = InternalLoopDetectionConfig(enabled=True)
         detector = LoopDetector(config=config)
 
         # Very short text should not trigger analysis
@@ -162,30 +162,30 @@ class TestLoopDetector:
         """Test that invalid configurations are rejected."""
         # Invalid buffer size
         with pytest.raises(ValueError):
-            config = LoopDetectionConfig(enabled=True, buffer_size=-1)
+            config = InternalLoopDetectionConfig(enabled=True, buffer_size=-1)
             LoopDetector(config=config)
 
         # Invalid max pattern length
         with pytest.raises(ValueError):
-            config = LoopDetectionConfig(enabled=True, max_pattern_length=0)
+            config = InternalLoopDetectionConfig(enabled=True, max_pattern_length=0)
             LoopDetector(config=config)
 
         with pytest.raises(ValueError):
-            config = LoopDetectionConfig(enabled=True, content_chunk_size=0)
+            config = InternalLoopDetectionConfig(enabled=True, content_chunk_size=0)
             LoopDetector(config=config)
 
         with pytest.raises(ValueError):
-            config = LoopDetectionConfig(enabled=True, content_loop_threshold=0)
+            config = InternalLoopDetectionConfig(enabled=True, content_loop_threshold=0)
             LoopDetector(config=config)
 
         with pytest.raises(ValueError):
-            config = LoopDetectionConfig(enabled=True, max_history_length=0)
+            config = InternalLoopDetectionConfig(enabled=True, max_history_length=0)
             LoopDetector(config=config)
 
     @pytest.mark.asyncio
     async def test_check_for_loops_does_not_mutate_streaming_state(self) -> None:
         """check_for_loops should not modify the streaming analyzer state."""
-        config = LoopDetectionConfig(enabled=True)
+        config = InternalLoopDetectionConfig(enabled=True)
         detector = LoopDetector(config=config)
 
         detector.process_chunk("unique content that should not trigger detection")
@@ -200,7 +200,7 @@ class TestLoopDetector:
     async def test_check_for_loops_reports_repeated_length_only(self) -> None:
         """Ensure total_repeated_chars ignores surrounding noise."""
 
-        config = LoopDetectionConfig(
+        config = InternalLoopDetectionConfig(
             content_chunk_size=3,
             content_loop_threshold=3,
             max_history_length=50,

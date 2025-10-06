@@ -4,13 +4,14 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from src.core.commands.service import NewCommandService
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session, SessionStateAdapter
 from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
-from src.core.services.command_service import CommandRegistry, CommandService
+from src.core.services.command_utils import CommandRegistry
 
 
 class MockSuccessCommand(BaseCommand):
@@ -81,8 +82,10 @@ async def command_parser(
         async def update_session(self, session):
             return None
 
-    service = CommandService(
-        registry, session_service=_SessionSvc(), preserve_unknown=_preserve_unknown
+    from src.core.commands.parser import CommandParser
+
+    service = NewCommandService(
+        _SessionSvc(), CommandParser(), strict_command_detection=False
     )
     processor = CoreCommandProcessor(service)
     yield processor

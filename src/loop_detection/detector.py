@@ -21,7 +21,7 @@ from src.loop_detection.event import (
 
 from .analyzer import PatternAnalyzer
 from .buffer import ResponseBuffer
-from .config import LoopDetectionConfig
+from .config import InternalLoopDetectionConfig
 
 # from .event import LoopDetectionEvent # Already imported above
 from .hasher import ContentHasher
@@ -34,10 +34,10 @@ class LoopDetector(ILoopDetector):
 
     def __init__(
         self,
-        config: LoopDetectionConfig | None = None,
+        config: InternalLoopDetectionConfig | None = None,
         on_loop_detected: Callable[[LoopDetectionEvent], None] | None = None,
     ):
-        self.config = config or LoopDetectionConfig()
+        self.config = config or InternalLoopDetectionConfig()
         self.on_loop_detected = on_loop_detected
 
         # Validate configuration
@@ -172,7 +172,7 @@ class LoopDetector(ILoopDetector):
             "analyzer_state": self.analyzer.get_state(),
         }
 
-    def update_config(self, new_config: LoopDetectionConfig) -> None:
+    def update_config(self, new_config: InternalLoopDetectionConfig) -> None:
         """Update the detector configuration."""
         # Validate new configuration
         config_errors = new_config.validate()

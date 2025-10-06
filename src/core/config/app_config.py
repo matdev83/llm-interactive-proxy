@@ -100,8 +100,8 @@ class LogLevel(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class BackendConfig(DomainModel):
-    """Configuration for a backend service."""
+class BackendConfigModel(DomainModel):
+    """Configuration model for backend service (for YAML deserialization)."""
 
     api_key: list[str] = Field(default_factory=list)
     api_url: str | None = None
@@ -326,18 +326,18 @@ class BackendSettings(DomainModel):
         # Set backend configs using __dict__ to bypass Pydantic's field system
         for backend_name, config_data in backend_configs.items():
             if isinstance(config_data, dict):
-                config: BackendConfig = BackendConfig(**config_data)
-            elif isinstance(config_data, BackendConfig):
+                config: BackendConfigModel = BackendConfigModel(**config_data)
+            elif isinstance(config_data, BackendConfigModel):
                 config = config_data
             else:
-                config = BackendConfig()
+                config = BackendConfigModel()
             # Use __dict__ to bypass Pydantic's field system
             self.__dict__[backend_name] = config
 
-        # Add default BackendConfig for any registered backends that don't have configs
+        # Add default BackendConfigModel for any registered backends that don't have configs
         for backend_name in registered_backends:
             if backend_name not in self.__dict__:
-                self.__dict__[backend_name] = BackendConfig()
+                self.__dict__[backend_name] = BackendConfigModel()
 
         # Finally, absorb any non-registered backend configs that were provided via env/file
         # so that attribute access like config.backends.openai works even if
@@ -346,23 +346,23 @@ class BackendSettings(DomainModel):
             if key == "default_backend" or key.startswith("_"):
                 continue
             if isinstance(value, dict):
-                self.__dict__[key] = BackendConfig(**value)
-            elif isinstance(value, BackendConfig):
+                self.__dict__[key] = BackendConfigModel(**value)
+            elif isinstance(value, BackendConfigModel):
                 self.__dict__[key] = value
 
-    def __getitem__(self, key: str) -> BackendConfig:
+    def __getitem__(self, key: str) -> BackendConfigModel:
         """Allow dictionary-style access to backend configs."""
         if key in self.__dict__:
-            return cast(BackendConfig, self.__dict__[key])
+            return cast(BackendConfigModel, self.__dict__[key])
         raise KeyError(f"Backend '{key}' not found")
 
-    def __setitem__(self, key: str, value: BackendConfig) -> None:
+    def __setitem__(self, key: str, value: BackendConfigModel) -> None:
         """Allow dictionary-style setting of backend configs."""
         self.__dict__[key] = value
 
     def get(self, key: str, default: Any = None) -> Any:
         """Dictionary-style get with default."""
-        return cast(BackendConfig | None, self.__dict__.get(key, default))
+        return cast(BackendConfigModel | None, self.__dict__.get(key, default))
 
     @property
     def functional_backends(self) -> set[str]:
@@ -372,7 +372,7 @@ class BackendSettings(DomainModel):
         for backend_name in registered:
             if backend_name in self.__dict__:
                 config: Any = self.__dict__[backend_name]
-                if isinstance(config, BackendConfig) and config.api_key:
+                if isinstance(config, BackendConfigModel) and config.api_key:
                     functional.add(backend_name)
 
         # Consider OAuth-style backends functional even without an api_key in config,
@@ -392,7 +392,7 @@ class BackendSettings(DomainModel):
             if (
                 name == "default_backend"
                 or name.startswith("_")
-                or not isinstance(cfg, BackendConfig)
+                or not isinstance(cfg, BackendConfigModel)
             ):
                 continue
             if cfg.api_key:
@@ -416,7 +416,7 @@ class BackendSettings(DomainModel):
 
         # Check if the attribute exists in __dict__
         if name in self.__dict__:
-            return cast(BackendConfig, self.__dict__[name])
+            return cast(BackendConfigModel, self.__dict__[name])
 
         # Avoid creating configs for private/internal attributes to maintain security
         if name.startswith(("_", "__")):
@@ -428,7 +428,7 @@ class BackendSettings(DomainModel):
         # This allows accessing backend configs without pre-registration while
         # maintaining backward compatibility. Created configs are cached for
         # subsequent access to avoid creating multiple instances.
-        config = BackendConfig()
+        config = BackendConfigModel()
         self.__dict__[name] = config
         return config
 
@@ -439,7 +439,7 @@ class BackendSettings(DomainModel):
         for backend_name in backend_registry.get_registered_backends():
             if backend_name in self.__dict__:
                 config: Any = self.__dict__[backend_name]
-                if isinstance(config, BackendConfig):
+                if isinstance(config, BackendConfigModel):
                     dumped[backend_name] = config.model_dump()
         return dumped
 
@@ -938,3 +938,7 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
             raise
 
     return config
+
+
+# Type alias for backward compatibility
+BackendConfig = BackendConfigModel

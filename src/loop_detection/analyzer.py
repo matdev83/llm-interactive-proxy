@@ -5,7 +5,7 @@ import re
 import time
 from typing import Any
 
-from .config import LoopDetectionConfig
+from .config import InternalLoopDetectionConfig
 from .event import LoopDetectionEvent
 from .hasher import ContentHasher
 
@@ -20,7 +20,7 @@ class PatternAnalyzer:
     _last_chunk_index: int
     _in_code_block: bool
 
-    def __init__(self, config: LoopDetectionConfig, hasher: ContentHasher):
+    def __init__(self, config: InternalLoopDetectionConfig, hasher: ContentHasher):
         self.config = config
         self.hasher = hasher
         self.history: list[LoopDetectionEvent] = []  # To store detected events

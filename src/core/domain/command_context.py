@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # Avoid runtime circular import
-    from src.core.services.command_service import CommandRegistry  # pragma: no cover
+    from src.core.services.command_utils import CommandRegistry  # pragma: no cover
 else:  # Fallback type alias for runtime
     CommandRegistry = Any  # type: ignore
 

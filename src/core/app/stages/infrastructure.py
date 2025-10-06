@@ -118,12 +118,12 @@ class InfrastructureStage(InitializationStage):
 
             from src.core.interfaces.di_interface import IServiceProvider
             from src.core.interfaces.loop_detector_interface import ILoopDetector
-            from src.loop_detection.config import LoopDetectionConfig
+            from src.loop_detection.config import InternalLoopDetectionConfig
             from src.loop_detection.hybrid_detector import HybridLoopDetector
 
             def _create_hybrid_loop_detector() -> HybridLoopDetector:
                 """Build a HybridLoopDetector using legacy config defaults."""
-                config = LoopDetectionConfig()
+                config = InternalLoopDetectionConfig()
 
                 short_config = {
                     "content_loop_threshold": config.content_loop_threshold,

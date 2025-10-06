@@ -6,7 +6,7 @@ This module provides comprehensive test coverage for the LoopDetector class.
 
 import pytest
 from src.loop_detection.analyzer import LoopDetectionEvent
-from src.loop_detection.config import LoopDetectionConfig
+from src.loop_detection.config import InternalLoopDetectionConfig
 from src.loop_detection.detector import LoopDetector
 
 
@@ -14,9 +14,9 @@ class TestLoopDetector:
     """Tests for LoopDetector class."""
 
     @pytest.fixture
-    def config(self) -> LoopDetectionConfig:
+    def config(self) -> InternalLoopDetectionConfig:
         """Create a test configuration."""
-        return LoopDetectionConfig(
+        return InternalLoopDetectionConfig(
             enabled=True,
             buffer_size=1024,
             max_pattern_length=512,
@@ -24,12 +24,12 @@ class TestLoopDetector:
         )
 
     @pytest.fixture
-    def detector(self, config: LoopDetectionConfig) -> LoopDetector:
+    def detector(self, config: InternalLoopDetectionConfig) -> LoopDetector:
         """Create a fresh LoopDetector for each test."""
         return LoopDetector(config=config)
 
     def test_detector_initialization(
-        self, detector: LoopDetector, config: LoopDetectionConfig
+        self, detector: LoopDetector, config: InternalLoopDetectionConfig
     ) -> None:
         """Test detector initialization."""
         assert detector.config == config
@@ -43,14 +43,14 @@ class TestLoopDetector:
 
     def test_detector_initialization_disabled(self) -> None:
         """Test detector initialization with disabled config."""
-        config = LoopDetectionConfig(enabled=False)
+        config = InternalLoopDetectionConfig(enabled=False)
         detector = LoopDetector(config=config)
 
         assert detector.is_enabled() is False
 
     def test_detector_initialization_invalid_config(self) -> None:
         """Test detector initialization with invalid config."""
-        config = LoopDetectionConfig(buffer_size=0)  # Invalid
+        config = InternalLoopDetectionConfig(buffer_size=0)  # Invalid
 
         with pytest.raises(ValueError, match="Invalid loop detection configuration"):
             LoopDetector(config=config)
@@ -130,7 +130,7 @@ class TestLoopDetector:
 
     def test_process_chunk_buffer_overflow(self) -> None:
         """Test buffer overflow during chunk processing."""
-        config = LoopDetectionConfig(buffer_size=100)
+        config = InternalLoopDetectionConfig(buffer_size=100)
         detector = LoopDetector(config=config)
 
         # Add content that exceeds buffer size
@@ -213,7 +213,7 @@ class TestLoopDetector:
 
     def test_update_config(self, detector: LoopDetector) -> None:
         """Test updating detector configuration."""
-        new_config = LoopDetectionConfig(
+        new_config = InternalLoopDetectionConfig(
             enabled=False,
             buffer_size=2048,
             max_pattern_length=1024,
@@ -226,7 +226,7 @@ class TestLoopDetector:
 
     def test_update_config_invalid(self, detector: LoopDetector) -> None:
         """Test updating with invalid configuration."""
-        invalid_config = LoopDetectionConfig(buffer_size=0)  # Invalid
+        invalid_config = InternalLoopDetectionConfig(buffer_size=0)  # Invalid
 
         with pytest.raises(ValueError, match="Invalid loop detection configuration"):
             detector.update_config(invalid_config)
@@ -237,7 +237,7 @@ class TestLoopDetector:
         detector.process_chunk("x" * 100)
 
         # Update with smaller buffer size
-        new_config = LoopDetectionConfig(buffer_size=50)
+        new_config = InternalLoopDetectionConfig(buffer_size=50)
         detector.update_config(new_config)
 
         # Content should be truncated to fit new buffer size
@@ -347,8 +347,8 @@ class TestLoopDetector:
 
     def test_detector_multiple_instances_isolation(self) -> None:
         """Test that multiple detector instances are isolated."""
-        config1 = LoopDetectionConfig(buffer_size=100)
-        config2 = LoopDetectionConfig(buffer_size=200)
+        config1 = InternalLoopDetectionConfig(buffer_size=100)
+        config2 = InternalLoopDetectionConfig(buffer_size=200)
 
         detector1 = LoopDetector(config=config1)
         detector2 = LoopDetector(config=config2)
@@ -433,7 +433,7 @@ class TestLoopDetector:
 
     def test_detector_with_minimal_config(self) -> None:
         """Test detector with minimal valid configuration."""
-        config = LoopDetectionConfig(
+        config = InternalLoopDetectionConfig(
             buffer_size=1,  # Minimal valid size
             max_pattern_length=1,
         )
@@ -444,7 +444,7 @@ class TestLoopDetector:
 
     def test_detector_with_maximal_config(self) -> None:
         """Test detector with large configuration values."""
-        config = LoopDetectionConfig(
+        config = InternalLoopDetectionConfig(
             buffer_size=100000,
             max_pattern_length=50000,
             max_history_length=100000,

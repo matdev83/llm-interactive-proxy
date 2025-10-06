@@ -114,23 +114,30 @@ def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     original_handlers = root_logger.handlers[:]
     root_logger.handlers.clear()
 
-    monkeypatch.setattr(
-        cli.uvicorn, "run", lambda app, host, port, log_config=None: None
-    )
-    monkeypatch.setattr(cli, "_check_privileges", lambda: None)
+    from unittest.mock import MagicMock, patch
 
-    try:
-        cli.main(["--log", str(log_file)])
+    with (
+        patch(
+            "src.core.cli.uvicorn.run", lambda app, host, port, log_config=None: None
+        ),
+        patch("src.core.cli._check_privileges", lambda: None),
+        patch("src.core.app.application_builder.build_app") as mock_build_app,
+        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
+    ):
+        mock_build_app.return_value = MagicMock()
 
-        file_handlers = [
-            h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
-        ]
-        assert len(file_handlers) == 1
-        assert file_handlers[0].baseFilename == str(log_file)
-    finally:
-        for handler in root_logger.handlers:
-            handler.close()
-        root_logger.handlers[:] = original_handlers
+        try:
+            cli.main(["--log", str(log_file)])
+
+            file_handlers = [
+                h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
+            ]
+            assert len(file_handlers) == 1
+            assert file_handlers[0].baseFilename == str(log_file)
+        finally:
+            for handler in root_logger.handlers:
+                handler.close()
+            root_logger.handlers[:] = original_handlers
 
 
 @pytest.mark.asyncio

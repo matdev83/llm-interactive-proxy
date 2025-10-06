@@ -2,14 +2,11 @@ import json
 import logging
 from typing import Any, cast
 
+from src.core.common.exceptions import ParsingError
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.response_parser_interface import IResponseParser
 
 logger = logging.getLogger(__name__)
-
-
-class ParsingError(Exception):
-    """Custom exception for response parsing errors."""
 
 
 class ResponseParser(IResponseParser):

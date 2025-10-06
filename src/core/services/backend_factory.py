@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from src.connectors.base import LLMBackend
-from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.config.app_config import AppConfig, BackendConfigModel
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.backend_registry import BackendRegistry
 from src.core.services.translation_service import TranslationService
@@ -77,9 +77,9 @@ class BackendFactory:
         self,
         backend_type: str,
         app_config: AppConfig,  # Added app_config
-        backend_config: BackendConfig | None = None,
+        backend_config: BackendConfigModel | None = None,
     ) -> LLMBackend:
-        """Create and initialize a backend given a canonical BackendConfig.
+        """Create and initialize a backend given a canonical BackendConfigModel.
 
         This method centralizes connector initialization logic so callers
         don't need to duplicate api_key/url shaping and backend-specific
@@ -87,7 +87,7 @@ class BackendFactory:
         """
         logger = logging.getLogger(__name__)
 
-        # Build init_config from BackendConfig
+        # Build init_config from BackendConfigModel
         init_config: dict[str, Any] = {}
 
         if backend_config is not None:
