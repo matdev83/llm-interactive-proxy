@@ -1149,16 +1149,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         try:
             # Use the effective model (strip gemini-cli-oauth-personal: prefix if present)
             model_name = effective_model
-            if model_name.startswith("gemini-cli-oauth-personal:"):
-                model_name = model_name[
-                    25:
-                ]  # Remove "gemini-cli-oauth-personal:" prefix
-
-            # Fix the model name stripping bug
-            if model_name.startswith("gemini-cli-oauth-personal:"):
-                model_name = model_name[
-                    27:
-                ]  # Remove "gemini-cli-oauth-personal:" prefix
+            prefix = "gemini-cli-oauth-personal:"
+            if model_name.startswith(prefix):
+                model_name = model_name[len(prefix):]
 
             # Check if streaming is requested
             is_streaming = getattr(request_data, "stream", False)
