@@ -184,6 +184,61 @@ class TestToolCallReactorMiddleware:
         assert "tool_call_swallowed" in result.metadata
         assert "original_tool_call" in result.metadata
         assert result.metadata["original"] == "metadata"
+        assert result.metadata["tool_call_reactor"]["handler"] == "test_handler"
+
+    @pytest.mark.asyncio
+    async def test_process_with_tool_calls_swallowed_merges_metadata(
+        self, middleware, mock_reactor
+    ):
+        """Tool call metadata from handler should merge with existing entries."""
+        tool_call_response = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_123",
+                                "type": "function",
+                                "function": {
+                                    "name": "test_tool",
+                                    "arguments": '{"arg": "value"}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        response = ProcessedResponse(
+            content=json.dumps(tool_call_response),
+            metadata={
+                "existing": True,
+                "tool_call_reactor": {"previous": "data"},
+            },
+        )
+
+        swallow_result = ToolCallReactionResult(
+            should_swallow=True,
+            replacement_response="steering message",
+            metadata={"handler": "test_handler", "extra": "info"},
+        )
+
+        mock_reactor.process_tool_call.return_value = swallow_result
+
+        result = await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        assert isinstance(result, ProcessedResponse)
+        assert result.metadata["existing"] is True
+        assert result.metadata["tool_call_reactor"] == {
+            "previous": "data",
+            "handler": "test_handler",
+            "extra": "info",
+        }
 
     @pytest.mark.asyncio
     async def test_process_with_tool_calls_swallowed_no_replacement(
