@@ -203,6 +203,11 @@ class CommandService(ICommandService):
                 if not match:
                     break
 
+                # A command was found, so we need to modify the message.
+                # Create a deep copy to avoid mutating the original request data.
+                modified_messages[i] = message.model_copy(deep=True)
+                message = modified_messages[i]
+
                 cmd_name = match.group(1)
                 args_str = match.group(2) if args_match else None
                 before = text[: match.start()]
@@ -313,6 +318,11 @@ class CommandService(ICommandService):
                         if not match:
                             new_parts.append(part)
                             continue
+
+                        # A command was found, so we need to modify the message.
+                        # Create a deep copy to avoid mutating the original request data.
+                        modified_messages[i] = message.model_copy(deep=True)
+                        message = modified_messages[i]
 
                         cmd_name = match.group(1)
                         args_str = match.group(2) if args_match else None

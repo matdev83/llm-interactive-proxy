@@ -7,7 +7,6 @@ Refactored to use decomposed services following SOLID principles.
 
 from __future__ import annotations
 
-import copy
 import logging
 import re
 from typing import Any
@@ -598,8 +597,7 @@ class RequestProcessor(IRequestProcessor):
                 command_results=[],
             )
 
-        # Work on a deep copy to avoid mutating the original request messages
-        messages_copy = copy.deepcopy(request_data.messages)
+        # The command processor is now responsible for creating copies of any messages it modifies.
         return await self._command_processor.process_messages(
-            messages_copy, session_id, context
+            request_data.messages, session_id, context
         )
