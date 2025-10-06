@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 import httpx
 import pytest
 from fastapi import HTTPException
+from src.connectors.openai import OpenAIConnector
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.common.exceptions import ServiceUnavailableError
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -147,6 +148,26 @@ class TestQwenOAuthConnectorUnit:
         assert headers["Accept"] == "application/json"
 
     @pytest.mark.asyncio
+    async def test_get_headers_includes_identity_headers(self, connector):
+        """Identity-provided headers should be merged into outbound requests."""
+        connector._oauth_credentials = {"access_token": "mock-access-token"}
+        identity = MagicMock()
+        identity.get_resolved_headers.return_value = {
+            "X-Test-Header": "test-value",
+            "Another-Header": "another",
+        }
+        connector.identity = identity
+
+        headers = connector.get_headers()
+
+        identity.get_resolved_headers.assert_called_once_with(None)
+        assert headers["Authorization"] == "Bearer mock-access-token"
+        assert headers["Content-Type"] == "application/json"
+        assert headers["Accept"] == "application/json"
+        assert headers["X-Test-Header"] == "test-value"
+        assert headers["Another-Header"] == "another"
+
+    @pytest.mark.asyncio
     async def test_get_headers_no_access_token_raises_exception(self, connector):
         """Test that get_headers raises HTTPException when no access token is available."""
         connector._oauth_credentials = None  # Simulate no credentials
@@ -217,6 +238,59 @@ class TestQwenOAuthConnectorUnit:
             assert response.status_code == 200
             assert response.content["choices"][0]["message"]["content"] == "Hello!"
             mock_client.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_forwards_identity(self, connector):
+        """Connector should forward identity to the OpenAI base implementation."""
+        connector._oauth_credentials = {
+            "access_token": "test-access-token",
+            "refresh_token": "test-refresh-token",
+            "expiry_date": int((time.time() + 3600) * 1000),
+        }
+        identity = MagicMock()
+        identity.get_resolved_headers.return_value = {"X-Test": "value"}
+
+        request_payload = {
+            "model": "qwen3-coder-plus",
+            "messages": [
+                {"role": "user", "content": "Hello"},
+            ],
+            "stream": False,
+        }
+
+        with (
+            patch.object(
+                connector,
+                "_validate_runtime_credentials",
+                AsyncMock(return_value=True),
+            ),
+            patch.object(
+                connector,
+                "_refresh_token_if_needed",
+                AsyncMock(return_value=True),
+            ),
+            patch.object(
+                connector,
+                "_prepare_payload",
+                AsyncMock(return_value=request_payload),
+            ),
+            patch.object(
+                OpenAIConnector,
+                "chat_completions",
+                AsyncMock(return_value=ResponseEnvelope(status_code=200, content={})),
+            ) as super_mock,
+        ):
+            response = await connector.chat_completions(
+                request_data=request_payload,
+                processed_messages=request_payload["messages"],
+                effective_model="qwen3-coder-plus",
+                identity=identity,
+            )
+
+        assert isinstance(response, ResponseEnvelope)
+        super_mock.assert_awaited_once()
+        _, kwargs = super_mock.await_args
+        assert kwargs["identity"] is identity
 
     @pytest.mark.asyncio
     async def test_chat_completions_with_prefix(self, connector, mock_client):

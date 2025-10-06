@@ -637,13 +637,32 @@ class QwenOAuthConnector(OpenAIConnector):
                 status_code=401,
                 detail="No valid Qwen OAuth access token available. Please authenticate.",
             )
-        return ensure_loop_guard_header(
-            {
-                "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            }
-        )
+        headers = {
+            "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        if self.identity:
+            try:
+                identity_headers = self.identity.get_resolved_headers(None)
+            except Exception as exc:  # pragma: no cover - defensive
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to resolve identity headers for Qwen OAuth request: %s",
+                        exc,
+                    )
+            else:
+                if identity_headers:
+                    headers.update(identity_headers)
+                    # Preserve required authentication and content headers.
+                    headers["Authorization"] = (
+                        f"Bearer {self._oauth_credentials['access_token']}"
+                    )
+                    headers.setdefault("Content-Type", "application/json")
+                    headers.setdefault("Accept", "application/json")
+
+        return ensure_loop_guard_header(headers)
 
     async def _perform_health_check(self) -> bool:
         """Override parent health check to use Qwen-specific API endpoint."""
@@ -877,6 +896,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 request_data=modified_request,
                 processed_messages=processed_messages,
                 effective_model=model_name,
+                identity=identity,
                 **kwargs,
             )
 
