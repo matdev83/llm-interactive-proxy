@@ -201,6 +201,42 @@ def test_general_exception_handler_standard_request() -> None:
     }
 
 
+def test_general_exception_handler_logs_traceback(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = make_request("/v1/embeddings")
+
+    captured: dict[str, Any] = {}
+
+    def fake_exception(
+        message: str,
+        *,
+        exc_info: tuple[type[Exception], Exception, Any] | None = None,
+        **_: Any,
+    ) -> None:
+        captured["message"] = message
+        captured["exc_info"] = exc_info
+
+    monkeypatch.setattr(
+        "src.core.app.error_handlers.logger.exception",
+        fake_exception,
+    )
+
+    caught: RuntimeError | None = None
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as exc:
+        caught = exc
+        response = call_handler(general_exception_handler, request, exc)
+
+    assert response.status_code == 500
+    assert captured["message"] == "Unhandled exception"
+    exc_info = captured["exc_info"]
+    assert exc_info is not None
+    assert exc_info[0] is RuntimeError
+    assert caught is not None
+    assert exc_info[1] is caught
+    assert exc_info[2] is caught.__traceback__
+
+
 def test_configure_exception_handlers_registers_handlers() -> None:
     app = FastAPI()
 
