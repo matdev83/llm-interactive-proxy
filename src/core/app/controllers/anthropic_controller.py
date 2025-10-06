@@ -14,11 +14,14 @@ from fastapi import HTTPException, Request, Response
 from src.anthropic_converters import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
+    openai_to_anthropic_stream_chunk,
 )
 from src.anthropic_models import AnthropicMessagesRequest
 from src.core.common.exceptions import InitializationError, LLMProxyError
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
@@ -120,6 +123,10 @@ class AnthropicController:
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, chat_request)
+
+            streaming_envelope: StreamingResponseEnvelope | None = None
+            if isinstance(response, StreamingResponseEnvelope):
+                streaming_envelope = response
 
             # Check if response is a coroutine and await it if needed
             import asyncio
@@ -237,14 +244,60 @@ class AnthropicController:
                 if isinstance(adapted_response, StreamingResponse):
                     # Ensure Anthropic streaming endpoints advertise proper SSE headers
                     sse_content_type = "text/event-stream; charset=utf-8"
-                    adapted_response.media_type = sse_content_type
 
-                    # `StreamingResponse.headers` returns a MutableHeaders mapping
-                    # which may already include values from upstream responses.
-                    # Update in-place so existing references stay in sync.
-                    adapted_response.headers["content-type"] = sse_content_type
-                    adapted_response.headers.setdefault("cache-control", "no-cache")
-                    adapted_response.headers.setdefault("connection", "keep-alive")
+                    headers: dict[str, Any] = dict(adapted_response.headers)
+                    headers["content-type"] = sse_content_type
+                    headers.setdefault("cache-control", "no-cache")
+                    headers.setdefault("connection", "keep-alive")
+
+                    if streaming_envelope is not None:
+                        async def anthropic_stream() -> AsyncIterator[bytes]:
+                            chunk_counter = 0
+                            async for raw_chunk in streaming_envelope.content:
+                                processed = (
+                                    raw_chunk
+                                    if isinstance(raw_chunk, ProcessedResponse)
+                                    else ProcessedResponse(content=raw_chunk)
+                                )
+
+                                chunk_payload = processed.content
+                                if isinstance(chunk_payload, bytes):
+                                    chunk_text = chunk_payload.decode(
+                                        "utf-8", errors="replace"
+                                    )
+                                else:
+                                    chunk_text = str(chunk_payload)
+
+                                metadata = getattr(processed, "metadata", {}) or {}
+                                chunk_id = str(
+                                    metadata.get("id")
+                                    or metadata.get("response_id")
+                                    or metadata.get("chunk_id")
+                                    or metadata.get("message_id")
+                                    or f"resp_{id(streaming_envelope)}_{chunk_counter}"
+                                )
+                                model_name = str(
+                                    metadata.get("model")
+                                    or metadata.get("backend_model")
+                                    or anthropic_request.model
+                                )
+
+                                converted = openai_to_anthropic_stream_chunk(
+                                    chunk_text, chunk_id, model_name
+                                )
+                                if converted:
+                                    yield converted.encode("utf-8")
+
+                                chunk_counter += 1
+
+                        return StreamingResponse(
+                            anthropic_stream(),
+                            media_type=sse_content_type,
+                            headers=headers,
+                        )
+
+                    adapted_response.media_type = sse_content_type
+                    adapted_response.headers.update(headers)
                     return adapted_response
                 else:
                     # If somehow we got a non-streaming response but streaming was requested,
