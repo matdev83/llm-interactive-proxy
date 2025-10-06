@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.handlers.failover_command_handler import (
     FailoverCommandHandler,
@@ -95,25 +96,47 @@ class NewCommandService(ICommandService):
             if message.role != "user":
                 continue
 
+            matched_part_index: int | None = None
             content_str = ""
+            parse_result: tuple[Command, str] | None
+
             if isinstance(message.content, str):
                 content_str = message.content
+                if self.strict_command_detection:
+                    content_str = self._get_last_non_blank_line_content(content_str)
+                parse_result = self.command_parser.parse(content_str)
             elif isinstance(message.content, list):
-                # For now, we only look for commands in the first text part.
-                content_str = next(
-                    (
-                        part.text
-                        for part in message.content
-                        if isinstance(part, models.MessageContentPartText)
-                    ),
-                    "",
-                )
+                parse_result = None
+                text_parts = [
+                    (idx, part)
+                    for idx, part in enumerate(message.content)
+                    if isinstance(part, models.MessageContentPartText)
+                ]
 
-            # Apply strict command detection if enabled
-            if self.strict_command_detection:
-                content_str = self._get_last_non_blank_line_content(content_str)
+                if self.strict_command_detection:
+                    for idx, part in reversed(text_parts):
+                        candidate_text = self._get_last_non_blank_line_content(part.text)
+                        if not candidate_text:
+                            continue
+                        potential = self.command_parser.parse(candidate_text)
+                        if potential:
+                            matched_part_index = idx
+                            content_str = candidate_text
+                            parse_result = potential
+                            break
+                else:
+                    for idx, part in text_parts:
+                        potential = self.command_parser.parse(part.text)
+                        if potential:
+                            matched_part_index = idx
+                            content_str = part.text
+                            parse_result = potential
+                            break
+                if parse_result is None and text_parts:
+                    content_str = ""
+            else:
+                parse_result = None
 
-            parse_result = self.command_parser.parse(content_str)
             if not parse_result:
                 continue
 
@@ -134,7 +157,14 @@ class NewCommandService(ICommandService):
                     # Default: replace the matched command in place and trim
                     message.content = content_str.replace(matched_text, "").strip()
             elif isinstance(message.content, list):
-                for i, part in enumerate(message.content):
+                text_range = (
+                    [
+                        (matched_part_index, message.content[matched_part_index])
+                    ]
+                    if matched_part_index is not None
+                    else list(enumerate(message.content))
+                )
+                for i, part in text_range:
                     if (
                         isinstance(part, models.MessageContentPartText)
                         and matched_text in part.text

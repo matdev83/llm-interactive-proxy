@@ -84,6 +84,67 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
         assert remaining_part.text == "!/anothercmd"
 
 
+@pytest.mark.asyncio
+async def test_process_messages_detects_command_in_later_text_part() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    service = NewCommandService(session_service, command_parser)
+    processor = CoreCommandProcessor(service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content=[
+                MessageContentPartText(type="text", text="Some context before the command."),
+                MessageContentPartText(type="text", text="!/hello"),
+            ],
+        )
+    ]
+
+    result = await processor.process_messages(messages, session_id="test-session")
+
+    assert result.command_executed is True
+    assert isinstance(result.modified_messages[0].content, list)
+    assert len(result.modified_messages[0].content) == 1
+    remaining_part = result.modified_messages[0].content[0]
+    assert isinstance(remaining_part, MessageContentPartText)
+    assert remaining_part.text == "Some context before the command."
+
+
+@pytest.mark.asyncio
+async def test_process_messages_strict_mode_handles_command_in_last_text_part() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    service = NewCommandService(
+        session_service,
+        command_parser,
+        strict_command_detection=True,
+    )
+    processor = CoreCommandProcessor(service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content=[
+                MessageContentPartText(type="text", text="Intro text"),
+                MessageContentPartText(
+                    type="text",
+                    text="\n!/hello\n",
+                ),
+            ],
+        )
+    ]
+
+    result = await processor.process_messages(messages, session_id="test-session")
+
+    assert result.command_executed is True
+    assert isinstance(result.modified_messages[0].content, list)
+    assert len(result.modified_messages[0].content) == 1
+    remaining_part = result.modified_messages[0].content[0]
+    assert isinstance(remaining_part, MessageContentPartText)
+    assert remaining_part.text == "Intro text"
+
+
 # Removed @pytest.mark.parametrize for preserve_unknown
 @pytest.mark.asyncio
 async def test_process_messages_processes_command_in_last_message_and_stops() -> None:
