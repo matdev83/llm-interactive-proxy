@@ -31,7 +31,7 @@ def get_loop_detection_command(name: str) -> type[Any]:
         raise ValueError(f"Unknown loop detection command: {name}") from exc
 
 
-def get_loop_detection_commands() -> Mapping[str, type[Any]]:
+def get_loop_detection_commands() -> dict[str, type[Any]]:
     """Return a copy of the registered loop detection commands."""
 
     return dict(_LOOP_DETECTION_COMMANDS)
