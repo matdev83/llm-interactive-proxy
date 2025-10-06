@@ -18,6 +18,9 @@ from src.core.interfaces.middleware_application_manager_interface import (
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.streaming.content_accumulation_processor import (
+    ContentAccumulationProcessor,
+)
 
 
 @pytest.fixture
@@ -94,6 +97,57 @@ def response_processor_no_normalizer(
 
 class TestResponseProcessor:
     """Tests for the ResponseProcessor class."""
+
+    def test_initializes_stream_normalizer_when_processors_supplied(
+        self,
+        mock_response_parser: MagicMock,
+        mock_middleware_application_manager: AsyncMock,
+        mock_loop_detector: AsyncMock,
+    ) -> None:
+        """Ensure specialized processors trigger default StreamNormalizer creation."""
+
+        tool_call_processor = MagicMock()
+
+        with patch(
+            "src.core.services.response_processor_service.StreamNormalizer"
+        ) as mock_normalizer:
+            ResponseProcessor(
+                response_parser=mock_response_parser,
+                middleware_application_manager=mock_middleware_application_manager,
+                loop_detector=mock_loop_detector,
+                stream_normalizer=None,
+                tool_call_repair_processor=tool_call_processor,
+                middleware_list=[MagicMock()],
+            )
+
+        mock_normalizer.assert_called_once()
+        processors_arg = mock_normalizer.call_args[0][0]
+        assert processors_arg[0] is tool_call_processor
+        assert any(
+            isinstance(processor, ContentAccumulationProcessor)
+            for processor in processors_arg[1:]
+        )
+
+    def test_does_not_initialize_stream_normalizer_without_processors(
+        self,
+        mock_response_parser: MagicMock,
+        mock_middleware_application_manager: AsyncMock,
+        mock_loop_detector: AsyncMock,
+    ) -> None:
+        """Explicit None normalizer without processors should keep raw iterator path."""
+
+        with patch(
+            "src.core.services.response_processor_service.StreamNormalizer"
+        ) as mock_normalizer:
+            ResponseProcessor(
+                response_parser=mock_response_parser,
+                middleware_application_manager=mock_middleware_application_manager,
+                loop_detector=mock_loop_detector,
+                stream_normalizer=None,
+                middleware_list=[MagicMock()],
+            )
+
+        mock_normalizer.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_response_success(
