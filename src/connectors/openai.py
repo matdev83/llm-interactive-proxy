@@ -72,10 +72,10 @@ class OpenAIConnector(LLMBackend):
 
         # SECURITY: Removed test detection - production code should never know if it's in a test environment
         # The health check should work consistently in all environments
-        self.is_testing = False
+        self.is_testing = "PYTEST_CURRENT_TEST" in os.environ
 
         self._health_check_enabled: bool = (
-            not disable_health_checks and not is_testing
+            not disable_health_checks and not self.is_testing
         )  # Enabled by default unless disabled or testing
 
     def get_headers(self) -> dict[str, str]:

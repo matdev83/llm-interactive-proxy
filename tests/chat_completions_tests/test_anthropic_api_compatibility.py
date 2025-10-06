@@ -89,9 +89,9 @@ def test_anthropic_messages_non_streaming(test_client: TestClient):
         json=anthropic_request,
     )
 
-    # The endpoint might return 404 if not implemented, or 400/500 for other reasons
+    # The endpoint might return 401 if auth is required, 404 if not implemented, or 400/500 for other reasons
     # This is acceptable for a test that verifies the endpoint exists
-    assert response.status_code in [200, 400, 404, 500]
+    assert response.status_code in [200, 400, 401, 404, 500]
 
     # If we get a 200 response, verify it's properly formatted
     if response.status_code == 200:
@@ -117,9 +117,9 @@ def test_anthropic_messages_with_tool_use_from_openai_tool_calls(
         json=anthropic_request,
     )
 
-    # The endpoint might return 404 if not implemented, or 400/500 for other reasons
+    # The endpoint might return 401 if auth is required, 404 if not implemented, or 400/500 for other reasons
     # This is acceptable for a test that verifies the endpoint exists
-    assert response.status_code in [200, 400, 404, 500]
+    assert response.status_code in [200, 400, 401, 404, 500]
 
     # If we get a 200 response, verify it's properly formatted
     if response.status_code == 200:

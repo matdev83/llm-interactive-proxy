@@ -122,6 +122,20 @@ class Translation(BaseTranslator):
         if not url_str:
             return None
 
+        # Validate URI scheme - only allow data, http, and https schemes
+        if url_str.startswith("data:"):
+            # Data URIs are allowed
+            pass
+        elif url_str.startswith("http://"):
+            # HTTP URLs are allowed
+            pass
+        elif url_str.startswith("https://"):
+            # HTTPS URLs are allowed
+            pass
+        else:
+            # All other schemes (file://, ftp://, etc.) are rejected for security
+            return None
+
         mime_type = Translation._detect_image_mime_type(url_str)
 
         if url_str.startswith("data:"):
@@ -225,12 +239,19 @@ class Translation(BaseTranslator):
             if not stripped:
                 return "{}"
             try:
+                # Attempt to load as JSON first
                 json.loads(stripped)
                 return stripped
             except json.JSONDecodeError:
-                # Safe fallback - don't try to "fix" the JSON with dangerous string replacements
-                # This prevents data corruption from blind quote replacement
-                return json.dumps({"_raw": stripped})
+                # If it fails, try to evaluate it as a Python literal
+                try:
+                    import ast
+
+                    evaluated = ast.literal_eval(stripped)
+                    return json.dumps(evaluated)
+                except (ValueError, SyntaxError):
+                    # If that also fails, treat as a raw string
+                    return json.dumps({"_raw": stripped})
 
         if isinstance(args, dict):
             return json.dumps(args)
@@ -946,10 +967,8 @@ class Translation(BaseTranslator):
 
         for message in request.messages:
             # Process all messages including system messages (for test compatibility)
+            # Convert assistant role to model role for Gemini API compatibility
             gemini_role = "model" if message.role == "assistant" else message.role
-            # Keep original roles in internal representation for consistency with tests
-            # Actual API conversion happens at a different layer
-            gemini_role = message.role
             msg_dict = {"role": gemini_role}
             parts = []
 

@@ -193,7 +193,7 @@ class ProxyCommandFilter:
             return text
 
         # Get the last non-blank line
-        lines = text.split('\n')
+        lines = text.split("\n")
         last_line = ""
         for line in reversed(lines):
             if line.strip():  # Non-blank line

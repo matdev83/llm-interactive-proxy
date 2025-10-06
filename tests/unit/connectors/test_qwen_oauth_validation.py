@@ -305,7 +305,7 @@ class TestInitializationValidation(TestQwenOAuthCredentialValidation):
         temp_credentials_dir: Path,
         valid_credentials: dict,
     ):
-        """Test initialization fails when token refresh fails."""
+        """Test initialization degrades gracefully when token refresh fails."""
         self.create_credentials_file(temp_credentials_dir, valid_credentials)
 
         with patch.object(Path, "home", return_value=temp_credentials_dir.parent):
@@ -315,11 +315,17 @@ class TestInitializationValidation(TestQwenOAuthCredentialValidation):
             ):
                 await connector.initialize()
 
+            # With tolerant startup behavior, initialization succeeds but functionality is degraded
             assert not connector.is_functional
-            assert connector._initialization_failed
+            assert (
+                not connector._initialization_failed
+            )  # Initialization did not fail, but was degraded
+            assert (
+                connector._credential_validation_errors
+            )  # Should have validation errors
             assert len(connector._credential_validation_errors) > 0
             assert (
-                "Failed to refresh expired OAuth token"
+                "OAuth token refresh pending"
                 in connector._credential_validation_errors[0]
             )
 

@@ -107,8 +107,12 @@ class TestBackendValidationLogic(TestBackendStartupValidation):
         backend_stage: BackendStage,
         services: ServiceCollection,
         app_config_with_qwen_oauth: AppConfig,
+        monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test validation fails when no functional backends are found."""
+        """Test validation fails when no functional backends are found in non-test environment."""
+        # Remove test environment markers to test production behavior
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
 
@@ -157,11 +161,14 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
         app_config_no_backends: AppConfig,
     ):
         """Test functionality validation with no configured backends."""
-        functional_backends = await backend_stage._validate_backend_functionality(
-            services, app_config_no_backends
-        )
+        with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
+            mock_registry.get_registered_backends.return_value = []
 
-        assert functional_backends == []
+            functional_backends = await backend_stage._validate_backend_functionality(
+                services, app_config_no_backends
+            )
+
+            assert functional_backends == []
 
     @pytest.mark.asyncio
     async def test_validate_backend_functionality_backend_not_registered(
@@ -357,7 +364,10 @@ class TestConfiguredBackendDetection(TestBackendStartupValidation):
     ):
         """Test that default backend is detected as configured."""
         config = AppConfig()
-        config.backends = BackendSettings(default_backend="openai")
+        config.backends = BackendSettings(
+            default_backend="openai",
+            openai=BackendConfig(api_key=["test_openai_key"]),
+        )
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["openai"]
@@ -442,9 +452,15 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
 
     @pytest.mark.asyncio
     async def test_startup_failure_scenario_only_qwen_oauth_expired(
-        self, backend_stage: BackendStage, services: ServiceCollection
+        self,
+        backend_stage: BackendStage,
+        services: ServiceCollection,
+        monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test complete scenario: only qwen-oauth configured, but it's non-functional -> startup fails."""
+        """Test complete scenario: only qwen-oauth configured, but it's non-functional -> startup fails in non-test environment."""
+        # Remove test environment markers to test production behavior
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
         config = AppConfig()
         config.backends = BackendSettings(
             default_backend="qwen-oauth",

@@ -166,7 +166,10 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                         logger.info(f"Credentials file modified: {event.src_path}")
 
                     # Schedule credential reload in the connector's event loop in a thread-safe way
-                    if self.connector._main_loop is not None:
+                    if (
+                        self.connector._main_loop
+                        and not self.connector._main_loop.is_closed()
+                    ):
                         try:
                             future = asyncio.run_coroutine_threadsafe(
                                 self.connector._handle_credentials_file_change(),
@@ -182,7 +185,7 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                     else:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                "No event loop available for credentials reload"
+                                "No event loop available for credentials reload or loop is closed"
                             )
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
@@ -1719,6 +1722,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     )
                     yield ProcessedResponse(content=final_chunk)
 
+                except BackendError:
+                    raise
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
                     error_chunk = self.translation_service.to_domain_stream_chunk(

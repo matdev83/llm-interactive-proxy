@@ -57,9 +57,7 @@ def test_cli_strict_command_detection_flags() -> None:
         initial_config_true.strict_command_detection = True
         mock_load_config.return_value = initial_config_true
         config_none_true = apply_cli_args(args_none)
-        assert (
-            config_none_true.strict_command_detection is True
-        )  # Should remain True
+        assert config_none_true.strict_command_detection is True  # Should remain True
 
         # 3. Test that flag overrides initial config
         # Initial config is False

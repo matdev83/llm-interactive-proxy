@@ -207,3 +207,30 @@ class TestBackendServiceTargeted:
             # Assert
             assert mock_backend.chat_completions_called
             assert response.content["model"] == "test-model"
+
+    @pytest.mark.asyncio
+    async def test_call_completion_raises_when_backend_not_functional(self):
+        """Ensure non-functional backends trigger an immediate error."""
+        service = create_backend_service()
+        client = httpx.AsyncClient()
+        mock_backend = MockBackend(client)
+        mock_backend.chat_completions_mock.return_value = ResponseEnvelope(
+            content={"id": "resp", "choices": []},
+            headers={},
+        )
+        mock_backend.is_backend_functional = Mock(return_value=False)
+
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="test-model",
+            extra_body={},
+        )
+
+        with (
+            patch.object(service, "_get_or_create_backend", return_value=mock_backend),
+            pytest.raises(BackendError) as exc_info,
+        ):
+            await service.call_completion(chat_request, allow_failover=False)
+
+        assert "not functional" in str(exc_info.value).lower()
+        assert not mock_backend.chat_completions_called

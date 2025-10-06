@@ -129,7 +129,9 @@ class TestProxyCommandFilter:
 
         for input_text, expected_output in end_command_cases:
             result = pcf_filter.filter_end_of_message_commands_only(input_text)
-            assert result == expected_output, f"Failed end-of-message filtering for: '{input_text}'"
+            assert (
+                result == expected_output
+            ), f"Failed end-of-message filtering for: '{input_text}'"
 
     def test_middle_commands_not_filtered_with_end_only_method(self) -> None:
         """Test that commands in the middle are not filtered with end-only method."""
@@ -145,7 +147,9 @@ class TestProxyCommandFilter:
 
         for input_text in middle_command_cases:
             result = pcf_filter.filter_end_of_message_commands_only(input_text)
-            assert result == input_text, f"Should not filter middle command in: '{input_text}'"
+            assert (
+                result == input_text
+            ), f"Should not filter middle command in: '{input_text}'"
 
     def test_strict_command_filtering(self) -> None:
         """Test the strict command filtering (last non-blank line only)."""
@@ -154,15 +158,23 @@ class TestProxyCommandFilter:
         # Test cases where command is on last non-blank line - should be filtered
         strict_command_cases = [
             ("Hello world\n!/help", "Hello world\n"),  # Command on last line
-            ("Some context\n!/model(gpt-4)\n", "Some context\n\n"),  # Command on last non-blank line (newline preserved)
+            (
+                "Some context\n!/model(gpt-4)\n",
+                "Some context\n\n",
+            ),  # Command on last non-blank line (newline preserved)
             ("!/backend(openai)", "(command_removed)"),  # Single line with command
             ("Text before\n!/command", "Text before\n"),  # Command on last line
-            ("First line\nSecond line\n!/backend(openai)", "First line\nSecond line\n"),  # Multi-line with command at end
+            (
+                "First line\nSecond line\n!/backend(openai)",
+                "First line\nSecond line\n",
+            ),  # Multi-line with command at end
         ]
 
         for input_text, expected_output in strict_command_cases:
             result = pcf_filter.filter_commands_with_strict_mode(input_text)
-            assert result == expected_output, f"Failed strict filtering for: '{input_text}'"
+            assert (
+                result == expected_output
+            ), f"Failed strict filtering for: '{input_text}'"
 
     def test_strict_mode_commands_not_filtered(self) -> None:
         """Test that commands not on last non-blank line are not filtered in strict mode."""
@@ -179,7 +191,9 @@ class TestProxyCommandFilter:
 
         for input_text in non_strict_command_cases:
             result = pcf_filter.filter_commands_with_strict_mode(input_text)
-            assert result == input_text, f"Should not filter non-last-line command in strict mode: '{input_text}'"
+            assert (
+                result == input_text
+            ), f"Should not filter non-last-line command in strict mode: '{input_text}'"
 
     def test_strict_mode_edge_cases(self) -> None:
         """Test edge cases for strict command filtering."""
@@ -187,9 +201,15 @@ class TestProxyCommandFilter:
 
         # Edge cases
         edge_cases = [
-            ("!/command\n\n\n", "(command_removed)"),  # Command with trailing blank lines
+            (
+                "!/command\n\n\n",
+                "(command_removed)",
+            ),  # Command with trailing blank lines
             ("\n\n!/command", "(command_removed)"),  # Command with leading blank lines
-            ("   \n!/command\n   ", "(command_removed)"),  # Command with whitespace lines
+            (
+                "   \n!/command\n   ",
+                "(command_removed)",
+            ),  # Command with whitespace lines
             ("", ""),  # Empty string
             ("   ", "   "),  # Only whitespace
             ("No commands here", "No commands here"),  # No commands

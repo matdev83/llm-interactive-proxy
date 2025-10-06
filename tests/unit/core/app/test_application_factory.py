@@ -105,7 +105,7 @@ class TestBuildApp:
     @patch("src.core.config.app_config.AppConfig.from_env")
     def test_build_app_loads_config(self, mock_from_env, mock_build_app_async):
         """Test that build_app loads configuration."""
-        mock_config_instance = MagicMock()
+        mock_config_instance = AppConfig()  # Use real AppConfig instance
         mock_from_env.return_value = mock_config_instance
         mock_fastapi_app = MagicMock(spec=FastAPI)
 
@@ -130,7 +130,7 @@ class TestBuildApp:
     @patch("src.core.config.app_config.AppConfig.from_env")
     def test_build_app_creates_fastapi_app(self, mock_from_env, mock_build_app_async):
         """Test that build_app creates a FastAPI application."""
-        mock_config_instance = MagicMock()
+        mock_config_instance = AppConfig()  # Use real AppConfig instance
         mock_from_env.return_value = mock_config_instance
 
         # Mock FastAPI app with title
@@ -151,7 +151,7 @@ class TestBuildApp:
     @patch("src.core.config.app_config.AppConfig.from_env")
     def test_build_app_sets_up_app_state(self, mock_from_env, mock_build_app_async):
         """Test that build_app sets up app state correctly."""
-        mock_config_instance = MagicMock()
+        mock_config_instance = AppConfig()  # Use real AppConfig instance
         mock_from_env.return_value = mock_config_instance
 
         # Create a mock FastAPI app

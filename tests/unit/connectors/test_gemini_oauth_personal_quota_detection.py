@@ -2,7 +2,7 @@
 Test quota exceeded detection for Gemini OAuth Personal connector.
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
@@ -170,3 +170,73 @@ class TestGeminiOAuthPersonalQuotaDetection:
         # Verify the exception details
         assert exc_info.value.code == "code_assist_error"
         assert "quota exceeded" not in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_streaming_quota_error_propagates_backend_error(
+        self, connector: GeminiOAuthPersonalConnector
+    ) -> None:
+        """Ensure streaming quota errors are surfaced to callers."""
+        connector.is_functional = True
+        connector._oauth_credentials = {"access_token": "token"}
+        connector.gemini_api_base_url = "https://example.com"
+        connector._discover_project_id = AsyncMock(return_value="test-project")
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
+        connector.translation_service.from_domain_to_gemini_request.return_value = {
+            "contents": [],
+            "generationConfig": {},
+        }
+        connector.translation_service.to_domain_stream_chunk.return_value = {
+            "choices": [],
+        }
+        connector._request_counter = Mock()
+        connector._request_counter.increment = Mock()
+
+        quota_error = {
+            "error": {
+                "code": 429,
+                "message": "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests'",
+                "status": "RESOURCE_EXHAUSTED",
+            }
+        }
+
+        mock_response = Mock()
+        mock_response.status_code = 429
+        mock_response.json.return_value = quota_error
+        mock_response.text = "quota exceeded"
+
+        async_to_thread = AsyncMock(return_value=mock_response)
+
+        class DummySession:
+            def __init__(self) -> None:
+                self.request = Mock()
+
+        dummy_session = DummySession()
+
+        with (
+            patch(
+                "src.connectors.gemini_oauth_personal.google.auth.transport.requests.AuthorizedSession",
+                return_value=dummy_session,
+            ),
+            patch(
+                "src.connectors.gemini_oauth_personal.asyncio.to_thread",
+                async_to_thread,
+            ),
+            patch(
+                "src.connectors.gemini_oauth_personal.tiktoken.get_encoding"
+            ) as mock_encoding,
+        ):
+            mock_encoding.return_value = Mock()
+            mock_encoding.return_value.encode.return_value = []
+
+            request = Mock()
+            request.stream = True
+            request.messages = []
+            request.extra_body = {}
+
+            envelope = await connector._chat_completions_code_assist_streaming(
+                request, [], "gemini-2.5-pro"
+            )
+
+            stream = envelope.content
+            with pytest.raises(BackendError):
+                await stream.__anext__()

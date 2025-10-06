@@ -338,6 +338,39 @@ class BackendService(IBackendService):
                     details={"error": str(e)},
                 ) from e
 
+            backend_is_functional = True
+            try:
+                if hasattr(backend, "is_backend_functional"):
+                    backend_is_functional = bool(backend.is_backend_functional())
+                else:
+                    backend_is_functional = bool(
+                        getattr(backend, "is_functional", True)
+                    )
+            except Exception as status_error:
+                logger.warning(
+                    f"Could not determine functional status for backend {backend_type}: {status_error}",
+                    exc_info=True,
+                )
+                backend_is_functional = bool(getattr(backend, "is_functional", True))
+
+            if not backend_is_functional:
+                backend_unavailable_error = BackendError(
+                    message=(
+                        f"Backend {backend_type} is not functional and cannot accept requests."
+                    ),
+                    backend_name=backend_type,
+                    code="backend_unavailable",
+                )
+                if allow_failover:
+                    return await self._handle_backend_call_failover(
+                        request,
+                        backend_type,
+                        stream,
+                        backend_unavailable_error,
+                        context,
+                    )
+                raise backend_unavailable_error
+
             domain_request: ChatRequest = request
 
             # Apply session reasoning configuration if available
@@ -597,9 +630,7 @@ class BackendService(IBackendService):
             else:
                 # If no colon, treat as model only
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Static route active: forcing model={static_route}"
-                    )
+                    logger.info(f"Static route active: forcing model={static_route}")
                 # For model-only static route, we still need to determine backend
                 backend_type: str | None = None
                 if session and session.state and session.state.backend_config:
@@ -613,7 +644,9 @@ class BackendService(IBackendService):
 
                 if not backend_type:
                     backend_type = (
-                        request.extra_body.get("backend_type") if request.extra_body else None
+                        request.extra_body.get("backend_type")
+                        if request.extra_body
+                        else None
                     )
 
                 if not backend_type:
@@ -632,36 +665,36 @@ class BackendService(IBackendService):
                 return backend_type, static_route
 
         # Normal backend resolution logic (only when static_route is not configured)
-        backend_type: str | None = None
+        resolved_backend_type: str | None = None
         if session and session.state and session.state.backend_config:
             from src.core.domain.configuration.backend_config import (
                 BackendConfiguration,
             )
 
-            backend_type = cast(
+            resolved_backend_type = cast(
                 BackendConfiguration, session.state.backend_config
             ).backend_type
 
-        if not backend_type:
-            backend_type = (
+        if not resolved_backend_type:
+            resolved_backend_type = (
                 request.extra_body.get("backend_type") if request.extra_body else None
             )
 
         effective_model: str = request.model
-        if not backend_type:
+        if not resolved_backend_type:
             from src.core.domain.model_utils import parse_model_backend
 
-            default_backend: str = (
+            resolved_default_backend: str = (
                 app_config.backends.default_backend
                 if hasattr(app_config, "backends")
                 else "openai"
             )
             parsed_backend, parsed_model = parse_model_backend(
-                request.model, default_backend
+                request.model, resolved_default_backend
             )
-            backend_type = parsed_backend
+            resolved_backend_type = parsed_backend
             effective_model = parsed_model
-        return backend_type, effective_model
+        return resolved_backend_type, effective_model
 
     def _detect_key_name(self, backend_type: str) -> str | None:
         """Derive API key name (env var) for the backend when possible.

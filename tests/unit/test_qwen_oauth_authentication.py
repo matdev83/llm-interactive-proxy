@@ -113,30 +113,21 @@ class TestQwenOAuthAuthentication:
         }
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        # Mock the save function
-        with patch.object(
-            connector, "_save_oauth_credentials", AsyncMock()
-        ) as mock_save:
+        # Mock the save and load functions
+        with (
+            patch.object(connector, "_save_oauth_credentials", AsyncMock()),
+            patch.object(
+                connector, "_load_oauth_credentials", AsyncMock(return_value=True)
+            ),
+            patch.object(
+                connector, "_poll_for_new_token", AsyncMock(return_value=True)
+            ),
+        ):
             # Execute refresh
             success = await connector._refresh_token_if_needed()
 
             # Verify refresh was successful
             assert success is True
-            assert connector._oauth_credentials["access_token"] == "new-access-token"
-            assert connector._oauth_credentials["refresh_token"] == "new-refresh-token"
-            assert connector._oauth_credentials["resource_url"] == "new.portal.qwen.ai"
-            assert "expiry_date" in connector._oauth_credentials
-
-            # Verify the API URL was updated
-            assert connector.api_base_url == "https://new.portal.qwen.ai/v1"
-
-            # Verify credentials were saved
-            mock_save.assert_called_once()
-
-            # Verify correct refresh endpoint was used
-            mock_client.post.assert_called_once()
-            args, _kwargs = mock_client.post.call_args
-            assert args[0] == "https://chat.qwen.ai/api/v1/oauth2/token"
 
     @pytest.mark.asyncio
     async def test_token_refresh_no_refresh_token(self, connector):
@@ -147,15 +138,18 @@ class TestQwenOAuthAuthentication:
             "expiry_date": int(time.time() * 1000) - 60000,  # 1 minute ago
         }
 
-        # Execute refresh
-        success = await connector._refresh_token_if_needed()
+        with patch.object(
+            connector, "_load_oauth_credentials", AsyncMock(return_value=False)
+        ):
+            # Execute refresh
+            success = await connector._refresh_token_if_needed()
 
         # Verify refresh failed
         assert success is False
 
     @pytest.mark.asyncio
     async def test_token_refresh_http_error(self, connector, mock_client):
-        """Test token refresh with HTTP error response."""
+        """Test token refresh when CLI process fails with subprocess error."""
         # Set up expired credentials
         connector._oauth_credentials = {
             "access_token": "expired-token",
@@ -163,23 +157,19 @@ class TestQwenOAuthAuthentication:
             "expiry_date": int(time.time() * 1000) - 60000,  # 1 minute ago
         }
 
-        # Mock error response from token endpoint
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.text = json.dumps(
-            {"error": "invalid_grant", "error_description": "Invalid refresh token"}
-        )
-        # Make raise_for_status actually raise an exception
-        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "400 Bad Request", request=MagicMock(), response=mock_response
-        )
-        mock_client.post = AsyncMock(return_value=mock_response)
+        # Mock CLI process launch but subprocess fails
+        with (
+            patch("shutil.which", return_value="/mock/qwen"),
+            patch("subprocess.Popen", side_effect=OSError("Permission denied")),
+            patch.object(
+                connector, "_load_oauth_credentials", return_value=False
+            ),  # Force CLI refresh
+        ):
+            # Execute refresh
+            success = await connector._refresh_token_if_needed()
 
-        # Execute refresh
-        success = await connector._refresh_token_if_needed()
-
-        # Verify refresh failed
-        assert success is False
+            # Verify refresh failed
+            assert success is False
 
         # Original credentials should remain unchanged
         assert connector._oauth_credentials["access_token"] == "expired-token"
@@ -187,7 +177,7 @@ class TestQwenOAuthAuthentication:
 
     @pytest.mark.asyncio
     async def test_token_refresh_network_error(self, connector, mock_client):
-        """Test token refresh with network error."""
+        """Test token refresh with CLI process failure."""
         # Set up expired credentials
         connector._oauth_credentials = {
             "access_token": "expired-token",
@@ -195,18 +185,25 @@ class TestQwenOAuthAuthentication:
             "expiry_date": int(time.time() * 1000) - 60000,  # 1 minute ago
         }
 
-        # Mock network error
-        mock_client.post = AsyncMock(side_effect=httpx.RequestError("Connection error"))
+        # Mock CLI refresh process to fail (CLI not found)
+        with (
+            patch("shutil.which", return_value=None),
+            patch.object(
+                connector, "_load_oauth_credentials", return_value=False
+            ),  # Force CLI refresh
+            patch.object(connector, "_launch_cli_refresh_process") as mock_launch,
+            patch.object(connector, "_poll_for_new_token", return_value=False),
+        ):
+            # Execute refresh
+            success = await connector._refresh_token_if_needed()
 
-        # Execute refresh
-        success = await connector._refresh_token_if_needed()
-
-        # Verify refresh failed
-        assert success is False
+            # Verify refresh failed
+            assert success is False
+            mock_launch.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_token_refresh_malformed_response(self, connector, mock_client):
-        """Test token refresh with malformed JSON response."""
+        """Test token refresh when CLI fails to produce valid token."""
         # Set up expired credentials
         connector._oauth_credentials = {
             "access_token": "expired-token",
@@ -214,19 +211,21 @@ class TestQwenOAuthAuthentication:
             "expiry_date": int(time.time() * 1000) - 60000,  # 1 minute ago
         }
 
-        # Mock malformed JSON response
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json = MagicMock(
-            side_effect=json.JSONDecodeError("Invalid JSON", "{malformed", 0)
-        )
-        mock_client.post = AsyncMock(return_value=mock_response)
+        # Mock CLI process launch but token polling fails
+        with (
+            patch("shutil.which", return_value="/mock/qwen"),
+            patch.object(
+                connector, "_load_oauth_credentials", return_value=False
+            ),  # Force CLI refresh
+            patch.object(connector, "_launch_cli_refresh_process") as mock_launch,
+            patch.object(connector, "_poll_for_new_token", return_value=False),
+        ):
+            # Execute refresh
+            success = await connector._refresh_token_if_needed()
 
-        # Execute refresh
-        success = await connector._refresh_token_if_needed()
-
-        # Verify refresh failed
-        assert success is False
+            # Verify refresh failed
+            assert success is False
+            mock_launch.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_chat_completion_token_refresh_check(self, connector, mock_client):

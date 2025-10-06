@@ -877,7 +877,9 @@ class TestFileWatchingFunctionality:
 
         # Set up connector with credentials path
         connector._credentials_path = Path("/test/.gemini/oauth_creds.json")
-        connector._main_loop = MagicMock()
+        mock_loop = MagicMock()
+        mock_loop.is_closed.return_value = False
+        connector._main_loop = mock_loop
 
         handler = GeminiPersonalCredentialsFileHandler(connector)
 

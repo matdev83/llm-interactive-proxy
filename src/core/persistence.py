@@ -19,11 +19,11 @@ from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
+
+
 def _get_strict_persistence_errors() -> bool:
     """Get strict persistence errors setting from environment."""
-    return os.getenv(
-        "STRICT_PERSISTENCE_ERRORS", "false"
-    ).lower() in (
+    return os.getenv("STRICT_PERSISTENCE_ERRORS", "false").lower() in (
         "true",
         "1",
         "yes",

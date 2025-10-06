@@ -49,13 +49,15 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 
 logger = logging.getLogger(__name__)
+
+
 def _get_strict_controller_errors() -> bool:
     """Get strict controller errors setting from environment."""
-    return (os.getenv("STRICT_CONTROLLER_ERRORS", "false").lower() in (
+    return os.getenv("STRICT_CONTROLLER_ERRORS", "false").lower() in (
         "true",
         "1",
         "yes",
-    ) or os.getenv("STRICT_CONTROLLER_DI", "false").lower() in ("true", "1", "yes"))
+    ) or os.getenv("STRICT_CONTROLLER_DI", "false").lower() in ("true", "1", "yes")
 
 
 async def get_chat_controller_if_available(request: Request) -> ChatController:

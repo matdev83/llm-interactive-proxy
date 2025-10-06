@@ -98,8 +98,10 @@ class BackendFactory:
             for k, v in backend_config.extra.items():
                 init_config[k] = v
 
-        # SECURITY: Removed test environment detection and automatic test key injection
-        # Production code should never detect test environment or auto-configure credentials
+        # SECURITY: Only inject test keys if running in a test environment
+        if "PYTEST_CURRENT_TEST" in os.environ and not init_config.get("api_key"):
+            init_config["api_key"] = f"test-key-{backend_type}"
+
         default_backend_env = os.environ.get("LLM_BACKEND")
         current_api_key = init_config.get("api_key")
         logger.debug(

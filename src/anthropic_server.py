@@ -6,7 +6,7 @@ import logging
 import uvicorn
 from fastapi import FastAPI
 
-from src.core.app.application_factory import build_app_with_config
+from src.core.app.application_builder import build_app_async
 from src.core.app.controllers import _register_anthropic_endpoints
 from src.core.config.app_config import AppConfig
 
@@ -15,11 +15,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def create_anthropic_app(config: AppConfig) -> FastAPI:
+async def create_anthropic_app_async(config: AppConfig) -> FastAPI:
     """
-    Create a lightweight FastAPI application with only Anthropic routes.
+    Create a lightweight FastAPI application with only Anthropic routes (async).
     """
-    built_app, app_config = build_app_with_config(config)
+    built_app = await build_app_async(config)
+    app_config = config
 
     service_provider = getattr(built_app.state, "service_provider", None)
     if service_provider is None and logger.isEnabledFor(logging.WARNING):
@@ -42,13 +43,33 @@ def create_anthropic_app(config: AppConfig) -> FastAPI:
     return app
 
 
+def create_anthropic_app(config: AppConfig) -> FastAPI:
+    """
+    Create a lightweight FastAPI application with only Anthropic routes (sync wrapper).
+    """
+    try:
+        # Check if we're already in an async context
+        asyncio.get_running_loop()
+        # If we're in an async context, use a thread pool to run the async function
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future: concurrent.futures.Future[FastAPI] = executor.submit(
+                lambda: asyncio.run(create_anthropic_app_async(config))
+            )
+            return future.result()
+    except RuntimeError:
+        # No running loop, we can use asyncio.run directly
+        return asyncio.run(create_anthropic_app_async(config))
+
+
 async def main() -> None:
     """
     Main entry point for the Anthropic server.
     """
     config = AppConfig.from_env()
 
-    app = create_anthropic_app(config)
+    app = await create_anthropic_app_async(config)
 
     if config.anthropic_port is None:
         raise ValueError("Anthropic port must be set to run the Anthropic server.")

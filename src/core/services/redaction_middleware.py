@@ -26,7 +26,10 @@ class RedactionMiddleware(IRequestMiddleware):
     """
 
     def __init__(
-        self, api_keys: Iterable[str] | None = None, command_prefix: str = "/", strict_command_detection: bool = False
+        self,
+        api_keys: Iterable[str] | None = None,
+        command_prefix: str = "/",
+        strict_command_detection: bool = False,
     ):
         """Initialize the redaction middleware.
 
@@ -76,8 +79,10 @@ class RedactionMiddleware(IRequestMiddleware):
                     # Filter commands only for user/assistant/system messages
                     if not is_tool_response:
                         if self._strict_command_detection:
-                            message.content = self._command_filter.filter_commands_with_strict_mode(
-                                message.content
+                            message.content = (
+                                self._command_filter.filter_commands_with_strict_mode(
+                                    message.content
+                                )
                             )
                         else:
                             message.content = self._command_filter.filter_commands(
@@ -92,8 +97,10 @@ class RedactionMiddleware(IRequestMiddleware):
                             # Filter commands only for user/assistant/system messages
                             if not is_tool_response:
                                 if self._strict_command_detection:
-                                    part["text"] = self._command_filter.filter_commands_with_strict_mode(
-                                        part["text"]
+                                    part["text"] = (
+                                        self._command_filter.filter_commands_with_strict_mode(
+                                            part["text"]
+                                        )
                                     )
                                 else:
                                     part["text"] = self._command_filter.filter_commands(

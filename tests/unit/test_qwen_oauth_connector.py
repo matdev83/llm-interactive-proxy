@@ -172,6 +172,8 @@ class TestQwenOAuthConnectorUnit:
             "expiry_date": int((time.time() + 3600) * 1000),
         }  # Set valid credentials
         connector.api_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        # Disable health check to avoid API calls during tests
+        connector.disable_health_check()
 
         test_message = ChatMessage(role="user", content="Hello")
         request_data = ChatRequest(
@@ -225,6 +227,8 @@ class TestQwenOAuthConnectorUnit:
             "expiry_date": int((time.time() + 3600) * 1000),
         }  # Set valid credentials
         connector.api_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        # Disable health check to avoid API calls during tests
+        connector.disable_health_check()
 
         test_message = ChatMessage(role="user", content="Hello")
         request_data = ChatRequest(
@@ -279,6 +283,8 @@ class TestQwenOAuthConnectorUnit:
         }
         connector.api_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         connector.is_functional = True
+        # Disable health check to avoid API calls during tests
+        connector.disable_health_check()
 
         # Ensure _credentials_path is set so the connector can find credentials
         connector._credentials_path = Path("/mock/path/oauth_creds.json")
@@ -302,8 +308,13 @@ class TestQwenOAuthConnectorUnit:
         mock_response.stream = True
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        with patch.object(
-            connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
+        with (
+            patch.object(
+                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
+            ),
+            patch.object(
+                connector, "_perform_health_check", AsyncMock(return_value=True)
+            ),
         ):
             response = await connector.chat_completions(
                 request_data=request_data,
@@ -328,6 +339,8 @@ class TestQwenOAuthConnectorUnit:
             "expiry_date": int((time.time() + 3600) * 1000),
         }  # Set valid credentials
         connector.api_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        # Disable health check to avoid API calls during tests
+        connector.disable_health_check()
 
         # Mock the refresh token logic to ensure it doesn't interfere
         test_message = ChatMessage(role="user", content="Hello")

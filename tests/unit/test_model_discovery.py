@@ -1,7 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from src.connectors import GeminiBackend, OpenRouterBackend
+from src.connectors.gemini import GeminiBackend
+from src.connectors.openrouter import OpenRouterBackend
 from src.core.app.test_builder import build_test_app
 
 # Suppress Windows ProactorEventLoop warnings for this module
@@ -10,6 +11,7 @@ pytestmark = pytest.mark.filterwarnings(
 )
 
 
+@pytest.mark.asyncio
 async def test_openrouter_models_cached() -> None:
     # Create a real OpenRouterBackend instance
     from src.connectors.openrouter import OpenRouterBackend
@@ -42,6 +44,7 @@ async def test_openrouter_models_cached() -> None:
     assert backend.available_models == ["m1", "m2"]
 
 
+@pytest.mark.asyncio
 async def test_gemini_models_cached() -> None:
     # Create a real GeminiBackend instance
     from src.connectors.gemini import GeminiBackend

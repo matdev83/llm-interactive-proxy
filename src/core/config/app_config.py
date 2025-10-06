@@ -217,6 +217,16 @@ class ToolCallReactorConfig(DomainModel):
     """
 
 
+class PlanningPhaseConfig(DomainModel):
+    """Configuration for planning phase model routing."""
+
+    enabled: bool = False
+    strong_model: str | None = None
+    max_turns: int = 10
+    max_file_writes: int = 1
+    overrides: dict[str, Any] | None = None
+
+
 class SessionConfig(DomainModel):
     """Session management configuration."""
 
@@ -232,6 +242,7 @@ class SessionConfig(DomainModel):
     json_repair_enabled: bool = True
     # Max per-session buffer for JSON repair streaming (bytes)
     json_repair_buffer_cap_bytes: int = 64 * 1024
+    content_accumulation_buffer_cap_bytes: int = 64 * 1024
     json_repair_strict_mode: bool = False
     json_repair_schema: dict[str, Any] | None = None  # Added
     tool_call_reactor: ToolCallReactorConfig = Field(
@@ -241,6 +252,7 @@ class SessionConfig(DomainModel):
     dangerous_command_steering_message: str | None = None
     pytest_compression_enabled: bool = True
     pytest_compression_min_lines: int = 30
+    planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
 
 
 class EmptyResponseConfig(DomainModel):
@@ -517,7 +529,10 @@ class AppConfig(DomainModel, IConfig):
             or (int(os.environ.get("APP_PORT", "8000")) + 1),
             "proxy_timeout": int(os.environ.get("PROXY_TIMEOUT", "120")),
             "command_prefix": os.environ.get("COMMAND_PREFIX", "!/"),
-            "strict_command_detection": os.environ.get("STRICT_COMMAND_DETECTION", "").lower() == "true",
+            "strict_command_detection": os.environ.get(
+                "STRICT_COMMAND_DETECTION", ""
+            ).lower()
+            == "true",
             "auth": {
                 "disable_auth": os.environ.get("DISABLE_AUTH", "").lower() == "true",
                 "api_keys": _get_api_keys_from_env(),

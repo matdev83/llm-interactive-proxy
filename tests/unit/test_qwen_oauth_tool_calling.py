@@ -43,6 +43,8 @@ class TestQwenOAuthToolCallingUnit:
             "resource_url": "portal.qwen.ai",
             "expiry_date": int(time.time() * 1000) + 3600000,
         }
+        # Disable health check to avoid API calls during tests
+        connector.disable_health_check()
         return connector
 
     @pytest.mark.asyncio

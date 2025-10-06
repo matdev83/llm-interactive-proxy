@@ -13,6 +13,8 @@ from typing import Any
 from src.core.interfaces.app_settings_interface import IAppSettings
 
 logger = logging.getLogger(__name__)
+
+
 def _get_strict_services_errors() -> bool:
     """Get strict services errors setting from environment."""
     return os.getenv("STRICT_SERVICES_ERRORS", "false").lower() in (

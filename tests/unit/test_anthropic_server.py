@@ -4,13 +4,14 @@ import asyncio
 from typing import Any
 
 import pytest
-from src.anthropic_server import create_anthropic_app, main
+from src.anthropic_server import create_anthropic_app_async, main
 from src.core.config.app_config import AppConfig, LogLevel
 
 
-def test_create_anthropic_app_registers_endpoints() -> None:
+@pytest.mark.asyncio
+async def test_create_anthropic_app_registers_endpoints() -> None:
     cfg = AppConfig()
-    app = create_anthropic_app(cfg)
+    app = await create_anthropic_app_async(cfg)
 
     # App should be created and configured
     assert app is not None

@@ -45,6 +45,10 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
 
     import yaml
 
+    yaml_content = cfg_path.read_text()
+    print("Saved YAML content:")
+    print(yaml_content)
+
     data = yaml.safe_load(cfg_path.read_text())
     assert data["backends"]["default_backend"] == "gemini"
     assert data["session"]["default_interactive_mode"] is True  # Updated path
@@ -61,7 +65,19 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
         "src.connectors.openrouter.OpenRouterBackend.get_available_models",
         return_value=["model-a"],
     ):
-        app2_config = load_config(str(cfg_path))
+        try:
+            app2_config = load_config(str(cfg_path))
+        except Exception as e:
+            # Print the actual validation error for debugging
+            print("YAML content that failed validation:")
+            print(yaml_content)
+            print(f"Validation error type: {type(e).__name__}")
+            print(f"Validation error message: {e}")
+            if hasattr(e, "details") and "errors" in e.details:
+                print(f"Specific errors: {e.details['errors']}")
+            elif hasattr(e, "details"):
+                print(f"Error details: {e.details}")
+            raise
         app2 = build_app(config=app2_config)
 
     with TestClient(app2) as client2:

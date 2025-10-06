@@ -303,6 +303,23 @@ class QwenOAuthConnector(OpenAIConnector):
             errors.append(f"Unexpected error reading credentials file: {e}")
             return False, errors
 
+    def _fail_init(self, errors: list[str]) -> None:
+        """Mark initialization as failed with given errors."""
+        self._credential_validation_errors = errors
+        self._initialization_failed = True
+        self.is_functional = False
+
+    def _degrade(self, errors: list[str]) -> None:
+        """Degrade backend functionality due to credential issues."""
+        self._credential_validation_errors = errors
+        self.is_functional = False
+
+    def _recover(self) -> None:
+        """Recover backend functionality after credential issues are resolved."""
+        self._credential_validation_errors = []
+        self.is_functional = True
+        self._initialization_failed = False
+
     def get_validation_errors(self) -> list[str]:
         """Get the current list of credential validation errors.
 
@@ -338,8 +355,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 logger.warning(
                     f"Updated credentials file is invalid: {'; '.join(errors)}"
                 )
-                self._credential_validation_errors = errors
-                self.is_functional = False
+                self._degrade(errors)
                 return
 
             # File is valid, try to load it
@@ -348,18 +364,17 @@ class QwenOAuthConnector(OpenAIConnector):
                     logger.info(
                         "Successfully reloaded OAuth credentials from updated file"
                     )
-                self._credential_validation_errors = []
-                self.is_functional = True
+                self._recover()
                 self._last_validation_time = time.time()
             else:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error("Failed to load updated OAuth credentials file")
-                self.is_functional = False
+                self._degrade(["Failed to reload credentials after file change"])
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error handling credentials file change: {e}")
-            self.is_functional = False
+            self._degrade([f"Error handling credentials file change: {e}"])
 
     def _start_file_watching(self) -> None:
         """Start watching the OAuth credentials file for changes."""
@@ -426,24 +441,17 @@ class QwenOAuthConnector(OpenAIConnector):
                     logger.warning(
                         "Reloaded token is still expired, marking backend as non-functional"
                     )
-                    self._credential_validation_errors = [
-                        "Token expired and no valid replacement found"
-                    ]
-                    self.is_functional = False
+                    self._degrade(["Token expired and no valid replacement found"])
                     return False
                 else:
                     logger.info("Successfully reloaded valid credentials")
-                    self._credential_validation_errors = []
-                    self.is_functional = True
+                    self._recover()
                     return True
             else:
                 logger.error(
                     "Failed to reload credentials, marking backend as non-functional"
                 )
-                self._credential_validation_errors = [
-                    "Failed to reload expired credentials"
-                ]
-                self.is_functional = False
+                self._degrade(["Failed to reload expired credentials"])
                 return False
 
         # Credentials are present and not expired; allow proceeding
@@ -669,16 +677,18 @@ class QwenOAuthConnector(OpenAIConnector):
             # Step 4: Attempt token refresh if needed
             logger.info("Step 3: Checking token expiry and refreshing if needed...")
             if not await self._refresh_token_if_needed():
-                error_msg = (
-                    "Failed to refresh expired OAuth token during initialization"
-                )
-                logger.error(error_msg)
-                self._credential_validation_errors = [error_msg]
-                self._initialization_failed = True
-                self.is_functional = False
-                return
-
-            logger.info("Token refresh check completed successfully")
+                pending_message = "OAuth token refresh pending; Qwen CLI background refresh was triggered."
+                self._degrade([pending_message])
+                self._start_file_watching()
+                self._initialization_failed = False
+                self._last_validation_time = time.time()
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Qwen OAuth backend started with an expired token; "
+                        "waiting for the Qwen CLI to refresh credentials."
+                    )
+            else:
+                logger.info("Token refresh check completed successfully")
 
             # Step 5: Set up available models
             self.available_models = [
@@ -696,17 +706,22 @@ class QwenOAuthConnector(OpenAIConnector):
                 "qwen2.5-0.5b-instruct",
             ]
 
-            # Step 6: Start file watching
-            logger.info("Step 4: Starting OAuth credentials file monitoring...")
-            self._start_file_watching()
+            # Step 6: Start file watching (if not already started)
+            if not self._file_observer:
+                logger.info("Step 4: Starting OAuth credentials file monitoring...")
+                self._start_file_watching()
 
-            # Step 7: Mark as functional
-            self.is_functional = True
-            self._last_validation_time = time.time()
-            logger.info(
-                f"Qwen OAuth backend successfully initialized with {len(self.available_models)} models, "
-                f"file monitoring enabled, and health check enabled."
-            )
+            # Step 7: Mark as functional if credentials are valid, otherwise keep degraded
+            if not self._credential_validation_errors:
+                self.is_functional = True
+                logger.info(
+                    f"Qwen OAuth backend successfully initialized with {len(self.available_models)} models, "
+                    f"file monitoring enabled, and health check enabled."
+                )
+            else:
+                logger.warning(
+                    f"Qwen OAuth backend initialized with degraded functionality: {'; '.join(self._credential_validation_errors)}"
+                )
 
         except Exception as e:
             error_msg = (
@@ -745,7 +760,7 @@ class QwenOAuthConnector(OpenAIConnector):
         elif self._event_loop and self._event_loop.is_running():
             target_loop = self._event_loop
 
-        if target_loop is None:
+        if target_loop is None or target_loop.is_closed():
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "No running event loop available to schedule Qwen OAuth credential reload"
