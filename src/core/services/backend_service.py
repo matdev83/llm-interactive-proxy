@@ -338,6 +338,27 @@ class BackendService(IBackendService):
                     details={"error": str(e)},
                 ) from e
 
+            # Short-circuit if backend reports non-functional state and failover is disabled
+            functional: bool = True
+            try:
+                backend_functional_check = getattr(
+                    backend, "is_backend_functional", lambda: True
+                )
+                functional = bool(backend_functional_check())
+            except Exception:
+                # If backend check throws, assume functional to avoid false negatives
+                functional = True
+            if (not allow_failover) and (not functional):
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Selected backend %s is not functional and failover is disabled; raising error",
+                        backend_type,
+                    )
+                raise BackendError(
+                    message=f"Selected backend {backend_type} is not functional",
+                    backend_name=backend_type,
+                )
+
             domain_request: ChatRequest = request
 
             # Apply session reasoning configuration if available
@@ -591,6 +612,7 @@ class BackendService(IBackendService):
         if (
             hasattr(app_config, "backends")
             and hasattr(app_config.backends, "static_route")
+            and isinstance(app_config.backends.static_route, str)
             and app_config.backends.static_route
         ):
             static_route = app_config.backends.static_route

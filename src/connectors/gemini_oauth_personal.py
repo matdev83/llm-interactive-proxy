@@ -1709,6 +1709,10 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     )
                     yield ProcessedResponse(content=final_chunk)
 
+                except BackendError as e:
+                    # Propagate backend errors (e.g., quota exceeded) to the caller
+                    logger.error(f"Error in streaming generator: {e}", exc_info=True)
+                    raise
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
                     error_chunk = self.translation_service.to_domain_stream_chunk(
