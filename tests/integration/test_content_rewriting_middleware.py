@@ -574,16 +574,12 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                 exist_ok=True,
             )
             with open(
-                os.path.join(
-                    self.test_config_dir, "replies", "004", "SEARCH.txt"
-                ),
+                os.path.join(self.test_config_dir, "replies", "004", "SEARCH.txt"),
                 "w",
             ) as f:
                 f.write("original reply")
             with open(
-                os.path.join(
-                    self.test_config_dir, "replies", "004", "REPLACE.txt"
-                ),
+                os.path.join(self.test_config_dir, "replies", "004", "REPLACE.txt"),
                 "w",
             ) as f:
                 f.write("rewritten reply")

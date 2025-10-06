@@ -627,7 +627,9 @@ class BackendService(IBackendService):
             else:
                 # If no colon, treat as model only
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"Static route active: forcing model={static_route} with default backend={default_backend}")
+                    logger.info(
+                        f"Static route active: forcing model={static_route} with default backend={default_backend}"
+                    )
                 # For model-only static route, use the default backend
                 return default_backend, static_route
 
