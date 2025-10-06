@@ -115,12 +115,23 @@ class InMemorySessionRepository(ISessionRepository):
         Returns:
             The number of sessions deleted
         """
-        now = time.time()
-        expired_ids = [
-            session_id
-            for session_id, last_access in self._last_accessed.items()
-            if now - last_access > max_age_seconds
-        ]
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        expired_ids = []
+
+        for session_id, session in self._sessions.items():
+            # Use session's last_active_at if available, otherwise fall back to _last_accessed
+            if hasattr(session, "last_active_at") and session.last_active_at:
+                last_active = session.last_active_at
+                age = (now - last_active).total_seconds()
+            else:
+                # Fall back to internal tracking
+                last_access_timestamp = self._last_accessed.get(session_id, time.time())
+                age = time.time() - last_access_timestamp
+
+            if age > max_age_seconds:
+                expired_ids.append(session_id)
 
         count = 0
         for session_id in expired_ids:

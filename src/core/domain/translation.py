@@ -122,9 +122,9 @@ class Translation(BaseTranslator):
         if not url_str:
             return None
 
-        mime_type = Translation._detect_image_mime_type(url_str)
-
+        # Inline data URIs are allowed
         if url_str.startswith("data:"):
+            mime_type = Translation._detect_image_mime_type(url_str)
             try:
                 _, base64_data = url_str.split(",", 1)
             except ValueError:
@@ -136,6 +136,21 @@ class Translation(BaseTranslator):
                 }
             }
 
+        # For non-inline URIs, only allow http/https schemes. Reject file/ftp and local paths.
+        try:
+            from urllib.parse import urlparse
+
+            scheme = (urlparse(url_str).scheme or "").lower()
+        except Exception:
+            scheme = ""
+
+        allowed_schemes = {"http", "https"}
+
+        if scheme not in allowed_schemes:
+            # Also treat Windows/local file paths (no scheme or drive-letter scheme) as invalid
+            return None
+
+        mime_type = Translation._detect_image_mime_type(url_str)
         return {
             "file_data": {
                 "mime_type": mime_type,
@@ -228,8 +243,24 @@ class Translation(BaseTranslator):
                 json.loads(stripped)
                 return stripped
             except json.JSONDecodeError:
-                # Safe fallback - don't try to "fix" the JSON with dangerous string replacements
-                # This prevents data corruption from blind quote replacement
+                # Attempt to parse Python-literal style dicts/lists safely
+                try:
+                    import ast
+
+                    literal = ast.literal_eval(stripped)
+                    # Only convert common JSON-compatible literal types
+                    if (
+                        isinstance(
+                            literal, dict | list | tuple | str | int | float | bool
+                        )
+                        or literal is None
+                    ):
+                        return json.dumps(
+                            literal if not isinstance(literal, tuple) else list(literal)
+                        )
+                except Exception:
+                    pass
+                # Safe fallback - keep raw content under a namespaced key to avoid corruption
                 return json.dumps({"_raw": stripped})
 
         if isinstance(args, dict):
@@ -945,11 +976,8 @@ class Translation(BaseTranslator):
         contents: list[dict[str, Any]] = []
 
         for message in request.messages:
-            # Process all messages including system messages (for test compatibility)
+            # Map assistant role to 'model' for Gemini compatibility; keep others as-is
             gemini_role = "model" if message.role == "assistant" else message.role
-            # Keep original roles in internal representation for consistency with tests
-            # Actual API conversion happens at a different layer
-            gemini_role = message.role
             msg_dict = {"role": gemini_role}
             parts = []
 

@@ -580,6 +580,14 @@ class BackendService(IBackendService):
 
         # Apply static_route override FIRST - it has highest priority
         app_config = cast(AppConfig, self._config)
+        # Determine the default backend once for consistent resolution logic
+        default_backend: str = (
+            app_config.backends.default_backend
+            if hasattr(app_config, "backends")
+            else "openai"
+        )
+        # Prepare mutable backend_type placeholder used across branches
+        backend_type: str | None = None
         if (
             hasattr(app_config, "backends")
             and hasattr(app_config.backends, "static_route")
@@ -597,11 +605,8 @@ class BackendService(IBackendService):
             else:
                 # If no colon, treat as model only
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Static route active: forcing model={static_route}"
-                    )
+                    logger.info(f"Static route active: forcing model={static_route}")
                 # For model-only static route, we still need to determine backend
-                backend_type: str | None = None
                 if session and session.state and session.state.backend_config:
                     from src.core.domain.configuration.backend_config import (
                         BackendConfiguration,
@@ -613,17 +618,14 @@ class BackendService(IBackendService):
 
                 if not backend_type:
                     backend_type = (
-                        request.extra_body.get("backend_type") if request.extra_body else None
+                        request.extra_body.get("backend_type")
+                        if request.extra_body
+                        else None
                     )
 
                 if not backend_type:
                     from src.core.domain.model_utils import parse_model_backend
 
-                    default_backend: str = (
-                        app_config.backends.default_backend
-                        if hasattr(app_config, "backends")
-                        else "openai"
-                    )
                     parsed_backend, _ = parse_model_backend(
                         request.model, default_backend
                     )
@@ -632,7 +634,6 @@ class BackendService(IBackendService):
                 return backend_type, static_route
 
         # Normal backend resolution logic (only when static_route is not configured)
-        backend_type: str | None = None
         if session and session.state and session.state.backend_config:
             from src.core.domain.configuration.backend_config import (
                 BackendConfiguration,
@@ -651,11 +652,6 @@ class BackendService(IBackendService):
         if not backend_type:
             from src.core.domain.model_utils import parse_model_backend
 
-            default_backend: str = (
-                app_config.backends.default_backend
-                if hasattr(app_config, "backends")
-                else "openai"
-            )
             parsed_backend, parsed_model = parse_model_backend(
                 request.model, default_backend
             )

@@ -43,7 +43,11 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
         # Check if static routing is enabled - if so, block model changes
         if self._is_static_routing_enabled():
             model_name = args.get("name")
-            if model_name is not None and isinstance(model_name, str) and model_name.strip():
+            if (
+                model_name is not None
+                and isinstance(model_name, str)
+                and model_name.strip()
+            ):
                 return CommandResult(
                     name=self.name,
                     success=False,
@@ -110,7 +114,7 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
     def _is_static_routing_enabled(self) -> bool:
         """Check if static routing is enabled via CLI parameter."""
         import os
-        
+
         # Check if static route was set via CLI (stored in environment)
         static_route = os.environ.get("STATIC_ROUTE")
         return static_route is not None and static_route.strip() != ""

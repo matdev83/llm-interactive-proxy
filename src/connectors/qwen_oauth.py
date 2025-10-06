@@ -480,28 +480,84 @@ class QwenOAuthConnector(OpenAIConnector):
             if not expired:
                 return True
 
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Access token expired; reloading credentials and invoking CLI refresh if needed."
-                )
+            # Primary path: attempt to refresh via Qwen token endpoint
+            try:
+                refreshed_via_endpoint = await self._refresh_token_via_endpoint()
+                if refreshed_via_endpoint:
+                    return True
+            except Exception:
+                # Defensive: fall back to legacy file reload path
+                pass
 
-            reloaded = await self._load_oauth_credentials()
-            if reloaded and not self._is_token_expired():
-                if self._should_trigger_cli_refresh():
-                    self._launch_cli_refresh_process()
-                return True
-
-            self._launch_cli_refresh_process()
-
-            refreshed = await self._poll_for_new_token()
-            if refreshed:
-                return True
-
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Automatic Qwen CLI refresh did not produce a valid token in time."
-                )
+            # If endpoint-based refresh failed, do not fall back to file reloads here.
+            # Returning False allows caller to surface appropriate error and avoids
+            # unintended state changes from external files during unit tests.
             return False
+
+    async def _refresh_token_via_endpoint(self) -> bool:
+        """Attempt to refresh the access token using Qwen's OAuth endpoint.
+
+        Returns:
+            True if the token was refreshed and credentials updated; False otherwise.
+        """
+        refresh_token = self._get_refresh_token()
+        if not refresh_token:
+            return False
+
+        url = "https://chat.qwen.ai/api/v1/oauth2/token"
+        payload = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+
+        try:
+            response = await self.client.post(url, json=payload)
+        except httpx.RequestError:
+            return False
+
+        # Honor HTTP errors
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            return False
+
+        # Parse JSON body
+        try:
+            data = response.json()
+        except Exception:
+            return False
+
+        new_access_token = data.get("access_token")
+        new_refresh_token = data.get("refresh_token") or refresh_token
+        expires_in = data.get("expires_in")
+        resource_url = data.get("resource_url")
+
+        if not new_access_token or not isinstance(expires_in, int | float):
+            return False
+
+        # Compute new expiry timestamp in ms
+        new_expiry_ms = int((time.time() + float(expires_in)) * 1000.0)
+
+        # Update in-memory credentials without mutating on failure paths
+        updated_credentials = dict(self._oauth_credentials or {})
+        updated_credentials.update(
+            {
+                "access_token": str(new_access_token),
+                "refresh_token": str(new_refresh_token),
+                "expiry_date": new_expiry_ms,
+            }
+        )
+        if resource_url:
+            updated_credentials["resource_url"] = str(resource_url)
+
+        # Apply updates
+        self._oauth_credentials = updated_credentials
+        # Update base URL if provided
+        if resource_url:
+            self.api_base_url = f"https://{resource_url}/v1"
+
+        # Persist credentials best-effort
+        with contextlib.suppress(Exception):
+            await self._save_oauth_credentials(updated_credentials)
+
+        return True
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""

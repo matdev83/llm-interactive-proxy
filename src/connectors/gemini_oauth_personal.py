@@ -189,6 +189,23 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                     logger.error(f"Error processing file modification event: {e}")
 
 
+class _StaticTokenCreds:
+    """Simple credentials wrapper for static OAuth tokens."""
+
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def before_request(
+        self, request: Any, method: str, url: str, headers: dict
+    ) -> None:
+        """Apply the token to the authentication header."""
+        headers["Authorization"] = f"Bearer {self.token}"
+
+    def refresh(self, request: Any) -> None:
+        """No-op: token is managed by the CLI; we reload from file when needed."""
+        return
+
+
 class GeminiOAuthPersonalConnector(GeminiBackend):
     """Connector that uses access_token from gemini-cli oauth_creds.json file.
 
@@ -1207,20 +1224,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Build a simple authorized session wrapper using Requests
             # We use AuthorizedSession with a bare Credentials-like shim
-            class _StaticTokenCreds:
-                def __init__(self, token: str) -> None:
-                    self.token = token
-
-                def before_request(
-                    self, request: Any, method: str, url: str, headers: dict
-                ) -> None:
-                    """Apply the token to the authentication header."""
-                    headers["Authorization"] = f"Bearer {self.token}"
-
-                def refresh(self, request: Any) -> None:
-                    # No-op: token is managed by the CLI; we reload from file when needed
-                    return
-
             auth_session = google.auth.transport.requests.AuthorizedSession(
                 _StaticTokenCreds(access_token)
             )
@@ -1479,19 +1482,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             access_token = self._oauth_credentials.get("access_token")
             if not access_token:
                 raise AuthenticationError("Missing access_token in OAuth credentials")
-
-            class _StaticTokenCreds:
-                def __init__(self, token: str) -> None:
-                    self.token = token
-
-                def before_request(
-                    self, request: Any, method: str, url: str, headers: dict
-                ) -> None:
-                    """Apply the token to the authentication header."""
-                    headers["Authorization"] = f"Bearer {self.token}"
-
-                def refresh(self, request: Any) -> None:
-                    return
 
             auth_session = google.auth.transport.requests.AuthorizedSession(
                 _StaticTokenCreds(access_token)

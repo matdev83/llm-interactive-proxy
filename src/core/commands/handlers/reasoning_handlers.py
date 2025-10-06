@@ -288,7 +288,7 @@ class GeminiGenerationConfigHandler(BaseCommandHandler):
 def _is_cli_thinking_budget_enabled() -> bool:
     """Check if CLI thinking budget is enabled via --thinking-budget parameter."""
     import os
-    
+
     # Check if thinking budget was set via CLI (stored in environment)
     thinking_budget = os.environ.get("THINKING_BUDGET")
     return thinking_budget is not None and thinking_budget.strip() != ""

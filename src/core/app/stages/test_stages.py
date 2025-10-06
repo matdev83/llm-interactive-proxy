@@ -687,7 +687,7 @@ class MockBackendStage(InitializationStage):
             )
             from src.core.interfaces.backend_service_interface import IBackendService
             from src.core.services.backend_service import BackendService
-            from src.core.services.rate_limiter_service import RateLimiter
+            from src.core.services.rate_limiter import RateLimiter
 
             # Create a rate limiter instance directly for the factory
             # (will be retrieved via service provider)

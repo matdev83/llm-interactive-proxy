@@ -47,6 +47,16 @@ def _get_api_keys_from_env() -> list[str]:
     if api_keys_raw and isinstance(api_keys_raw, str):
         result.extend(_process_api_keys(api_keys_raw))
 
+    # Support common single-key env vars for the proxy
+    for name in (
+        "LLM_INTERACTIVE_PROXY_API_KEY",
+        "PROXY_API_KEY",
+        "TEST_PROXY_API_KEY",
+    ):
+        value = os.environ.get(name)
+        if value and isinstance(value, str) and value.strip():
+            result.append(value.strip())
+
     return result
 
 
@@ -491,6 +501,39 @@ class AppConfig(DomainModel, IConfig):
         """Save the current configuration to a file."""
         p = Path(path)
         data = self.model_dump(mode="json")
+        # Normalize structure to match schema expectations
+        # - default_backend must be at top-level (already present)
+        # - Remove runtime-only fields that are not part of schema or can cause validation errors
+        for runtime_key in ["app"]:
+            if runtime_key in data:
+                data[runtime_key] = None
+        # Filter out unsupported top-level keys (schema has additionalProperties: false)
+        allowed_top_keys = {
+            "host",
+            "port",
+            "anthropic_port",
+            "proxy_timeout",
+            "command_prefix",
+            "context_window_override",
+            "default_rate_limit",
+            "default_rate_window",
+            "model_defaults",
+            "failover_routes",
+            "identity",
+            "empty_response",
+            "edit_precision",
+            "rewriting",
+            "app",
+            "logging",
+            "auth",
+            "session",
+            "backends",
+            "default_backend",
+            "reasoning_aliases",
+        }
+        data = {k: v for k, v in data.items() if k in allowed_top_keys}
+        # Ensure nested sections only include serializable primitives
+        # (model_dump already handles pydantic models)
         if p.suffix.lower() in {".yaml", ".yml"}:
             import yaml
 
@@ -517,7 +560,10 @@ class AppConfig(DomainModel, IConfig):
             or (int(os.environ.get("APP_PORT", "8000")) + 1),
             "proxy_timeout": int(os.environ.get("PROXY_TIMEOUT", "120")),
             "command_prefix": os.environ.get("COMMAND_PREFIX", "!/"),
-            "strict_command_detection": os.environ.get("STRICT_COMMAND_DETECTION", "").lower() == "true",
+            "strict_command_detection": os.environ.get(
+                "STRICT_COMMAND_DETECTION", ""
+            ).lower()
+            == "true",
             "auth": {
                 "disable_auth": os.environ.get("DISABLE_AUTH", "").lower() == "true",
                 "api_keys": _get_api_keys_from_env(),

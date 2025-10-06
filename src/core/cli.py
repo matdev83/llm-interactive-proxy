@@ -486,16 +486,17 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         cfg.session.pytest_compression_enabled = args.pytest_compression_enabled
 
     # Planning phase configuration
-    if getattr(args, "enable_planning_phase", None) is not None:
-        cfg.session.planning_phase.enabled = args.enable_planning_phase
-    if getattr(args, "planning_phase_strong_model", None) is not None:
-        cfg.session.planning_phase.strong_model = args.planning_phase_strong_model
-    if getattr(args, "planning_phase_max_turns", None) is not None:
-        cfg.session.planning_phase.max_turns = max(1, args.planning_phase_max_turns)
-    if getattr(args, "planning_phase_max_file_writes", None) is not None:
-        cfg.session.planning_phase.max_file_writes = max(
-            1, args.planning_phase_max_file_writes
-        )
+    # Apply planning phase options only if config supports it (optional feature)
+    planning = getattr(cfg.session, "planning_phase", None)
+    if planning is not None:
+        if getattr(args, "enable_planning_phase", None) is not None:
+            planning.enabled = args.enable_planning_phase
+        if getattr(args, "planning_phase_strong_model", None) is not None:
+            planning.strong_model = args.planning_phase_strong_model
+        if getattr(args, "planning_phase_max_turns", None) is not None:
+            planning.max_turns = max(1, args.planning_phase_max_turns)
+        if getattr(args, "planning_phase_max_file_writes", None) is not None:
+            planning.max_file_writes = max(1, args.planning_phase_max_file_writes)
 
     # Planning phase overrides
     overrides_updates: dict[str, Any] = {}
@@ -507,12 +508,12 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         overrides_updates["reasoning_effort"] = args.planning_phase_reasoning_effort
     if getattr(args, "planning_phase_thinking_budget", None) is not None:
         overrides_updates["thinking_budget"] = args.planning_phase_thinking_budget
-    if overrides_updates:
-        existing_overrides = cfg.session.planning_phase.overrides or {}
+    if overrides_updates and planning is not None:
+        existing_overrides = getattr(planning, "overrides", {}) or {}
         if not isinstance(existing_overrides, dict):
             existing_overrides = {}
         existing_overrides.update(overrides_updates)
-        cfg.session.planning_phase.overrides = existing_overrides
+        planning.overrides = existing_overrides
 
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)

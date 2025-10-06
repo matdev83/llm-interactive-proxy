@@ -53,7 +53,7 @@ class NewCommandService(ICommandService):
         if not text:
             return ""
 
-        lines = text.split('\n')
+        lines = text.split("\n")
         # Find the last non-blank line
         for line in reversed(lines):
             if line.strip():  # Non-blank line

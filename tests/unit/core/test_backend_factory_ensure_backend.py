@@ -114,7 +114,11 @@ async def test_ensure_backend_with_backend_config(factory: BackendFactory) -> No
 
 @pytest.mark.asyncio
 async def test_ensure_backend_test_env_injection(factory: BackendFactory) -> None:
-    """Test ensure_backend in test environment with no API key."""
+    """Test ensure_backend in test environment with no API key.
+
+    Note: Production code no longer auto-injects test keys for security reasons.
+    Tests must explicitly provide API keys if needed.
+    """
     # Arrange
     backend_type = "openai"
     app_config = factory._config
@@ -139,7 +143,8 @@ async def test_ensure_backend_test_env_injection(factory: BackendFactory) -> Non
         mock_create.assert_called_once_with(backend_type, app_config)
         mock_init.assert_called_once()
         init_config = mock_init.call_args[0][1]
-        assert init_config["api_key"] == f"test-key-{backend_type}"
+        # No automatic test key injection for security - expect None when no key provided
+        assert init_config["api_key"] is None
         assert result == mock_backend
 
 

@@ -100,7 +100,7 @@ class InfrastructureStage(InitializationStage):
     def _register_rate_limiter(self, services: ServiceCollection) -> None:
         """Register rate limiter service."""
         try:
-            from src.core.services.rate_limiter_service import RateLimiter
+            from src.core.services.rate_limiter import RateLimiter
 
             # Register as singleton (no dependencies)
             services.add_singleton(RateLimiter)

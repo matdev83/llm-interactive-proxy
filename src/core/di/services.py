@@ -117,6 +117,8 @@ T = TypeVar("T")
 # Global service collection
 _service_collection: ServiceCollection | None = None
 _service_provider: IServiceProvider | None = None
+
+
 def _get_di_diagnostics() -> bool:
     """Get DI diagnostics setting from environment."""
     return os.getenv("DI_STRICT_DIAGNOSTICS", "false").lower() in (
@@ -322,7 +324,11 @@ def register_core_services(
         session_service = provider.get_required_service(SessionService)
         command_parser = provider.get_required_service(CommandParser)
         config = provider.get_required_service(AppConfig)
-        return NewCommandService(session_service, command_parser, strict_command_detection=config.strict_command_detection)
+        return NewCommandService(
+            session_service,
+            command_parser,
+            strict_command_detection=config.strict_command_detection,
+        )
 
     # Register CommandService and bind to interface
     _add_singleton(ICommandService, implementation_factory=_command_service_factory)  # type: ignore[type-abstract]
@@ -1116,7 +1122,7 @@ def register_core_services(
 
         from src.core.services.backend_factory import BackendFactory
         from src.core.services.backend_registry import backend_registry
-        from src.core.services.rate_limiter_service import RateLimiter
+        from src.core.services.rate_limiter import RateLimiter
 
         # Get or create dependencies
         httpx_client: httpx.AsyncClient | None = provider.get_service(httpx.AsyncClient)

@@ -1,7 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from src.connectors import GeminiBackend, OpenRouterBackend
+from src.connectors.gemini import GeminiBackend
+from src.connectors.openrouter import OpenRouterBackend
 from src.core.app.test_builder import build_test_app
 
 # Suppress Windows ProactorEventLoop warnings for this module

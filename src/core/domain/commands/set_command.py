@@ -69,7 +69,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 blocked_params.append("backend")
             if "model" in args:
                 blocked_params.append("model")
-            
+
             if blocked_params:
                 return CommandResult(
                     success=False,
@@ -351,7 +351,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
     def _is_static_routing_enabled(self) -> bool:
         """Check if static routing is enabled via CLI parameter."""
         import os
-        
+
         # Check if static route was set via CLI (stored in environment)
         static_route = os.environ.get("STATIC_ROUTE")
         return static_route is not None and static_route.strip() != ""

@@ -197,7 +197,7 @@ class CommandService(ICommandService):
             return ProcessedResult(
                 modified_messages=modified_messages,
                 command_executed=False,
-                command_results=[]
+                command_results=[],
             )
 
         message = modified_messages[last_user_message_index]
@@ -218,7 +218,7 @@ class CommandService(ICommandService):
                 return ProcessedResult(
                     modified_messages=modified_messages,
                     command_executed=False,
-                    command_results=[]
+                    command_results=[],
                 )
 
             cmd_name = match.group(1)
@@ -232,6 +232,9 @@ class CommandService(ICommandService):
 
             # Store the before content for later use
             before_content = before
+
+            # Look up the command handler by name
+            cmd = self._registry.get(cmd_name)
 
             if cmd:
                 args: dict[str, Any] = {}
@@ -264,15 +267,13 @@ class CommandService(ICommandService):
                     return ProcessedResult(
                         modified_messages=modified_messages,
                         command_executed=False,
-                        command_results=[]
+                        command_results=[],
                     )
 
                 result_coro = cmd.execute(
                     args,
                     session,
-                    type(
-                        "CommandContext", (), {"command_registry": self._registry}
-                    )(),
+                    type("CommandContext", (), {"command_registry": self._registry})(),
                 )
                 result = (
                     await result_coro
@@ -314,7 +315,7 @@ class CommandService(ICommandService):
                 command_executed = True
 
         # Case 2: multimodal content (list of parts)
-        elif isinstance(content, list) or isinstance(content, tuple):
+        elif isinstance(content, list | tuple):
             # Check if the last text part has a command at the end
             last_text_part_index = -1
             last_text_part_content = ""
@@ -334,12 +335,16 @@ class CommandService(ICommandService):
                 return ProcessedResult(
                     modified_messages=modified_messages,
                     command_executed=False,
-                    command_results=[]
+                    command_results=[],
                 )
 
             # Check if command is at the end of the last text part
             args_match = re.search(r"!/(\w+)\(([^)]*)\)", last_text_part_content)
-            simple_match = re.search(r"!/(\w+)", last_text_part_content) if not args_match else None
+            simple_match = (
+                re.search(r"!/(\w+)", last_text_part_content)
+                if not args_match
+                else None
+            )
             match = args_match or simple_match
 
             # Only process if command is at the end of the text (after trimming)
@@ -347,7 +352,7 @@ class CommandService(ICommandService):
                 return ProcessedResult(
                     modified_messages=modified_messages,
                     command_executed=False,
-                    command_results=[]
+                    command_results=[],
                 )
 
             cmd_name = match.group(1)
@@ -370,9 +375,7 @@ class CommandService(ICommandService):
                             if "=" in arg:
                                 k, v = arg.split("=", 1)
                                 v = v.strip()
-                                if (
-                                    v.startswith('"') and v.endswith('"')
-                                ) or (
+                                if (v.startswith('"') and v.endswith('"')) or (
                                     v.startswith("'") and v.endswith("'")
                                 ):
                                     v = v[1:-1]
@@ -390,7 +393,7 @@ class CommandService(ICommandService):
                     return ProcessedResult(
                         modified_messages=modified_messages,
                         command_executed=False,
-                        command_results=[]
+                        command_results=[],
                     )
                 else:
                     result_coro = cmd.execute(
@@ -408,10 +411,7 @@ class CommandService(ICommandService):
                         else result_coro
                     )
                     if (
-                        (
-                            result.success
-                            or getattr(result, "new_state", None)
-                        )
+                        (result.success or getattr(result, "new_state", None))
                         and self._session_service
                         and session
                     ):

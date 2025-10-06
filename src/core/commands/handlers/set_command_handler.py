@@ -68,7 +68,7 @@ class SetCommandHandler(ICommandHandler):
                 blocked_params.append("backend")
             if self._has_parameter(command.args, "model"):
                 blocked_params.append("model")
-            
+
             if blocked_params:
                 return CommandResult(
                     success=False,
@@ -262,7 +262,7 @@ class SetCommandHandler(ICommandHandler):
     def _is_static_routing_enabled(self) -> bool:
         """Check if static routing is enabled via CLI parameter."""
         import os
-        
+
         # Check if static route was set via CLI (stored in environment)
         static_route = os.environ.get("STATIC_ROUTE")
         return static_route is not None and static_route.strip() != ""
