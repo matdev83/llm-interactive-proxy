@@ -7,7 +7,7 @@ and fails startup when no functional backends exist.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from src.core.app.stages.backend import BackendStage
@@ -188,6 +188,7 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
             )
 
             assert functional_backends == []
+
 
     @pytest.mark.asyncio
     async def test_validate_backend_functionality_functional_backend(
@@ -559,3 +560,53 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
             result = await backend_stage.validate(services, config)
 
             assert result is True
+
+
+def test_backend_service_interface_shares_concrete_singleton() -> None:
+    """BackendService and IBackendService should resolve to the same singleton."""
+
+    from typing import cast
+
+    from src.core.app.stages.backend import BackendStage
+    from src.core.config.app_config import AppConfig
+    from src.core.di.container import ServiceCollection
+    from src.core.interfaces.application_state_interface import IApplicationState
+    from src.core.interfaces.backend_config_provider_interface import (
+        IBackendConfigProvider,
+    )
+    from src.core.interfaces.backend_service_interface import IBackendService
+    from src.core.interfaces.session_service_interface import ISessionService
+    from src.core.interfaces.wire_capture_interface import IWireCapture
+    from src.core.services.backend_factory import BackendFactory
+    from src.core.services.rate_limiter import RateLimiter
+
+    services = ServiceCollection()
+    services.add_instance(AppConfig, AppConfig())
+    services.add_instance(BackendFactory, MagicMock(spec=BackendFactory))
+    services.add_instance(RateLimiter, MagicMock(spec=RateLimiter))
+    services.add_instance(
+        cast(type, IBackendConfigProvider), MagicMock(spec=IBackendConfigProvider)
+    )
+    services.add_instance(
+        cast(type, ISessionService), MagicMock(spec=ISessionService)
+    )
+    services.add_instance(cast(type, IApplicationState), MagicMock())
+    services.add_instance(cast(type, IWireCapture), MagicMock())
+
+    fake_instance = object()
+
+    backend_stage = BackendStage()
+
+    with patch(
+        "src.core.services.backend_service.BackendService",
+        side_effect=lambda *args, **kwargs: fake_instance,
+    ) as backend_cls:
+        backend_stage._register_backend_service(services)
+
+    provider = services.build_service_provider()
+
+    concrete = provider.get_required_service(backend_cls)
+    interface_instance = provider.get_required_service(cast(type, IBackendService))
+
+    assert concrete is fake_instance
+    assert interface_instance is fake_instance

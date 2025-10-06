@@ -248,9 +248,16 @@ class BackendStage(InitializationStage):
                 BackendService, implementation_factory=backend_service_factory
             )
 
+            def _backend_service_alias_factory(
+                provider: IServiceProvider,
+            ) -> BackendService:
+                """Resolve the concrete BackendService singleton for the interface."""
+
+                return provider.get_required_service(BackendService)
+
             services.add_singleton(
                 cast(type, IBackendService),
-                implementation_factory=backend_service_factory,
+                implementation_factory=_backend_service_alias_factory,
             )
 
             if logger.isEnabledFor(logging.DEBUG):
