@@ -84,3 +84,29 @@ def test_get_failover_attempts_invalid_element() -> None:
     # Verify the invalid attempt gets parsed with empty backend
     assert attempts[1].backend == ""
     assert attempts[1].model == "invalid-element"
+
+
+def test_get_failover_attempts_falls_back_to_service_routes() -> None:
+    """Service-level routes should be used when config lacks per-model entries."""
+
+    backend_config = Mock()
+    backend_config.failover_routes = {}
+
+    service = FailoverService(
+        {
+            "openai": {
+                "policy": "ordered",
+                "elements": [
+                    "openrouter:gpt-4o-mini",
+                    "anthropic:claude-3-sonnet",
+                ],
+            }
+        }
+    )
+
+    attempts = service.get_failover_attempts(backend_config, "gpt-4o", "openai")
+
+    assert [(a.backend, a.model) for a in attempts] == [
+        ("openrouter", "gpt-4o-mini"),
+        ("anthropic", "claude-3-sonnet"),
+    ]

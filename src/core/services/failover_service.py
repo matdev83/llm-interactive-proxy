@@ -76,8 +76,21 @@ class FailoverService:
         """
         # Get the route configuration
         route_config = backend_config.failover_routes.get(model)
+
         if not route_config:
-            logger.debug("No failover route found for model", model=model)
+            # Fall back to routes managed directly on the service. This allows
+            # callers to register global routes (e.g. per backend type) via the
+            # FailoverService/Coordinator while still supporting per-model
+            # overrides carried on the backend configuration.
+            route_config = self.failover_routes.get(model)
+
+        if not route_config:
+            route_config = self.get_failover_route(backend_type)
+
+        if not route_config:
+            logger.debug(
+                "No failover route found for model", model=model, backend_type=backend_type
+            )
             return []
 
         policy = route_config.get("policy", "k")
