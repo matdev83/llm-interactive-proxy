@@ -5,7 +5,6 @@ from __future__ import annotations
 from importlib import reload
 
 import pytest
-
 import src.core.domain.commands.loop_detection_commands as loop_detection_commands
 
 

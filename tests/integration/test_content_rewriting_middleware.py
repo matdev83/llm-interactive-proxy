@@ -9,8 +9,8 @@ from src.core.app.middleware.content_rewriting_middleware import (
     ContentRewritingMiddleware,
 )
 from src.core.services.content_rewriter_service import ContentRewriterService
-from starlette.datastructures import Headers
 from starlette.background import BackgroundTask
+from starlette.datastructures import Headers
 from starlette.responses import Response, StreamingResponse
 
 
