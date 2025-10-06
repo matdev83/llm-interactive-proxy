@@ -221,6 +221,68 @@ class TestOpenAIResponsesConnector:
         assert payload["messages"][0]["content"] == "Processed message"
 
     @pytest.mark.asyncio
+    async def test_responses_headers_override_preserves_authorization(
+        self, connector, mock_client
+    ):
+        """Ensure headers overrides merge with auth headers instead of replacing them."""
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {
+            "id": "resp-123",
+            "object": "response",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "{}",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        mock_client.post.return_value = mock_response
+
+        request_data = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Generate a person"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "person",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}},
+                    },
+                },
+            },
+        }
+
+        headers_override = {"X-Test": "123"}
+
+        result = await connector.responses(
+            request_data=request_data,
+            processed_messages=[],
+            effective_model="gpt-4",
+            headers_override=headers_override,
+        )
+
+        assert isinstance(result, ResponseEnvelope)
+        mock_client.post.assert_called_once()
+        sent_headers = mock_client.post.call_args[1]["headers"]
+        assert sent_headers["Authorization"] == "Bearer test-api-key"
+        assert sent_headers["X-Test"] == "123"
+
+        from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
+
+        assert sent_headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
+        assert headers_override == {"X-Test": "123"}
+
+    @pytest.mark.asyncio
     async def test_responses_error_handling(self, connector, mock_client):
         """Test error handling in Responses API calls."""
         # Mock an error response

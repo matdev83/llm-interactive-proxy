@@ -535,14 +535,28 @@ class OpenAIConnector(LLMBackend):
                 # Fallback - leave whatever the converter produced
                 pass
 
-        headers = kwargs.pop("headers_override", None)
-        if headers is None:
-            try:
-                if identity:
-                    self.identity = identity
-                headers = self.get_headers()
-            except Exception:
-                headers = None
+        headers_override = kwargs.pop("headers_override", None)
+        resolved_headers: dict[str, str] | None = None
+
+        if headers_override is not None:
+            resolved_headers = dict(headers_override)
+
+        if identity:
+            self.identity = identity
+
+        base_headers: dict[str, str] | None
+        try:
+            base_headers = self.get_headers()
+        except Exception:
+            base_headers = None
+
+        if base_headers is not None:
+            merged_headers = dict(base_headers)
+            if resolved_headers:
+                merged_headers.update(resolved_headers)
+            resolved_headers = merged_headers
+
+        headers = resolved_headers
 
         api_base = kwargs.get("openai_url") or self.api_base_url
         url = f"{api_base.rstrip('/')}/responses"
