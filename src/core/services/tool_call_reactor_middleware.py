@@ -204,12 +204,16 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         # If content is already a dict, use it directly
         if isinstance(content, dict):
             data = content
-        else:
+        elif isinstance(content, list):
+            data = content
+        elif isinstance(content, str):
             # Otherwise try to parse as JSON string
             try:
-                data = json.loads(content) if isinstance(content, str) else {}
+                data = json.loads(content)
             except (json.JSONDecodeError, TypeError, ValueError):
                 return []
+        else:
+            return []
 
         tool_calls = []
 

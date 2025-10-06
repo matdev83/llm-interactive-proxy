@@ -345,6 +345,30 @@ class TestToolCallReactorMiddleware:
         assert call_args.tool_name == "test_tool"
 
     @pytest.mark.asyncio
+    async def test_process_list_tool_calls_array(self, middleware, mock_reactor):
+        """Test processing when response content is already a list of tool calls."""
+        tool_calls = [
+            {
+                "id": "call_456",
+                "type": "function",
+                "function": {"name": "list_tool", "arguments": '{"foo": "bar"}'},
+            }
+        ]
+
+        response = ProcessedResponse(content=tool_calls)
+        mock_reactor.process_tool_call.return_value = None
+
+        await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        mock_reactor.process_tool_call.assert_called_once()
+        call_args = mock_reactor.process_tool_call.call_args[0][0]
+        assert call_args.tool_name == "list_tool"
+
+    @pytest.mark.asyncio
     async def test_process_invalid_json_content(self, middleware, mock_reactor):
         """Test processing response with invalid JSON content."""
         response = ProcessedResponse(content="invalid json")
