@@ -6,11 +6,12 @@ import pytest
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
+
 from fastapi.testclient import TestClient
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.app.test_builder import build_test_app as app_main_build_app
-from src.core.config.app_config import AppConfig
 from src.core.cli import apply_cli_args, main, parse_cli_args
+from src.core.config.app_config import AppConfig
 from src.core.interfaces.session_service_interface import ISessionService
 
 from tests.utils.test_di_utils import get_required_service_from_app
