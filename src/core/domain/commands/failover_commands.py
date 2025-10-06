@@ -82,8 +82,6 @@ class CreateFailoverRouteCommand(StatefulCommandBase):
         # Refactored state update
         session.state = session.state.with_backend_config(
             new_backend_config
-        ).with_interactive_just_enabled(
-            True
         )  # Changed session_state._state to session.state
 
         return CommandResult(
