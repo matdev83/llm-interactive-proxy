@@ -43,6 +43,4 @@ def test_get_loop_detection_commands_returns_isolated_copy() -> None:
     commands["LoopDetectionCommand"] = object
 
     refreshed_commands = loop_detection_commands.get_loop_detection_commands()
-    assert refreshed_commands["LoopDetectionCommand"] is getattr(
-        loop_detection_commands, "LoopDetectionCommand"
-    )
+    assert refreshed_commands["LoopDetectionCommand"] is loop_detection_commands.LoopDetectionCommand
