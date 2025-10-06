@@ -28,3 +28,21 @@ def test_validate_json_invalid(json_repair_service: JsonRepairService) -> None:
         json_repair_service.validate_json(
             {"a": "1"}, {"type": "object", "properties": {"a": {"type": "number"}}}
         )
+
+
+def test_repair_and_validate_json_non_strict_returns_none(
+    json_repair_service: JsonRepairService,
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "number"}},
+        "required": ["value"],
+    }
+
+    repaired = json_repair_service.repair_and_validate_json(
+        '{"value": "not-a-number"}',
+        schema=schema,
+        strict=False,
+    )
+
+    assert repaired is None
