@@ -58,33 +58,28 @@ class ResponseProcessor(IResponseProcessor):
 
         self._stream_normalizer = stream_normalizer
 
-        if not self._stream_normalizer:
+        if stream_normalizer is None:
             processors: list[IStreamProcessor] = []
 
             # Use new decomposed processors if provided
-            if tool_call_repair_processor:
+            if tool_call_repair_processor is not None:
                 processors.append(tool_call_repair_processor)
-            if loop_detection_processor:
+            if loop_detection_processor is not None:
                 processors.append(loop_detection_processor)
-            if content_accumulation_processor:
+            if content_accumulation_processor is not None:
                 processors.append(content_accumulation_processor)
-            if middleware_application_processor:
+            if middleware_application_processor is not None:
                 processors.append(middleware_application_processor)
 
-            # Create processors from old parameters if new ones not provided
-            if not processors:
-                # Only add LoopDetectionProcessor if explicitly provided or via old loop_detector
-                if loop_detection_processor:
-                    processors.append(loop_detection_processor)
-                # Use default 10MB buffer limit
-                processors.append(
-                    ContentAccumulationProcessor(max_buffer_bytes=10 * 1024 * 1024)
-                )
+            if processors:
+                if content_accumulation_processor is None:
+                    processors.append(
+                        ContentAccumulationProcessor(max_buffer_bytes=10 * 1024 * 1024)
+                    )
 
-            self._stream_normalizer = StreamNormalizer(processors)
-
-        if stream_normalizer is None:
-            self._stream_normalizer = None
+                self._stream_normalizer = StreamNormalizer(processors)
+            else:
+                self._stream_normalizer = None
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:
         """Add a background task to be managed by the processor."""
