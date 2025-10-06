@@ -53,10 +53,29 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=registered_backends,  # Dynamically populated
         help=argparse.SUPPRESS,
     )
+
+    def validate_static_route(value: str) -> str:
+        from src.core.domain.model_utils import parse_model_backend
+
+        try:
+            backend_key, model_name = parse_model_backend(value)
+            if not backend_key or not model_name:
+                raise ValueError(
+                    "Invalid format. Expected BACKEND:MODEL or BACKEND/MODEL."
+                )
+            if backend_key not in registered_backends:
+                raise ValueError(
+                    f"Backend '{backend_key}' is not a registered backend."
+                )
+            return value
+        except ValueError as e:
+            raise argparse.ArgumentTypeError(f"Invalid static route '{value}': {e}")
+
     parser.add_argument(
         "--static-route",
         dest="static_route",
         metavar="BACKEND:MODEL",
+        type=validate_static_route,
         help="Force all requests to use this backend:model combination (e.g., gemini-cli-oauth-personal:gemini-2.5-pro)",
     )
 

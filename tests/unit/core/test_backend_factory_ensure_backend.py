@@ -241,7 +241,7 @@ async def test_ensure_backend_gemini_specific(factory: BackendFactory) -> None:
         assert init_config["api_key"] == "gemini-key"
         assert init_config["key_name"] == "gemini"
         assert (
-            init_config["api_base_url"] == "https://generativelanguage.googleapis.com"
+            init_config["gemini_api_base_url"] == "https://generativelanguage.googleapis.com"
         )
         assert result == mock_backend
 

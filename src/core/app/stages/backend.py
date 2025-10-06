@@ -373,8 +373,13 @@ class BackendStage(InitializationStage):
             f"Checking functionality of configured backends: {', '.join(configured_backends)}"
         )
 
-        # Create a temporary HTTP client for testing
-        async with httpx.AsyncClient() as client:
+        # Use the BackendFactory from the service container for proper DI
+        try:
+            from src.core.services.backend_factory import BackendFactory
+            from src.core.models.backend_config import BackendConfig
+
+            backend_factory_service = services.build_service_provider().get_service(BackendFactory)
+
             for backend_name in configured_backends:
                 try:
                     # Check if backend is registered
@@ -384,51 +389,29 @@ class BackendStage(InitializationStage):
                         )
                         continue
 
-                    # Create backend instance
-                    backend_factory = backend_registry.get_backend_factory(backend_name)
+                    # Get backend configuration from app config
+                    backend_config_attr = backend_name.replace("-", "_")
+                    backend_config_data = getattr(config.backends, backend_config_attr, None)
 
-                    # Try to get translation service from services container
-                    translation_service = None
-                    try:
-                        from src.core.interfaces.translation_service_interface import (
-                            ITranslationService,
-                        )
-                        from src.core.services.translation_service import (
-                            TranslationService,
-                        )
-
-                        translation_service = services.build_service_provider().get_service(ITranslationService)  # type: ignore[type-abstract]
-                    except Exception:
-                        # Translation service not available from container, create a temporary instance
-                        # This is needed for backends that require translation_service parameter
-                        from src.core.services.translation_service import (
-                            TranslationService,
-                        )
-
-                        translation_service = TranslationService()
-
-                    # Create backend with available dependencies
-                    try:
-                        backend = backend_factory(client, config, translation_service)
-                    except TypeError as e:
-                        if "required positional argument" in str(e) or "missing" in str(
-                            e
-                        ):
-                            logger.warning(
-                                f"Skipping validation for backend '{backend_name}' due to missing dependency: {e}"
-                            )
-                            continue
-                        raise
-                    except Exception as create_error:
-                        # If backend can't be created due to other missing dependencies, skip it
-                        # This is common during validation when not all services are available
+                    if not backend_config_data:
                         logger.warning(
-                            f"Backend '{backend_name}' cannot be instantiated during validation: {create_error}"
+                            f"No configuration found for backend '{backend_name}', skipping validation"
                         )
                         continue
 
-                    # Initialize backend
-                    await backend.initialize()
+                    # Convert to BackendConfig model
+                    backend_config = BackendConfig(
+                        api_key=backend_config_data.api_key if hasattr(backend_config_data, 'api_key') else [],
+                        api_url=getattr(backend_config_data, 'api_url', None),
+                        extra=getattr(backend_config_data, 'extra', {})
+                    )
+
+                    # Use BackendFactory to properly create and initialize the backend
+                    backend = await backend_factory_service.ensure_backend(
+                        backend_type=backend_name,
+                        app_config=config,
+                        backend_config=backend_config
+                    )
 
                     # Check if backend is functional
                     if hasattr(backend, "is_backend_functional"):
@@ -455,5 +438,114 @@ class BackendStage(InitializationStage):
 
                 except Exception as e:
                     logger.error(f"Failed to validate backend '{backend_name}': {e}")
+
+        except Exception as e:
+            logger.error(f"Failed to get BackendFactory service for validation: {e}")
+            # Fallback to manual validation if service container is not available
+            logger.warning("Falling back to manual backend validation")
+
+            # Create a temporary HTTP client for testing
+            async with httpx.AsyncClient() as client:
+                for backend_name in configured_backends:
+                    try:
+                        # Check if backend is registered
+                        if backend_name not in backend_registry.get_registered_backends():
+                            logger.warning(
+                                f"Backend '{backend_name}' is configured but not registered"
+                            )
+                            continue
+
+                        # Create backend instance
+                        backend_factory_func = backend_registry.get_backend_factory(backend_name)
+
+                        # Try to get translation service from services container
+                        translation_service = None
+                        try:
+                            from src.core.interfaces.translation_service_interface import (
+                                ITranslationService,
+                            )
+                            from src.core.services.translation_service import (
+                                TranslationService,
+                            )
+
+                            translation_service = services.build_service_provider().get_service(ITranslationService)  # type: ignore[type-abstract]
+                        except Exception:
+                            # Translation service not available from container, create a temporary instance
+                            from src.core.services.translation_service import (
+                                TranslationService,
+                            )
+                            translation_service = TranslationService()
+
+                        # Create backend with available dependencies
+                        try:
+                            backend = backend_factory_func(client, config, translation_service)
+
+                            # Build proper initialization config
+                            backend_config_attr = backend_name.replace("-", "_")
+                            backend_config_data = getattr(config.backends, backend_config_attr, None)
+
+                            init_config = {}
+                            if backend_config_data:
+                                if hasattr(backend_config_data, 'api_key') and backend_config_data.api_key:
+                                    init_config["api_key"] = backend_config_data.api_key[0]
+                                if hasattr(backend_config_data, 'api_url') and backend_config_data.api_url:
+                                    init_config["api_base_url"] = backend_config_data.api_url
+                                if hasattr(backend_config_data, 'extra'):
+                                    init_config.update(backend_config_data.extra)
+
+                            # Backend-specific configuration mapping
+                            if backend_name == "gemini":
+                                init_config["key_name"] = "gemini"
+                                if "api_base_url" in init_config:
+                                    init_config["gemini_api_base_url"] = init_config.pop("api_base_url")
+                            elif backend_name == "anthropic":
+                                init_config["key_name"] = "anthropic"
+                            elif backend_name == "openrouter":
+                                init_config["key_name"] = "openrouter"
+                                from src.core.config.config_loader import get_openrouter_headers
+                                init_config["openrouter_headers_provider"] = get_openrouter_headers
+                                if "api_base_url" not in init_config:
+                                    init_config["api_base_url"] = "https://openrouter.ai/api/v1"
+
+                            # Initialize backend with proper configuration
+                            await backend.initialize(**init_config)
+
+                        except TypeError as e:
+                            if "required positional argument" in str(e) or "missing" in str(e):
+                                logger.warning(
+                                    f"Skipping validation for backend '{backend_name}' due to missing dependency: {e}"
+                                )
+                                continue
+                            raise
+                        except Exception as create_error:
+                            logger.warning(
+                                f"Backend '{backend_name}' cannot be instantiated during validation: {create_error}"
+                            )
+                            continue
+
+                        # Check if backend is functional
+                        if hasattr(backend, "is_backend_functional"):
+                            is_functional = backend.is_backend_functional()
+                        else:
+                            is_functional = getattr(backend, "is_functional", True)
+
+                        if is_functional:
+                            functional_backends.append(backend_name)
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(f"Backend '{backend_name}' is functional")
+                        else:
+                            error_details = ""
+                            if hasattr(backend, "get_validation_errors"):
+                                errors = backend.get_validation_errors()
+                                if errors:
+                                    error_details = f": {'; '.join(errors)}"
+
+                            if logger.isEnabledFor(logging.ERROR):
+                                logger.error(
+                                    f"Backend '{backend_name}' is not functional{error_details}"
+                                )
+
+                    except Exception as e:
+                        logger.error(f"Failed to validate backend '{backend_name}': {e}")
 
         return functional_backends

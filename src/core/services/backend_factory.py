@@ -123,8 +123,11 @@ class BackendFactory:
                 init_config["api_base_url"] = "https://openrouter.ai/api/v1"
         elif backend_type == "gemini":
             init_config["key_name"] = backend_type
-            if "api_base_url" not in init_config:
-                init_config["api_base_url"] = (
+            # Map api_base_url to gemini_api_base_url for Gemini backend
+            if "api_base_url" in init_config:
+                init_config["gemini_api_base_url"] = init_config["api_base_url"]
+            elif "gemini_api_base_url" not in init_config:
+                init_config["gemini_api_base_url"] = (
                     "https://generativelanguage.googleapis.com"
                 )
 

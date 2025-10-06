@@ -664,6 +664,18 @@ class AppConfig(DomainModel, IConfig):
             == "true",
         }
 
+        session_config = config["session"]
+        tool_call_reactor_config: dict[str, Any] = session_config.get(
+            "tool_call_reactor", {}
+        )
+        if not isinstance(tool_call_reactor_config, dict):
+            tool_call_reactor_config = {}
+        tool_call_reactor_config.setdefault(
+            "pytest_full_suite_steering_enabled",
+            session_config.get("pytest_full_suite_steering_enabled", False),
+        )
+        session_config["tool_call_reactor"] = tool_call_reactor_config
+
         config["logging"] = {
             "level": os.environ.get("LOG_LEVEL", "INFO"),
             "request_logging": os.environ.get("REQUEST_LOGGING", "").lower() == "true",

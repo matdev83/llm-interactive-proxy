@@ -627,33 +627,9 @@ class BackendService(IBackendService):
             else:
                 # If no colon, treat as model only
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"Static route active: forcing model={static_route}")
-                # For model-only static route, we still need to determine backend
-                if session and session.state and session.state.backend_config:
-                    from src.core.domain.configuration.backend_config import (
-                        BackendConfiguration,
-                    )
-
-                    backend_type = cast(
-                        BackendConfiguration, session.state.backend_config
-                    ).backend_type
-
-                if not backend_type:
-                    backend_type = (
-                        request.extra_body.get("backend_type")
-                        if request.extra_body
-                        else None
-                    )
-
-                if not backend_type:
-                    from src.core.domain.model_utils import parse_model_backend
-
-                    parsed_backend, _ = parse_model_backend(
-                        request.model, default_backend
-                    )
-                    backend_type = parsed_backend
-
-                return backend_type, static_route
+                    logger.info(f"Static route active: forcing model={static_route} with default backend={default_backend}")
+                # For model-only static route, use the default backend
+                return default_backend, static_route
 
         # Normal backend resolution logic (only when static_route is not configured)
         if session and session.state and session.state.backend_config:
