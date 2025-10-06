@@ -246,14 +246,20 @@ async def get_responses_controller_if_available(
 
     try:
         responses_controller = service_provider.get_service(ResponsesController)
-        logger.debug(
-            f"Got ResponsesController from service provider: {type(responses_controller).__name__}"
-        )
-        logger.debug(
-            f"ResponsesController processor type: {type(responses_controller._processor).__name__}"
-        )
-        if responses_controller:
+        if responses_controller is not None:
+            logger.debug(
+                "Got ResponsesController from service provider: %s",
+                type(responses_controller).__name__,
+            )
+            processor = getattr(responses_controller, "_processor", None)
+            if processor is not None:
+                logger.debug(
+                    "ResponsesController processor type: %s",
+                    type(processor).__name__,
+                )
             return cast(ResponsesController, responses_controller)
+
+        logger.debug("ResponsesController not pre-registered; creating via factory")
         return cast(ResponsesController, get_responses_controller(service_provider))
     except Exception as e:
         logger.exception(
