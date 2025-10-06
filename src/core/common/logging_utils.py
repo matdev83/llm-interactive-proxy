@@ -14,6 +14,7 @@ import contextlib
 import logging
 import os
 import re
+import sys
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, Literal, TypeVar, cast
@@ -28,14 +29,12 @@ T = TypeVar("T")
 
 # Environment detection
 def _is_running_under_pytest() -> bool:
-    """SECURITY: Removed test detection - production should never detect test environment.
+    """Detect whether the current process is running under pytest."""
 
-    Returns:
-        Always False - test environment detection is removed for security
-    """
-    # SECURITY: Environment detection violates test/production isolation
-    # All code should behave consistently regardless of execution context
-    return False
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+
+    return "pytest" in sys.modules or "_pytest" in sys.modules
 
 
 def _get_environment_tag() -> str:
