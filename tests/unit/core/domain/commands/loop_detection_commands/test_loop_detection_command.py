@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from pytest import MonkeyPatch
+from pytest import mark
 from src.core.domain.commands.loop_detection_commands.loop_detection_command import (
     LoopDetectionCommand,
 )
@@ -81,3 +82,50 @@ def test_execute_returns_failure_when_loop_update_raises(
     assert result.message.startswith("Error toggling loop detection: boom")
     assert result.name == command.name
     assert result.new_state is None
+
+
+def test_command_metadata_describes_loop_detection() -> None:
+    """The command exposes descriptive metadata for help text."""
+    command = LoopDetectionCommand()
+
+    assert command.name == "loop-detection"
+    assert command.format == "loop-detection(enabled=true|false)"
+    assert (
+        command.description
+        == "Enable or disable loop detection for the current session"
+    )
+    assert command.examples == [
+        "!/loop-detection(enabled=true)",
+        "!/loop-detection(enabled=false)",
+    ]
+
+
+@mark.parametrize(
+    "value, expected",
+    [
+        ("TRUE", True),
+        ("YeS", True),
+        ("1", True),
+        ("on", True),
+        ("0", False),
+        ("no", False),
+        (False, False),
+    ],
+)
+def test_execute_interprets_truthy_and_falsey_inputs(
+    value: str | bool, expected: bool
+) -> None:
+    """Different textual values are mapped to the correct boolean state."""
+    session = Session(
+        "session-id",
+        state=SessionState(
+            loop_config=LoopDetectionConfiguration(loop_detection_enabled=not expected)
+        ),
+    )
+    command = LoopDetectionCommand()
+
+    result = asyncio.run(command.execute({"enabled": value}, session))
+
+    assert result.success is True
+    assert result.data == {"enabled": expected}
+    assert result.new_state.loop_config.loop_detection_enabled is expected
