@@ -536,12 +536,12 @@ class BackendStage(InitializationStage):
                                     get_openrouter_headers,
                                 )
                             init_config["openrouter_headers_provider"] = (
-                                    get_openrouter_headers
+                                get_openrouter_headers
+                            )
+                            if "api_base_url" not in init_config:
+                                init_config["api_base_url"] = (
+                                    "https://openrouter.ai/api/v1"
                                 )
-                                if "api_base_url" not in init_config:
-                                    init_config["api_base_url"] = (
-                                        "https://openrouter.ai/api/v1"
-                                    )
 
                             # Initialize backend with proper configuration
                             await backend.initialize(**init_config)
