@@ -174,6 +174,37 @@ def test_thresholds_persist_across_restarts(
     )
 
 
+def test_restart_logs_missing_thresholds(
+    persistence_path: Path, logger_mock: MagicMock
+) -> None:
+    data = {"count": 850, "last_reset_date": "2023-01-01"}
+    persistence_path.write_text(json.dumps(data), encoding="utf-8")
+
+    with patch(
+        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+        return_value="2023-01-01",
+    ):
+        counter = DailyRequestCounter(persistence_path, limit=1000)
+
+    assert counter.count == 850
+    assert counter.logged_thresholds == {700, 800}
+
+    expected_calls = [
+        "Gemini CLI OAuth personal daily usage reached 700 requests (850/1000).",
+        "Gemini CLI OAuth personal daily usage reached 800 requests (850/1000).",
+    ]
+
+    assert logger_mock.warning.call_count == 2
+    actual_calls = [
+        call_args.args[0] if call_args.args else ""
+        for call_args in logger_mock.warning.call_args_list
+    ]
+    assert actual_calls == expected_calls
+
+    persisted = json.loads(persistence_path.read_text(encoding="utf-8"))
+    assert set(persisted.get("logged_thresholds", [])) == {700, 800}
+
+
 def test_reset_clears_logged_thresholds(
     persistence_path: Path,
 ) -> None:
