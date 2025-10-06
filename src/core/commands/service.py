@@ -95,12 +95,15 @@ class NewCommandService(ICommandService):
             if message.role != "user":
                 continue
 
-            content_str = ""
+            message_content_for_search = ""
+            original_content_str: str | None = None
+
             if isinstance(message.content, str):
-                content_str = message.content
+                original_content_str = message.content
+                message_content_for_search = original_content_str
             elif isinstance(message.content, list):
                 # For now, we only look for commands in the first text part.
-                content_str = next(
+                message_content_for_search = next(
                     (
                         part.text
                         for part in message.content
@@ -111,28 +114,32 @@ class NewCommandService(ICommandService):
 
             # Apply strict command detection if enabled
             if self.strict_command_detection:
-                content_str = self._get_last_non_blank_line_content(content_str)
+                message_content_for_search = self._get_last_non_blank_line_content(
+                    message_content_for_search
+                )
 
-            parse_result = self.command_parser.parse(content_str)
+            parse_result = self.command_parser.parse(message_content_for_search)
             if not parse_result:
                 continue
 
             command, matched_text = parse_result
 
             # Remove the command from the message content.
-            if isinstance(message.content, str):
+            if isinstance(message.content, str) and original_content_str is not None:
                 if command.name == "hello":
                     # For 'hello': replace command with empty space to preserve structure
-                    idx = content_str.find(matched_text)
+                    idx = original_content_str.find(matched_text)
                     if idx != -1:
-                        before = content_str[:idx]
-                        after = content_str[idx + len(matched_text) :]
+                        before = original_content_str[:idx]
+                        after = original_content_str[idx + len(matched_text) :]
                         message.content = before + after
                     else:
-                        message.content = content_str
+                        message.content = original_content_str
                 else:
                     # Default: replace the matched command in place and trim
-                    message.content = content_str.replace(matched_text, "").strip()
+                    message.content = (
+                        original_content_str.replace(matched_text, "").strip()
+                    )
             elif isinstance(message.content, list):
                 for i, part in enumerate(message.content):
                     if (

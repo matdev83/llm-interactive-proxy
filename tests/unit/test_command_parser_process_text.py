@@ -45,6 +45,32 @@ async def test_process_text_command_with_prefix_text():
         assert result.modified_messages[0].content.strip() == "Some text"
 
 
+# Strict command detection should still preserve the rest of the message content
+# when the command lives on the last non-blank line.
+@pytest.mark.asyncio
+async def test_process_text_strict_mode_preserves_previous_lines():
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    service = NewCommandService(
+        session_service, command_parser, strict_command_detection=True
+    )
+    processor = CoreCommandProcessor(service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content="Context before command\n\n!/hello",
+        )
+    ]
+    result = await processor.process_messages(messages, session_id="s1")
+
+    assert result.command_executed is True
+    assert result.modified_messages
+    preserved_content = result.modified_messages[0].content
+    assert preserved_content.strip() == "Context before command"
+    assert "!/hello" not in preserved_content
+
+
 # Removed @pytest.mark.parametrize for preserve_unknown
 @pytest.mark.asyncio
 async def test_process_text_command_with_suffix_text():
