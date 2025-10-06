@@ -375,10 +375,16 @@ class BackendStage(InitializationStage):
 
         # Use the BackendFactory from the service container for proper DI
         try:
+            from src.core.domain.configuration.backend_config import BackendConfig
             from src.core.services.backend_factory import BackendFactory
-            from src.core.models.backend_config import BackendConfig
 
-            backend_factory_service = services.build_service_provider().get_service(BackendFactory)
+            backend_factory_service = services.build_service_provider().get_service(
+                BackendFactory
+            )
+
+            if backend_factory_service is None:
+                logger.error("BackendFactory service not available in DI container")
+                return
 
             for backend_name in configured_backends:
                 try:
@@ -391,7 +397,9 @@ class BackendStage(InitializationStage):
 
                     # Get backend configuration from app config
                     backend_config_attr = backend_name.replace("-", "_")
-                    backend_config_data = getattr(config.backends, backend_config_attr, None)
+                    backend_config_data = getattr(
+                        config.backends, backend_config_attr, None
+                    )
 
                     if not backend_config_data:
                         logger.warning(
@@ -401,16 +409,20 @@ class BackendStage(InitializationStage):
 
                     # Convert to BackendConfig model
                     backend_config = BackendConfig(
-                        api_key=backend_config_data.api_key if hasattr(backend_config_data, 'api_key') else [],
-                        api_url=getattr(backend_config_data, 'api_url', None),
-                        extra=getattr(backend_config_data, 'extra', {})
+                        api_key=(
+                            backend_config_data.api_key
+                            if hasattr(backend_config_data, "api_key")
+                            else []
+                        ),
+                        api_url=getattr(backend_config_data, "api_url", None),
+                        extra=getattr(backend_config_data, "extra", {}),
                     )
 
                     # Use BackendFactory to properly create and initialize the backend
                     backend = await backend_factory_service.ensure_backend(
                         backend_type=backend_name,
                         app_config=config,
-                        backend_config=backend_config
+                        backend_config=backend_config,
                     )
 
                     # Check if backend is functional
@@ -449,14 +461,19 @@ class BackendStage(InitializationStage):
                 for backend_name in configured_backends:
                     try:
                         # Check if backend is registered
-                        if backend_name not in backend_registry.get_registered_backends():
+                        if (
+                            backend_name
+                            not in backend_registry.get_registered_backends()
+                        ):
                             logger.warning(
                                 f"Backend '{backend_name}' is configured but not registered"
                             )
                             continue
 
                         # Create backend instance
-                        backend_factory_func = backend_registry.get_backend_factory(backend_name)
+                        backend_factory_func = backend_registry.get_backend_factory(
+                            backend_name
+                        )
 
                         # Try to get translation service from services container
                         translation_service = None
@@ -474,44 +491,70 @@ class BackendStage(InitializationStage):
                             from src.core.services.translation_service import (
                                 TranslationService,
                             )
+
                             translation_service = TranslationService()
 
                         # Create backend with available dependencies
                         try:
-                            backend = backend_factory_func(client, config, translation_service)
+                            backend = backend_factory_func(
+                                client, config, translation_service
+                            )
 
                             # Build proper initialization config
                             backend_config_attr = backend_name.replace("-", "_")
-                            backend_config_data = getattr(config.backends, backend_config_attr, None)
+                            backend_config_data = getattr(
+                                config.backends, backend_config_attr, None
+                            )
 
                             init_config = {}
                             if backend_config_data:
-                                if hasattr(backend_config_data, 'api_key') and backend_config_data.api_key:
-                                    init_config["api_key"] = backend_config_data.api_key[0]
-                                if hasattr(backend_config_data, 'api_url') and backend_config_data.api_url:
-                                    init_config["api_base_url"] = backend_config_data.api_url
-                                if hasattr(backend_config_data, 'extra'):
+                                if (
+                                    hasattr(backend_config_data, "api_key")
+                                    and backend_config_data.api_key
+                                ):
+                                    init_config["api_key"] = (
+                                        backend_config_data.api_key[0]
+                                    )
+                                if (
+                                    hasattr(backend_config_data, "api_url")
+                                    and backend_config_data.api_url
+                                ):
+                                    init_config["api_base_url"] = (
+                                        backend_config_data.api_url
+                                    )
+                                if hasattr(backend_config_data, "extra"):
                                     init_config.update(backend_config_data.extra)
 
                             # Backend-specific configuration mapping
                             if backend_name == "gemini":
                                 init_config["key_name"] = "gemini"
                                 if "api_base_url" in init_config:
-                                    init_config["gemini_api_base_url"] = init_config.pop("api_base_url")
+                                    init_config["gemini_api_base_url"] = (
+                                        init_config.pop("api_base_url")
+                                    )
                             elif backend_name == "anthropic":
                                 init_config["key_name"] = "anthropic"
                             elif backend_name == "openrouter":
                                 init_config["key_name"] = "openrouter"
-                                from src.core.config.config_loader import get_openrouter_headers
-                                init_config["openrouter_headers_provider"] = get_openrouter_headers
+                                from src.core.config.config_loader import (
+                                    get_openrouter_headers,
+                                )
+
+                                init_config["openrouter_headers_provider"] = (
+                                    get_openrouter_headers
+                                )
                                 if "api_base_url" not in init_config:
-                                    init_config["api_base_url"] = "https://openrouter.ai/api/v1"
+                                    init_config["api_base_url"] = (
+                                        "https://openrouter.ai/api/v1"
+                                    )
 
                             # Initialize backend with proper configuration
                             await backend.initialize(**init_config)
 
                         except TypeError as e:
-                            if "required positional argument" in str(e) or "missing" in str(e):
+                            if "required positional argument" in str(
+                                e
+                            ) or "missing" in str(e):
                                 logger.warning(
                                     f"Skipping validation for backend '{backend_name}' due to missing dependency: {e}"
                                 )
@@ -546,6 +589,8 @@ class BackendStage(InitializationStage):
                                 )
 
                     except Exception as e:
-                        logger.error(f"Failed to validate backend '{backend_name}': {e}")
+                        logger.error(
+                            f"Failed to validate backend '{backend_name}': {e}"
+                        )
 
         return functional_backends
