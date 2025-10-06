@@ -84,14 +84,18 @@ class LoopDetectionProcessor(IStreamProcessor):
     ) -> StreamingContent:
         """Create a StreamingContent object with a cancellation message."""
         payload = (
-            f"[Response cancelled: Loop detected - Pattern "
+            "[Response cancelled: Loop detected - Pattern "
             f"'{detection_event.pattern[:30]}...' repeated "
             f"{detection_event.repetition_count} times]"
         )
-        # Return as a final chunk with the cancellation message
+
         return StreamingContent(
-            content=f"data: {json.dumps({'content': payload})}\n\n",
+            content=payload,
             is_done=True,
             is_cancellation=True,
-            metadata={"loop_detected": True, "pattern": detection_event.pattern},
+            metadata={
+                "loop_detected": True,
+                "pattern": detection_event.pattern,
+                "repetition_count": detection_event.repetition_count,
+            },
         )
