@@ -206,6 +206,7 @@ Useful flags
 - `--disable-auth` for local only (forces host=127.0.0.1)
 - `--force-model MODEL_NAME` to override all client-requested models (e.g., `--force-model gemini-2.5-pro`)
 - `--force-context-window TOKENS` to override context window size for all models (e.g., `--force-context-window 8000`)
+- `--strict-command-detection` to enable strict command detection (only process commands on last non-blank line)
 
 3) Point your client at the proxy
 
@@ -226,6 +227,40 @@ Tip: Anthropic compatibility is exposed both at `/anthropic/...` on the main por
   - `!/medium`: Activate medium reasoning mode (balanced approach)
   - `!/low`: Activate low reasoning mode (faster, less intensive reasoning)
   - `!/no-think` (or `!/no-thinking`, `!/no-reasoning`, `!/disable-thinking`): Disable reasoning for direct, quick responses
+
+### Strict Command Detection
+
+The proxy supports configurable strict command detection to reduce false positives when commands are mentioned in conversation:
+
+- **Default Mode**: Commands are processed anywhere in the last user message
+- **Strict Mode**: Commands are only processed if they appear on the last non-blank line of the message
+
+**Configuration Options** (CLI overrides environment variable and config file):
+
+- **CLI Flag**: `--strict-command-detection` to enable strict mode
+- **Environment Variable**: `STRICT_COMMAND_DETECTION=true`
+- **Config File**: `strict_command_detection: true`
+
+**Usage Examples**:
+
+```bash
+# Enable strict mode via CLI
+python -m src.core.cli --strict-command-detection
+
+# Enable via environment variable
+export STRICT_COMMAND_DETECTION=true
+python -m src.core.cli
+
+# In config.yaml
+strict_command_detection: true
+```
+
+**Behavior Comparison**:
+
+- Default: `I tried !/help but it didn't work` → Command processed
+- Strict: `I tried !/help but it didn't work` → Command ignored (conversation)
+- Strict: `Some context\n!/help` → Command processed (last line)
+
 - Keep your existing tools; just point them to the proxy endpoint.
 - The proxy handles streaming, retries/failover (if enabled), and output repair.
 

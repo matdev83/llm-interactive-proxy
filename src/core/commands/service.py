@@ -26,6 +26,7 @@ class NewCommandService(ICommandService):
         self,
         session_service: ISessionService,
         command_parser: CommandParser,
+        strict_command_detection: bool = False,
     ):
         """
         Initializes the command service.
@@ -33,9 +34,31 @@ class NewCommandService(ICommandService):
         Args:
             session_service: The session service.
             command_parser: The command parser.
+            strict_command_detection: If True, only match commands on last non-blank line.
         """
         self.session_service = session_service
         self.command_parser = command_parser
+        self.strict_command_detection = strict_command_detection
+
+    def _get_last_non_blank_line_content(self, text: str) -> str:
+        """
+        Extract only the last non-blank line from text.
+
+        Args:
+            text: The input text
+
+        Returns:
+            The last non-blank line, or empty string if none found
+        """
+        if not text:
+            return ""
+
+        lines = text.split('\n')
+        # Find the last non-blank line
+        for line in reversed(lines):
+            if line.strip():  # Non-blank line
+                return line
+        return ""
 
     async def process_commands(
         self, messages: list[ChatMessage], session_id: str
@@ -85,6 +108,10 @@ class NewCommandService(ICommandService):
                     ),
                     "",
                 )
+
+            # Apply strict command detection if enabled
+            if self.strict_command_detection:
+                content_str = self._get_last_non_blank_line_content(content_str)
 
             parse_result = self.command_parser.parse(content_str)
             if not parse_result:

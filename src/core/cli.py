@@ -181,6 +181,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable all in-chat command processing",
     )
     parser.add_argument(
+        "--strict-command-detection",
+        action="store_true",
+        default=None,
+        help="Enable strict command detection (only process commands on last non-blank line)",
+    )
+    parser.add_argument(
         "--disable-accounting",
         action="store_true",
         default=None,
@@ -388,6 +394,11 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         )
     if args.disable_interactive_commands is not None:
         cfg.session.disable_interactive_commands = args.disable_interactive_commands
+    if args.strict_command_detection is not None:
+        cfg.strict_command_detection = args.strict_command_detection
+        os.environ["STRICT_COMMAND_DETECTION"] = (
+            "true" if args.strict_command_detection else "false"
+        )
     if args.disable_accounting is not None:
         os.environ["DISABLE_ACCOUNTING"] = (
             "true" if args.disable_accounting else "false"

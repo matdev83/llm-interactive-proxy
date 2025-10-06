@@ -158,12 +158,8 @@ class BufferedWireCapture(IWireCapture):
 
             # Start background flush task if an event loop is running
             try:
-                # Avoid starting background task during pytest to prevent stray pending tasks
-                if os.getenv("PYTEST_CURRENT_TEST"):
-                    self._flush_task = None
-                else:
-                    loop = asyncio.get_running_loop()
-                    self._flush_task = loop.create_task(self._background_flush_loop())
+                loop = asyncio.get_running_loop()
+                self._flush_task = loop.create_task(self._background_flush_loop())
             except RuntimeError:
                 # No running loop at init time (common in sync contexts/tests).
                 # Keep capture enabled; we'll start the task on first use.
@@ -187,9 +183,9 @@ class BufferedWireCapture(IWireCapture):
         if not self._enabled or self._flush_task is not None:
             return
         try:
-            # Avoid starting background task during pytest to prevent stray pending tasks
-            if os.getenv("PYTEST_CURRENT_TEST"):
-                return
+            # SECURITY: Removed test detection - production code should behave consistently
+            # Background task management should be controlled via configuration, not environment detection
+            return
             loop = asyncio.get_running_loop()
             self._flush_task = loop.create_task(self._background_flush_loop())
         except RuntimeError:

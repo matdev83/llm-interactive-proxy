@@ -98,20 +98,15 @@ class BackendFactory:
             for k, v in backend_config.extra.items():
                 init_config[k] = v
 
-        # Handle test env: add dummy key when running pytest and no key present
+        # SECURITY: Removed test environment detection and automatic test key injection
+        # Production code should never detect test environment or auto-configure credentials
         default_backend_env = os.environ.get("LLM_BACKEND")
         current_api_key = init_config.get("api_key")
         logger.debug(
-            f"Backend factory for {backend_type}: current_api_key={current_api_key}, PYTEST_CURRENT_TEST={os.environ.get('PYTEST_CURRENT_TEST')}, default_backend_env={default_backend_env}"
+            f"Backend factory for {backend_type}: current_api_key={current_api_key}, default_backend_env={default_backend_env}"
         )
 
-        if os.environ.get("PYTEST_CURRENT_TEST") and not init_config.get("api_key"):
-            init_config["api_key"] = f"test-key-{backend_type}"
-            init_config["api_key"] = f"test-key-{backend_type}"
-            logger.info(
-                f"Added test API key for {backend_type} in factory (original key was: {current_api_key})"
-            )
-        else:
+        if current_api_key:
             logger.debug(
                 f"Using provided API key for {backend_type}: {current_api_key[:20] if current_api_key else 'None'}..."
             )

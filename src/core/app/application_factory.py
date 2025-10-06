@@ -8,7 +8,6 @@ staged initialization pattern in src.core.app.application_builder.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from fastapi import FastAPI
@@ -38,15 +37,16 @@ def build_app(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
         # This removes the need for from_legacy_config
         config = AppConfig(**config)
 
-    # Handle mocked configs in test environments
+    # SECURITY: Removed test environment detection for config validation
+    # Production code should validate configuration consistently regardless of context
     try:
         is_app_config = isinstance(config, AppConfig)
     except TypeError:
-        # If isinstance fails (e.g., when AppConfig is mocked), assume it's valid in test environments
-        is_app_config = os.environ.get("PYTEST_CURRENT_TEST") is not None
+        # If isinstance fails, handle gracefully without test environment detection
+        is_app_config = False
 
-    # Validate config type outside of test environments
-    if not is_app_config and not os.environ.get("PYTEST_CURRENT_TEST"):
+    # Validate config type consistently
+    if not is_app_config:
         raise ValueError(
             f"Invalid config type: {type(config)}. Expected AppConfig or dict."
         )

@@ -40,7 +40,9 @@ def _has_qwen_oauth_credentials() -> bool:
         return False
 
 
-QWEN_OAUTH_AVAILABLE = _has_qwen_oauth_credentials()
+def is_qwen_oauth_available() -> bool:
+    """Check if Qwen OAuth credentials are available."""
+    return _has_qwen_oauth_credentials()
 
 
 class TestQwenOAuthToolCalling:
@@ -65,7 +67,7 @@ class TestQwenOAuthToolCalling:
             yield client
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_basic_tool_calling(self, qwen_oauth_client):
         """Test basic tool calling functionality with Qwen OAuth backend."""
@@ -147,7 +149,7 @@ class TestQwenOAuthToolCalling:
             assert len(message["content"]) > 0
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_multi_turn_tool_conversation(self, qwen_oauth_client):
         """Test multi-turn conversation with tool calls."""
@@ -243,7 +245,7 @@ class TestQwenOAuthToolCalling:
             assert len(content) > 0
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_tool_calling_with_streaming(self, qwen_oauth_client):
         """Test tool calling with streaming responses."""
@@ -323,7 +325,7 @@ class TestQwenOAuthToolCalling:
             assert len(tool_call_chunks) > 0
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_tool_choice_none(self, qwen_oauth_client):
         """Test that tool_choice='none' prevents tool calling."""
@@ -362,7 +364,7 @@ class TestQwenOAuthToolCalling:
         assert message.get("content") is not None
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_tool_choice_specific_function(self, qwen_oauth_client):
         """Test tool_choice with specific function selection."""
@@ -444,7 +446,7 @@ class TestQwenOAuthAgentToolCalling:
             yield client
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_cline_agent_tool_calls(self, qwen_oauth_client):
         """Test that Cline agent receives tool calls for command responses."""
@@ -489,7 +491,7 @@ class TestQwenOAuthAgentToolCalling:
             assert "result" in args
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_non_cline_agent_content_response(self, qwen_oauth_client):
         """Test that non-Cline agents receive content responses, not tool calls."""
@@ -542,7 +544,7 @@ class TestQwenOAuthToolCallingErrorHandling:
             yield client
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_invalid_tool_definition(self, qwen_oauth_client):
         """Test handling of invalid tool definitions."""
@@ -574,7 +576,7 @@ class TestQwenOAuthToolCallingErrorHandling:
         assert response.status_code in [200, 400, 422]
 
     @pytest.mark.skipif(
-        not QWEN_OAUTH_AVAILABLE, reason="Qwen OAuth credentials not available"
+        not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
     def test_qwen_oauth_tool_calling_with_invalid_model(self, qwen_oauth_client):
         """Test tool calling with invalid model name."""

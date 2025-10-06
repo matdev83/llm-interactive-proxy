@@ -117,11 +117,13 @@ T = TypeVar("T")
 # Global service collection
 _service_collection: ServiceCollection | None = None
 _service_provider: IServiceProvider | None = None
-_DI_DIAGNOSTICS = os.getenv("DI_STRICT_DIAGNOSTICS", "false").lower() in (
-    "true",
-    "1",
-    "yes",
-)
+def _get_di_diagnostics() -> bool:
+    """Get DI diagnostics setting from environment."""
+    return os.getenv("DI_STRICT_DIAGNOSTICS", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
 
 def get_service_collection() -> ServiceCollection:
@@ -153,7 +155,7 @@ def get_or_build_service_provider() -> IServiceProvider:
     """
     global _service_provider
     if _service_provider is None:
-        if _DI_DIAGNOSTICS:
+        if _get_di_diagnostics():
             logging.getLogger("llm.di").info(
                 "Building service provider; descriptors=%d",
                 len(get_service_collection()._descriptors),
@@ -319,7 +321,8 @@ def register_core_services(
 
         session_service = provider.get_required_service(SessionService)
         command_parser = provider.get_required_service(CommandParser)
-        return NewCommandService(session_service, command_parser)
+        config = provider.get_required_service(AppConfig)
+        return NewCommandService(session_service, command_parser, strict_command_detection=config.strict_command_detection)
 
     # Register CommandService and bind to interface
     _add_singleton(ICommandService, implementation_factory=_command_service_factory)  # type: ignore[type-abstract]

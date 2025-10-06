@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Feature**: Added configurable strict command detection to reduce false positives when commands are mentioned in conversation
+  - **Default Mode**: Commands are processed anywhere in the last user message (backward compatible)
+  - **Strict Mode**: Commands are only processed if they appear on the last non-blank line of the message
+  - **Configuration Options**: CLI flag (`--strict-command-detection`), environment variable (`STRICT_COMMAND_DETECTION`), and config file (`strict_command_detection`)
+  - **CLI Override Priority**: CLI flags override environment variables and config file settings
+  - **Security Enhancement**: Updated emergency command filter with separate warning messages for strict vs default modes
+  - **Command Processing**: Enhanced CommandService with line-based command extraction for strict mode
+  - **Comprehensive Testing**: Added 13 unit tests covering all command detection scenarios and edge cases
+  - **Documentation**: Updated README with detailed usage examples and behavior comparisons
+
 - **Cleanup**: Removed the archived `src/core/cli_old.py` module. The modern
   CLI implementation in `src/core/cli.py` has fully replaced it and all
   dependencies now point to the new entry point. Keeping the unused module in

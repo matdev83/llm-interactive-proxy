@@ -277,25 +277,13 @@ class BackendStage(InitializationStage):
             )
 
             if not functional_backends:
-                # Check if we're in a test environment where backends might not be fully available
-                # But don't bypass tests that are specifically testing backend validation
-                import os
-
-                pytest_test = os.environ.get("PYTEST_CURRENT_TEST", "")
-                is_backend_validation_test = (
-                    "test_backend_startup_validation" in pytest_test
+                # SECURITY: Removed test detection - production code should behave consistently
+                # All environments should have proper backend configuration
+                # If no functional backends are available, fail fast with clear error
+                logger.error(
+                    "No functional backends found! Proxy cannot operate without at least one working backend."
                 )
-
-                if pytest_test and not is_backend_validation_test:
-                    logger.warning(
-                        "No functional backends found during test, but allowing startup to continue"
-                    )
-                    return True
-                else:
-                    logger.error(
-                        "No functional backends found! Proxy cannot operate without at least one working backend."
-                    )
-                    return False
+                return False
 
             logger.info(
                 f"Found {len(functional_backends)} functional backends: {', '.join(functional_backends)}"

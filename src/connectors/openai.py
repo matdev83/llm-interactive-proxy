@@ -70,11 +70,9 @@ class OpenAIConnector(LLMBackend):
             "yes",
         )
 
-        # Also disable health checks during testing (detect pytest)
-        is_testing = (
-            "pytest" in os.environ.get("_", "") or "PYTEST_CURRENT_TEST" in os.environ
-        )
-        self.is_testing = is_testing
+        # SECURITY: Removed test detection - production code should never know if it's in a test environment
+        # The health check should work consistently in all environments
+        self.is_testing = False
 
         self._health_check_enabled: bool = (
             not disable_health_checks and not is_testing

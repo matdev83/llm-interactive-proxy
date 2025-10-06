@@ -28,6 +28,49 @@ def test_cli_allows_all_registered_backends() -> None:
             assert config.backends.default_backend == backend_name
 
 
+def test_cli_strict_command_detection_flags() -> None:
+    """
+    Test that CLI flag for strict command detection works correctly.
+    """
+    # Patch load_config where it is looked up (in the 'cli' module)
+    with patch("src.core.cli.load_config") as mock_load_config:
+        # 1. Test --strict-command-detection flag
+        mock_load_config.return_value = AppConfig()
+        args_enable = parse_cli_args(["--strict-command-detection"])
+        assert args_enable.strict_command_detection is True
+        config_enable = apply_cli_args(args_enable)
+        assert config_enable.strict_command_detection is True
+
+        # 2. Test default behavior (None) when no flag is provided
+        # Let's create a config where it's initially False to see if it's preserved.
+        initial_config_false = AppConfig()
+        initial_config_false.strict_command_detection = False
+        mock_load_config.return_value = initial_config_false
+
+        args_none = parse_cli_args([])
+        assert args_none.strict_command_detection is None
+        config_none = apply_cli_args(args_none)
+        assert not config_none.strict_command_detection  # Should remain False
+
+        # And if it was initially True
+        initial_config_true = AppConfig()
+        initial_config_true.strict_command_detection = True
+        mock_load_config.return_value = initial_config_true
+        config_none_true = apply_cli_args(args_none)
+        assert (
+            config_none_true.strict_command_detection is True
+        )  # Should remain True
+
+        # 3. Test that flag overrides initial config
+        # Initial config is False
+        initial_config_override = AppConfig()
+        initial_config_override.strict_command_detection = False
+        mock_load_config.return_value = initial_config_override
+        # but we enable it with the flag
+        config_override = apply_cli_args(args_enable)
+        assert config_override.strict_command_detection is True
+
+
 def test_cli_rejects_non_existent_backend() -> None:
     """
     Verify that the CLI rejects a backend name that is not registered.

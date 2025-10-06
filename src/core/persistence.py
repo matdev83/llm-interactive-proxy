@@ -19,13 +19,15 @@ from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
-_STRICT_PERSISTENCE_ERRORS = os.getenv(
-    "STRICT_PERSISTENCE_ERRORS", "false"
-).lower() in (
-    "true",
-    "1",
-    "yes",
-)
+def _get_strict_persistence_errors() -> bool:
+    """Get strict persistence errors setting from environment."""
+    return os.getenv(
+        "STRICT_PERSISTENCE_ERRORS", "false"
+    ).lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
 
 class ConfigManager:
@@ -128,7 +130,7 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _STRICT_PERSISTENCE_ERRORS:
+                if _get_strict_persistence_errors():
                     raise ServiceResolutionError(
                         "Failed to resolve IBackendService for default backend."
                     ) from e
@@ -143,7 +145,7 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _STRICT_PERSISTENCE_ERRORS:
+                if _get_strict_persistence_errors():
                     raise ConfigurationError(
                         "An unexpected error occurred while applying default backend."
                     ) from e
@@ -170,7 +172,7 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _STRICT_PERSISTENCE_ERRORS:
+                if _get_strict_persistence_errors():
                     raise ServiceResolutionError(
                         "Failed to resolve ISessionService for interactive mode."
                     ) from e
@@ -184,7 +186,7 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _STRICT_PERSISTENCE_ERRORS:
+                if _get_strict_persistence_errors():
                     raise ConfigurationError(
                         "An unexpected error occurred while applying interactive mode."
                     ) from e
@@ -325,7 +327,7 @@ class ConfigManager:
                             model_name,
                             exc_info=True,
                         )
-                        if _STRICT_PERSISTENCE_ERRORS:
+                        if _get_strict_persistence_errors():
                             raise ConfigurationError(
                                 "Cannot validate failover routes while the event loop is running."
                             ) from runtime_error
@@ -341,7 +343,7 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _STRICT_PERSISTENCE_ERRORS:
+                if _get_strict_persistence_errors():
                     raise ServiceResolutionError(
                         "Failed to resolve IBackendService during failover validation",
                         service_name="IBackendService",
@@ -352,7 +354,7 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _STRICT_PERSISTENCE_ERRORS:
+                if _get_strict_persistence_errors():
                     raise ConfigurationError(
                         "Unexpected error validating failover element",
                     ) from e
@@ -442,11 +444,11 @@ class ConfigManager:
                     session_service, "default_interactive_mode", False
                 )
             except ServiceResolutionError as e:
-                if _STRICT_PERSISTENCE_ERRORS:
+                if _get_strict_persistence_errors():
                     raise
                 logger.warning(f"Failed to get interactive mode: {e}")
             except Exception as e:
-                if _STRICT_PERSISTENCE_ERRORS:
+                if _get_strict_persistence_errors():
                     raise ConfigurationError(
                         "Unexpected error reading interactive mode from session service."
                     ) from e

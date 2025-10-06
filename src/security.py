@@ -93,6 +93,8 @@ class ProxyCommandFilter:
         # Find all command matches
         matches = list(self.command_pattern.finditer(text))
 
+        # For backwards compatibility and to maintain security, filter all commands
+        # But provide a separate method for end-of-message-only filtering
         if matches:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
@@ -123,6 +125,118 @@ class ProxyCommandFilter:
                 after = filtered_text[end:]
                 # For now, just remove the command without stripping whitespace
                 # This preserves any trailing whitespace before the command
+                filtered_text = before + after
+
+            # If text became empty or whitespace-only after filtering, insert a benign placeholder
+            if not filtered_text.strip():
+                filtered_text = "(command_removed)"
+            return filtered_text
+
+        return text
+
+    def filter_end_of_message_commands_only(self, text: str) -> str:
+        """
+        Remove proxy commands only if they appear at the end of the text (after trimming whitespace).
+        This is used when processing user input where commands should only be executed if at the end.
+        """
+        if not text or not text.strip():
+            return text
+
+        # Trim trailing whitespace for end-of-message detection
+        trimmed_text = text.rstrip()
+
+        # Find command matches
+        matches = list(self.command_pattern.finditer(trimmed_text))
+
+        # Only process if command is at the end of the trimmed text
+        if matches and matches[-1].end() == len(trimmed_text):
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "END-OF-MESSAGE COMMAND FILTER TRIGGERED: %d proxy command(s) detected at end of message. "
+                    "This indicates a potential command leak or mishandling. Commands will be removed.",
+                    len(matches),
+                )
+
+                # Log each detected command for debugging
+                for i, match in enumerate(matches, 1):
+                    command_text = match.group(0)
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "  Command %d: '%s' at position %d-%d",
+                            i,
+                            command_text,
+                            match.start(),
+                            match.end(),
+                        )
+
+            # Remove the end-of-message command
+            match = matches[-1]
+            start, end = match.span()
+            before = text[:start]
+            after = text[end:]  # Keep the original trailing whitespace
+
+            filtered_text = before + after
+
+            # If text became empty or whitespace-only after filtering, insert a benign placeholder
+            if not filtered_text.strip():
+                filtered_text = "(command_removed)"
+            return filtered_text
+
+        return text
+
+    def filter_commands_with_strict_mode(self, text: str) -> str:
+        """
+        Remove proxy commands only if they appear on the last non-blank line.
+        This is used when strict command detection is enabled.
+        """
+        if not text or not text.strip():
+            return text
+
+        # Get the last non-blank line
+        lines = text.split('\n')
+        last_line = ""
+        for line in reversed(lines):
+            if line.strip():  # Non-blank line
+                last_line = line
+                break
+
+        if not last_line:
+            return text
+
+        # Find command matches only in the last line
+        matches = list(self.command_pattern.finditer(last_line))
+
+        if matches:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "STRICT COMMAND FILTER TRIGGERED: %d proxy command(s) detected on last non-blank line. "
+                    "This indicates a potential command leak or mishandling. Commands will be removed.",
+                    len(matches),
+                )
+
+                # Log each detected command for debugging
+                for i, match in enumerate(matches, 1):
+                    command_text = match.group(0)
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "  Command %d: '%s' at position %d-%d (line %d)",
+                            i,
+                            command_text,
+                            match.start(),
+                            match.end(),
+                            len(lines) - lines.index(last_line),
+                        )
+
+            # Remove commands from the original text by finding and replacing them
+            filtered_text = text
+            # Process matches in reverse to avoid index shifting
+            for match in reversed(matches):
+                command_text = match.group(0)
+                # Find the command in the original text (in the last line)
+                start_pos = text.rfind(last_line) + match.start()
+                end_pos = start_pos + len(command_text)
+                before = filtered_text[:start_pos]
+                after = filtered_text[end_pos:]
                 filtered_text = before + after
 
             # If text became empty or whitespace-only after filtering, insert a benign placeholder

@@ -13,11 +13,13 @@ from typing import Any
 from src.core.interfaces.app_settings_interface import IAppSettings
 
 logger = logging.getLogger(__name__)
-_STRICT_SERVICES_ERRORS = os.getenv("STRICT_SERVICES_ERRORS", "false").lower() in (
-    "true",
-    "1",
-    "yes",
-)
+def _get_strict_services_errors() -> bool:
+    """Get strict services errors setting from environment."""
+    return os.getenv("STRICT_SERVICES_ERRORS", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
 
 class AppSettings(IAppSettings):
@@ -62,7 +64,7 @@ class AppSettings(IAppSettings):
                     app_state.disable_interactive_commands
                 )
         except Exception as e:
-            if _STRICT_SERVICES_ERRORS:
+            if _get_strict_services_errors():
                 raise
             logger.warning(f"Error initializing settings from app_state: {e}")
 
@@ -86,7 +88,7 @@ class AppSettings(IAppSettings):
                 if hasattr(self._app_state, key):
                     return getattr(self._app_state, key)
             except Exception:
-                if _STRICT_SERVICES_ERRORS:
+                if _get_strict_services_errors():
                     raise
                 # Best-effort fallback when not strict
                 return default
@@ -109,7 +111,7 @@ class AppSettings(IAppSettings):
             try:
                 setattr(self._app_state, key, value)
             except Exception as e:
-                if _STRICT_SERVICES_ERRORS:
+                if _get_strict_services_errors():
                     raise
                 logger.warning(f"Error setting {key} in app_state: {e}")
 
@@ -131,7 +133,7 @@ class AppSettings(IAppSettings):
             try:
                 return hasattr(self._app_state, key)
             except Exception:
-                if _STRICT_SERVICES_ERRORS:
+                if _get_strict_services_errors():
                     raise
                 return False
 
@@ -158,7 +160,7 @@ class AppSettings(IAppSettings):
                     if key not in all_settings:
                         all_settings[key] = getattr(self._app_state, key)
             except Exception as e:
-                if _STRICT_SERVICES_ERRORS:
+                if _get_strict_services_errors():
                     raise
                 logger.warning(f"Error getting all settings from app_state: {e}")
 

@@ -49,12 +49,13 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 
 logger = logging.getLogger(__name__)
-# Strict controller error mode (off by default). Honors either env for compatibility.
-_STRICT_CONTROLLER_ERRORS = os.getenv("STRICT_CONTROLLER_ERRORS", "false").lower() in (
-    "true",
-    "1",
-    "yes",
-) or os.getenv("STRICT_CONTROLLER_DI", "false").lower() in ("true", "1", "yes")
+def _get_strict_controller_errors() -> bool:
+    """Get strict controller errors setting from environment."""
+    return (os.getenv("STRICT_CONTROLLER_ERRORS", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    ) or os.getenv("STRICT_CONTROLLER_DI", "false").lower() in ("true", "1", "yes"))
 
 
 async def get_chat_controller_if_available(request: Request) -> ChatController:
@@ -71,7 +72,7 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        if _STRICT_CONTROLLER_ERRORS:
+        if _get_strict_controller_errors():
             raise ServiceResolutionError(
                 message="Service provider not available in app state",
                 service_name="IServiceProvider",
@@ -102,7 +103,7 @@ async def get_chat_controller_if_available(request: Request) -> ChatController:
             f"Failed to get ChatController from service provider: {e}",
             exc_info=True,
         )
-        if _STRICT_CONTROLLER_ERRORS:
+        if _get_strict_controller_errors():
             raise ServiceResolutionError(
                 message="Failed to resolve ChatController",
                 service_name="ChatController",
@@ -128,7 +129,7 @@ async def get_anthropic_controller_if_available(
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        if _STRICT_CONTROLLER_ERRORS:
+        if _get_strict_controller_errors():
             raise ServiceResolutionError(
                 message="Service provider not available in app state",
                 service_name="IServiceProvider",
@@ -181,7 +182,7 @@ async def get_anthropic_controller_if_available(
             f"Failed to get AnthropicController from service provider: {e}",
             exc_info=True,
         )
-        if _STRICT_CONTROLLER_ERRORS:
+        if _get_strict_controller_errors():
             raise ServiceResolutionError(
                 message="Failed to resolve AnthropicController",
                 service_name="AnthropicController",
@@ -205,7 +206,7 @@ async def get_service_provider_dependency(request: Request) -> IServiceProvider:
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        if _STRICT_CONTROLLER_ERRORS:
+        if _get_strict_controller_errors():
             raise ServiceResolutionError(
                 message="Service provider not available in app state",
                 service_name="IServiceProvider",
@@ -232,7 +233,7 @@ async def get_responses_controller_if_available(
     """
     service_provider = getattr(request.app.state, "service_provider", None)
     if not service_provider:
-        if _STRICT_CONTROLLER_ERRORS:
+        if _get_strict_controller_errors():
             raise ServiceResolutionError(
                 message="Service provider not available in app state",
                 service_name="IServiceProvider",
@@ -257,7 +258,7 @@ async def get_responses_controller_if_available(
             f"Failed to get ResponsesController from service provider: {e}",
             exc_info=True,
         )
-        if _STRICT_CONTROLLER_ERRORS:
+        if _get_strict_controller_errors():
             raise ServiceResolutionError(
                 message="Failed to resolve ResponsesController",
                 service_name="ResponsesController",

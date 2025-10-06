@@ -578,6 +578,60 @@ class BackendService(IBackendService):
             await self._session_service.get_session(session_id) if session_id else None
         )
 
+        # Apply static_route override FIRST - it has highest priority
+        app_config = cast(AppConfig, self._config)
+        if (
+            hasattr(app_config, "backends")
+            and hasattr(app_config.backends, "static_route")
+            and app_config.backends.static_route
+        ):
+            static_route = app_config.backends.static_route
+            # Parse backend:model format (check it's a string first)
+            if isinstance(static_route, str) and ":" in static_route:
+                forced_backend, forced_model = static_route.split(":", 1)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Static route active: forcing backend={forced_backend}, model={forced_model}"
+                    )
+                return forced_backend, forced_model
+            else:
+                # If no colon, treat as model only
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Static route active: forcing model={static_route}"
+                    )
+                # For model-only static route, we still need to determine backend
+                backend_type: str | None = None
+                if session and session.state and session.state.backend_config:
+                    from src.core.domain.configuration.backend_config import (
+                        BackendConfiguration,
+                    )
+
+                    backend_type = cast(
+                        BackendConfiguration, session.state.backend_config
+                    ).backend_type
+
+                if not backend_type:
+                    backend_type = (
+                        request.extra_body.get("backend_type") if request.extra_body else None
+                    )
+
+                if not backend_type:
+                    from src.core.domain.model_utils import parse_model_backend
+
+                    default_backend: str = (
+                        app_config.backends.default_backend
+                        if hasattr(app_config, "backends")
+                        else "openai"
+                    )
+                    parsed_backend, _ = parse_model_backend(
+                        request.model, default_backend
+                    )
+                    backend_type = parsed_backend
+
+                return backend_type, static_route
+
+        # Normal backend resolution logic (only when static_route is not configured)
         backend_type: str | None = None
         if session and session.state and session.state.backend_config:
             from src.core.domain.configuration.backend_config import (
@@ -597,7 +651,6 @@ class BackendService(IBackendService):
         if not backend_type:
             from src.core.domain.model_utils import parse_model_backend
 
-            app_config: AppConfig = cast(AppConfig, self._config)
             default_backend: str = (
                 app_config.backends.default_backend
                 if hasattr(app_config, "backends")
@@ -608,32 +661,6 @@ class BackendService(IBackendService):
             )
             backend_type = parsed_backend
             effective_model = parsed_model
-
-        # Apply static_route override if configured
-        app_config = cast(AppConfig, self._config)
-        if (
-            hasattr(app_config, "backends")
-            and hasattr(app_config.backends, "static_route")
-            and app_config.backends.static_route
-        ):
-            static_route = app_config.backends.static_route
-            # Parse backend:model format (check it's a string first)
-            if isinstance(static_route, str) and ":" in static_route:
-                forced_backend, forced_model = static_route.split(":", 1)
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Applying static_route override: {backend_type}:{effective_model} -> {forced_backend}:{forced_model}"
-                    )
-                backend_type = forced_backend
-                effective_model = forced_model
-            else:
-                # If no colon, treat as model only
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Applying static_route model override: {effective_model} -> {static_route}"
-                    )
-                effective_model = static_route
-
         return backend_type, effective_model
 
     def _detect_key_name(self, backend_type: str) -> str | None:

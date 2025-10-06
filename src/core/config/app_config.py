@@ -445,6 +445,7 @@ class AppConfig(DomainModel, IConfig):
     proxy_timeout: int = 120
     command_prefix: str = "!/"
     context_window_override: int | None = None  # Override context window for all models
+    strict_command_detection: bool = False  # Only match commands on last non-blank line
 
     # Rate limit settings
     default_rate_limit: int = 60
@@ -516,6 +517,7 @@ class AppConfig(DomainModel, IConfig):
             or (int(os.environ.get("APP_PORT", "8000")) + 1),
             "proxy_timeout": int(os.environ.get("PROXY_TIMEOUT", "120")),
             "command_prefix": os.environ.get("COMMAND_PREFIX", "!/"),
+            "strict_command_detection": os.environ.get("STRICT_COMMAND_DETECTION", "").lower() == "true",
             "auth": {
                 "disable_auth": os.environ.get("DISABLE_AUTH", "").lower() == "true",
                 "api_keys": _get_api_keys_from_env(),
@@ -771,17 +773,9 @@ class AppConfig(DomainModel, IConfig):
             config_backends[default_backend_type] = config_backends.get(
                 default_backend_type, {}
             )
-            # Add a dummy API key if running in test environment and no API key is present
-            if os.environ.get("PYTEST_CURRENT_TEST") and (
-                not config_backends[default_backend_type]
-                or not config_backends[default_backend_type].get("api_key")
-            ):
-                config_backends[default_backend_type]["api_key"] = [
-                    f"test-key-{default_backend_type}"
-                ]
-                logger.info(
-                    f"Added test API key for default backend {default_backend_type}"
-                )
+            # SECURITY: Removed automatic test API key injection
+            # Production code should never detect test environment or modify behavior automatically
+            # API keys must be explicitly provided via configuration, not auto-generated based on environment
 
         return cls(**config)  # type: ignore
 

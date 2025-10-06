@@ -37,14 +37,11 @@ for module_info in pkgutil.iter_modules([str(_current_dir)]):
         module = importlib.import_module(f".{module_name}", package=__package__)
         logger.debug(f"Auto-discovered and imported backend module: {module_name}")
 
-        # Export all classes from the module for backward compatibility
-        for attr_name in dir(module):
-            if not attr_name.startswith("_"):
-                attr = getattr(module, attr_name)
-                # Only export classes that look like backends
-                if isinstance(attr, type):
-                    globals()[attr_name] = attr
-                    __all__.append(attr_name)
+        # SECURITY: Removed global namespace pollution via globals()
+        # Previous code polluted global namespace during import time:
+        # globals()[attr_name] = attr  # DANGEROUS - cross-boundary contamination
+        # This violates test/production isolation like builtins injection
+        # Use explicit imports instead of auto-exporting all discovered classes
     except Exception as e:
         # Log but don't fail - allow other backends to load
         logger.warning(

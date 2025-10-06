@@ -228,12 +228,9 @@ class Translation(BaseTranslator):
                 json.loads(stripped)
                 return stripped
             except json.JSONDecodeError:
-                fixed = stripped.replace("'", '"')
-                try:
-                    json.loads(fixed)
-                    return fixed
-                except json.JSONDecodeError:
-                    return json.dumps({"_raw": stripped})
+                # Safe fallback - don't try to "fix" the JSON with dangerous string replacements
+                # This prevents data corruption from blind quote replacement
+                return json.dumps({"_raw": stripped})
 
         if isinstance(args, dict):
             return json.dumps(args)

@@ -77,6 +77,14 @@ class ReasoningEffortHandler(BaseCommandHandler):
         Returns:
             A result containing success/failure status and updated state
         """
+        # Check if CLI thinking budget is set - if so, block reasoning effort changes
+        # because CLI --thinking-budget should override all reasoning settings
+        if _is_cli_thinking_budget_enabled():
+            return CommandHandlerResult(
+                success=False,
+                message="Cannot change reasoning effort when --thinking-budget CLI parameter is set. CLI settings take priority over interactive commands.",
+            )
+
         if not param_value:
             return CommandHandlerResult(
                 success=False, message="Reasoning effort level must be specified"
@@ -153,6 +161,13 @@ class ThinkingBudgetHandler(BaseCommandHandler):
         Returns:
             A result containing success/failure status and updated state
         """
+        # Check if CLI thinking budget is set - if so, block interactive changes
+        if _is_cli_thinking_budget_enabled():
+            return CommandHandlerResult(
+                success=False,
+                message="Cannot change thinking budget when --thinking-budget CLI parameter is set. CLI settings take priority over interactive commands.",
+            )
+
         if not param_value:
             return CommandHandlerResult(
                 success=False, message="Thinking budget must be specified"
@@ -268,3 +283,12 @@ class GeminiGenerationConfigHandler(BaseCommandHandler):
             message=f"Gemini generation config set to {config}",
             new_state=new_state,
         )
+
+
+def _is_cli_thinking_budget_enabled() -> bool:
+    """Check if CLI thinking budget is enabled via --thinking-budget parameter."""
+    import os
+    
+    # Check if thinking budget was set via CLI (stored in environment)
+    thinking_budget = os.environ.get("THINKING_BUDGET")
+    return thinking_budget is not None and thinking_budget.strip() != ""

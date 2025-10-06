@@ -62,6 +62,21 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 success=False, message="Parameter(s) must be specified", name=self.name
             )
 
+        # Check if static routing is enabled - if so, block backend/model changes
+        if self._is_static_routing_enabled():
+            blocked_params = []
+            if "backend" in args:
+                blocked_params.append("backend")
+            if "model" in args:
+                blocked_params.append("model")
+            
+            if blocked_params:
+                return CommandResult(
+                    success=False,
+                    message=f"Cannot change {' and '.join(blocked_params)} when static routing is enabled via --static-route CLI parameter",
+                    name=self.name,
+                )
+
         updated_state = session.state
         messages: list[str] = []
         data: dict[str, Any] = {}
@@ -332,3 +347,11 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             ),
             state,
         )
+
+    def _is_static_routing_enabled(self) -> bool:
+        """Check if static routing is enabled via CLI parameter."""
+        import os
+        
+        # Check if static route was set via CLI (stored in environment)
+        static_route = os.environ.get("STATIC_ROUTE")
+        return static_route is not None and static_route.strip() != ""

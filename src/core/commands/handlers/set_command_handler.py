@@ -24,6 +24,7 @@ from src.core.domain.session import Session
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
     from src.core.interfaces.command_service_interface import ICommandService
 
 
@@ -31,9 +32,7 @@ if TYPE_CHECKING:
 class SetCommandHandler(ICommandHandler):
     """Handler for the 'set' command."""
 
-    def __init__(
-        self, command_service: "ICommandService | None" = None
-    ) -> None:
+    def __init__(self, command_service: ICommandService | None = None) -> None:
         super().__init__(command_service=command_service)
         self._parameter_handlers = self._build_parameter_handlers()
 
@@ -61,6 +60,21 @@ class SetCommandHandler(ICommandHandler):
                 message="No arguments provided.",
                 name=self.command_name,
             )
+
+        # Check if static routing is enabled - if so, block backend/model changes
+        if self._is_static_routing_enabled():
+            blocked_params = []
+            if self._has_parameter(command.args, "backend"):
+                blocked_params.append("backend")
+            if self._has_parameter(command.args, "model"):
+                blocked_params.append("model")
+            
+            if blocked_params:
+                return CommandResult(
+                    success=False,
+                    message=f"Cannot change {' and '.join(blocked_params)} when static routing is enabled via --static-route CLI parameter",
+                    name=self.command_name,
+                )
 
         handled_any = False
         processed_params: set[str] = set()
@@ -242,5 +256,13 @@ class SetCommandHandler(ICommandHandler):
     def _has_parameter(self, args: Mapping[str, Any], name: str) -> bool:
         normalized_name = self._normalize_param(name)
         return any(
-            self._normalize_param(arg_name) == normalized_name for arg_name in args.keys()
+            self._normalize_param(arg_name) == normalized_name for arg_name in args
         )
+
+    def _is_static_routing_enabled(self) -> bool:
+        """Check if static routing is enabled via CLI parameter."""
+        import os
+        
+        # Check if static route was set via CLI (stored in environment)
+        static_route = os.environ.get("STATIC_ROUTE")
+        return static_route is not None and static_route.strip() != ""

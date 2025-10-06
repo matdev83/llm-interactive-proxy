@@ -40,6 +40,16 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
         self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """Set or unset the model name."""
+        # Check if static routing is enabled - if so, block model changes
+        if self._is_static_routing_enabled():
+            model_name = args.get("name")
+            if model_name is not None and isinstance(model_name, str) and model_name.strip():
+                return CommandResult(
+                    name=self.name,
+                    success=False,
+                    message="Cannot change model when static routing is enabled via --static-route CLI parameter",
+                )
+
         model_name = args.get("name")
 
         if model_name is None or (
@@ -96,3 +106,11 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
             logger.error(error_message)
             return CommandResult(success=False, message=error_message, name=self.name)
+
+    def _is_static_routing_enabled(self) -> bool:
+        """Check if static routing is enabled via CLI parameter."""
+        import os
+        
+        # Check if static route was set via CLI (stored in environment)
+        static_route = os.environ.get("STATIC_ROUTE")
+        return static_route is not None and static_route.strip() != ""

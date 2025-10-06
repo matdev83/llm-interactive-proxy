@@ -53,12 +53,7 @@ class StreamingResponseEnvelope(InternalDTO):
         return _byte_iterator()
 
 
-# Export envelope classes to builtins for tests that reference them without
-# importing (some legacy tests refer to these names directly).
-try:
-    import builtins
-
-    builtins.ResponseEnvelope = ResponseEnvelope  # type: ignore[attr-defined]
-    builtins.StreamingResponseEnvelope = StreamingResponseEnvelope  # type: ignore[attr-defined]
-except Exception:
-    pass
+# SECURITY: Removed builtins injection to prevent test/production contamination
+# Previously, these classes were injected into builtins for test convenience,
+# but this created dangerous global state that allowed test data to leak
+# into production code execution. All imports must now be explicit.

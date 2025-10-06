@@ -26,16 +26,18 @@ class RedactionMiddleware(IRequestMiddleware):
     """
 
     def __init__(
-        self, api_keys: Iterable[str] | None = None, command_prefix: str = "!/"
+        self, api_keys: Iterable[str] | None = None, command_prefix: str = "/", strict_command_detection: bool = False
     ):
         """Initialize the redaction middleware.
 
         Args:
             api_keys: API keys to redact
             command_prefix: Prefix for proxy commands
+            strict_command_detection: If True, only filter commands on last non-blank line
         """
         self._api_key_redactor = APIKeyRedactor(api_keys)
         self._command_filter = ProxyCommandFilter(command_prefix)
+        self._strict_command_detection = strict_command_detection
 
     async def process(
         self, request: ChatRequest, context: dict[str, Any] | None = None
@@ -73,9 +75,14 @@ class RedactionMiddleware(IRequestMiddleware):
                     message.content = self._api_key_redactor.redact(message.content)
                     # Filter commands only for user/assistant/system messages
                     if not is_tool_response:
-                        message.content = self._command_filter.filter_commands(
-                            message.content
-                        )
+                        if self._strict_command_detection:
+                            message.content = self._command_filter.filter_commands_with_strict_mode(
+                                message.content
+                            )
+                        else:
+                            message.content = self._command_filter.filter_commands(
+                                message.content
+                            )
                 # Handle list of content parts
                 elif isinstance(message.content, list):
                     for part in message.content:
@@ -84,17 +91,27 @@ class RedactionMiddleware(IRequestMiddleware):
                             part["text"] = self._api_key_redactor.redact(part["text"])
                             # Filter commands only for user/assistant/system messages
                             if not is_tool_response:
-                                part["text"] = self._command_filter.filter_commands(
-                                    part["text"]
-                                )
+                                if self._strict_command_detection:
+                                    part["text"] = self._command_filter.filter_commands_with_strict_mode(
+                                        part["text"]
+                                    )
+                                else:
+                                    part["text"] = self._command_filter.filter_commands(
+                                        part["text"]
+                                    )
                         elif isinstance(part, MessageContentPartText) and part.text:
                             # Apply API key redaction
                             part.text = self._api_key_redactor.redact(part.text)
                             # Filter commands only for user/assistant/system messages
                             if not is_tool_response:
-                                part.text = self._command_filter.filter_commands(
-                                    part.text
-                                )
+                                if self._strict_command_detection:
+                                    part.text = self._command_filter.filter_commands_with_strict_mode(
+                                        part.text
+                                    )
+                                else:
+                                    part.text = self._command_filter.filter_commands(
+                                        part.text
+                                    )
 
         return processed_request
 
@@ -113,3 +130,11 @@ class RedactionMiddleware(IRequestMiddleware):
             command_prefix: New command prefix
         """
         self._command_filter.set_command_prefix(command_prefix)
+
+    def update_strict_command_detection(self, strict_mode: bool) -> None:
+        """Update the strict command detection mode.
+
+        Args:
+            strict_mode: Whether to enable strict command detection
+        """
+        self._strict_command_detection = strict_mode
