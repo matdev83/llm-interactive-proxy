@@ -106,9 +106,12 @@ properties:
           apply_diff_steering_enabled: { type: boolean }
           apply_diff_steering_rate_limit_seconds: { type: integer, minimum: 0 }
           apply_diff_steering_message: { type: ["string", "null"] }
+          pytest_full_suite_steering_enabled: { type: boolean }
+          pytest_full_suite_steering_message: { type: ["string", "null"] }
           steering_rules:
             type: array
             items: { type: object }
+      pytest_full_suite_steering_enabled: { type: boolean }
   backends:
     type: object
     additionalProperties: true

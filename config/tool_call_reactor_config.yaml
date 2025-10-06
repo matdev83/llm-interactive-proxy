@@ -4,6 +4,8 @@ session:
     apply_diff_steering_enabled: true
     apply_diff_steering_rate_limit_seconds: 60
     apply_diff_steering_message: "You tried to use apply_diff tool. Please prefer to use patch_file tool instead, as it is superior to apply_diff and provides automated Python QA checks."
+    pytest_full_suite_steering_enabled: false
+    pytest_full_suite_steering_message: "You requested to run the whole test suite. This may be a lengthy process. Please consider running only selected tests for optimal speed. If you still believe you need to run the whole test suite, please re-send your tool call and it will be executed."
     steering_rules:
       - name: apply_diff_to_patch_file
         enabled: true

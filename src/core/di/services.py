@@ -974,6 +974,9 @@ def register_core_services(
             from src.core.services.tool_call_handlers.dangerous_command_handler import (
                 DangerousCommandHandler,
             )
+            from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
+                PytestFullSuiteHandler,
+            )
 
             # Register config-driven steering handler (includes synthesized legacy apply_diff rule when enabled)
             try:
@@ -1060,6 +1063,28 @@ def register_core_services(
             except Exception as e:
                 logger.warning(
                     f"Failed to register DangerousCommandHandler: {e}", exc_info=True
+                )
+
+            # Register PytestFullSuiteHandler if enabled
+            try:
+                if getattr(reactor_config, "pytest_full_suite_steering_enabled", False):
+                    steering_message = (
+                        reactor_config.pytest_full_suite_steering_message or None
+                    )
+                    pytest_full_suite_handler = PytestFullSuiteHandler(
+                        message=steering_message,
+                        enabled=True,
+                    )
+                    try:
+                        reactor.register_handler_sync(pytest_full_suite_handler)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register pytest full-suite handler: {e}",
+                            exc_info=True,
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register PytestFullSuiteHandler: {e}", exc_info=True
                 )
 
             # Register PytestCompressionHandler if enabled in session config

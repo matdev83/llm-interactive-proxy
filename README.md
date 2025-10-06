@@ -644,6 +644,7 @@ When limits are exceeded, the proxy returns a structured 400 error:
 - JSON repair: fix common JSON formatting issues (streaming and non-streaming)
 - Tool-call repair: convert textual tool calls to proper `tool_calls`
 - Tool Call Reactor: event-driven system to intercept and steer tool calls (e.g., apply_diff to patch_file), with configurable YAML rules and rate limiting
+- Opt-in pytest full-suite steering: warns before running the entire pytest suite and requires a second confirmation
 - Loop detection: stop repeated identical tool calls
 - Dangerous-command prevention: steer away from destructive shell actions
 - Empty response recovery: automatic retry with steering prompt on empty LLM responses

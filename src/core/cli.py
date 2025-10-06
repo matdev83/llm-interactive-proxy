@@ -318,6 +318,22 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable pytest output compression (overrides config)",
     )
 
+    parser.add_argument(
+        "--enable-pytest-full-suite-steering",
+        action="store_const",
+        const=True,
+        dest="pytest_full_suite_steering_enabled",
+        default=None,
+        help="Enable steering message before running full pytest suite (opt-in)",
+    )
+    parser.add_argument(
+        "--disable-pytest-full-suite-steering",
+        action="store_const",
+        const=False,
+        dest="pytest_full_suite_steering_enabled",
+        help="Disable steering for full-suite pytest even if config enables it",
+    )
+
     # Security and process options
     parser.add_argument(
         "--allow-admin",
@@ -484,6 +500,11 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     # Pytest compression flag
     if args.pytest_compression_enabled is not None:
         cfg.session.pytest_compression_enabled = args.pytest_compression_enabled
+
+    if getattr(args, "pytest_full_suite_steering_enabled", None) is not None:
+        cfg.session.pytest_full_suite_steering_enabled = (
+            args.pytest_full_suite_steering_enabled
+        )
 
     # Planning phase configuration
     # Apply planning phase options only if config supports it (optional feature)

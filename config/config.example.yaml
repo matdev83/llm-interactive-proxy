@@ -33,6 +33,9 @@ session:
   pytest_compression_enabled: true  # Default: true
   pytest_compression_min_lines: 30  # Only compress output with 30+ lines (default: 30)
 
+  # Tool call reactor steering for pytest full-suite runs (requires opt-in)
+  pytest_full_suite_steering_enabled: false
+
 # Logging
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL

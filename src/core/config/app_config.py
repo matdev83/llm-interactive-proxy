@@ -212,6 +212,12 @@ class ToolCallReactorConfig(DomainModel):
     If None, uses the default message. Can be customized to fit your workflow.
     """
 
+    pytest_full_suite_steering_enabled: bool = False
+    """Whether pytest full-suite steering is enabled (opt-in)."""
+
+    pytest_full_suite_steering_message: str | None = None
+    """Custom steering message for full-suite pytest commands."""
+
     # New: fully configurable steering rules
     steering_rules: list[dict[str, Any]] = Field(default_factory=list)
     """Configurable steering rules.
@@ -262,6 +268,7 @@ class SessionConfig(DomainModel):
     dangerous_command_steering_message: str | None = None
     pytest_compression_enabled: bool = True
     pytest_compression_min_lines: int = 30
+    pytest_full_suite_steering_enabled: bool = False
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
 
 
@@ -651,6 +658,10 @@ class AppConfig(DomainModel, IConfig):
             "pytest_compression_min_lines": int(
                 os.environ.get("PYTEST_COMPRESSION_MIN_LINES", "30")
             ),
+            "pytest_full_suite_steering_enabled": os.environ.get(
+                "PYTEST_FULL_SUITE_STEERING_ENABLED", "false"
+            ).lower()
+            == "true",
         }
 
         config["logging"] = {

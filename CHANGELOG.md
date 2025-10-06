@@ -12,6 +12,21 @@
   - **Comprehensive Testing**: Added 13 unit tests covering all command detection scenarios and edge cases
   - **Documentation**: Updated README with detailed usage examples and behavior comparisons
 
+- **Feature**: Added pytest execution agent steering to prevent agents from running entire test suites inadvertently
+  - **Intelligent Detection**: Automatically detects when agents attempt to run full pytest suites without specific file, directory, or node selectors
+  - **Steering Behavior**: First matching command in a session is intercepted and replaced with a helpful steering message encouraging selective test execution
+  - **User Override**: If the agent re-issues the same command after the warning, the handler allows it to pass through
+  - **Session-Based Logic**: Warning state is tracked per session, allowing different behavior for separate sessions
+  - **Command Recognition**: Supports various pytest invocation patterns including `pytest`, `python -m pytest`, and `py.test`
+  - **Comprehensive Pattern Matching**: Distinguishes between full-suite runs (e.g., `pytest`, `pytest -q`) and targeted execution (e.g., `pytest tests/unit/`, `pytest specific_file.py::test_case`)
+  - **Configuration**: Opt-in feature controlled by `pytest_full_suite_steering_enabled` (default: `false`) with custom steering message support via `pytest_full_suite_steering_message`
+  - **Environment Variable**: `PYTEST_FULL_SUITE_STEERING_ENABLED` for runtime control
+  - **Integration**: Implemented as Tool Call Reactor handler with priority 95, positioned between dangerous command handling and generic steering
+  - **Testing**: Comprehensive unit test suite covering detection logic, session behavior, enabled/disabled states, and various pytest command patterns
+  - **Files Created**:
+    - `src/core/services/tool_call_handlers/pytest_full_suite_handler.py` (233 lines) - Main handler implementation
+    - `tests/unit/core/services/tool_call_handlers/test_pytest_full_suite_handler.py` (97 lines) - Comprehensive unit tests
+
 - **Cleanup**: Removed the archived `src/core/cli_old.py` module. The modern
   CLI implementation in `src/core/cli.py` has fully replaced it and all
   dependencies now point to the new entry point. Keeping the unused module in
