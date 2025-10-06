@@ -207,6 +207,9 @@ class OpenAIConnector(LLMBackend):
         # Cast to CanonicalChatRequest for mypy compatibility with _prepare_payload signature
         domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
 
+        # Ensure identity headers are scoped to the current request only.
+        self.identity = identity
+
         # Prepare the payload using a helper so subclasses and tests can
         # override or patch payload construction logic easily.
         payload = await self._prepare_payload(
@@ -215,8 +218,11 @@ class OpenAIConnector(LLMBackend):
         headers = kwargs.pop("headers_override", None)
         if headers is None:
             try:
-                if identity:
-                    self.identity = identity
+                # Always update the cached identity so that per-request
+                # identity headers do not leak between calls. Downstream
+                # callers rely on identity-specific headers being scoped to
+                # a single request.
+                self.identity = identity
                 headers = self.get_headers()
             except Exception:
                 headers = None
@@ -497,6 +503,9 @@ class OpenAIConnector(LLMBackend):
         # Override model if effective_model is provided
         if effective_model:
             payload["model"] = effective_model
+
+        # Ensure identity headers are scoped per request before computing headers.
+        self.identity = identity
 
         # Update messages with processed_messages if available
         if processed_messages:
