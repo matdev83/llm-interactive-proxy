@@ -442,3 +442,56 @@ class TestOpenAIResponsesBackendIntegration:
         )
         assert base_connector.backend_type == "openai"
         assert connector.backend_type != base_connector.backend_type
+
+    @pytest.mark.asyncio
+    async def test_responses_api_uses_openai_responses_translation(
+        self, mock_client, mock_config
+    ) -> None:
+        """Ensure the Responses API path uses the correct translation format."""
+        translation_service = Mock(spec=TranslationService)
+
+        domain_request = Mock()
+        domain_request.stream = False
+        domain_request.session_id = "session-123"
+        domain_request.extra_body = None
+
+        translation_service.to_domain_request.return_value = domain_request
+        translation_service.from_domain_to_responses_request.return_value = {
+            "model": "gpt-4"
+        }
+
+        domain_response = Mock()
+        domain_response.usage = {"prompt_tokens": 1}
+        translation_service.to_domain_response.return_value = domain_response
+        translation_service.from_domain_to_responses_response.return_value = {
+            "id": "resp-123"
+        }
+
+        connector = OpenAIResponsesConnector(
+            client=mock_client,
+            config=mock_config,
+            translation_service=translation_service,
+        )
+        connector.api_key = "test-api-key"
+        connector.disable_health_check()
+
+        http_response = Mock()
+        http_response.status_code = 200
+        http_response.headers = {}
+        http_response.json.return_value = {"raw": "payload"}
+        mock_client.post.return_value = http_response
+
+        result = await connector.responses(
+            request_data={},
+            processed_messages=[],
+            effective_model="gpt-4",
+        )
+
+        translation_service.to_domain_response.assert_called_once_with(
+            {"raw": "payload"}, "openai-responses"
+        )
+        translation_service.from_domain_to_responses_response.assert_called_once_with(
+            domain_response
+        )
+        assert isinstance(result, ResponseEnvelope)
+        assert result.content == {"id": "resp-123"}
