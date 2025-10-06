@@ -420,6 +420,32 @@ class TestGeminiGenerationConfigHandler:
         )
 
     @pytest.mark.asyncio
+    async def test_handle_with_single_quotes_string(
+        self, handler: GeminiGenerationConfigHandler, mock_state: ISessionState
+    ) -> None:
+        """Test handle accepts JSON-like strings using single quotes."""
+
+        config_string = "{'thinkingConfig': {'thinkingBudget': 1024}}"
+        expected_config = {"thinkingConfig": {"thinkingBudget": 1024}}
+        mock_state.reasoning_config.with_gemini_generation_config = Mock(
+            return_value=mock_state.reasoning_config
+        )
+
+        result = handler.handle(config_string, mock_state)
+
+        assert isinstance(result, CommandHandlerResult)
+        assert result.success is True
+        assert (
+            result.message
+            == f"Gemini generation config set to {expected_config}"
+        )
+        assert result.new_state is mock_state
+
+        mock_state.reasoning_config.with_gemini_generation_config.assert_called_once_with(
+            expected_config
+        )
+
+    @pytest.mark.asyncio
     async def test_handle_with_invalid_json_string(
         self, handler: GeminiGenerationConfigHandler, mock_state: ISessionState
     ) -> None:

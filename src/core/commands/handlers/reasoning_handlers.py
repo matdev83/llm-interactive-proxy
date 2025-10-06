@@ -6,6 +6,7 @@ This module provides command handlers for reasoning-related settings.
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 from typing import Any
@@ -260,7 +261,15 @@ class GeminiGenerationConfigHandler(BaseCommandHandler):
         try:
             # Parse the config if it's a string
             if isinstance(param_value, str):
-                config = json.loads(param_value)
+                try:
+                    config = json.loads(param_value)
+                except json.JSONDecodeError as json_error:
+                    try:
+                        config = ast.literal_eval(param_value)
+                    except (ValueError, SyntaxError):
+                        return CommandHandlerResult(
+                            success=False, message=f"Invalid JSON: {json_error}"
+                        )
             else:
                 config = param_value
 
