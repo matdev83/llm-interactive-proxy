@@ -10,6 +10,7 @@ from src.core.app.middleware.content_rewriting_middleware import (
 )
 from src.core.services.content_rewriter_service import ContentRewriterService
 from starlette.datastructures import Headers
+from starlette.background import BackgroundTask
 from starlette.responses import Response, StreamingResponse
 
 
@@ -638,6 +639,86 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                 body["output_text"][0],
                 "This is an rewritten reply.",
             )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+
+    def test_streaming_reply_rewriting_preserves_background(self):
+        """Ensure background tasks attached to streaming responses are preserved."""
+
+        async def run_test():
+            os.makedirs(
+                os.path.join(self.test_config_dir, "replies", "004"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(self.test_config_dir, "replies", "004", "SEARCH.txt"),
+                "w",
+            ) as f:
+                f.write("original streaming background reply")
+            with open(
+                os.path.join(self.test_config_dir, "replies", "004", "REPLACE.txt"),
+                "w",
+            ) as f:
+                f.write("rewritten streaming background reply")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            background_called = False
+
+            def background_func():
+                nonlocal background_called
+                background_called = True
+
+            background_task = BackgroundTask(background_func)
+
+            async def stream_generator():
+                yield b"This is an original streaming background reply."
+
+            async def call_next(request):
+                return StreamingResponse(
+                    stream_generator(),
+                    media_type="text/event-stream",
+                    background=background_task,
+                )
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                },
+                receive=receive,
+            )
+
+            response = await middleware.dispatch(request, call_next)
+            self.assertIsInstance(response, StreamingResponse)
+            self.assertIs(response.background, background_task)
+
+            response_body = b""
+            async for chunk in response.body_iterator:
+                response_body += chunk
+            self.assertEqual(
+                response_body.decode(),
+                "This is an rewritten streaming background reply.",
+            )
+
+            await response.background()
+            self.assertTrue(background_called)
 
         import asyncio
 

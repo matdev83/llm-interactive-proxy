@@ -214,11 +214,15 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                 rewritten_body = self.rewriter.rewrite_reply(response_body.decode())
                 yield rewritten_body.encode("utf-8")
 
+            background = response.background
+            response.background = None
+
             return StreamingResponse(
                 new_iterator(),
                 status_code=response.status_code,
                 headers=dict(response.headers),
                 media_type=response.media_type,
+                background=background,
             )
         else:
             response_body = response.body
