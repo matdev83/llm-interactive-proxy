@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -104,7 +105,8 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._credential_validation_errors: list[str] = []
         self._initialization_failed: bool = False
         self._last_validation_time: float = 0.0
-        self._pending_reload_task: asyncio.Task[None] | None = None
+        self._pending_reload_task: asyncio.Task[None] | Future[None] | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
 
     # -----------------------------
     # Health Tracking API (stale token handling pattern)
@@ -260,18 +262,12 @@ class AnthropicOAuthBackend(AnthropicBackend):
 
     def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload of credentials."""
-        if (
-            self._pending_reload_task is not None
-            and not self._pending_reload_task.done()
-        ):
+        pending = self._pending_reload_task
+        if pending is not None and not pending.done():
             return  # Already have a reload pending
 
         async def reload_task() -> None:
-            """Reload credentials from file with force_reload to bypass cache.
-
-            This task is scheduled when the file system watcher detects a change
-            to ensure the latest token is loaded even if the file timestamp didn't change.
-            """
+            """Reload credentials from file with force_reload to bypass cache."""
             try:
                 logger.debug("Reloading Anthropic OAuth credentials due to file change")
                 loaded = await self._load_oauth_credentials(force_reload=True)
@@ -294,7 +290,45 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 logger.error(f"Error during Anthropic OAuth credentials reload: {e}")
                 self._degrade([f"Credentials reload failed: {e}"])
 
-        self._pending_reload_task = asyncio.create_task(reload_task())
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        target_loop = None
+        if current_loop and current_loop.is_running():
+            target_loop = current_loop
+        elif self._event_loop and self._event_loop.is_running():
+            target_loop = self._event_loop
+
+        if target_loop is None or target_loop.is_closed():
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Cannot schedule Anthropic OAuth credentials reload: no running event loop available."
+                )
+            return
+
+        if target_loop is not self._event_loop:
+            self._event_loop = target_loop
+
+        def _clear(_: Any) -> None:
+            self._pending_reload_task = None
+
+        if target_loop is current_loop:
+            task = target_loop.create_task(reload_task())
+            task.add_done_callback(_clear)
+            self._pending_reload_task = task
+            return
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(reload_task(), target_loop)
+            future.add_done_callback(_clear)
+            self._pending_reload_task = future
+        except RuntimeError as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to schedule Anthropic OAuth credentials reload: %s", exc
+                )
 
     # -----------------------------
     # Credential loading utilities
@@ -421,6 +455,11 @@ class AnthropicOAuthBackend(AnthropicBackend):
     async def initialize(self, **kwargs: Any) -> None:  # type: ignore[override]
         """Initialize backend with enhanced validation using stale token handling pattern."""
         logger.info("Initializing Anthropic OAuth backend with enhanced validation.")
+
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
 
         # Allow overriding the oauth dir (directory containing oauth_creds.json)
         override = kwargs.get("anthropic_oauth_path")
