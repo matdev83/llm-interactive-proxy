@@ -9,19 +9,19 @@ from unittest.mock import Mock, PropertyMock
 
 import pytest
 from fastapi import FastAPI
+from src.core.commands.service import NewCommandService
 from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.multimodal import ContentPart, ContentType
 from src.core.domain.session import Session, SessionStateAdapter
 from src.core.interfaces.command_processor_interface import ICommandProcessor
-from src.core.services.command_service import CommandRegistry, CommandService
 
 
 @pytest.fixture
 def command_parser_config(
     test_session_state: SessionStateAdapter, app: FastAPI
-) -> CommandService:
-    """Return a DI-based CommandService for testing (replacement for legacy config)."""
+) -> NewCommandService:
+    """Return a DI-based NewCommandService for testing (replacement for legacy config)."""
 
     # Provide a minimal session service for DI
     class _SessionSvc:
@@ -31,9 +31,13 @@ def command_parser_config(
         async def update_session(self, session: Session) -> None:  # type: ignore[override]
             return None
 
+    # Import CommandParser from new architecture
+    from src.core.commands.parser import CommandParser
+
     # Empty registry by default; tests can register commands as needed
-    registry = CommandRegistry()
-    return CommandService(registry, session_service=_SessionSvc())
+    return NewCommandService(
+        _SessionSvc(), CommandParser(), strict_command_detection=False
+    )
 
 
 @pytest.fixture

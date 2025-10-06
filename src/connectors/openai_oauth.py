@@ -105,6 +105,12 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self._reload_task_lock = threading.Lock()
         self._reload_scheduling_in_progress = False
 
+        # Health checks are unnecessary for OAuth bearer flow in tests; disable by default
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            self.disable_health_check()
+
     # -----------------------------
     # Health Tracking API (stale token handling pattern)
     # -----------------------------

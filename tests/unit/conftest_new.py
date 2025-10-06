@@ -25,7 +25,7 @@ from src.core.interfaces.state_provider_interface import (
     ISecureStateModification,
 )
 from src.core.services.application_state_service import ApplicationStateService
-from src.core.services.command_service import CommandRegistry
+from src.core.services.command_utils import CommandRegistry
 
 from tests.unit.core.test_doubles import (
     MockBackendService,

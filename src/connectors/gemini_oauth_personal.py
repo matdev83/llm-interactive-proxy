@@ -166,10 +166,7 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                         logger.info(f"Credentials file modified: {event.src_path}")
 
                     # Schedule credential reload in the connector's event loop in a thread-safe way
-                    if (
-                        self.connector._main_loop
-                        and not self.connector._main_loop.is_closed()
-                    ):
+                    if self.connector._main_loop is not None:
                         try:
                             future = asyncio.run_coroutine_threadsafe(
                                 self.connector._handle_credentials_file_change(),
@@ -185,11 +182,28 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                     else:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                "No event loop available for credentials reload or loop is closed"
+                                "No event loop available for credentials reload"
                             )
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(f"Error processing file modification event: {e}")
+
+
+class _StaticTokenCreds:
+    """Simple credentials wrapper for static OAuth tokens."""
+
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def before_request(
+        self, request: Any, method: str, url: str, headers: dict
+    ) -> None:
+        """Apply the token to the authentication header."""
+        headers["Authorization"] = f"Bearer {self.token}"
+
+    def refresh(self, request: Any) -> None:
+        """No-op: token is managed by the CLI; we reload from file when needed."""
+        return
 
 
 class GeminiOAuthPersonalConnector(GeminiBackend):
@@ -1210,20 +1224,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
 
             # Build a simple authorized session wrapper using Requests
             # We use AuthorizedSession with a bare Credentials-like shim
-            class _StaticTokenCreds:
-                def __init__(self, token: str) -> None:
-                    self.token = token
-
-                def before_request(
-                    self, request: Any, method: str, url: str, headers: dict
-                ) -> None:
-                    """Apply the token to the authentication header."""
-                    headers["Authorization"] = f"Bearer {self.token}"
-
-                def refresh(self, request: Any) -> None:
-                    # No-op: token is managed by the CLI; we reload from file when needed
-                    return
-
             auth_session = google.auth.transport.requests.AuthorizedSession(
                 _StaticTokenCreds(access_token)
             )
@@ -1483,19 +1483,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             if not access_token:
                 raise AuthenticationError("Missing access_token in OAuth credentials")
 
-            class _StaticTokenCreds:
-                def __init__(self, token: str) -> None:
-                    self.token = token
-
-                def before_request(
-                    self, request: Any, method: str, url: str, headers: dict
-                ) -> None:
-                    """Apply the token to the authentication header."""
-                    headers["Authorization"] = f"Bearer {self.token}"
-
-                def refresh(self, request: Any) -> None:
-                    return
-
             auth_session = google.auth.transport.requests.AuthorizedSession(
                 _StaticTokenCreds(access_token)
             )
@@ -1722,8 +1709,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     )
                     yield ProcessedResponse(content=final_chunk)
 
-                except BackendError:
-                    raise
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
                     error_chunk = self.translation_service.to_domain_stream_chunk(

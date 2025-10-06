@@ -13,8 +13,8 @@ from src.core.interfaces.response_processor_interface import (
 logger = logging.getLogger(__name__)
 
 
-class LoggingMiddleware(IResponseMiddleware):
-    """Middleware to log response details."""
+class ResponseLoggingMiddleware(IResponseMiddleware):
+    """Middleware to log response details (part of response processing pipeline)."""
 
     async def process(
         self,

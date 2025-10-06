@@ -100,7 +100,7 @@ class InfrastructureStage(InitializationStage):
     def _register_rate_limiter(self, services: ServiceCollection) -> None:
         """Register rate limiter service."""
         try:
-            from src.core.services.rate_limiter_service import RateLimiter
+            from src.core.services.rate_limiter import RateLimiter
 
             # Register as singleton (no dependencies)
             services.add_singleton(RateLimiter)
@@ -118,12 +118,12 @@ class InfrastructureStage(InitializationStage):
 
             from src.core.interfaces.di_interface import IServiceProvider
             from src.core.interfaces.loop_detector_interface import ILoopDetector
-            from src.loop_detection.config import LoopDetectionConfig
+            from src.loop_detection.config import InternalLoopDetectionConfig
             from src.loop_detection.hybrid_detector import HybridLoopDetector
 
             def _create_hybrid_loop_detector() -> HybridLoopDetector:
                 """Build a HybridLoopDetector using legacy config defaults."""
-                config = LoopDetectionConfig()
+                config = InternalLoopDetectionConfig()
 
                 short_config = {
                     "content_loop_threshold": config.content_loop_threshold,

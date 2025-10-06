@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src.core.interfaces.command_sanitizer_interface import ICommandSanitizer
-from src.core.services.command_service import get_command_pattern
+from src.core.services.command_utils import get_command_pattern
 
 
 class CommandSanitizer(ICommandSanitizer):

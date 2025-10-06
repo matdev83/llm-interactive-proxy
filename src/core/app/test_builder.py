@@ -146,6 +146,19 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
                 config = create_test_config()  # type: ignore[unreachable]
         except Exception:
             config = create_test_config()
+    # Ensure sensible auth defaults for tests: if auth isn't disabled and no keys provided,
+    # allow the common test key so TestClient headers work out of the box.
+    try:
+        if (
+            hasattr(config, "auth")
+            and hasattr(config.auth, "api_keys")
+            and not getattr(config.auth, "disable_auth", False)
+            and not (list(getattr(config.auth, "api_keys", []) or []))
+        ):
+            config.auth.api_keys = ["test-proxy-key"]  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
     builder = ApplicationTestBuilder().add_test_stages()
     app = await builder.build(config)
 

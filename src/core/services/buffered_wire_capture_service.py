@@ -183,10 +183,8 @@ class BufferedWireCapture(IWireCapture):
         if not self._enabled or self._flush_task is not None:
             return
         try:
-            # SECURITY: Removed test detection - production code should behave consistently
-            # Background task management should be controlled via configuration, not environment detection
-            # Background flush task disabled for security - configuration-based control only
-            return
+            loop = asyncio.get_running_loop()
+            self._flush_task = loop.create_task(self._background_flush_loop())
         except RuntimeError:
             # Still no running loop; skip silently.
             return

@@ -1122,7 +1122,7 @@ def register_core_services(
 
         from src.core.services.backend_factory import BackendFactory
         from src.core.services.backend_registry import backend_registry
-        from src.core.services.rate_limiter_service import RateLimiter
+        from src.core.services.rate_limiter import RateLimiter
 
         # Get or create dependencies
         httpx_client: httpx.AsyncClient | None = provider.get_service(httpx.AsyncClient)

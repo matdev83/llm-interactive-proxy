@@ -22,10 +22,10 @@ from src.core.domain.chat import (
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.configuration import (
-    BackendConfig,
     LoopDetectionConfig,
     ReasoningConfig,
 )
+from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -248,7 +248,7 @@ class MockSessionService(ISessionService):
                 session_id=session_id,
                 state=SessionStateAdapter(
                     SessionState(
-                        backend_config=BackendConfig(
+                        backend_config=BackendConfiguration(
                             backend_type="mock", model="mock-model"
                         ),
                         reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
@@ -270,7 +270,7 @@ class MockSessionService(ISessionService):
             session_id=session_id,
             state=SessionStateAdapter(
                 SessionState(
-                    backend_config=BackendConfig(
+                    backend_config=BackendConfiguration(
                         backend_type="mock", model="mock-model"
                     ),
                     reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
@@ -295,7 +295,9 @@ class MockSessionService(ISessionService):
         self, session_id: str, backend_type: str, model: str
     ) -> None:
         session = await self.get_session(session_id)
-        new_backend_config = BackendConfig(backend_type=backend_type, model=model)
+        new_backend_config = BackendConfiguration(
+            backend_type=backend_type, model=model
+        )
         session.state = session.state.with_backend_config(new_backend_config)
         self.sessions[session_id] = session
 
@@ -403,7 +405,9 @@ class TestDataBuilder:
             session_id=session_id,
             state=SessionStateAdapter(
                 SessionState(
-                    backend_config=BackendConfig(backend_type="openai", model="gpt-4"),
+                    backend_config=BackendConfiguration(
+                        backend_type="openai", model="gpt-4"
+                    ),
                     reasoning_config=ReasoningConfig(temperature=0.7),  # type: ignore
                     loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                 )

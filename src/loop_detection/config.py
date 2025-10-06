@@ -61,8 +61,8 @@ class PatternThresholds(InternalDTO):
 
 
 @dataclass
-class LoopDetectionConfig(InternalDTO):
-    """Configuration for loop detection functionality."""
+class InternalLoopDetectionConfig(InternalDTO):
+    """Internal configuration for loop detection implementation (algorithm-specific)."""
 
     # Core settings
     enabled: bool = True
@@ -118,7 +118,7 @@ class LoopDetectionConfig(InternalDTO):
             self.whitelist = ["...", "---", "===", "```"]
 
     @classmethod
-    def from_dict(cls, config_dict: dict[str, Any]) -> LoopDetectionConfig:
+    def from_dict(cls, config_dict: dict[str, Any]) -> InternalLoopDetectionConfig:
         """Create configuration from dictionary."""
         config = cls()
 
@@ -195,7 +195,7 @@ class LoopDetectionConfig(InternalDTO):
         return config
 
     @classmethod
-    def from_env_vars(cls, env_dict: dict[str, str]) -> LoopDetectionConfig:
+    def from_env_vars(cls, env_dict: dict[str, str]) -> InternalLoopDetectionConfig:
         """Create configuration from environment variables."""
         config = cls()
 
@@ -333,3 +333,7 @@ class LoopDetectionConfig(InternalDTO):
 
         if "long_match" in thresholds:
             self.long_pattern_threshold = thresholds["long_match"]
+
+
+# Type alias for backward compatibility
+LoopDetectionConfig = InternalLoopDetectionConfig

@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from src.connectors.base import LLMBackend
-from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.config.app_config import AppConfig, BackendConfigModel
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.backend_registry import BackendRegistry
 from src.core.services.translation_service import TranslationService
@@ -77,9 +77,9 @@ class BackendFactory:
         self,
         backend_type: str,
         app_config: AppConfig,  # Added app_config
-        backend_config: BackendConfig | None = None,
+        backend_config: BackendConfigModel | None = None,
     ) -> LLMBackend:
-        """Create and initialize a backend given a canonical BackendConfig.
+        """Create and initialize a backend given a canonical BackendConfigModel.
 
         This method centralizes connector initialization logic so callers
         don't need to duplicate api_key/url shaping and backend-specific
@@ -87,7 +87,7 @@ class BackendFactory:
         """
         logger = logging.getLogger(__name__)
 
-        # Build init_config from BackendConfig
+        # Build init_config from BackendConfigModel
         init_config: dict[str, Any] = {}
 
         if backend_config is not None:
@@ -98,10 +98,8 @@ class BackendFactory:
             for k, v in backend_config.extra.items():
                 init_config[k] = v
 
-        # SECURITY: Only inject test keys if running in a test environment
-        if "PYTEST_CURRENT_TEST" in os.environ and not init_config.get("api_key"):
-            init_config["api_key"] = f"test-key-{backend_type}"
-
+        # SECURITY: Removed test environment detection and automatic test key injection
+        # Production code should never detect test environment or auto-configure credentials
         default_backend_env = os.environ.get("LLM_BACKEND")
         current_api_key = init_config.get("api_key")
         logger.debug(

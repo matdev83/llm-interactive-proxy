@@ -4,10 +4,10 @@ Tests for domain model classes.
 
 import pytest
 from src.core.domain.configuration import (
-    BackendConfig,
     LoopDetectionConfig,
     ReasoningConfig,
 )
+from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.session import (
     SessionInteraction,
     SessionState,
@@ -16,9 +16,9 @@ from src.core.domain.session import (
 
 
 def test_backend_config_immutability() -> None:
-    """Test that BackendConfig is immutable and with_* methods work."""
+    """Test that BackendConfiguration is immutable and with_* methods work."""
     # Arrange
-    config = BackendConfig(backend_type="openai", model="gpt-4")
+    config = BackendConfiguration(backend_type="openai", model="gpt-4")
 
     # Act & Assert - Pydantic raises ValidationError for frozen models
     with pytest.raises(Exception) as excinfo:
@@ -83,14 +83,14 @@ def test_session_state_immutability() -> None:
     """Test that SessionState is immutable but its components can be updated."""
     # Arrange
     state = SessionState(
-        backend_config=BackendConfig(backend_type="openai", model="gpt-4"),
+        backend_config=BackendConfiguration(backend_type="openai", model="gpt-4"),
         reasoning_config=ReasoningConfig(temperature=0.7),
         loop_config=LoopDetectionConfig(loop_detection_enabled=True),
     )
 
     # Act & Assert - Pydantic raises ValidationError for frozen models
     with pytest.raises(Exception) as excinfo:
-        state.backend_config = BackendConfig()  # type: ignore
+        state.backend_config = BackendConfiguration()  # type: ignore
 
     # Check that it's a frozen instance error
     assert "frozen" in str(excinfo.value).lower()

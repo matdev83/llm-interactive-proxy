@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from src.core.domain.session import Session
 from src.core.interfaces.repositories_interface import ISessionRepository
@@ -9,102 +8,8 @@ from src.core.interfaces.repositories_interface import ISessionRepository
 logger = logging.getLogger(__name__)
 
 
-class InMemorySessionRepository(ISessionRepository):
-    """In-memory implementation of session repository.
-
-    This repository keeps sessions in memory and does not persist them.
-    It is suitable for development and testing.
-    """
-
-    def __init__(self) -> None:
-        """Initialize the in-memory session repository."""
-        self._sessions: dict[str, Session] = {}
-        self._user_sessions: dict[str, list[str]] = {}
-
-    async def get_by_id(self, id: str) -> Session | None:
-        """Get a session by its ID."""
-        return self._sessions.get(id)
-
-    async def get_all(self) -> list[Session]:
-        """Get all sessions."""
-        return list(self._sessions.values())
-
-    async def add(self, entity: Session) -> Session:
-        """Add a new session."""
-        self._sessions[entity.session_id] = entity
-        # If user ID is provided, track the session by user
-        if hasattr(entity, "user_id") and entity.user_id:
-            user_id = entity.user_id
-            if user_id not in self._user_sessions:
-                self._user_sessions[user_id] = []
-            self._user_sessions[user_id].append(entity.session_id)
-        return entity
-
-    async def update(self, entity: Session) -> Session:
-        """Update an existing session."""
-        if entity.session_id not in self._sessions:
-            return await self.add(entity)
-
-        previous_user_id = None
-        for tracked_user_id, sessions in self._user_sessions.items():
-            if entity.session_id in sessions:
-                previous_user_id = tracked_user_id
-                break
-
-        current_user_id = getattr(entity, "user_id", None)
-        if isinstance(current_user_id, str) and not current_user_id.strip():
-            current_user_id = None
-
-        if previous_user_id and previous_user_id != current_user_id:
-            sessions = self._user_sessions.get(previous_user_id, [])
-            if entity.session_id in sessions:
-                sessions.remove(entity.session_id)
-            if not sessions:
-                self._user_sessions.pop(previous_user_id, None)
-
-        if current_user_id:
-            sessions = self._user_sessions.setdefault(current_user_id, [])
-            if entity.session_id not in sessions:
-                sessions.append(entity.session_id)
-
-        self._sessions[entity.session_id] = entity
-        return entity
-
-    async def delete(self, id: str) -> bool:
-        """Delete a session by its ID."""
-        if id in self._sessions:
-            # Remove from user sessions if applicable
-            for _user_id, sessions in self._user_sessions.items():
-                if id in sessions:
-                    sessions.remove(id)
-
-            # Delete the session
-            del self._sessions[id]
-            return True
-        return False
-
-    async def get_by_user_id(self, user_id: str) -> list[Session]:
-        """Get all sessions for a specific user."""
-        session_ids = self._user_sessions.get(user_id, [])
-        return [self._sessions[id] for id in session_ids if id in self._sessions]
-
-    async def cleanup_expired(self, max_age_seconds: int) -> int:
-        """Clean up expired sessions."""
-        now = datetime.now(timezone.utc)
-        expired_ids = []
-
-        for session_id, session in self._sessions.items():
-            last_active = session.last_active_at
-            age = (now - last_active).total_seconds()
-
-            if age > max_age_seconds:
-                expired_ids.append(session_id)
-
-        # Delete expired sessions
-        for session_id in expired_ids:
-            await self.delete(session_id)
-
-        return len(expired_ids)
+# Import the canonical implementation
+from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 
 
 class PersistentSessionRepository(ISessionRepository):

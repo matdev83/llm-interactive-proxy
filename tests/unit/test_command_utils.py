@@ -12,7 +12,7 @@ from src.core.domain.chat import (
     MessageContentPartImage,
     MessageContentPartText,
 )
-from src.core.services.command_service import get_command_pattern
+from src.core.services.command_utils import get_command_pattern
 
 
 def test_is_content_effectively_empty_with_strings() -> None:

@@ -11,11 +11,12 @@ This stage registers backend-related services:
 from __future__ import annotations
 
 import logging
+import os
 from typing import cast
 
 import httpx
 
-from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
@@ -193,7 +194,7 @@ class BackendStage(InitializationStage):
             )
             from src.core.interfaces.backend_service_interface import IBackendService
             from src.core.services.backend_service import BackendService
-            from src.core.services.rate_limiter_service import RateLimiter
+            from src.core.services.rate_limiter import RateLimiter
 
             def backend_service_factory(provider: IServiceProvider) -> BackendService:
                 """Factory function for creating BackendService with all dependencies."""
@@ -275,33 +276,45 @@ class BackendStage(InitializationStage):
                 services, config
             )
 
-            if not functional_backends:
-                # Check if we're in a test environment
-                import os
-
-                is_test_env = (
-                    "PYTEST_CURRENT_TEST" in os.environ
-                    or config.auth.disable_auth
-                    or any(
-                        key.api_key == ["test_key"]
-                        for key in [
-                            config.backends.__dict__.get(name)
-                            for name in registered_backends
-                        ]
-                        if key and hasattr(key, "api_key")
+            # If there are configured backends but none are functional, fail validation
+            has_configured = False
+            try:
+                # Mirror logic in _validate_backend_functionality to detect if any were configured
+                configured: list[str] = []
+                if (
+                    config.backends.default_backend
+                    and config.backends.default_backend.strip()
+                ):
+                    configured.append(config.backends.default_backend)
+                for backend_name in [
+                    "openai",
+                    "anthropic",
+                    "gemini",
+                    "openrouter",
+                    "qwen-oauth",
+                ]:
+                    backend_config = getattr(
+                        config.backends, backend_name.replace("-", "_"), None
                     )
-                )
+                    if backend_config and backend_name not in configured:
+                        # Consider it configured if any api key-like field may be present (checked later)
+                        configured.append(backend_name)
+                has_configured = len(configured) > 0
+            except Exception:
+                has_configured = False
 
-                if is_test_env:
-                    logger.warning(
-                        "No functional backends found, but allowing startup in test environment"
-                    )
-                    return True
-
+            if has_configured and not functional_backends:
                 logger.error(
                     "No functional backends found! Proxy cannot operate without at least one working backend."
                 )
                 return False
+
+            if not functional_backends:
+                # Allow startup only when no backends are configured (pure test/minimal env)
+                logger.warning(
+                    "No functional backends found and none configured; continuing startup for minimal environments"
+                )
+                return True
 
             logger.info(
                 f"Found {len(functional_backends)} functional backends: {', '.join(functional_backends)}"
@@ -322,14 +335,35 @@ class BackendStage(InitializationStage):
         """
         functional_backends = []
 
-        # Get all registered backends to validate.
-        configured_backends = backend_registry.get_registered_backends()
+        # Get configured backends from the config
+        configured_backends = []
+        if config.backends.default_backend and config.backends.default_backend.strip():
+            configured_backends.append(config.backends.default_backend)
 
-        # If a default backend is set, prioritize it by putting it first in the list.
-        default_backend = config.backends.default_backend
-        if default_backend and default_backend in configured_backends:
-            configured_backends.remove(default_backend)
-            configured_backends.insert(0, default_backend)
+        # Add other configured backends
+        for backend_name in [
+            "openai",
+            "anthropic",
+            "gemini",
+            "openrouter",
+            "qwen-oauth",
+        ]:
+            backend_config = getattr(
+                config.backends, backend_name.replace("-", "_"), None
+            )
+            if backend_config and backend_name not in configured_backends:
+                # Check for a direct API key or any numbered API key
+                # An API key can be in the config or in the environment
+                has_config_key = (
+                    hasattr(backend_config, "api_key") and backend_config.api_key
+                )
+
+                # Check for numbered keys, e.g., OPENROUTER_API_KEY_1
+                env_prefix = f"{backend_name.upper().replace('-', '_')}_API_KEY"
+                has_env_key = any(key.startswith(env_prefix) for key in os.environ)
+
+                if has_config_key or has_env_key:
+                    configured_backends.append(backend_name)
 
         if not configured_backends:
             logger.warning("No backends configured in app config")
@@ -347,14 +381,6 @@ class BackendStage(InitializationStage):
                     if backend_name not in backend_registry.get_registered_backends():
                         logger.warning(
                             f"Backend '{backend_name}' is configured but not registered"
-                        )
-                        continue
-
-                    # Check if backend is properly configured (has valid API keys)
-                    backend_config = self._get_backend_config(backend_name, config)
-                    if not self._is_backend_configured(backend_config):
-                        logger.debug(
-                            f"Backend '{backend_name}' is not properly configured (no API keys)"
                         )
                         continue
 
@@ -431,26 +457,3 @@ class BackendStage(InitializationStage):
                     logger.error(f"Failed to validate backend '{backend_name}': {e}")
 
         return functional_backends
-
-    def _get_backend_config(
-        self, backend_name: str, config: AppConfig
-    ) -> BackendConfig | None:
-        """Get the backend configuration for a specific backend name."""
-        from src.core.services.backend_config_provider import BackendConfigProvider
-
-        config_provider = BackendConfigProvider(config)
-        return config_provider.get_backend_config(backend_name)
-
-    def _is_backend_configured(self, backend_config: BackendConfig | None) -> bool:
-        """Check if a backend is properly configured with valid API keys."""
-        if backend_config is None:
-            return False
-
-        # Check if API keys are configured and non-empty
-        api_keys = backend_config.api_key
-        if not api_keys:
-            return False
-
-        # Filter out empty/whitespace-only keys
-        valid_keys = [key for key in api_keys if key and key.strip()]
-        return len(valid_keys) > 0

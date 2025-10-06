@@ -35,7 +35,7 @@ class CommandHandlerResult:
         self.additional_data = additional_data or {}
 
 
-class ICommandHandler(ABC):
+class IParameterHandler(ABC):
     """Interface for command handlers.
 
     Each command handler is responsible for handling a specific setting or
@@ -112,7 +112,7 @@ class ICommandHandler(ABC):
         return True, result.message, False
 
 
-class BaseCommandHandler(ICommandHandler, ABC):
+class BaseCommandHandler(IParameterHandler, ABC):
     """Base implementation of command handler.
 
     Provides common functionality for command handlers.

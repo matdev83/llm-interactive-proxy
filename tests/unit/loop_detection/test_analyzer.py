@@ -1,13 +1,13 @@
 import pytest
 from src.loop_detection.analyzer import PatternAnalyzer
-from src.loop_detection.config import LoopDetectionConfig
+from src.loop_detection.config import InternalLoopDetectionConfig
 from src.loop_detection.event import LoopDetectionEvent
 from src.loop_detection.hasher import ContentHasher
 
 
 @pytest.fixture
-def mock_config() -> LoopDetectionConfig:
-    return LoopDetectionConfig(
+def mock_config() -> InternalLoopDetectionConfig:
+    return InternalLoopDetectionConfig(
         content_chunk_size=3,
         content_loop_threshold=3,
         max_history_length=20,
@@ -21,7 +21,7 @@ def mock_hasher() -> ContentHasher:
 
 @pytest.fixture
 def analyzer(
-    mock_config: LoopDetectionConfig, mock_hasher: ContentHasher
+    mock_config: InternalLoopDetectionConfig, mock_hasher: ContentHasher
 ) -> PatternAnalyzer:
     return PatternAnalyzer(mock_config, mock_hasher)
 
@@ -175,7 +175,7 @@ def test_pattern_analyzer_min_repetition_and_length_config(
     mock_hasher: ContentHasher,
 ) -> None:
     # Test with different config for loop threshold
-    config = LoopDetectionConfig(
+    config = InternalLoopDetectionConfig(
         content_chunk_size=2,
         content_loop_threshold=2,  # Only 2 repetitions needed
         max_history_length=100,

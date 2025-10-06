@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
-from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.config.app_config import AppConfig, BackendConfigModel
 from src.core.domain.chat import ChatRequest
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.services.backend_registry import backend_registry
@@ -11,15 +11,15 @@ from src.core.services.backend_registry import backend_registry
 class BackendConfigProvider(IBackendConfigProvider):
     """Adapter that exposes AppConfig.backends as a canonical provider.
 
-    This ensures consumers receive `BackendConfig` objects regardless of
+    This ensures consumers receive `BackendConfigModel` objects regardless of
     whether the original config was a dict or a BackendSettings instance.
     """
 
     def __init__(self, app_config: AppConfig) -> None:
         self._app_config = app_config
 
-    def get_backend_config(self, name: str) -> BackendConfig | None:
-        """Return the BackendConfig for the given backend name or None."""
+    def get_backend_config(self, name: str) -> BackendConfigModel | None:
+        """Return the BackendConfigModel for the given backend name or None."""
         import logging
 
         logger = logging.getLogger(__name__)
@@ -46,14 +46,14 @@ class BackendConfigProvider(IBackendConfigProvider):
             try:
                 cfg = getattr(self._app_config.backends, lookup_name, None)
                 logger.debug(f"getattr(backends, '{lookup_name}'): {cfg}")
-                if cfg is not None and isinstance(cfg, BackendConfig):
+                if cfg is not None and isinstance(cfg, BackendConfigModel):
                     found_configs.append((lookup_name, cfg, "attribute"))
                     logger.debug(
                         f"Found config via attribute '{lookup_name}': api_key={cfg.api_key}"
                     )
                 elif cfg is not None:
                     logger.debug(
-                        f"Found non-BackendConfig via attribute '{lookup_name}': {type(cfg)} = {cfg}"
+                        f"Found non-BackendConfigModel via attribute '{lookup_name}': {type(cfg)} = {cfg}"
                     )
             except Exception as e:
                 logger.debug(f"Exception in getattr(backends, '{lookup_name}'): {e}")
@@ -61,9 +61,9 @@ class BackendConfigProvider(IBackendConfigProvider):
             # Try dict-style access
             try:
                 cfg = self._app_config.backends.get(lookup_name)
-                if cfg is not None and isinstance(cfg, BackendConfig | dict):
+                if cfg is not None and isinstance(cfg, BackendConfigModel | dict):
                     if isinstance(cfg, dict):
-                        cfg = BackendConfig(**cfg)
+                        cfg = BackendConfigModel(**cfg)
                     found_configs.append((lookup_name, cfg, "dict"))
                     logger.debug(
                         f"Found config via dict '{lookup_name}': api_key={cfg.api_key}"
@@ -76,7 +76,7 @@ class BackendConfigProvider(IBackendConfigProvider):
                 if hasattr(self._app_config.backends, "__dict__"):
                     backends_dict = self._app_config.backends.__dict__
                     cfg = backends_dict.get(lookup_name)
-                    if cfg is not None and isinstance(cfg, BackendConfig):
+                    if cfg is not None and isinstance(cfg, BackendConfigModel):
                         found_configs.append((lookup_name, cfg, "__dict__"))
                         logger.debug(
                             f"Found config via __dict__ '{lookup_name}': api_key={cfg.api_key}"
@@ -96,14 +96,14 @@ class BackendConfigProvider(IBackendConfigProvider):
                     logger.debug(
                         f"Using config from '{lookup_name}' ({method}) with non-empty api_key: {cfg.api_key}"
                     )
-                    return BackendConfig(**cfg.model_dump())
+                    return BackendConfigModel(**cfg.model_dump())
 
             # If no config has an API key, return the first one
             lookup_name, cfg, method = found_configs[0]
             logger.debug(
                 f"Using first config from '{lookup_name}' ({method}) with empty api_key"
             )
-            return BackendConfig(**cfg.model_dump())
+            return BackendConfigModel(**cfg.model_dump())
 
         logger.debug(f"No backend config found for any of: {possible_names}")
         return None
@@ -181,7 +181,7 @@ class BackendConfigProvider(IBackendConfigProvider):
                 if (
                     name == "default_backend"
                     or name.startswith("_")
-                    or not isinstance(value, BackendConfig)
+                    or not isinstance(value, BackendConfigModel)
                 ):
                     continue
 
@@ -214,7 +214,7 @@ class BackendConfigProvider(IBackendConfigProvider):
         """
         # For now, return the request unchanged
         # This method can be extended to apply backend-specific configurations
-        # similar to the BackendConfigService.apply_backend_config method
+        # similar to the BackendConfigService.apply_backend_configmodel method
         return request
 
     # Alias for backward compatibility with the interface

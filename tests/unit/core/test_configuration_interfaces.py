@@ -5,13 +5,13 @@ Tests for configuration interfaces and implementations.
 import pytest
 from pydantic import ValidationError
 from src.core.domain.configuration import (
-    BackendConfig as BackendConfiguration,
-)
-from src.core.domain.configuration import (
     LoopDetectionConfig as LoopDetectionConfiguration,
 )
 from src.core.domain.configuration import (
     ReasoningConfig as ReasoningConfiguration,
+)
+from src.core.domain.configuration.backend_config import (
+    BackendConfiguration,
 )
 
 

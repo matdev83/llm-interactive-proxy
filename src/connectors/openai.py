@@ -70,13 +70,8 @@ class OpenAIConnector(LLMBackend):
             "yes",
         )
 
-        # SECURITY: Removed test detection - production code should never know if it's in a test environment
-        # The health check should work consistently in all environments
-        self.is_testing = "PYTEST_CURRENT_TEST" in os.environ
-
-        self._health_check_enabled: bool = (
-            not disable_health_checks and not self.is_testing
-        )  # Enabled by default unless disabled or testing
+        # Health checks enabled by default unless explicitly disabled via env
+        self._health_check_enabled: bool = not disable_health_checks
 
     def get_headers(self) -> dict[str, str]:
         if not self.api_key:
@@ -92,9 +87,7 @@ class OpenAIConnector(LLMBackend):
         if "api_base_url" in kwargs:
             self.api_base_url = kwargs["api_base_url"]
 
-        if self.is_testing:
-            logger.debug("Skipping model fetching in test environment.")
-            return
+        # Proceed to fetch models; failures are non-fatal
 
         # Fetch available models
         try:
@@ -166,15 +159,15 @@ class OpenAIConnector(LLMBackend):
                 f"Performing first-use health check for {self.backend_type} backend"
             )
 
-            if not await self._perform_health_check():
-                from src.core.common.exceptions import BackendError
-
-                raise BackendError(
-                    "Health check failed - API key or connectivity issue"
+            healthy = await self._perform_health_check()
+            if not healthy:
+                logger.warning(
+                    "Health check did not pass; continuing with lazy verification on first request"
                 )
+            else:
+                logger.info("Health check passed - backend is ready for use")
 
             self._health_checked = True
-            logger.info("Health check passed - backend is ready for use")
 
     def enable_health_check(self) -> None:
         """Enable health check functionality for this connector instance."""

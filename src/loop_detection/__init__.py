@@ -6,10 +6,10 @@ repetitive patterns that indicate the model is stuck in a loop, allowing
 for automatic cancellation of such requests.
 """
 
-from .config import LoopDetectionConfig
+from .config import InternalLoopDetectionConfig
 from .streaming import analyze_complete_response_for_loops
 
 __all__ = [
-    "LoopDetectionConfig",
+    "InternalLoopDetectionConfig",
     "analyze_complete_response_for_loops",
 ]
