@@ -67,15 +67,17 @@ class PytestCompressionService:
         # If dict, try common fields
         if isinstance(arguments, dict):
             cmd = arguments.get("command") or arguments.get("cmd")
-            if isinstance(cmd, str) and cmd.strip():
-                return cmd
+            cmd_str = self._stringify_command_value(cmd)
+            if cmd_str:
+                return cmd_str
             # Sometimes a sub-dict holds the command
             for key in ("input", "body", "data"):
                 inner = arguments.get(key)
                 if isinstance(inner, dict):
                     sub = inner.get("command") or inner.get("cmd")
-                    if isinstance(sub, str) and sub.strip():
-                        return sub
+                    sub_str = self._stringify_command_value(sub)
+                    if sub_str:
+                        return sub_str
             # If args array provided, join into a single string
             args = arguments.get("args")
             if isinstance(args, list) and args:
@@ -91,6 +93,23 @@ class PytestCompressionService:
                 return " ".join(str(a) for a in arguments)
             except Exception:
                 return None
+        return None
+
+    def _stringify_command_value(self, value: Any) -> str | None:
+        """Convert a command value to a shell string if possible."""
+
+        if isinstance(value, str) and value.strip():
+            return value
+        if isinstance(value, list | tuple):
+            parts = []
+            for item in value:
+                if item is None:
+                    continue
+                text = str(item).strip()
+                if text:
+                    parts.append(text)
+            if parts:
+                return " ".join(parts)
         return None
 
     def scan_for_pytest(

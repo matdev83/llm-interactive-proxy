@@ -58,15 +58,17 @@ def _extract_command(arguments: Any) -> str | None:
 
     if isinstance(arguments, dict):
         command = arguments.get("command") or arguments.get("cmd")
-        if isinstance(command, str) and command.strip():
-            return command
+        command_str = _stringify_command_value(command)
+        if command_str:
+            return command_str
 
         for key in ("input", "body", "data"):
             inner = arguments.get(key)
             if isinstance(inner, dict):
                 sub = inner.get("command") or inner.get("cmd")
-                if isinstance(sub, str) and sub.strip():
-                    return sub
+                sub_str = _stringify_command_value(sub)
+                if sub_str:
+                    return sub_str
 
         args_list = arguments.get("args")
         if isinstance(args_list, list) and args_list:
@@ -82,6 +84,22 @@ def _extract_command(arguments: Any) -> str | None:
 
 def _normalize_whitespace(command: str) -> str:
     return " ".join(command.strip().split())
+
+
+def _stringify_command_value(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value
+    if isinstance(value, list | tuple):
+        parts: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                parts.append(text)
+        if parts:
+            return " ".join(parts)
+    return None
 
 
 def _looks_like_full_suite(command: str) -> bool:

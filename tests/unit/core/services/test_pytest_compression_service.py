@@ -820,3 +820,14 @@ class TestPytestCompressionServiceDetection:
         detection = service.scan_tool_call_for_pytest(tool_call)
 
         assert detection == (True, "py.test -q")
+
+    def test_scan_for_pytest_handles_command_list(self) -> None:
+        """Ensure list-based cmd arguments are normalized for detection."""
+        service = PytestCompressionService()
+
+        detection = service.scan_for_pytest(
+            "execute_command",
+            {"cmd": ["python", "-m", "pytest", "-q"]},
+        )
+
+        assert detection == (True, "python -m pytest -q")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
@@ -28,14 +30,18 @@ def test_full_suite_detection(command: str, expected: bool) -> None:
     assert _looks_like_full_suite(command) is expected
 
 
-def _build_context(command: str, session_id: str = "session-1") -> ToolCallContext:
+def _build_context(
+    command: str,
+    session_id: str = "session-1",
+    tool_arguments: Any | None = None,
+) -> ToolCallContext:
     return ToolCallContext(
         session_id=session_id,
         backend_name="backend",
         model_name="model",
         full_response={},
         tool_name="bash",
-        tool_arguments={"command": command},
+        tool_arguments=tool_arguments or {"command": command},
     )
 
 
@@ -94,3 +100,14 @@ async def test_handler_enabled_flag_controls_behavior() -> None:
     assert await handler.can_handle(context) is False
     result = await handler.handle(context)
     assert result.should_swallow is False
+
+
+@pytest.mark.asyncio
+async def test_handler_detects_command_list_arguments() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = _build_context(
+        command="pytest",
+        tool_arguments={"cmd": ["pytest", "-q"]},
+    )
+
+    assert await handler.can_handle(context) is True
