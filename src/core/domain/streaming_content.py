@@ -48,6 +48,15 @@ class StreamingContent:
     def to_bytes(self) -> bytes:
         """Convert this chunk to a bytes representation for streaming."""
         if self.is_done:
+            if self.is_cancellation and self.content:
+                data = {
+                    "choices": [{"delta": {"content": self.content}}],
+                    "finish_reason": "cancelled",
+                }
+                for key in ["id", "model", "created"]:
+                    if key in self.metadata:
+                        data[key] = self.metadata[key]
+                return f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode()
             return b"data: [DONE]\n\n"
 
         # Simplified serialization for streaming

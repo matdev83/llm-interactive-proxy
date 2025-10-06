@@ -63,6 +63,15 @@ class TestStreamingContent:
         done = StreamingContent(is_done=True)
         assert done.to_bytes() == b"data: [DONE]\n\n"
 
+    def test_to_bytes_cancellation_message(self) -> None:
+        """Cancellation chunks should include the message before the done marker."""
+        content = StreamingContent(
+            content="Loop detected", is_done=True, is_cancellation=True
+        )
+        bytes_data = content.to_bytes()
+        assert b"Loop detected" in bytes_data
+        assert bytes_data.endswith(b"data: [DONE]\n\n")
+
 
 class MockStreamProcessor(IStreamProcessor):
     """Mock stream processor for testing."""
