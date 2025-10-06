@@ -74,7 +74,7 @@ class JsonRepairMiddleware(IResponseMiddleware):
                     schema=self.config.session.json_repair_schema,
                     strict=strict_effective,
                 )
-                if repaired_json:
+                if repaired_json is not None:
                     metrics.inc(
                         "json_repair.non_streaming.strict_success"
                         if strict_effective
@@ -93,7 +93,7 @@ class JsonRepairMiddleware(IResponseMiddleware):
                     else "json_repair.non_streaming.best_effort_fail"
                 )
                 raise
-            if repaired_json:
+            if repaired_json is not None:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(f"JSON detected and repaired for session {session_id}")
                 response.content = json.dumps(repaired_json)

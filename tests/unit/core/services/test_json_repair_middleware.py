@@ -61,6 +61,18 @@ async def test_process_response_invalid(
     assert processed_response.metadata.get("repaired")
 
 
+async def test_process_response_empty_object(
+    json_repair_middleware: JsonRepairMiddleware,
+) -> None:
+    response = ProcessedResponse(content="{}")
+    processed_response = await json_repair_middleware.process(
+        response, "session_id", {}
+    )
+
+    assert processed_response.content == "{}"
+    assert processed_response.metadata.get("repaired") is True
+
+
 async def test_process_response_best_effort_failure_metrics(
     json_repair_middleware: JsonRepairMiddleware,
     monkeypatch: pytest.MonkeyPatch,
