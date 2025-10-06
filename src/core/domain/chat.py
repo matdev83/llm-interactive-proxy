@@ -102,7 +102,7 @@ class ChatMessage(DomainModel):
         """Convert the message to a dictionary."""
         result: dict[str, Any] = {"role": self.role}
         if self.content is not None:
-            result["content"] = self.content
+            result["content"] = self._serialize_content(self.content)
         if self.name:
             result["name"] = self.name
         if self.tool_calls:
@@ -110,6 +110,32 @@ class ChatMessage(DomainModel):
         if self.tool_call_id:
             result["tool_call_id"] = self.tool_call_id
         return result
+
+    @staticmethod
+    def _serialize_content(
+        content: str | Sequence[MessageContentPart] | None,
+    ) -> Any:
+        """Normalize message content so downstream callers receive plain data structures."""
+
+        if content is None:
+            return None
+
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, DomainModel):
+            return content.model_dump()
+
+        if isinstance(content, Sequence):
+            serialized_parts: list[Any] = []
+            for part in content:
+                if isinstance(part, DomainModel):
+                    serialized_parts.append(part.model_dump())
+                else:
+                    serialized_parts.append(part)
+            return serialized_parts
+
+        return content
 
 
 class ChatRequest(ValueObject):
