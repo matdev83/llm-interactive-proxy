@@ -414,8 +414,8 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     # Logging configuration
     if args.log_file is not None:
         cfg.logging.log_file = args.log_file
-    else:
-        # Set default log file if none specified
+    elif not cfg.logging.log_file:
+        # Set default log file if none specified by CLI or config
         from pathlib import Path
 
         default_log_file = "logs/proxy.log"

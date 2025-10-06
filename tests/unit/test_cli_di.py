@@ -9,6 +9,7 @@ pytestmark = pytest.mark.filterwarnings(
 from fastapi.testclient import TestClient
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.app.test_builder import build_test_app as app_main_build_app
+from src.core.config.app_config import AppConfig
 from src.core.cli import apply_cli_args, main, parse_cli_args
 from src.core.interfaces.session_service_interface import ISessionService
 
@@ -101,6 +102,18 @@ from pathlib import Path
 def test_cli_log_argument(tmp_path: Path) -> None:
     args = parse_cli_args(["--log", str(tmp_path / "out.log")])
     assert args.log_file == str(tmp_path / "out.log")
+
+
+def test_apply_cli_args_preserves_config_log_file(tmp_path: Path) -> None:
+    config = AppConfig()
+    existing_log = tmp_path / "configured.log"
+    config.logging.log_file = str(existing_log)
+
+    with patch("src.core.cli.load_config", return_value=config):
+        args = parse_cli_args([])
+        applied = apply_cli_args(args)
+
+    assert applied.logging.log_file == str(existing_log)
 
 
 def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
