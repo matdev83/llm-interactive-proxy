@@ -56,6 +56,7 @@ class LoopDetector(ILoopDetector):
         self.is_active = self.config.enabled
         self.total_processed = 0
         self.last_detection_position = -1
+        self._history: list[LoopDetectionEvent] = []
         # Track the last position (character count) where heavy analysis was
         # performed so we can skip redundant work when only a few new
         # characters have arrived (important for token-by-token streaming).
@@ -86,6 +87,7 @@ class LoopDetector(ILoopDetector):
             # Update state to avoid retriggering immediately
             self.last_detection_position = self.total_processed
             self._last_analysis_position = self.total_processed
+            self._history.append(event)
             # Trigger callback if provided
             if self.on_loop_detected:
                 try:
@@ -123,6 +125,7 @@ class LoopDetector(ILoopDetector):
         self.last_detection_position = -1
         self._last_analysis_position = -1
         self.analyzer.reset()  # Reset the analyzer's state
+        self._history.clear()
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Loop detector state reset")
 
@@ -155,11 +158,8 @@ class LoopDetector(ILoopDetector):
         }
 
     def get_loop_history(self) -> list[LoopDetectionEvent]:
-        """
-        Retrieves the history of detected loops.
-        For LoopDetector, this is the analyzer's history.
-        """
-        return self.analyzer.get_history()
+        """Retrieve the aggregated history of detected loops."""
+        return self._history.copy()
 
     def get_current_state(self) -> dict[str, Any]:
         """
@@ -202,6 +202,7 @@ class LoopDetector(ILoopDetector):
         self._last_analysis_position = -1
         self.analyzer.config = new_config  # Update analyzer with new config
         self.analyzer.reset()  # Reset analyzer state due to config change
+        self._history.clear()
 
     async def check_for_loops(self, content: str) -> LoopDetectionResult:
         """Async interface required by ILoopDetector to check the entire content.
@@ -227,8 +228,8 @@ class LoopDetector(ILoopDetector):
 
         repetition_count = event.repetition_count
 
-        # Record detection in history for observability without mutating prior state
-        self.analyzer.history.append(event)
+        # Record detection without mutating the restored streaming analyzer state.
+        self._history.append(event)
 
         pattern_length = 0
         if repetition_count > 0 and event.total_length > 0:

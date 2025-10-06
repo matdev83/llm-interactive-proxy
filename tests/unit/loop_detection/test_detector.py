@@ -216,6 +216,27 @@ class TestLoopDetector:
         assert result.details["total_repeated_chars"] == 9
         assert result.details["pattern_length"] == 3
 
+    @pytest.mark.asyncio
+    async def test_check_for_loops_records_history(self) -> None:
+        """Non-streaming loop checks should record detections in history."""
+
+        config = InternalLoopDetectionConfig(
+            content_chunk_size=3,
+            content_loop_threshold=3,
+            max_history_length=50,
+        )
+        detector = LoopDetector(config=config)
+
+        assert detector.get_loop_history() == []
+
+        repeated_content = "abc" * 6
+        result = await detector.check_for_loops(repeated_content)
+
+        assert result.has_loop is True
+        history = detector.get_loop_history()
+        assert len(history) == 1
+        assert history[0].pattern
+
 
 class TestLoopDetectionEvent:
     """Test the LoopDetectionEvent class."""
