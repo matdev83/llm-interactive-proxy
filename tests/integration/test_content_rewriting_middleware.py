@@ -224,6 +224,81 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_outbound_responses_input_rewriting(self):
+        """Verify that Responses API input payloads are rewritten."""
+
+        async def run_test():
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            payload = {
+                "input": [
+                    {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "This is an original system prompt.",
+                            }
+                        ],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "This is a user prompt.",
+                            }
+                        ],
+                    },
+                ]
+            }
+
+            async def get_body():
+                return json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = await get_body()
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            new_request = call_next.call_args[0][0]
+
+            new_body = await new_request.json()
+
+            rewritten_content = new_body["input"][0]["content"][0]["text"]
+            self.assertEqual(
+                rewritten_content,
+                "This is an rewritten system prompt.",
+            )
+            # The user content should remain untouched
+            self.assertEqual(
+                new_body["input"][1]["content"][0]["text"],
+                "This is a user prompt.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_outbound_prompt_rewriting_ignores_non_string_content(self):
         """Ensure non-string prompt content is left untouched."""
 
@@ -484,6 +559,88 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                 response_body += chunk
             self.assertEqual(
                 response_body.decode(), "This is an rewritten streaming reply."
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_inbound_responses_output_rewriting(self):
+        """Verify that Responses API outputs are rewritten."""
+
+        async def run_test():
+            os.makedirs(
+                os.path.join(self.test_config_dir, "replies", "004"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(
+                    self.test_config_dir, "replies", "004", "SEARCH.txt"
+                ),
+                "w",
+            ) as f:
+                f.write("original reply")
+            with open(
+                os.path.join(
+                    self.test_config_dir, "replies", "004", "REPLACE.txt"
+                ),
+                "w",
+            ) as f:
+                f.write("rewritten reply")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            response_payload = {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "This is an original reply.",
+                            }
+                        ]
+                    }
+                ],
+                "output_text": ["This is an original reply."],
+            }
+
+            async def call_next(request):
+                return Response(
+                    content=json.dumps(response_payload),
+                    media_type="application/json",
+                )
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                },
+                receive=receive,
+            )
+
+            response = await middleware.dispatch(request, call_next)
+            body = json.loads(response.body)
+
+            self.assertEqual(
+                body["output"][0]["content"][0]["text"],
+                "This is an rewritten reply.",
+            )
+            self.assertEqual(
+                body["output_text"][0],
+                "This is an rewritten reply.",
             )
 
         import asyncio
