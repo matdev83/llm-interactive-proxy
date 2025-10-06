@@ -77,6 +77,11 @@ class ContentRewriterService:
             with open(search_file, encoding="utf-8") as f:
                 search_text = f.read()
 
+            # Trim trailing newlines that editors often append automatically.
+            # Without this, the newline becomes part of the search string and
+            # prevents matches in the request/response payloads.
+            search_text = search_text.rstrip("\r\n")
+
             if len(search_text) < 8:
                 logger.warning(
                     f"Search pattern in {search_file} is too short. "

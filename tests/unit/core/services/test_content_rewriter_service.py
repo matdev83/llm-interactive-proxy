@@ -190,6 +190,44 @@ class TestContentRewriterService(unittest.TestCase):
         rewritten = service.rewrite_reply(reply)
         self.assertEqual(rewritten, "This is an rewritten reply.")
 
+    def test_rewrite_prompt_ignores_trailing_newline_in_search_rule(self):
+        """Trailing newlines in SEARCH.txt should not prevent matches."""
+
+        os.makedirs(
+            os.path.join(self.test_config_dir, "prompts", "system", "003"),
+            exist_ok=True,
+        )
+        with open(
+            os.path.join(
+                self.test_config_dir,
+                "prompts",
+                "system",
+                "003",
+                "SEARCH.txt",
+            ),
+            "w",
+        ) as f:
+            f.write("newline sensitive\n")
+        with open(
+            os.path.join(
+                self.test_config_dir,
+                "prompts",
+                "system",
+                "003",
+                "REPLACE.txt",
+            ),
+            "w",
+        ) as f:
+            f.write("newline resilient")
+
+        service = ContentRewriterService(config_path=self.test_config_dir)
+
+        rewritten = service.rewrite_prompt(
+            "This is newline sensitive content.", "system"
+        )
+
+        self.assertEqual(rewritten, "This is newline resilient content.")
+
     def test_ignore_rule_with_short_search_pattern(self):
         """Verify that a rule with a short search pattern is ignored."""
         # Create a rule with a search pattern shorter than 8 characters
