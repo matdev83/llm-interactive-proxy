@@ -120,8 +120,17 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         # Process each tool call through the reactor
         for tool_call in tool_calls:
+            function_payload = tool_call.get("function")
+
+            if not isinstance(function_payload, dict):
+                logger.debug(
+                    "Skipping tool call with invalid function payload: %s",
+                    tool_call,
+                )
+                continue
+
             # Parse tool arguments if they are a JSON string
-            tool_arguments_raw = tool_call.get("function", {}).get("arguments", {})
+            tool_arguments_raw = function_payload.get("arguments", {})
             tool_arguments: dict[str, Any] = {}
             if isinstance(tool_arguments_raw, str):
                 try:
@@ -144,7 +153,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                 backend_name=backend_name,
                 model_name=model_name,
                 full_response=response.content,
-                tool_name=tool_call.get("function", {}).get("name", "unknown"),
+                tool_name=function_payload.get("name", "unknown"),
                 tool_arguments=tool_arguments,
                 calling_agent=calling_agent,
             )

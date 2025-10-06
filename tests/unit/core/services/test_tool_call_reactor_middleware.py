@@ -359,6 +359,36 @@ class TestToolCallReactorMiddleware:
         mock_reactor.process_tool_call.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_process_tool_call_with_null_function(self, middleware, mock_reactor):
+        """Tool calls with null function payload should be skipped safely."""
+        tool_call_response = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_123",
+                                "type": "function",
+                                "function": None,
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        response = ProcessedResponse(content=json.dumps(tool_call_response))
+
+        result = await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        assert result == response
+        mock_reactor.process_tool_call.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_process_dict_content(self, middleware, mock_reactor):
         """Test processing response with dict content."""
         tool_call_response = {
