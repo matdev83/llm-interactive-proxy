@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import structlog
 from src.core.common.logging_utils import (
+    EnvironmentTaggingFilter,
     LogContext,
     get_logger,
     log_async_call,
@@ -183,6 +184,28 @@ class TestLogging:
                 function="test_async_function",
                 module="tests.unit.core.test_logging_utils",  # full module name
             )
+
+    def test_environment_tagging_marks_pytest(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Environment tagging should label records as test when pytest markers exist."""
+
+        monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/unit/core/test_logging_utils.py")
+
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=0,
+            msg="message",
+            args=(),
+            exc_info=None,
+        )
+
+        filter_instance = EnvironmentTaggingFilter()
+        filter_instance.filter(record)
+
+        assert record.env_tag == "test"
 
     def test_log_context(self) -> None:
         """Test LogContext class."""
