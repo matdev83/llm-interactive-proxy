@@ -542,6 +542,7 @@ class BackendStage(InitializationStage):
                                 from src.core.config.config_loader import (
                                     get_openrouter_headers,
                                 )
+
                             init_config["openrouter_headers_provider"] = (
                                 get_openrouter_headers
                             )

@@ -13,7 +13,9 @@ def test_chat_message_to_dict_with_multimodal_content() -> None:
         role="user",
         content=[
             MessageContentPartText(text="Line 1"),
-            MessageContentPartImage(image_url=ImageURL(url="https://example.com/image.png")),
+            MessageContentPartImage(
+                image_url=ImageURL(url="https://example.com/image.png")
+            ),
         ],
     )
 
