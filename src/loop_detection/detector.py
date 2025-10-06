@@ -80,25 +80,31 @@ class LoopDetector(ILoopDetector):
         self.buffer.append(chunk)
         self.total_processed += chunk_len
 
+        if self.config.analysis_interval > 0 and self._last_analysis_position >= 0:
+            processed_since_last = self.total_processed - self._last_analysis_position
+            threshold = min(self.config.analysis_interval, self.config.content_chunk_size)
+            if processed_since_last < threshold:
+                return None
+
         # Analyze for loops using the new PatternAnalyzer
         event = self.analyzer.analyze_chunk(chunk, self.buffer.get_content())
-        if event is not None:
-            # Update state to avoid retriggering immediately
-            self.last_detection_position = self.total_processed
-            self._last_analysis_position = self.total_processed
-            # Trigger callback if provided
-            if self.on_loop_detected:
-                try:
-                    self.on_loop_detected(event)
-                except Exception as e:
-                    if logger.isEnabledFor(logging.ERROR):
-                        logger.error(
-                            "Error in loop detection callback: %s", e, exc_info=True
-                        )
-            return event
+        self._last_analysis_position = self.total_processed
 
-        # No detection
-        return None
+        if event is None:
+            return None
+
+        # Update state to avoid retriggering immediately
+        self.last_detection_position = self.total_processed
+        # Trigger callback if provided
+        if self.on_loop_detected:
+            try:
+                self.on_loop_detected(event)
+            except Exception as e:
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Error in loop detection callback: %s", e, exc_info=True
+                    )
+        return event
 
     def enable(self) -> None:
         """Enable loop detection."""

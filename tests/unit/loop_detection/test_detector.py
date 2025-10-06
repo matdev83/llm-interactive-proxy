@@ -1,6 +1,6 @@
-"""
-Unit tests for the main LoopDetector class.
-"""
+"""Unit tests for the main LoopDetector class."""
+
+from unittest.mock import MagicMock
 
 import pytest
 from src.loop_detection.config import InternalLoopDetectionConfig
@@ -157,6 +157,26 @@ class TestLoopDetector:
 
         result = detector.process_chunk("ab")
         assert result is None
+
+    def test_analysis_interval_throttles_analysis(self) -> None:
+        """Detector should skip analysis until enough new content arrives."""
+        config = InternalLoopDetectionConfig(
+            enabled=True,
+            analysis_interval=10,
+            content_chunk_size=5,
+        )
+        detector = LoopDetector(config=config)
+        detector.analyzer.analyze_chunk = MagicMock(return_value=None)  # type: ignore[assignment]
+
+        detector.process_chunk("abcde")
+        assert detector.analyzer.analyze_chunk.call_count == 1
+
+        detector.process_chunk("fg")
+        assert detector.analyzer.analyze_chunk.call_count == 1
+
+        detector.process_chunk("hijklmn")
+        assert detector.analyzer.analyze_chunk.call_count == 2
+        assert detector._last_analysis_position == detector.total_processed
 
     def test_config_validation(self) -> None:
         """Test that invalid configurations are rejected."""
