@@ -303,6 +303,41 @@ class TestToolCallTrackerFunctionality:
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.chance_given[full_sig] is True
 
+    def test_prune_expired_resets_consecutive_counts(self, config) -> None:
+        """Expired signatures should reset consecutive repeat counters."""
+        tracker = ToolCallTracker(config)
+
+        # Populate tracker with repeated calls near the threshold
+        initial_calls = config.max_repeats - 1
+        for _ in range(initial_calls):
+            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+
+        full_sig = tracker.signatures[-1].get_full_signature()
+        assert len(tracker.signatures) == initial_calls
+
+        # Expire all but the most recent signature
+        now = datetime.datetime.now()
+        expiration = datetime.timedelta(seconds=config.ttl_seconds + 5)
+        for signature in tracker.signatures[:-1]:
+            signature.timestamp = now - expiration
+
+        pruned = tracker.prune_expired()
+        assert pruned == initial_calls - 1
+        assert len(tracker.signatures) == 1
+
+        # After pruning, the repeat counter should represent remaining signatures
+        assert tracker.consecutive_repeats[full_sig] == 1
+
+        # The next identical call should be treated as the second repeat, not blocked
+        should_block, reason, count = tracker.track_tool_call(
+            "test_tool", '{"arg": "value"}'
+        )
+
+        assert should_block is False
+        assert reason is None
+        assert count is None
+        assert tracker.consecutive_repeats[full_sig] == 2
+
     def test_track_tool_call_after_chance_different_call(self, config) -> None:
         """Test tracking a different call after a chance was given."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
