@@ -11,6 +11,7 @@ from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     ConfigurationError,
+    InvalidRequestError,
     RateLimitExceededError,
 )
 from src.core.domain.request_context import RequestContext
@@ -208,6 +209,11 @@ class TestExceptionAdapters:
         assert http_exc.status_code == 400
         assert isinstance(http_exc.detail, dict)
         assert http_exc.detail.get("details", {}).get("param") == "model"
+
+        invalid_error = InvalidRequestError("Bad payload", details={"field": "messages"})
+        http_exc = map_domain_exception_to_http_exception(invalid_error)
+        assert http_exc.status_code == 400
+        assert http_exc.detail.get("details", {}).get("field") == "messages"
 
         # Test backend error
         backend_error = BackendError("Backend unavailable")
