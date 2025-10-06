@@ -170,7 +170,10 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     # Create a new response with the replacement content
                     if result.replacement_response:
                         replacement_response = self._create_replacement_response(
-                            response, result.replacement_response, tool_call
+                            response,
+                            result.replacement_response,
+                            tool_call,
+                            result.metadata,
                         )
                         return replacement_response
                     else:
@@ -242,6 +245,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         original_response: Any,
         replacement_content: str,
         original_tool_call: dict[str, Any],
+        reaction_metadata: dict[str, Any] | None = None,
     ) -> Any:
         """Create a replacement response with the steering content.
 
@@ -256,15 +260,34 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         # If the original response has a content attribute, create a new ProcessedResponse
         if hasattr(original_response, "content"):
             # Create a new ProcessedResponse with the replacement content
-            new_response = ProcessedResponse(
-                content=replacement_content,
-                usage=getattr(original_response, "usage", None),
-                metadata={
-                    **getattr(original_response, "metadata", {}),
+            original_metadata = getattr(original_response, "metadata", {}) or {}
+            merged_metadata: dict[str, Any] = dict(original_metadata)
+
+            if reaction_metadata:
+                existing_reactor_metadata = {}
+                if isinstance(
+                    merged_metadata.get("tool_call_reactor"), dict
+                ):
+                    existing_reactor_metadata = {
+                        **merged_metadata["tool_call_reactor"],
+                    }
+                merged_metadata["tool_call_reactor"] = {
+                    **existing_reactor_metadata,
+                    **reaction_metadata,
+                }
+
+            merged_metadata.update(
+                {
                     "tool_call_swallowed": True,
                     "original_tool_call": original_tool_call,
                     "replacement_provided": True,
-                },
+                }
+            )
+
+            new_response = ProcessedResponse(
+                content=replacement_content,
+                usage=getattr(original_response, "usage", None),
+                metadata=merged_metadata,
             )
             return new_response
 
