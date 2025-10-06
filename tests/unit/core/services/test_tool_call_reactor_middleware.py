@@ -135,6 +135,37 @@ class TestToolCallReactorMiddleware:
         assert call_args.tool_arguments == {"arg": "value"}
 
     @pytest.mark.asyncio
+    async def test_process_with_tool_call_list_payload(
+        self, middleware, mock_reactor
+    ):
+        """Tool calls provided as a list should be processed correctly."""
+        tool_call_response = [
+            {
+                "id": "call_456",
+                "type": "function",
+                "function": {
+                    "name": "list_tool",
+                    "arguments": {"param": "data"},
+                },
+            }
+        ]
+
+        response = ProcessedResponse(content=tool_call_response)
+        mock_reactor.process_tool_call.return_value = None
+
+        result = await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        assert result == response
+        mock_reactor.process_tool_call.assert_called_once()
+        call_args = mock_reactor.process_tool_call.call_args[0][0]
+        assert call_args.tool_name == "list_tool"
+        assert call_args.tool_arguments == {"param": "data"}
+
+    @pytest.mark.asyncio
     async def test_process_with_tool_calls_swallowed(self, middleware, mock_reactor):
         """Test processing response with tool calls that are swallowed."""
         tool_call_response = {

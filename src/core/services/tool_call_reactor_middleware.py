@@ -192,15 +192,16 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if not content:
             return []
 
-        # If content is already a dict, use it directly
-        if isinstance(content, dict):
+        # Normalize the content into a Python structure that can be inspected
+        if isinstance(content, (dict, list)):
             data = content
-        else:
-            # Otherwise try to parse as JSON string
+        elif isinstance(content, str):
             try:
-                data = json.loads(content) if isinstance(content, str) else {}
+                data = json.loads(content)
             except (json.JSONDecodeError, TypeError, ValueError):
                 return []
+        else:
+            return []
 
         tool_calls = []
 
