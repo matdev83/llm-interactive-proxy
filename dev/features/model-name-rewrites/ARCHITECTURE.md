@@ -93,16 +93,16 @@ graph TD
 
 **Explanation of Flow:**
 
-1.  **Static Route Check**: The `--static-route` CLI parameter is checked first. If set, it overrides all other logic and is returned immediately. This is the highest-priority override.
-2.  **Get Initial Model**: The model is retrieved from the incoming request body or the current session.
-3.  **Apply Model Aliases**: The `_apply_model_aliases` method is called. It iterates through the configured rules and applies the *first* one that matches the current model name.
-4.  **Planning Phase Check**: The `planning_phase` logic is applied next. If the session is in its planning phase, the (potentially rewritten) model name is overridden by the configured `strong_model`.
-5.  **Final Resolution**: The resulting model name is used to determine the final backend, and the `(backend, model)` tuple is returned.
+1. **Static Route Check**: The `--static-route` CLI parameter is checked first. If set, it overrides all other logic and is returned immediately. This is the highest-priority override.
+2. **Get Initial Model**: The model is retrieved from the incoming request body or the current session.
+3. **Apply Model Aliases**: The `_apply_model_aliases` method is called. It iterates through the configured rules and applies the *first* one that matches the current model name.
+4. **Planning Phase Check**: The `planning_phase` logic is applied next. If the session is in its planning phase, the (potentially rewritten) model name is overridden by the configured `strong_model`.
+5. **Final Resolution**: The resulting model name is used to determine the final backend, and the `(backend, model)` tuple is returned.
 
 ## 4. Impact on Existing Features
 
--   **`--static-route`**: Unaffected. It maintains the highest precedence.
--   **`planning_phase`**: Works harmoniously. The model alias is applied first, and then the planning phase can override the *rewritten* model name. This allows for complex configurations, such as aliasing a general model name and then using a specific strong model for planning.
--   **`--default-backend`**: Unaffected. It continues to serve as a fallback for when a backend cannot be inferred from the final model name.
+- **`--static-route`**: Unaffected. It maintains the highest precedence.
+- **`planning_phase`**: Works harmoniously. The model alias is applied first, and then the planning phase can override the *rewritten* model name. This allows for complex configurations, such as aliasing a general model name and then using a specific strong model for planning.
+- **`--default-backend`**: Unaffected. It continues to serve as a fallback for when a backend cannot be inferred from the final model name.
 
 This architecture ensures the "Model Name Rewrites" feature is a powerful and modular addition that enhances the proxy's flexibility without introducing conflicts or breaking changes.

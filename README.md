@@ -469,6 +469,7 @@ For detailed information about wire capture formats, migration between versions,
 ## Optional Capabilities (Short List)
 
 ### Pytest Output Compression
+
 ### Planning-Phase Strong Model Overrides
 
 Use a more capable "strong" model for the early planning phase of a session, then switch back to your default model once execution starts. This helps ensure high-quality initial analysis and planning without paying strong-model costs for the whole session.
@@ -487,6 +488,7 @@ Use a more capable "strong" model for the early planning phase of a session, the
 
 - **Configuration (precedence: CLI > Env > YAML)**:
   - YAML (`config.yaml`):
+
     ```yaml
     session:
       planning_phase:
@@ -500,6 +502,7 @@ Use a more capable "strong" model for the early planning phase of a session, the
           reasoning_effort: "high"
           thinking_budget: 8000
     ```
+
   - Environment variables:
     - `PLANNING_PHASE_ENABLED=true|false`
     - `PLANNING_PHASE_STRONG_MODEL=backend:model` (e.g., `openai:gpt-4o`)
@@ -520,6 +523,7 @@ Use a more capable "strong" model for the early planning phase of a session, the
     - `--planning-phase-thinking-budget TOKENS`
 
 - **Usage example**:
+
   ```bash
   python -m src.core.cli \
     --default-backend openai \
@@ -534,10 +538,10 @@ Use a more capable "strong" model for the early planning phase of a session, the
   ```
 
 Notes:
+
 - If the current model already equals the strong model, no override is applied.
 - After switching back, requests use whatever the normal routing would select.
 - File-write detection reuses the Tool Call Reactor; no duplicate detection logic.
-
 
 The proxy automatically compresses verbose pytest output to preserve context window space while maintaining error information:
 
@@ -731,6 +735,7 @@ export GEMINI_CLI_WORKSPACE="/path/to/project"
 ```
 
 **Features:**
+
 - Full project directory awareness - gemini-cli can read, analyze, and modify files
 - Tool usage - agent can execute commands and use tools
 - Dynamic directory switching - change project directory during conversation with `!/project-dir(path)`
