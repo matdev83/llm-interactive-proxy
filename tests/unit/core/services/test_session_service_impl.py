@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 import pytest
-
 from src.core.domain.session import Session
 from src.core.interfaces.repositories_interface import ISessionRepository
 from src.core.services.session_service_impl import SessionService
@@ -13,7 +10,7 @@ class InMemorySessionRepository(ISessionRepository):
     def __init__(self) -> None:
         self._sessions: dict[str, Session] = {}
 
-    async def get_by_id(self, id: str) -> Session | None:  # noqa: A003 - interface contract
+    async def get_by_id(self, id: str) -> Session | None:
         return self._sessions.get(id)
 
     async def get_all(self) -> list[Session]:
@@ -27,7 +24,7 @@ class InMemorySessionRepository(ISessionRepository):
         self._sessions[entity.session_id] = entity
         return entity
 
-    async def delete(self, id: str) -> bool:  # noqa: A003 - interface contract
+    async def delete(self, id: str) -> bool:
         return self._sessions.pop(id, None) is not None
 
     async def get_by_user_id(self, user_id: str) -> list[Session]:
