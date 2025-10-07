@@ -1,0 +1,47 @@
+# Edit Precision Model-Specific Temperature Settings
+#
+# This file defines temperature overrides applied during edit precision mode
+# when the system detects a failed file edit and retries with more precise parameters.
+#
+# Temperature values should be between 0.0 (deterministic) and 2.0 (very creative).
+# Lower temperatures are recommended for precise code edits.
+#
+# Pattern matching is case-insensitive substring matching on the model name.
+# The first matching pattern is used.
+
+# Default temperature used when no pattern matches
+default_temperature: 0.0
+
+# Model-specific temperature patterns
+# Each entry contains:
+#   pattern: Substring to match in model name (case-insensitive)
+#   temperature: Temperature to apply for this model family
+model_patterns:
+  - pattern: "deepseek"
+    temperature: 0.0
+    comment: "DeepSeek models work best fully deterministic for code"
+
+  - pattern: "grok"
+    temperature: 0.1
+    comment: "Grok models need very low temperature for precise edits"
+
+  - pattern: "gpt"
+    temperature: 0.2
+    comment: "GPT models (OpenAI) - balanced precision"
+
+  - pattern: "gemini"
+    temperature: 0.2
+    comment: "Google Gemini models"
+
+  - pattern: "sonnet"
+    temperature: 0.2
+    comment: "Anthropic Claude Sonnet models"
+
+  - pattern: "opus"
+    temperature: 0.2
+    comment: "Anthropic Claude Opus models"
+
+  - pattern: "glm"
+    temperature: 0.6
+    comment: "ChatGLM models require slightly higher temperature"
+

@@ -209,9 +209,10 @@ async def test_request_processor_applies_edit_precision_overrides_for_failed_edi
     await processor.process_request(MockRequestContext(), request_data)
 
     # Assert: backend was called once with lowered sampling params
+    # For GPT models, the config sets temperature to 0.2
     assert backend_request_manager.process_backend_request.called
     sent_request = backend_request_manager.process_backend_request.call_args[0][0]
-    assert sent_request.temperature == pytest.approx(0.05)
+    assert sent_request.temperature == pytest.approx(0.2)
     assert sent_request.top_p == pytest.approx(0.2)
 
 

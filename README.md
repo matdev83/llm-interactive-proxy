@@ -59,6 +59,7 @@ This project is a swiss-army knife for anyone working with language models and a
       override_top_p: false
       exclude_agents_regex: null
     ```
+  - **Model-Specific Overrides**: Optionally configure per-model-family temperature overrides in `config/edit_precision_model_temperatures.yaml` (see Edit-Precision Tuning Examples section)
 - **Model Name Rewrites (NEW)**: Dynamically rewrite model names using powerful regex-based rules. Route all GPT requests to OpenRouter, replace specific models with alternatives, or create catch-all fallbacks - all configurable via CLI, environment variables, or config files.
 - **Planning-Phase Strong Model Overrides (NEW)**: Optionally route the first part of a session to a stronger model and override its parameters (e.g., temperature, top_p, reasoning effort, thinking budget) to maximize planning quality; automatically switch back to the default model after a set number of turns or file writes.
 - **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
@@ -872,6 +873,7 @@ When limits are exceeded, the proxy returns a structured 400 error:
 
 - `config/reasoning_aliases.yaml`: Per-model reasoning modes (e.g., temperature, max tokens, prompt prefixes)
 - `config/edit_precision_patterns.yaml`: Patterns for auto-tuning on edit failures
+- `config/edit_precision_model_temperatures.yaml`: Model-specific temperature overrides for edit precision (e.g., GPT: 0.2, DeepSeek: 0.0)
 - `config/tool_call_reactor_config.yaml`: Rules for tool call reactions and steering
 
 ## Example Config (minimal)
@@ -1035,6 +1037,39 @@ python -m src.core.cli \
   --edit-precision-min-top-p 0.25 \
   --edit-precision-override-top-p
 ```
+
+**Model-Specific Temperature Overrides**:
+
+The proxy can apply different temperature values for different model families when edit-precision activates. Configure this in `config/edit_precision_model_temperatures.yaml`:
+
+```yaml
+# config/edit_precision_model_temperatures.yaml
+default_temperature: 0.1
+
+model_patterns:
+  - keyword: "gpt"        # Matches any model with "gpt" in name (case-insensitive)
+    temperature: 0.2
+  - keyword: "gemini"
+    temperature: 0.2
+  - keyword: "deepseek"
+    temperature: 0.0      # Fully deterministic for DeepSeek models
+  - keyword: "glm"
+    temperature: 0.6
+  - keyword: "grok"
+    temperature: 0.1
+  - keyword: "sonnet"
+    temperature: 0.2
+  - keyword: "opus"
+    temperature: 0.2
+```
+
+When edit-precision mode activates:
+1. Model name is checked against patterns (case-insensitive substring match)
+2. First matching pattern's temperature is used
+3. If no match, `default_temperature` is used
+4. These values override the CLI/env/config `edit_precision.temperature` setting
+
+This allows fine-tuned control - for example, DeepSeek models work best with temperature=0.0 for precise edits, while GPT models prefer 0.2.
 
 ### Configure custom context window limits
 

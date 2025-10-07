@@ -104,7 +104,8 @@ async def test_e2e_stream_detection_flags_next_call_and_tunes_request() -> None:
     # Assert tuned sampling parameters applied
     assert backend_request_manager.process_backend_request.called
     tuned_req = backend_request_manager.process_backend_request.call_args[0][0]
-    assert tuned_req.temperature == pytest.approx(0.15)
+    # Model-specific config now overrides configured temperature for GPT models (0.2)
+    assert tuned_req.temperature == pytest.approx(0.2)
     assert tuned_req.top_p == pytest.approx(0.35)
 
     # And the pending counter should decrement

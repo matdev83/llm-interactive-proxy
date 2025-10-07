@@ -113,5 +113,6 @@ async def test_e2e_di_streaming_pipeline_sets_pending_and_next_call_tuned() -> N
 
     assert backend_request_manager.process_backend_request.called
     tuned = backend_request_manager.process_backend_request.call_args[0][0]
-    assert tuned.temperature == pytest.approx(0.12)
+    # Model-specific config now overrides configured temperature for GPT models (0.2)
+    assert tuned.temperature == pytest.approx(0.2)
     assert tuned.top_p == pytest.approx(0.34)

@@ -17,6 +17,9 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
+from src.core.config.edit_precision_temperatures import (
+    EditPrecisionTemperaturesConfig,
+)
 from src.core.domain.chat import ChatRequest
 from src.core.interfaces.request_processor_interface import IRequestMiddleware
 
@@ -35,6 +38,7 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
         min_top_p: float | None = 0.3,
         extra_patterns: Iterable[str] | None = None,
         force_apply: bool = False,
+        temperatures_config: EditPrecisionTemperaturesConfig | None = None,
     ) -> None:
         self._target_temperature = max(0.0, float(target_temperature))
         self._min_top_p = None if min_top_p is None else max(0.0, float(min_top_p))
@@ -42,6 +46,10 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
         self._logger = logging.getLogger(__name__)
         # Optional target top_k may be injected via context in RequestProcessor; default None here
         self._target_top_k: int | None = None
+        # Model-specific temperatures configuration
+        self._temperatures_config = (
+            temperatures_config or EditPrecisionTemperaturesConfig()
+        )
 
         # Load patterns from configuration file if present, otherwise use defaults
         try:
@@ -71,7 +79,7 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
             return request
 
         # Clone request and apply conservative precision overrides for this call only
-        new_temperature = self._compute_temperature(request.temperature)
+        new_temperature = self._compute_temperature(request.temperature, request.model)
         new_top_p = self._compute_top_p(request.top_p)
         new_top_k = self._compute_top_k(getattr(request, "top_k", None))
 
@@ -177,16 +185,23 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
             return False
         return any(pat.search(text) for pat in self._compiled)
 
-    def _compute_temperature(self, current: float | None) -> float:
+    def _compute_temperature(
+        self, current: float | None, model_name: str | None = None
+    ) -> float:
+        # Get model-specific target temperature if model name is provided
+        target = self._target_temperature
+        if model_name and self._temperatures_config:
+            target = self._temperatures_config.get_temperature_for_model(model_name)
+
         if current is None:
-            return self._target_temperature
+            return target
 
         # If already at 0.0 (deterministic), raise to target for retry flexibility
         if current <= 0.0:
-            return self._target_temperature
+            return target
 
         # Otherwise lower towards target for precision
-        return min(current, self._target_temperature)
+        return min(current, target)
 
     def _compute_top_p(self, current: float | None) -> float | None:
         if self._min_top_p is None:

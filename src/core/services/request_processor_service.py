@@ -397,9 +397,15 @@ class RequestProcessor(IRequestProcessor):
         # Apply edit-precision tuning middleware if enabled and we still have a backend request
         if backend_request is not None:
             try:
+                from src.core.config.edit_precision_temperatures import (
+                    load_edit_precision_temperatures_config,
+                )
                 from src.core.services.edit_precision_middleware import (
                     EditPrecisionTuningMiddleware,
                 )
+
+                # Load model-specific temperatures config (cached at module level)
+                temperatures_config = load_edit_precision_temperatures_config()
 
                 # Resolve AppConfig via injected app_state when available
                 cfg_enabled = True
@@ -501,6 +507,7 @@ class RequestProcessor(IRequestProcessor):
                         target_temperature=cfg_temp,
                         min_top_p=cfg_min_top_p,
                         force_apply=force_apply,
+                        temperatures_config=temperatures_config,
                     )
                     # Inject target top_k dynamically if configured
                     try:
