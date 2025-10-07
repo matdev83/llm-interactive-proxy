@@ -42,9 +42,29 @@ class JsonRepairService:
             if schema:
                 self.validate_json(repaired_json, schema)
             return repaired_json
+        except JsonSchemaValidationError as e:
+            if strict:
+                raise ValidationError(
+                    message=f"JSON does not match required schema: {e.message}",
+                    details={
+                        "schema_path": list(e.absolute_path)
+                        if getattr(e, "absolute_path", None)
+                        else [],
+                        "schema": getattr(e, "schema", None),
+                        "failed_value": getattr(e, "instance", None),
+                    },
+                ) from e
+            logger.warning("JSON schema validation failed: %s", e)
+            return None
         except (ValueError, TypeError) as e:
             if strict:
-                raise e
+                raise JSONParsingError(
+                    message=f"Failed to repair JSON content: {e}",
+                    details={
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    },
+                ) from e
             logger.warning(f"Failed to repair or validate JSON: {e}")
             return None
 
