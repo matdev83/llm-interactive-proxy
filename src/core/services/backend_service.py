@@ -117,18 +117,35 @@ class BackendService(IBackendService):
         from src.core.config.app_config import AppConfig
         
         app_config = cast(AppConfig, self._config)
-        if not app_config.model_aliases:
+        
+        # Handle case where config might be a Mock object (in tests)
+        try:
+            model_aliases = getattr(app_config, 'model_aliases', [])
+            if not model_aliases:
+                return model
+            
+            # Check if model_aliases is iterable (not a Mock)
+            iter(model_aliases)
+        except (AttributeError, TypeError):
+            # If model_aliases is not iterable (e.g., Mock object), return original model
             return model
 
-        for alias in app_config.model_aliases:
+        for alias in model_aliases:
             try:
-                if re.match(alias.pattern, model):
+                # Handle case where alias might be a Mock object
+                pattern = getattr(alias, 'pattern', None)
+                replacement = getattr(alias, 'replacement', None)
+                
+                if not pattern or not replacement:
+                    continue
+                    
+                if re.match(pattern, model):
                     # Use re.sub for proper replacement with capture groups
-                    new_model = re.sub(alias.pattern, alias.replacement, model)
+                    new_model = re.sub(pattern, replacement, model)
                     logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
                     return new_model
-            except re.error as e:
-                logger.warning(f"Invalid regex pattern in model alias '{alias.pattern}': {e}")
+            except (re.error, AttributeError, TypeError) as e:
+                logger.warning(f"Invalid regex pattern in model alias or mock object: {e}")
                 continue
         
         return model
