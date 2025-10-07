@@ -7,7 +7,6 @@ responses in a consistent way, regardless of the source or format.
 
 from __future__ import annotations
 
-import json
 import logging
 from abc import ABC, abstractmethod
 
