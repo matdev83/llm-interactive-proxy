@@ -265,9 +265,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
             if reaction_metadata:
                 existing_reactor_metadata = {}
-                if isinstance(
-                    merged_metadata.get("tool_call_reactor"), dict
-                ):
+                if isinstance(merged_metadata.get("tool_call_reactor"), dict):
                     existing_reactor_metadata = {
                         **merged_metadata["tool_call_reactor"],
                     }

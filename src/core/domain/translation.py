@@ -245,7 +245,7 @@ class Translation(BaseTranslator):
                 json.loads(stripped)
                 return stripped
             except json.JSONDecodeError:
-              # If it fails, it might be a string using single quotes.
+                # If it fails, it might be a string using single quotes.
                 # We will try to fix it, but only if it doesn't create an invalid JSON.
                 pass
 
@@ -372,11 +372,17 @@ class Translation(BaseTranslator):
             stream=Translation._get_request_param(request, "stream"),
             stop=Translation._get_request_param(request, "stop"),
             max_tokens=Translation._get_request_param(request, "max_tokens"),
-            presence_penalty=Translation._get_request_param(request, "presence_penalty"),
-            frequency_penalty=Translation._get_request_param(request, "frequency_penalty"),
+            presence_penalty=Translation._get_request_param(
+                request, "presence_penalty"
+            ),
+            frequency_penalty=Translation._get_request_param(
+                request, "frequency_penalty"
+            ),
             logit_bias=Translation._get_request_param(request, "logit_bias"),
             user=Translation._get_request_param(request, "user"),
-            reasoning_effort=Translation._get_request_param(request, "reasoning_effort"),
+            reasoning_effort=Translation._get_request_param(
+                request, "reasoning_effort"
+            ),
             seed=Translation._get_request_param(request, "seed"),
             tools=Translation._get_request_param(request, "tools"),
             tool_choice=Translation._get_request_param(request, "tool_choice"),

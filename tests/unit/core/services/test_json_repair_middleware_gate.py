@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from jsonschema.exceptions import ValidationError
 from src.core.app.middleware.json_repair_middleware import JsonRepairMiddleware
+from src.core.common.exceptions import ValidationError
 from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.json_repair_service import JsonRepairService

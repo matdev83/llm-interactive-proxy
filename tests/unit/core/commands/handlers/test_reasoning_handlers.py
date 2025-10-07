@@ -435,10 +435,7 @@ class TestGeminiGenerationConfigHandler:
 
         assert isinstance(result, CommandHandlerResult)
         assert result.success is True
-        assert (
-            result.message
-            == f"Gemini generation config set to {expected_config}"
-        )
+        assert result.message == f"Gemini generation config set to {expected_config}"
         assert result.new_state is mock_state
 
         mock_state.reasoning_config.with_gemini_generation_config.assert_called_once_with(

@@ -180,6 +180,12 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
     def _compute_temperature(self, current: float | None) -> float:
         if current is None:
             return self._target_temperature
+
+        # If already at 0.0 (deterministic), raise to target for retry flexibility
+        if current <= 0.0:
+            return self._target_temperature
+
+        # Otherwise lower towards target for precision
         return min(current, self._target_temperature)
 
     def _compute_top_p(self, current: float | None) -> float | None:

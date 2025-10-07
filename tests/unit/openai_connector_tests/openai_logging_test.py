@@ -2,13 +2,14 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.connectors.openai import OpenAIConnector
 from src.core.config.app_config import AppConfig
 
 
 @pytest.mark.asyncio
-async def test_initialize_does_not_log_raw_api_key(caplog: pytest.LogCaptureFixture) -> None:
+async def test_initialize_does_not_log_raw_api_key(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     client = AsyncMock()
     response = MagicMock()
     response.json.return_value = {"data": []}
@@ -18,7 +19,7 @@ async def test_initialize_does_not_log_raw_api_key(caplog: pytest.LogCaptureFixt
     connector = OpenAIConnector(client=client, config=config)
 
     caplog.set_level(logging.INFO, logger="src.connectors.openai")
-    api_key = "sk-test-very-secret-key"
+    api_key = "fake_api_key_for_testing_only_12345"
 
     await connector.initialize(api_key=api_key)
 

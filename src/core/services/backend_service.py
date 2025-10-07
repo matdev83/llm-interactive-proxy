@@ -107,23 +107,23 @@ class BackendService(IBackendService):
 
     def _apply_model_aliases(self, model: str) -> str:
         """Applies the first matching model alias rule to the model name.
-        
+
         Args:
             model: The original model name
-            
+
         Returns:
             The rewritten model name, or the original if no rules match
         """
         from src.core.config.app_config import AppConfig
-        
+
         app_config = cast(AppConfig, self._config)
-        
+
         # Handle case where config might be a Mock object (in tests)
         try:
-            model_aliases = getattr(app_config, 'model_aliases', [])
+            model_aliases = getattr(app_config, "model_aliases", [])
             if not model_aliases:
                 return model
-            
+
             # Check if model_aliases is iterable (not a Mock)
             iter(model_aliases)
         except (AttributeError, TypeError):
@@ -133,21 +133,23 @@ class BackendService(IBackendService):
         for alias in model_aliases:
             try:
                 # Handle case where alias might be a Mock object
-                pattern = getattr(alias, 'pattern', None)
-                replacement = getattr(alias, 'replacement', None)
-                
+                pattern = getattr(alias, "pattern", None)
+                replacement = getattr(alias, "replacement", None)
+
                 if not pattern or not replacement:
                     continue
-                    
+
                 if re.match(pattern, model):
                     # Use re.sub for proper replacement with capture groups
                     new_model = re.sub(pattern, replacement, model)
                     logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
                     return new_model
             except (re.error, AttributeError, TypeError) as e:
-                logger.warning(f"Invalid regex pattern in model alias or mock object: {e}")
+                logger.warning(
+                    f"Invalid regex pattern in model alias or mock object: {e}"
+                )
                 continue
-        
+
         return model
 
     def _apply_reasoning_config(
@@ -173,19 +175,61 @@ class BackendService(IBackendService):
             # Collect field updates to avoid mutating frozen Pydantic models
             updates: dict[str, Any] = {}
 
+            extra_body_attr = getattr(request, "extra_body", None)
+            edit_precision_active = False
+            if isinstance(extra_body_attr, dict):
+                try:
+                    edit_precision_active = bool(
+                        extra_body_attr.get("_edit_precision_mode")
+                    )
+                except Exception:
+                    edit_precision_active = False
+            else:
+                edit_precision_active = False
+
+            def _apply_numeric_update(field: str, value: Any) -> None:
+                # Helper to apply numeric overrides while respecting edit precision when active.
+                if value is None:
+                    return
+                numeric_value: Any = value
+                try:
+                    if field in {"temperature", "top_p"}:
+                        numeric_value = float(value)
+                    elif field == "top_k":
+                        numeric_value = int(value)
+                except (TypeError, ValueError):
+                    numeric_value = value
+
+                if edit_precision_active and field in {"temperature", "top_p", "top_k"}:
+                    current_value = getattr(request, field, None)
+                    try:
+                        if current_value is not None:
+                            if field in {"temperature", "top_p"}:
+                                numeric_value = min(
+                                    float(current_value), float(numeric_value)
+                                )
+                            else:
+                                numeric_value = min(
+                                    int(current_value), int(numeric_value)
+                                )
+                    except (TypeError, ValueError):
+                        pass
+
+                updates[field] = numeric_value
+
             # Apply temperature if set
             if (
                 hasattr(reasoning_config, "temperature")
                 and reasoning_config.temperature is not None
             ):
-                updates["temperature"] = reasoning_config.temperature
+                _apply_numeric_update("temperature", reasoning_config.temperature)
 
             # Apply top_p if set (for OpenAI-compatible backends)
             if (
                 hasattr(reasoning_config, "top_p")
                 and reasoning_config.top_p is not None
             ):
-                updates["top_p"] = reasoning_config.top_p
+                _apply_numeric_update("top_p", reasoning_config.top_p)
 
             # Apply reasoning_effort if set (for OpenAI reasoning models)
             if (
@@ -223,9 +267,11 @@ class BackendService(IBackendService):
                     # overrides may be dict (from AppConfig) or a VO instance (not expected here)
                     if isinstance(overrides, dict):
                         if overrides.get("temperature") is not None:
-                            updates["temperature"] = overrides.get("temperature")
+                            _apply_numeric_update(
+                                "temperature", overrides.get("temperature")
+                            )
                         if overrides.get("top_p") is not None:
-                            updates["top_p"] = overrides.get("top_p")
+                            _apply_numeric_update("top_p", overrides.get("top_p"))
                         if overrides.get("reasoning_effort") is not None:
                             updates["reasoning_effort"] = overrides.get(
                                 "reasoning_effort"
@@ -414,6 +460,17 @@ class BackendService(IBackendService):
                     backend_name=backend_type,
                     details={"error": str(e)},
                 ) from e
+
+            # Check if backend is functional
+            if (
+                hasattr(backend, "is_backend_functional")
+                and not backend.is_backend_functional()
+            ):
+                raise BackendError(
+                    message=f"Backend {backend_type} is not functional",
+                    backend_name=backend_type,
+                    details={"reason": "Backend reported as non-functional"},
+                )
 
             domain_request: ChatRequest = request
 
@@ -860,10 +917,10 @@ class BackendService(IBackendService):
             )
 
         effective_model: str = request.model
-        
+
         # Apply model aliases BEFORE parsing backend from model name
         effective_model = self._apply_model_aliases(effective_model)
-        
+
         if not backend_type:
             from src.core.domain.model_utils import parse_model_backend
 

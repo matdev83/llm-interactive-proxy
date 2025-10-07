@@ -28,7 +28,9 @@ class InMemorySessionRepository(ISessionRepository):
         return self._sessions.pop(id, None) is not None
 
     async def get_by_user_id(self, user_id: str) -> list[Session]:
-        return [s for s in self._sessions.values() if getattr(s, "user_id", None) == user_id]
+        return [
+            s for s in self._sessions.values() if getattr(s, "user_id", None) == user_id
+        ]
 
     async def cleanup_expired(self, max_age_seconds: int) -> int:
         return 0
@@ -48,4 +50,3 @@ async def test_update_session_backend_config_updates_backend_and_model() -> None
     assert stored is not None
     assert stored.state.backend_config.backend_type == "openai"
     assert stored.state.backend_config.model == "gpt-4"
-

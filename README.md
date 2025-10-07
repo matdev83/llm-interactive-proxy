@@ -37,7 +37,28 @@ This project is a swiss-army knife for anyone working with language models and a
 - **Inspect and Debug Prompts**: Capture and analyze the exact prompts your agent sends to the LLM provider to debug and refine interactions.
 - **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
 - **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX plans, with any third-party application, not just those developed by the LLM vendor.
-- **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts.
+- **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts. **Configuration (precedence: CLI > Env > YAML)**:
+  - **CLI Flags**:
+    - `--enable-edit-precision` / `--disable-edit-precision`: Enable or disable edit-precision tuning
+    - `--edit-precision-temperature FLOAT`: Set target temperature for edit failures (default: 0.1)
+    - `--edit-precision-min-top-p FLOAT`: Set minimum top_p value for edit failures (default: 0.3)
+    - `--edit-precision-override-top-p`: Enable top_p override for edit failures
+    - `--edit-precision-exclude-agents REGEX`: Exclude specific agents from edit-precision tuning
+  - **Environment Variables**:
+    - `EDIT_PRECISION_ENABLED=true|false` (default: true)
+    - `EDIT_PRECISION_TEMPERATURE=0.1` (default: 0.1)
+    - `EDIT_PRECISION_MIN_TOP_P=0.3`
+    - `EDIT_PRECISION_OVERRIDE_TOP_P=false|true`
+    - `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX="<pattern>"`
+  - **YAML** (`config.yaml`):
+    ```yaml
+    edit_precision:
+      enabled: true
+      temperature: 0.1
+      min_top_p: 0.3
+      override_top_p: false
+      exclude_agents_regex: null
+    ```
 - **Model Name Rewrites (NEW)**: Dynamically rewrite model names using powerful regex-based rules. Route all GPT requests to OpenRouter, replace specific models with alternatives, or create catch-all fallbacks - all configurable via CLI, environment variables, or config files.
 - **Planning-Phase Strong Model Overrides (NEW)**: Optionally route the first part of a session to a stronger model and override its parameters (e.g., temperature, top_p, reasoning effort, thinking budget) to maximize planning quality; automatically switch back to the default model after a set number of turns or file writes.
 - **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
@@ -210,6 +231,11 @@ Useful flags
 - `--force-model MODEL_NAME` to override all client-requested models (e.g., `--force-model gemini-2.5-pro`)
 - `--force-context-window TOKENS` to override context window size for all models (e.g., `--force-context-window 8000`)
 - `--strict-command-detection` to enable strict command detection (only process commands on last non-blank line)
+- `--enable-edit-precision` / `--disable-edit-precision` to control automated edit-precision tuning
+- `--edit-precision-temperature TEMP` to set target temperature for edit failures (default: 0.1)
+- `--edit-precision-min-top-p FLOAT` to set minimum top_p for edit failures (default: 0.3)
+- `--edit-precision-override-top-p` to enable top_p override for edit failures
+- `--edit-precision-exclude-agents REGEX` to exclude specific agents from edit-precision tuning
 
 3) Point your client at the proxy
 
@@ -980,6 +1006,34 @@ python -m src.core.cli --force-context-window 2000
 
 # Balance between capability and performance
 python -m src.core.cli --force-context-window 16000
+```
+
+### Edit-Precision Tuning Examples
+
+Control automated model parameter tuning when file edits fail:
+
+```bash
+# Enable edit-precision tuning with default settings
+python -m src.core.cli --enable-edit-precision
+
+# Disable edit-precision tuning entirely
+python -m src.core.cli --disable-edit-precision
+
+# Custom temperature for precision (lower = more deterministic)
+python -m src.core.cli --edit-precision-temperature 0.05
+
+# Custom top_p value and enable override
+python -m src.core.cli --edit-precision-min-top-p 0.2 --edit-precision-override-top-p
+
+# Exclude specific agents from edit-precision (e.g., exclude "test" agents)
+python -m src.core.cli --edit-precision-exclude-agents "test.*"
+
+# Combine multiple edit-precision settings
+python -m src.core.cli \
+  --enable-edit-precision \
+  --edit-precision-temperature 0.08 \
+  --edit-precision-min-top-p 0.25 \
+  --edit-precision-override-top-p
 ```
 
 ### Configure custom context window limits

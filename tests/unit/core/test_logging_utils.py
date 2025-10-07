@@ -45,7 +45,7 @@ class TestRedaction:
         """Test redacting a dictionary."""
         # Test with sensitive fields
         data = {
-            "api_key": "sk_12345678",
+            "api_key": "fake_api_key_example_for_testing_12345",
             "name": "test",
             "config": {"password": "secret123", "public": "public_value"},
             "items": [{"secret": "hidden", "visible": "shown"}, "not_a_dict"],
@@ -64,7 +64,7 @@ class TestRedaction:
         # Test with custom redacted fields
         result = redact_dict(data, redacted_fields={"name"})
 
-        assert result["api_key"] == "sk_12345678"
+        assert result["api_key"] == "fake_api_key_example_for_testing_12345"
         assert result["name"] == "***"
 
         # Test with custom mask
@@ -82,14 +82,14 @@ class TestRedaction:
         assert result == text  # No sensitive data to redact
 
         # Test with a custom mask
-        text_with_api_key = "API key: sk_1234567890abcdefghij"
+        text_with_api_key = "API key: fake_api_key_example_for_testing_1234567890"
         result = redact_text(text_with_api_key, mask="[REDACTED]")
         assert isinstance(result, str)
         # Just verify it's not the same as the original (redaction happened)
         assert result != text_with_api_key
 
         # Ensure hyphenated keys are redacted
-        modern_key = "sk-proj-1234567890abcdef1234567890"
+        modern_key = "fake-key-example-for-testing-purposes-only-12345"
         modern_result = redact_text(modern_key)
         assert modern_result != modern_key
         assert "sk-proj" not in modern_result
@@ -190,7 +190,9 @@ class TestLogging:
     ) -> None:
         """Environment tagging should label records as test when pytest markers exist."""
 
-        monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/unit/core/test_logging_utils.py")
+        monkeypatch.setenv(
+            "PYTEST_CURRENT_TEST", "tests/unit/core/test_logging_utils.py"
+        )
 
         record = logging.LogRecord(
             name="test",

@@ -277,7 +277,10 @@ class TestOpenAIResponsesConnector:
         assert sent_headers["Authorization"] == "Bearer test-api-key"
         assert sent_headers["X-Test"] == "123"
 
-        from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
+        from src.core.security.loop_prevention import (
+            LOOP_GUARD_HEADER,
+            LOOP_GUARD_VALUE,
+        )
 
         assert sent_headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
         assert headers_override == {"X-Test": "123"}

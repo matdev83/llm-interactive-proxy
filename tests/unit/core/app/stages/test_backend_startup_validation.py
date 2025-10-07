@@ -189,7 +189,6 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
 
             assert functional_backends == []
 
-
     @pytest.mark.asyncio
     async def test_validate_backend_functionality_functional_backend(
         self,
@@ -203,18 +202,23 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
         mock_backend.is_backend_functional.return_value = True
         mock_backend.initialize = AsyncMock()
 
-        mock_backend_factory = Mock(return_value=mock_backend)
+        # Mock backend factory service
+        backend_factory_service = Mock()
+        backend_factory_service.ensure_backend = AsyncMock(return_value=mock_backend)
+
+        # Mock service provider
+        service_provider = Mock()
+        service_provider.get_service.return_value = backend_factory_service
+        services.build_service_provider.return_value = service_provider
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
 
             functional_backends = await backend_stage._validate_backend_functionality(
                 services, app_config_with_qwen_oauth
             )
 
             assert functional_backends == ["qwen-oauth"]
-            mock_backend.initialize.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_validate_backend_functionality_non_functional_backend(
@@ -233,18 +237,23 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
         ]
         mock_backend.initialize = AsyncMock()
 
-        mock_backend_factory = Mock(return_value=mock_backend)
+        # Mock backend factory service
+        backend_factory_service = Mock()
+        backend_factory_service.ensure_backend = AsyncMock(return_value=mock_backend)
+
+        # Mock service provider
+        service_provider = Mock()
+        service_provider.get_service.return_value = backend_factory_service
+        services.build_service_provider.return_value = service_provider
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
 
             functional_backends = await backend_stage._validate_backend_functionality(
                 services, app_config_with_qwen_oauth
             )
 
             assert functional_backends == []
-            mock_backend.initialize.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_validate_backend_functionality_legacy_backend_without_enhanced_methods(
@@ -256,17 +265,22 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
         """Test functionality validation with legacy backend without enhanced validation methods."""
         # Mock legacy backend without is_backend_functional method
         mock_backend = Mock()
-        # Remove the enhanced methods to simulate legacy backend
+        # Remove the is_backend_functional attribute entirely to simulate legacy backend
         del mock_backend.is_backend_functional
-        del mock_backend.get_validation_errors
-        mock_backend.is_functional = True  # Legacy property
+        mock_backend.is_functional = True
         mock_backend.initialize = AsyncMock()
 
-        mock_backend_factory = Mock(return_value=mock_backend)
+        # Mock backend factory service
+        backend_factory_service = Mock()
+        backend_factory_service.ensure_backend = AsyncMock(return_value=mock_backend)
+
+        # Mock service provider
+        service_provider = Mock()
+        service_provider.get_service.return_value = backend_factory_service
+        services.build_service_provider.return_value = service_provider
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
 
             functional_backends = await backend_stage._validate_backend_functionality(
                 services, app_config_with_qwen_oauth
@@ -284,17 +298,19 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
         app_config_with_qwen_oauth: AppConfig,
     ):
         """Test functionality validation when backend initialization raises exception."""
-        # Mock backend that raises exception during initialization
-        mock_backend = Mock()
-        mock_backend.initialize = AsyncMock(
+        # Mock backend factory service that raises exception
+        backend_factory_service = Mock()
+        backend_factory_service.ensure_backend = AsyncMock(
             side_effect=Exception("Initialization failed")
         )
 
-        mock_backend_factory = Mock(return_value=mock_backend)
+        # Mock service provider
+        service_provider = Mock()
+        service_provider.get_service.return_value = backend_factory_service
+        services.build_service_provider.return_value = service_provider
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
 
             functional_backends = await backend_stage._validate_backend_functionality(
                 services, app_config_with_qwen_oauth
@@ -313,32 +329,31 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
         # Mock functional backend
         functional_backend = Mock()
         functional_backend.is_backend_functional.return_value = True
-        functional_backend.initialize = AsyncMock()
 
         # Mock non-functional backend
         non_functional_backend = Mock()
         non_functional_backend.is_backend_functional.return_value = False
         non_functional_backend.get_validation_errors.return_value = ["Some error"]
-        non_functional_backend.initialize = AsyncMock()
 
-        # Mock backend that throws exception
-        exception_backend = Mock()
-        exception_backend.initialize = AsyncMock(side_effect=Exception("Init failed"))
+        # Mock backend factory service with counter
+        call_count = {"count": 0}
 
-        def mock_backend_factory(client, config, translation_service=None):
-            # Return different backends based on some logic
-            # This is a simplified approach for testing
-            if hasattr(mock_backend_factory, "call_count"):
-                mock_backend_factory.call_count += 1
-            else:
-                mock_backend_factory.call_count = 1
-
-            if mock_backend_factory.call_count == 1:
+        async def ensure_backend_mock(backend_type, app_config, backend_config):
+            call_count["count"] += 1
+            if call_count["count"] == 1:
                 return functional_backend
-            elif mock_backend_factory.call_count == 2:
+            elif call_count["count"] == 2:
                 return non_functional_backend
             else:
-                return exception_backend
+                raise Exception("Init failed")
+
+        backend_factory_service = Mock()
+        backend_factory_service.ensure_backend = ensure_backend_mock
+
+        # Mock service provider
+        service_provider = Mock()
+        service_provider.get_service.return_value = backend_factory_service
+        services.build_service_provider.return_value = service_provider
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = [
@@ -346,7 +361,6 @@ class TestBackendFunctionalityValidation(TestBackendStartupValidation):
                 "anthropic",
                 "qwen-oauth",
             ]
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
 
             functional_backends = await backend_stage._validate_backend_functionality(
                 services, app_config_with_multiple_backends
@@ -373,12 +387,17 @@ class TestConfiguredBackendDetection(TestBackendStartupValidation):
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["openai"]
 
-            # Mock a functional backend
-            mock_backend = Mock()
+            mock_backend = AsyncMock()
             mock_backend.is_backend_functional.return_value = True
-            mock_backend.initialize = AsyncMock()
-            mock_backend_factory = Mock(return_value=mock_backend)
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
+
+            backend_factory_service = Mock()
+            backend_factory_service.ensure_backend = AsyncMock(
+                return_value=mock_backend
+            )
+
+            service_provider = Mock()
+            service_provider.get_service.return_value = backend_factory_service
+            services.build_service_provider.return_value = service_provider
 
             functional_backends = await backend_stage._validate_backend_functionality(
                 services, config
@@ -400,12 +419,17 @@ class TestConfiguredBackendDetection(TestBackendStartupValidation):
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["openai", "anthropic"]
 
-            # Mock functional backends
-            mock_backend = Mock()
+            mock_backend = AsyncMock()
             mock_backend.is_backend_functional.return_value = True
-            mock_backend.initialize = AsyncMock()
-            mock_backend_factory = Mock(return_value=mock_backend)
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
+
+            backend_factory_service = Mock()
+            backend_factory_service.ensure_backend = AsyncMock(
+                return_value=mock_backend
+            )
+
+            service_provider = Mock()
+            service_provider.get_service.return_value = backend_factory_service
+            services.build_service_provider.return_value = service_provider
 
             functional_backends = await backend_stage._validate_backend_functionality(
                 services, config
@@ -434,11 +458,15 @@ class TestConfiguredBackendDetection(TestBackendStartupValidation):
             mock_registry.get_registered_backends.return_value = ["openai", "anthropic"]
 
             # Mock functional backend
-            mock_backend = Mock()
+            mock_backend = AsyncMock()
             mock_backend.is_backend_functional.return_value = True
             mock_backend.initialize = AsyncMock()
-            mock_backend_factory = Mock(return_value=mock_backend)
+            mock_backend_factory = AsyncMock(return_value=mock_backend)
             mock_registry.get_backend_factory.return_value = mock_backend_factory
+
+            service_provider = Mock()
+            service_provider.get_service.return_value = mock_backend_factory
+            services.build_service_provider.return_value = service_provider
 
             functional_backends = await backend_stage._validate_backend_functionality(
                 services, config
@@ -476,11 +504,17 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
         ]
         mock_backend.initialize = AsyncMock()
 
-        mock_backend_factory = Mock(return_value=mock_backend)
+        # Mock backend factory service
+        backend_factory_service = Mock()
+        backend_factory_service.ensure_backend = AsyncMock(return_value=mock_backend)
+
+        # Mock service provider
+        service_provider = Mock()
+        service_provider.get_service.return_value = backend_factory_service
+        services.build_service_provider.return_value = service_provider
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
 
             # This should fail validation
             result = await backend_stage.validate(services, config)
@@ -503,11 +537,17 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
         mock_backend.is_backend_functional.return_value = True
         mock_backend.initialize = AsyncMock()
 
-        mock_backend_factory = Mock(return_value=mock_backend)
+        # Mock backend factory service
+        backend_factory_service = Mock()
+        backend_factory_service.ensure_backend = AsyncMock(return_value=mock_backend)
+
+        # Mock service provider
+        service_provider = Mock()
+        service_provider.get_service.return_value = backend_factory_service
+        services.build_service_provider.return_value = service_provider
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
 
             # This should pass validation
             result = await backend_stage.validate(services, config)
@@ -529,32 +569,35 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
         # Mock one functional backend and one non-functional
         functional_backend = Mock()
         functional_backend.is_backend_functional.return_value = True
-        functional_backend.initialize = AsyncMock()
 
         non_functional_backend = Mock()
         non_functional_backend.is_backend_functional.return_value = False
         non_functional_backend.get_validation_errors.return_value = ["Token expired"]
-        non_functional_backend.initialize = AsyncMock()
 
-        def mock_backend_factory(client, config, translation_service=None):
-            # Return functional backend for openai, non-functional for qwen-oauth
-            if hasattr(mock_backend_factory, "call_count"):
-                mock_backend_factory.call_count += 1
-            else:
-                mock_backend_factory.call_count = 1
+        # Mock backend factory service with counter
+        call_count = {"count": 0}
 
+        async def ensure_backend_mock(backend_type, app_config, backend_config):
+            call_count["count"] += 1
             return (
                 functional_backend
-                if mock_backend_factory.call_count == 1
+                if call_count["count"] == 1
                 else non_functional_backend
             )
+
+        backend_factory_service = Mock()
+        backend_factory_service.ensure_backend = ensure_backend_mock
+
+        # Mock service provider
+        service_provider = Mock()
+        service_provider.get_service.return_value = backend_factory_service
+        services.build_service_provider.return_value = service_provider
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
             mock_registry.get_registered_backends.return_value = [
                 "openai",
                 "qwen-oauth",
             ]
-            mock_registry.get_backend_factory.return_value = mock_backend_factory
 
             # This should pass validation because openai is functional
             result = await backend_stage.validate(services, config)
@@ -587,9 +630,7 @@ def test_backend_service_interface_shares_concrete_singleton() -> None:
     services.add_instance(
         cast(type, IBackendConfigProvider), MagicMock(spec=IBackendConfigProvider)
     )
-    services.add_instance(
-        cast(type, ISessionService), MagicMock(spec=ISessionService)
-    )
+    services.add_instance(cast(type, ISessionService), MagicMock(spec=ISessionService))
     services.add_instance(cast(type, IApplicationState), MagicMock())
     services.add_instance(cast(type, IWireCapture), MagicMock())
 

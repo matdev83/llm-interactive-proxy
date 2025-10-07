@@ -74,6 +74,7 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         # Test regex validity
         try:
             import re
+
             re.compile(pattern)
         except re.error as e:
             raise argparse.ArgumentTypeError(
@@ -216,6 +217,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Disable LLM accounting (usage tracking and audit logging)",
     )
+    parser.add_argument(
+        "--strict-command-detection",
+        action="store_true",
+        default=None,
+        help="Enable strict command detection (requires commands to be at the start of messages)",
+    )
 
     # Planning phase options
     parser.add_argument(
@@ -272,6 +279,70 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         metavar="TOKENS",
         help="Reasoning tokens (thinking budget) override for planning strong model",
+    )
+
+    # Edit-precision tuning options
+    edit_precision_toggle_group = parser.add_mutually_exclusive_group()
+    edit_precision_toggle_group.add_argument(
+        "--enable-edit-precision",
+        dest="edit_precision_enabled",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Enable automated edit-precision tuning on failed file edits",
+    )
+    edit_precision_toggle_group.add_argument(
+        "--disable-edit-precision",
+        dest="edit_precision_enabled",
+        action="store_const",
+        const=False,
+        help="Disable automated edit-precision tuning",
+    )
+    parser.add_argument(
+        "--edit-precision-temperature",
+        dest="edit_precision_temperature",
+        type=float,
+        default=None,
+        metavar="TEMP",
+        help="Target temperature for edit-precision tuning (default: 0.1)",
+    )
+    parser.add_argument(
+        "--edit-precision-min-top-p",
+        dest="edit_precision_min_top_p",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help="Minimum top_p value for edit-precision tuning (default: 0.3)",
+    )
+    parser.add_argument(
+        "--edit-precision-override-top-p",
+        dest="edit_precision_override_top_p",
+        action="store_true",
+        default=None,
+        help="Enable top_p override for edit-precision tuning",
+    )
+    parser.add_argument(
+        "--edit-precision-target-top-k",
+        dest="edit_precision_target_top_k",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Target top_k value for edit-precision tuning (requires override flag)",
+    )
+    parser.add_argument(
+        "--edit-precision-override-top-k",
+        dest="edit_precision_override_top_k",
+        action="store_true",
+        default=None,
+        help="Enable top_k override for edit-precision tuning",
+    )
+    parser.add_argument(
+        "--edit-precision-exclude-agents",
+        dest="edit_precision_exclude_agents_regex",
+        type=str,
+        default=None,
+        metavar="REGEX",
+        help="Exclude agents matching this regex from edit-precision tuning",
     )
 
     brute_force_toggle_group = parser.add_mutually_exclusive_group()
@@ -403,8 +474,8 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     # Logging configuration
     if args.log_file is not None:
         cfg.logging.log_file = args.log_file
-    else:
-        # Set default log file if none specified
+    elif cfg.logging.log_file is None:
+        # Set default log file only if none specified in config or CLI
         from pathlib import Path
 
         default_log_file = "logs/proxy.log"
@@ -444,17 +515,21 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     # Model aliases configuration (CLI overrides config file)
     if getattr(args, "model_aliases", None) is not None:
         from src.core.config.app_config import ModelAliasRule
-        
+
         # Convert CLI tuples to ModelAliasRule objects
         cli_aliases = [
             ModelAliasRule(pattern=pattern, replacement=replacement)
             for pattern, replacement in args.model_aliases
         ]
         cfg.model_aliases = cli_aliases
-        
+
         # Store in environment for other processes
         import json
-        alias_data = [{"pattern": rule.pattern, "replacement": rule.replacement} for rule in cli_aliases]
+
+        alias_data = [
+            {"pattern": rule.pattern, "replacement": rule.replacement}
+            for rule in cli_aliases
+        ]
         os.environ["MODEL_ALIASES"] = json.dumps(alias_data)
 
     # API keys and URLs
@@ -495,6 +570,8 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         os.environ["DISABLE_ACCOUNTING"] = (
             "true" if args.disable_accounting else "false"
         )
+    if getattr(args, "strict_command_detection", None) is not None:
+        cfg.strict_command_detection = args.strict_command_detection
 
     brute_force_cfg = getattr(cfg.auth, "brute_force_protection", None)
     if brute_force_cfg is not None:
@@ -548,6 +625,28 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
             existing_overrides = {}
         existing_overrides.update(overrides_updates)
         cfg.session.planning_phase.overrides = existing_overrides
+
+    # Edit-precision tuning configuration
+    if getattr(args, "edit_precision_enabled", None) is not None:
+        cfg.edit_precision.enabled = args.edit_precision_enabled
+    if getattr(args, "edit_precision_temperature", None) is not None:
+        cfg.edit_precision.temperature = max(0.0, args.edit_precision_temperature)
+    if getattr(args, "edit_precision_min_top_p", None) is not None:
+        cfg.edit_precision.min_top_p = max(0.0, args.edit_precision_min_top_p)
+    if getattr(args, "edit_precision_override_top_p", None) is not None:
+        cfg.edit_precision.override_top_p = args.edit_precision_override_top_p
+    if getattr(args, "edit_precision_override_top_k", None) is not None:
+        cfg.edit_precision.override_top_k = args.edit_precision_override_top_k
+    if getattr(args, "edit_precision_target_top_k", None) is not None:
+        cfg.edit_precision.target_top_k = (
+            args.edit_precision_target_top_k
+            if args.edit_precision_target_top_k > 0
+            else None
+        )
+    if getattr(args, "edit_precision_exclude_agents_regex", None) is not None:
+        cfg.edit_precision.exclude_agents_regex = (
+            args.edit_precision_exclude_agents_regex
+        )
 
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)

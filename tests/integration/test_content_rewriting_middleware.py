@@ -644,7 +644,6 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
-
     def test_streaming_reply_rewriting_preserves_background(self):
         """Ensure background tasks attached to streaming responses are preserved."""
 

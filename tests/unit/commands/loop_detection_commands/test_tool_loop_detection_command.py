@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-
 from src.core.domain.commands.loop_detection_commands.tool_loop_detection_command import (
     ToolLoopDetectionCommand,
 )
@@ -122,7 +121,9 @@ class _FailingSession:
         self.state = _FailingState()
 
 
-def test_execute_returns_error_result_when_state_update_fails(caplog: pytest.LogCaptureFixture) -> None:
+def test_execute_returns_error_result_when_state_update_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     command = ToolLoopDetectionCommand()
     session = _FailingSession()
 

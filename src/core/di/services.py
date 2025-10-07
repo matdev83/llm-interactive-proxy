@@ -1068,8 +1068,8 @@ def register_core_services(
             # Register PytestFullSuiteHandler if enabled
             try:
                 if getattr(reactor_config, "pytest_full_suite_steering_enabled", False):
-                    steering_message = (
-                        reactor_config.pytest_full_suite_steering_message or None
+                    steering_message = getattr(
+                        reactor_config, "pytest_full_suite_steering_message", None
                     )
                     pytest_full_suite_handler = PytestFullSuiteHandler(
                         message=steering_message,

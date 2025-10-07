@@ -267,6 +267,7 @@ class EmptyResponseConfig(DomainModel):
 
 class ModelAliasRule(DomainModel):
     """A rule for rewriting a model name."""
+
     pattern: str
     replacement: str
 
@@ -462,6 +463,7 @@ class AppConfig(DomainModel, IConfig):
     anthropic_port: int | None = None  # Will be set to port + 1 if not provided
     proxy_timeout: int = 120
     command_prefix: str = "!/"
+    strict_command_detection: bool = False
     context_window_override: int | None = None  # Override context window for all models
 
     # Rate limit settings
@@ -770,10 +772,14 @@ class AppConfig(DomainModel, IConfig):
                     config["model_aliases"] = [
                         {"pattern": item["pattern"], "replacement": item["replacement"]}
                         for item in alias_data
-                        if isinstance(item, dict) and "pattern" in item and "replacement" in item
+                        if isinstance(item, dict)
+                        and "pattern" in item
+                        and "replacement" in item
                     ]
             except (json.JSONDecodeError, KeyError, TypeError) as e:
-                logger.warning(f"Invalid MODEL_ALIASES environment variable format: {e}")
+                logger.warning(
+                    f"Invalid MODEL_ALIASES environment variable format: {e}"
+                )
                 config["model_aliases"] = []
         else:
             config["model_aliases"] = []

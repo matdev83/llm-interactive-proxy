@@ -47,9 +47,11 @@ class JsonRepairService:
                 raise ValidationError(
                     message=f"JSON does not match required schema: {e.message}",
                     details={
-                        "schema_path": list(e.absolute_path)
-                        if getattr(e, "absolute_path", None)
-                        else [],
+                        "schema_path": (
+                            list(e.absolute_path)
+                            if getattr(e, "absolute_path", None)
+                            else []
+                        ),
                         "schema": getattr(e, "schema", None),
                         "failed_value": getattr(e, "instance", None),
                     },
