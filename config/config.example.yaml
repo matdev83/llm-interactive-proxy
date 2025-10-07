@@ -107,6 +107,22 @@ failover_routes:
       - "openai:gpt-4"
       - "openrouter:anthropic/claude-3-opus-20240229"
 
+# Model name rewrite rules (optional)
+# These rules allow you to dynamically rewrite model names before they are processed
+# Rules are processed in order, and the first matching rule is applied
+# model_aliases:
+#   # Statically replace a specific model
+#   - pattern: "^claude-3-sonnet-20240229$"
+#     replacement: "gemini-cli-oauth-personal:gemini-1.5-flash"
+#
+#   # Dynamically replace any GPT model, keeping the version
+#   - pattern: "^gpt-(.*)"
+#     replacement: "openrouter:openai/gpt-\\1"
+#
+#   # Catch-all for any other model
+#   - pattern: "^(.*)$"
+#     replacement: "gemini-cli-oauth-personal:gemini-1.5-pro"
+
 # Session configuration
 session:
   # Planning phase: Route initial requests to a strong model for better planning

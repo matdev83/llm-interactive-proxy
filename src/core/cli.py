@@ -60,6 +60,36 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Force all requests to use this backend:model combination (e.g., gemini-cli-oauth-personal:gemini-2.5-pro)",
     )
 
+    def validate_model_alias(value: str) -> tuple[str, str]:
+        """Validate model alias format: pattern=replacement"""
+        if "=" not in value:
+            raise argparse.ArgumentTypeError(
+                f"Invalid model alias format '{value}'. Expected 'pattern=replacement'"
+            )
+        pattern, replacement = value.split("=", 1)
+        if not pattern or not replacement:
+            raise argparse.ArgumentTypeError(
+                f"Invalid model alias format '{value}'. Both pattern and replacement must be non-empty"
+            )
+        # Test regex validity
+        try:
+            import re
+            re.compile(pattern)
+        except re.error as e:
+            raise argparse.ArgumentTypeError(
+                f"Invalid regex pattern '{pattern}' in model alias: {e}"
+            )
+        return pattern, replacement
+
+    parser.add_argument(
+        "--model-alias",
+        dest="model_aliases",
+        action="append",
+        metavar="PATTERN=REPLACEMENT",
+        type=validate_model_alias,
+        help="Add a model name rewrite rule. Pattern is a regex, replacement can use capture groups (\\1, \\2, etc.). Can be specified multiple times. Example: --model-alias '^gpt-(.*)=openrouter:openai/gpt-\\1'",
+    )
+
     # API Keys and URLs
     parser.add_argument("--openrouter-api-key")
     parser.add_argument("--openrouter-api-base-url")
@@ -410,6 +440,22 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     if getattr(args, "static_route", None) is not None:
         cfg.backends.static_route = args.static_route
         os.environ["STATIC_ROUTE"] = args.static_route
+
+    # Model aliases configuration (CLI overrides config file)
+    if getattr(args, "model_aliases", None) is not None:
+        from src.core.config.app_config import ModelAliasRule
+        
+        # Convert CLI tuples to ModelAliasRule objects
+        cli_aliases = [
+            ModelAliasRule(pattern=pattern, replacement=replacement)
+            for pattern, replacement in args.model_aliases
+        ]
+        cfg.model_aliases = cli_aliases
+        
+        # Store in environment for other processes
+        import json
+        alias_data = [{"pattern": rule.pattern, "replacement": rule.replacement} for rule in cli_aliases]
+        os.environ["MODEL_ALIASES"] = json.dumps(alias_data)
 
     # API keys and URLs
     if args.openrouter_api_key is not None:

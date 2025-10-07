@@ -265,6 +265,12 @@ class EmptyResponseConfig(DomainModel):
     """Maximum number of retries for empty responses."""
 
 
+class ModelAliasRule(DomainModel):
+    """A rule for rewriting a model name."""
+    pattern: str
+    replacement: str
+
+
 class RewritingConfig(DomainModel):
     """Configuration for content rewriting."""
 
@@ -495,6 +501,9 @@ class AppConfig(DomainModel, IConfig):
         default_factory=lambda: ReasoningAliasesConfig(reasoning_alias_settings=[])
     )
 
+    # Model name rewrite rules
+    model_aliases: list[ModelAliasRule] = Field(default_factory=list)
+
     # FastAPI app instance
     app: Any = None
 
@@ -502,6 +511,40 @@ class AppConfig(DomainModel, IConfig):
         """Save the current configuration to a file."""
         p = Path(path)
         data = self.model_dump(mode="json")
+        # Normalize structure to match schema expectations
+        # - default_backend must be at top-level (already present)
+        # - Remove runtime-only fields that are not part of schema or can cause validation errors
+        for runtime_key in ["app"]:
+            if runtime_key in data:
+                data[runtime_key] = None
+        # Filter out unsupported top-level keys (schema has additionalProperties: false)
+        allowed_top_keys = {
+            "host",
+            "port",
+            "anthropic_port",
+            "proxy_timeout",
+            "command_prefix",
+            "context_window_override",
+            "default_rate_limit",
+            "default_rate_window",
+            "model_defaults",
+            "failover_routes",
+            "identity",
+            "empty_response",
+            "edit_precision",
+            "rewriting",
+            "app",
+            "logging",
+            "auth",
+            "session",
+            "backends",
+            "default_backend",
+            "reasoning_aliases",
+            "model_aliases",
+        }
+        data = {k: v for k, v in data.items() if k in allowed_top_keys}
+        # Ensure nested sections only include serializable primitives
+        # (model_dump already handles pydantic models)
         if p.suffix.lower() in {".yaml", ".yml"}:
             import yaml
 
@@ -717,6 +760,23 @@ class AppConfig(DomainModel, IConfig):
                 "REWRITING_CONFIG_PATH", "config/replacements"
             ),
         }
+
+        # Model aliases configuration from environment
+        model_aliases_env = os.environ.get("MODEL_ALIASES")
+        if model_aliases_env:
+            try:
+                alias_data = json.loads(model_aliases_env)
+                if isinstance(alias_data, list):
+                    config["model_aliases"] = [
+                        {"pattern": item["pattern"], "replacement": item["replacement"]}
+                        for item in alias_data
+                        if isinstance(item, dict) and "pattern" in item and "replacement" in item
+                    ]
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.warning(f"Invalid MODEL_ALIASES environment variable format: {e}")
+                config["model_aliases"] = []
+        else:
+            config["model_aliases"] = []
 
         config["backends"] = {
             "default_backend": os.environ.get("LLM_BACKEND", "openai")
