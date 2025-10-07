@@ -248,16 +248,9 @@ class BackendStage(InitializationStage):
                 BackendService, implementation_factory=backend_service_factory
             )
 
-            def _backend_service_alias_factory(
-                provider: IServiceProvider,
-            ) -> BackendService:
-                """Resolve the concrete BackendService singleton for the interface."""
-
-                return provider.get_required_service(BackendService)
-
             services.add_singleton(
                 cast(type, IBackendService),
-                implementation_factory=_backend_service_alias_factory,
+                implementation_factory=backend_service_factory,
             )
 
             if logger.isEnabledFor(logging.DEBUG):
@@ -340,7 +333,7 @@ class BackendStage(InitializationStage):
         Returns:
             List of functional backend names
         """
-        functional_backends = []
+        functional_backends: list[str] = []
 
         # Get configured backends from the config
         configured_backends = []
@@ -382,12 +375,24 @@ class BackendStage(InitializationStage):
 
         # Use the BackendFactory from the service container for proper DI
         try:
+<<<<<<< HEAD
             from src.core.models.backend_config import BackendConfig
+=======
+            from src.core.domain.configuration.backend_config import BackendConfiguration
+>>>>>>> 7d5c26d (Fix response processor default stream normalizer)
             from src.core.services.backend_factory import BackendFactory
 
             backend_factory_service = services.build_service_provider().get_service(
                 BackendFactory
             )
+<<<<<<< HEAD
+=======
+            if backend_factory_service is None:
+                logger.warning(
+                    "BackendFactory service not available for validation check"
+                )
+                return functional_backends
+>>>>>>> 7d5c26d (Fix response processor default stream normalizer)
 
             for backend_name in configured_backends:
                 try:
@@ -410,8 +415,13 @@ class BackendStage(InitializationStage):
                         )
                         continue
 
+<<<<<<< HEAD
                     # Convert to BackendConfig model
                     backend_config = BackendConfig(
+=======
+                    # Convert to BackendConfiguration model
+                    backend_config = BackendConfiguration(
+>>>>>>> 7d5c26d (Fix response processor default stream normalizer)
                         api_key=(
                             backend_config_data.api_key
                             if hasattr(backend_config_data, "api_key")
