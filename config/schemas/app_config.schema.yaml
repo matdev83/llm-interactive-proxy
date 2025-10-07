@@ -121,3 +121,15 @@ properties:
   reasoning_aliases:
     type: object
     additionalProperties: true
+  model_aliases:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      properties:
+        pattern:
+          type: string
+        replacement:
+          type: string
+      required: [pattern, replacement]
+    default: []

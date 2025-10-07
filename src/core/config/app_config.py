@@ -755,6 +755,23 @@ class AppConfig(DomainModel, IConfig):
             ),
         }
 
+        # Model aliases configuration from environment
+        model_aliases_env = os.environ.get("MODEL_ALIASES")
+        if model_aliases_env:
+            try:
+                alias_data = json.loads(model_aliases_env)
+                if isinstance(alias_data, list):
+                    config["model_aliases"] = [
+                        {"pattern": item["pattern"], "replacement": item["replacement"]}
+                        for item in alias_data
+                        if isinstance(item, dict) and "pattern" in item and "replacement" in item
+                    ]
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.warning(f"Invalid MODEL_ALIASES environment variable format: {e}")
+                config["model_aliases"] = []
+        else:
+            config["model_aliases"] = []
+
         config["backends"] = {
             "default_backend": os.environ.get("LLM_BACKEND", "openai")
         }
