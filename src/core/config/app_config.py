@@ -47,16 +47,6 @@ def _get_api_keys_from_env() -> list[str]:
     if api_keys_raw and isinstance(api_keys_raw, str):
         result.extend(_process_api_keys(api_keys_raw))
 
-    # Support common single-key env vars for the proxy
-    for name in (
-        "LLM_INTERACTIVE_PROXY_API_KEY",
-        "PROXY_API_KEY",
-        "TEST_PROXY_API_KEY",
-    ):
-        value = os.environ.get(name)
-        if value and isinstance(value, str) and value.strip():
-            result.append(value.strip())
-
     return result
 
 
@@ -100,8 +90,8 @@ class LogLevel(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class BackendConfigModel(DomainModel):
-    """Configuration model for backend service (for YAML deserialization)."""
+class BackendConfig(DomainModel):
+    """Configuration for a backend service."""
 
     api_key: list[str] = Field(default_factory=list)
     api_url: str | None = None
@@ -212,12 +202,6 @@ class ToolCallReactorConfig(DomainModel):
     If None, uses the default message. Can be customized to fit your workflow.
     """
 
-    pytest_full_suite_steering_enabled: bool = False
-    """Whether pytest full-suite steering is enabled (opt-in)."""
-
-    pytest_full_suite_steering_message: str | None = None
-    """Custom steering message for full-suite pytest commands."""
-
     # New: fully configurable steering rules
     steering_rules: list[dict[str, Any]] = Field(default_factory=list)
     """Configurable steering rules.
@@ -240,6 +224,7 @@ class PlanningPhaseConfig(DomainModel):
     strong_model: str | None = None
     max_turns: int = 10
     max_file_writes: int = 1
+    # Optional parameter overrides for the strong model
     overrides: dict[str, Any] | None = None
 
 
@@ -258,7 +243,6 @@ class SessionConfig(DomainModel):
     json_repair_enabled: bool = True
     # Max per-session buffer for JSON repair streaming (bytes)
     json_repair_buffer_cap_bytes: int = 64 * 1024
-    content_accumulation_buffer_cap_bytes: int = 64 * 1024
     json_repair_strict_mode: bool = False
     json_repair_schema: dict[str, Any] | None = None  # Added
     tool_call_reactor: ToolCallReactorConfig = Field(
@@ -268,7 +252,6 @@ class SessionConfig(DomainModel):
     dangerous_command_steering_message: str | None = None
     pytest_compression_enabled: bool = True
     pytest_compression_min_lines: int = 30
-    pytest_full_suite_steering_enabled: bool = False
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
 
 
@@ -345,18 +328,18 @@ class BackendSettings(DomainModel):
         # Set backend configs using __dict__ to bypass Pydantic's field system
         for backend_name, config_data in backend_configs.items():
             if isinstance(config_data, dict):
-                config: BackendConfigModel = BackendConfigModel(**config_data)
-            elif isinstance(config_data, BackendConfigModel):
+                config: BackendConfig = BackendConfig(**config_data)
+            elif isinstance(config_data, BackendConfig):
                 config = config_data
             else:
-                config = BackendConfigModel()
+                config = BackendConfig()
             # Use __dict__ to bypass Pydantic's field system
             self.__dict__[backend_name] = config
 
-        # Add default BackendConfigModel for any registered backends that don't have configs
+        # Add default BackendConfig for any registered backends that don't have configs
         for backend_name in registered_backends:
             if backend_name not in self.__dict__:
-                self.__dict__[backend_name] = BackendConfigModel()
+                self.__dict__[backend_name] = BackendConfig()
 
         # Finally, absorb any non-registered backend configs that were provided via env/file
         # so that attribute access like config.backends.openai works even if
@@ -365,23 +348,23 @@ class BackendSettings(DomainModel):
             if key == "default_backend" or key.startswith("_"):
                 continue
             if isinstance(value, dict):
-                self.__dict__[key] = BackendConfigModel(**value)
-            elif isinstance(value, BackendConfigModel):
+                self.__dict__[key] = BackendConfig(**value)
+            elif isinstance(value, BackendConfig):
                 self.__dict__[key] = value
 
-    def __getitem__(self, key: str) -> BackendConfigModel:
+    def __getitem__(self, key: str) -> BackendConfig:
         """Allow dictionary-style access to backend configs."""
         if key in self.__dict__:
-            return cast(BackendConfigModel, self.__dict__[key])
+            return cast(BackendConfig, self.__dict__[key])
         raise KeyError(f"Backend '{key}' not found")
 
-    def __setitem__(self, key: str, value: BackendConfigModel) -> None:
+    def __setitem__(self, key: str, value: BackendConfig) -> None:
         """Allow dictionary-style setting of backend configs."""
         self.__dict__[key] = value
 
     def get(self, key: str, default: Any = None) -> Any:
         """Dictionary-style get with default."""
-        return cast(BackendConfigModel | None, self.__dict__.get(key, default))
+        return cast(BackendConfig | None, self.__dict__.get(key, default))
 
     @property
     def functional_backends(self) -> set[str]:
@@ -391,7 +374,7 @@ class BackendSettings(DomainModel):
         for backend_name in registered:
             if backend_name in self.__dict__:
                 config: Any = self.__dict__[backend_name]
-                if isinstance(config, BackendConfigModel) and config.api_key:
+                if isinstance(config, BackendConfig) and config.api_key:
                     functional.add(backend_name)
 
         # Consider OAuth-style backends functional even without an api_key in config,
@@ -411,7 +394,7 @@ class BackendSettings(DomainModel):
             if (
                 name == "default_backend"
                 or name.startswith("_")
-                or not isinstance(cfg, BackendConfigModel)
+                or not isinstance(cfg, BackendConfig)
             ):
                 continue
             if cfg.api_key:
@@ -435,7 +418,7 @@ class BackendSettings(DomainModel):
 
         # Check if the attribute exists in __dict__
         if name in self.__dict__:
-            return cast(BackendConfigModel, self.__dict__[name])
+            return cast(BackendConfig, self.__dict__[name])
 
         # Avoid creating configs for private/internal attributes to maintain security
         if name.startswith(("_", "__")):
@@ -447,7 +430,7 @@ class BackendSettings(DomainModel):
         # This allows accessing backend configs without pre-registration while
         # maintaining backward compatibility. Created configs are cached for
         # subsequent access to avoid creating multiple instances.
-        config = BackendConfigModel()
+        config = BackendConfig()
         self.__dict__[name] = config
         return config
 
@@ -458,7 +441,7 @@ class BackendSettings(DomainModel):
         for backend_name in backend_registry.get_registered_backends():
             if backend_name in self.__dict__:
                 config: Any = self.__dict__[backend_name]
-                if isinstance(config, BackendConfigModel):
+                if isinstance(config, BackendConfig):
                     dumped[backend_name] = config.model_dump()
         return dumped
 
@@ -474,7 +457,6 @@ class AppConfig(DomainModel, IConfig):
     proxy_timeout: int = 120
     command_prefix: str = "!/"
     context_window_override: int | None = None  # Override context window for all models
-    strict_command_detection: bool = False  # Only match commands on last non-blank line
 
     # Rate limit settings
     default_rate_limit: int = 60
@@ -520,39 +502,6 @@ class AppConfig(DomainModel, IConfig):
         """Save the current configuration to a file."""
         p = Path(path)
         data = self.model_dump(mode="json")
-        # Normalize structure to match schema expectations
-        # - default_backend must be at top-level (already present)
-        # - Remove runtime-only fields that are not part of schema or can cause validation errors
-        for runtime_key in ["app"]:
-            if runtime_key in data:
-                data[runtime_key] = None
-        # Filter out unsupported top-level keys (schema has additionalProperties: false)
-        allowed_top_keys = {
-            "host",
-            "port",
-            "anthropic_port",
-            "proxy_timeout",
-            "command_prefix",
-            "context_window_override",
-            "default_rate_limit",
-            "default_rate_window",
-            "model_defaults",
-            "failover_routes",
-            "identity",
-            "empty_response",
-            "edit_precision",
-            "rewriting",
-            "app",
-            "logging",
-            "auth",
-            "session",
-            "backends",
-            "default_backend",
-            "reasoning_aliases",
-        }
-        data = {k: v for k, v in data.items() if k in allowed_top_keys}
-        # Ensure nested sections only include serializable primitives
-        # (model_dump already handles pydantic models)
         if p.suffix.lower() in {".yaml", ".yml"}:
             import yaml
 
@@ -579,10 +528,6 @@ class AppConfig(DomainModel, IConfig):
             or (int(os.environ.get("APP_PORT", "8000")) + 1),
             "proxy_timeout": int(os.environ.get("PROXY_TIMEOUT", "120")),
             "command_prefix": os.environ.get("COMMAND_PREFIX", "!/"),
-            "strict_command_detection": os.environ.get(
-                "STRICT_COMMAND_DETECTION", ""
-            ).lower()
-            == "true",
             "auth": {
                 "disable_auth": os.environ.get("DISABLE_AUTH", "").lower() == "true",
                 "api_keys": _get_api_keys_from_env(),
@@ -658,23 +603,51 @@ class AppConfig(DomainModel, IConfig):
             "pytest_compression_min_lines": int(
                 os.environ.get("PYTEST_COMPRESSION_MIN_LINES", "30")
             ),
-            "pytest_full_suite_steering_enabled": os.environ.get(
-                "PYTEST_FULL_SUITE_STEERING_ENABLED", "false"
-            ).lower()
-            == "true",
+            "planning_phase": {
+                "enabled": os.environ.get("PLANNING_PHASE_ENABLED", "false").lower()
+                == "true",
+                "strong_model": os.environ.get("PLANNING_PHASE_STRONG_MODEL"),
+                "max_turns": int(os.environ.get("PLANNING_PHASE_MAX_TURNS", "10")),
+                "max_file_writes": int(
+                    os.environ.get("PLANNING_PHASE_MAX_FILE_WRITES", "1")
+                ),
+                "overrides": {
+                    # Only include keys that are actually provided to avoid schema validation noise
+                    **(
+                        {
+                            "temperature": _env_to_float(
+                                "PLANNING_PHASE_TEMPERATURE", None
+                            )
+                        }
+                        if os.environ.get("PLANNING_PHASE_TEMPERATURE")
+                        else {}
+                    ),
+                    **(
+                        {"top_p": _env_to_float("PLANNING_PHASE_TOP_P", None)}
+                        if os.environ.get("PLANNING_PHASE_TOP_P")
+                        else {}
+                    ),
+                    **(
+                        {
+                            "reasoning_effort": os.environ.get(
+                                "PLANNING_PHASE_REASONING_EFFORT"
+                            )
+                        }
+                        if os.environ.get("PLANNING_PHASE_REASONING_EFFORT")
+                        else {}
+                    ),
+                    **(
+                        {
+                            "thinking_budget": _env_to_int(
+                                "PLANNING_PHASE_THINKING_BUDGET", 0
+                            )
+                        }
+                        if os.environ.get("PLANNING_PHASE_THINKING_BUDGET")
+                        else {}
+                    ),
+                },
+            },
         }
-
-        session_config = config["session"]
-        tool_call_reactor_config: dict[str, Any] = session_config.get(
-            "tool_call_reactor", {}
-        )
-        if not isinstance(tool_call_reactor_config, dict):
-            tool_call_reactor_config = {}
-        tool_call_reactor_config.setdefault(
-            "pytest_full_suite_steering_enabled",
-            session_config.get("pytest_full_suite_steering_enabled", False),
-        )
-        session_config["tool_call_reactor"] = tool_call_reactor_config
 
         config["logging"] = {
             "level": os.environ.get("LOG_LEVEL", "INFO"),
@@ -854,9 +827,17 @@ class AppConfig(DomainModel, IConfig):
             config_backends[default_backend_type] = config_backends.get(
                 default_backend_type, {}
             )
-            # SECURITY: Removed automatic test API key injection
-            # Production code should never detect test environment or modify behavior automatically
-            # API keys must be explicitly provided via configuration, not auto-generated based on environment
+            # Add a dummy API key if running in test environment and no API key is present
+            if os.environ.get("PYTEST_CURRENT_TEST") and (
+                not config_backends[default_backend_type]
+                or not config_backends[default_backend_type].get("api_key")
+            ):
+                config_backends[default_backend_type]["api_key"] = [
+                    f"test-key-{default_backend_type}"
+                ]
+                logger.info(
+                    f"Added test API key for default backend {default_backend_type}"
+                )
 
         return cls(**config)  # type: ignore
 
@@ -973,7 +954,3 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
             raise
 
     return config
-
-
-# Type alias for backward compatibility
-BackendConfig = BackendConfigModel

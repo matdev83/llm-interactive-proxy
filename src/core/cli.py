@@ -53,29 +53,10 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=registered_backends,  # Dynamically populated
         help=argparse.SUPPRESS,
     )
-
-    def validate_static_route(value: str) -> str:
-        from src.core.domain.model_utils import parse_model_backend
-
-        try:
-            backend_key, model_name = parse_model_backend(value)
-            if not backend_key or not model_name:
-                raise ValueError(
-                    "Invalid format. Expected BACKEND:MODEL or BACKEND/MODEL."
-                )
-            if backend_key not in registered_backends:
-                raise ValueError(
-                    f"Backend '{backend_key}' is not a registered backend."
-                )
-            return value
-        except ValueError as e:
-            raise argparse.ArgumentTypeError(f"Invalid static route '{value}': {e}")
-
     parser.add_argument(
         "--static-route",
         dest="static_route",
         metavar="BACKEND:MODEL",
-        type=validate_static_route,
         help="Force all requests to use this backend:model combination (e.g., gemini-cli-oauth-personal:gemini-2.5-pro)",
     )
 
@@ -198,12 +179,6 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         default=None,
         help="Disable all in-chat command processing",
-    )
-    parser.add_argument(
-        "--strict-command-detection",
-        action="store_true",
-        default=None,
-        help="Enable strict command detection (only process commands on last non-blank line)",
     )
     parser.add_argument(
         "--disable-accounting",
@@ -337,22 +312,6 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable pytest output compression (overrides config)",
     )
 
-    parser.add_argument(
-        "--enable-pytest-full-suite-steering",
-        action="store_const",
-        const=True,
-        dest="pytest_full_suite_steering_enabled",
-        default=None,
-        help="Enable steering message before running full pytest suite (opt-in)",
-    )
-    parser.add_argument(
-        "--disable-pytest-full-suite-steering",
-        action="store_const",
-        const=False,
-        dest="pytest_full_suite_steering_enabled",
-        help="Disable steering for full-suite pytest even if config enables it",
-    )
-
     # Security and process options
     parser.add_argument(
         "--allow-admin",
@@ -414,8 +373,8 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     # Logging configuration
     if args.log_file is not None:
         cfg.logging.log_file = args.log_file
-    elif not cfg.logging.log_file:
-        # Set default log file if none specified by CLI or config
+    else:
+        # Set default log file if none specified
         from pathlib import Path
 
         default_log_file = "logs/proxy.log"
@@ -486,11 +445,6 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         )
     if args.disable_interactive_commands is not None:
         cfg.session.disable_interactive_commands = args.disable_interactive_commands
-    if args.strict_command_detection is not None:
-        cfg.strict_command_detection = args.strict_command_detection
-        os.environ["STRICT_COMMAND_DETECTION"] = (
-            "true" if args.strict_command_detection else "false"
-        )
     if args.disable_accounting is not None:
         os.environ["DISABLE_ACCOUNTING"] = (
             "true" if args.disable_accounting else "false"
@@ -520,23 +474,17 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     if args.pytest_compression_enabled is not None:
         cfg.session.pytest_compression_enabled = args.pytest_compression_enabled
 
-    if getattr(args, "pytest_full_suite_steering_enabled", None) is not None:
-        cfg.session.pytest_full_suite_steering_enabled = (
-            args.pytest_full_suite_steering_enabled
-        )
-
     # Planning phase configuration
-    # Apply planning phase options only if config supports it (optional feature)
-    planning = getattr(cfg.session, "planning_phase", None)
-    if planning is not None:
-        if getattr(args, "enable_planning_phase", None) is not None:
-            planning.enabled = args.enable_planning_phase
-        if getattr(args, "planning_phase_strong_model", None) is not None:
-            planning.strong_model = args.planning_phase_strong_model
-        if getattr(args, "planning_phase_max_turns", None) is not None:
-            planning.max_turns = max(1, args.planning_phase_max_turns)
-        if getattr(args, "planning_phase_max_file_writes", None) is not None:
-            planning.max_file_writes = max(1, args.planning_phase_max_file_writes)
+    if getattr(args, "enable_planning_phase", None) is not None:
+        cfg.session.planning_phase.enabled = args.enable_planning_phase
+    if getattr(args, "planning_phase_strong_model", None) is not None:
+        cfg.session.planning_phase.strong_model = args.planning_phase_strong_model
+    if getattr(args, "planning_phase_max_turns", None) is not None:
+        cfg.session.planning_phase.max_turns = max(1, args.planning_phase_max_turns)
+    if getattr(args, "planning_phase_max_file_writes", None) is not None:
+        cfg.session.planning_phase.max_file_writes = max(
+            1, args.planning_phase_max_file_writes
+        )
 
     # Planning phase overrides
     overrides_updates: dict[str, Any] = {}
@@ -548,12 +496,12 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         overrides_updates["reasoning_effort"] = args.planning_phase_reasoning_effort
     if getattr(args, "planning_phase_thinking_budget", None) is not None:
         overrides_updates["thinking_budget"] = args.planning_phase_thinking_budget
-    if overrides_updates and planning is not None:
-        existing_overrides = getattr(planning, "overrides", {}) or {}
+    if overrides_updates:
+        existing_overrides = cfg.session.planning_phase.overrides or {}
         if not isinstance(existing_overrides, dict):
             existing_overrides = {}
         existing_overrides.update(overrides_updates)
-        planning.overrides = existing_overrides
+        cfg.session.planning_phase.overrides = existing_overrides
 
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)

@@ -239,40 +239,96 @@ class Translation(BaseTranslator):
             stripped = args.strip()
             if not stripped:
                 return "{}"
+
+            # First, try to load it as-is. It might be a valid JSON string.
             try:
                 json.loads(stripped)
                 return stripped
             except json.JSONDecodeError:
-                # Attempt to parse Python-literal style dicts/lists safely
-                try:
-                    import ast
+              # If it fails, it might be a string using single quotes.
+                # We will try to fix it, but only if it doesn't create an invalid JSON.
+                pass
 
-                    literal = ast.literal_eval(stripped)
-                    # Only convert common JSON-compatible literal types
-                    if (
-                        isinstance(
-                            literal, dict | list | tuple | str | int | float | bool
-                        )
-                        or literal is None
-                    ):
-                        return json.dumps(
-                            literal if not isinstance(literal, tuple) else list(literal)
-                        )
-                except Exception:
-                    pass
-                # Safe fallback - keep raw content under a namespaced key to avoid corruption
-                return json.dumps({"_raw": stripped})
+            try:
+                # Attempt to replace single quotes with double quotes for JSON compatibility.
+                # This is a common issue with LLM-generated JSON in string format.
+                # However, we must be careful not to corrupt strings that contain single quotes.
+                fixed_string = stripped.replace("'", '"')
+                json.loads(fixed_string)
+                return fixed_string
+            except (json.JSONDecodeError, TypeError):
+                # If replacement fails, it's likely not a simple quote issue.
+                # This can happen if the string contains legitimate single quotes.
+                # Return empty object instead of _raw format to maintain tool calling contract.
+                return "{}"
 
         if isinstance(args, dict):
-            return json.dumps(args)
+            try:
+                return json.dumps(args)
+            except TypeError:
+                # Handle dicts with non-serializable values
+                sanitized_dict = Translation._sanitize_dict_for_json(args)
+                return json.dumps(sanitized_dict)
 
         if isinstance(args, list | tuple):
-            return json.dumps(list(args))
+            try:
+                return json.dumps(list(args))
+            except TypeError:
+                # Handle lists with non-serializable items
+                sanitized_list = Translation._sanitize_list_for_json(list(args))
+                return json.dumps(sanitized_list)
 
-        try:
+        # For primitive types that should be JSON serializable
+        if isinstance(args, int | float | bool):
             return json.dumps(args)
-        except TypeError:
-            return json.dumps({"_raw": str(args)})
+
+        # For non-serializable objects, return empty object instead of _raw format
+        # This maintains the tool calling contract while preventing failures
+        return "{}"
+
+    @staticmethod
+    def _sanitize_dict_for_json(data: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize a dictionary by removing or converting non-JSON-serializable values."""
+        sanitized = {}
+        for key, value in data.items():
+            try:
+                # Test if the value is JSON serializable
+                json.dumps(value)
+                sanitized[key] = value
+            except TypeError:
+                # Handle non-serializable values
+                if isinstance(value, dict):
+                    sanitized[key] = Translation._sanitize_dict_for_json(value)
+                elif isinstance(value, list | tuple):
+                    sanitized[key] = Translation._sanitize_list_for_json(list(value))
+                elif isinstance(value, str | int | float | bool) or value is None:
+                    sanitized[key] = value
+                else:
+                    # For complex objects, skip them to maintain valid tool arguments
+                    continue
+        return sanitized
+
+    @staticmethod
+    def _sanitize_list_for_json(data: list[Any]) -> list[Any]:
+        """Sanitize a list by removing or converting non-JSON-serializable items."""
+        sanitized = []
+        for item in data:
+            try:
+                # Test if the item is JSON serializable
+                json.dumps(item)
+                sanitized.append(item)
+            except TypeError:
+                # Handle non-serializable items
+                if isinstance(item, dict):
+                    sanitized.append(Translation._sanitize_dict_for_json(item))
+                elif isinstance(item, list | tuple):
+                    sanitized.append(Translation._sanitize_list_for_json(list(item)))
+                elif isinstance(item, str | int | float | bool) or item is None:
+                    sanitized.append(item)
+                else:
+                    # For complex objects, skip them to maintain valid tool arguments
+                    continue
+        return sanitized
 
     @staticmethod
     def _process_gemini_function_call(function_call: dict[str, Any]) -> ToolCall:
@@ -305,25 +361,26 @@ class Translation(BaseTranslator):
         """
         Translate an Anthropic request to a CanonicalChatRequest.
         """
+        # Use the helper method to safely access request parameters
         return CanonicalChatRequest(
-            model=request.model,
-            messages=request.messages,
-            temperature=request.temperature,
-            top_p=request.top_p,
-            top_k=request.top_k,
-            n=request.n,
-            stream=request.stream,
-            stop=request.stop,
-            max_tokens=request.max_tokens,
-            presence_penalty=request.presence_penalty,
-            frequency_penalty=request.frequency_penalty,
-            logit_bias=request.logit_bias,
-            user=request.user,
-            reasoning_effort=request.reasoning_effort,
-            seed=request.seed,
-            tools=request.tools,
-            tool_choice=request.tool_choice,
-            extra_body=request.extra_body,
+            model=Translation._get_request_param(request, "model"),
+            messages=Translation._get_request_param(request, "messages", []),
+            temperature=Translation._get_request_param(request, "temperature"),
+            top_p=Translation._get_request_param(request, "top_p"),
+            top_k=Translation._get_request_param(request, "top_k"),
+            n=Translation._get_request_param(request, "n"),
+            stream=Translation._get_request_param(request, "stream"),
+            stop=Translation._get_request_param(request, "stop"),
+            max_tokens=Translation._get_request_param(request, "max_tokens"),
+            presence_penalty=Translation._get_request_param(request, "presence_penalty"),
+            frequency_penalty=Translation._get_request_param(request, "frequency_penalty"),
+            logit_bias=Translation._get_request_param(request, "logit_bias"),
+            user=Translation._get_request_param(request, "user"),
+            reasoning_effort=Translation._get_request_param(request, "reasoning_effort"),
+            seed=Translation._get_request_param(request, "seed"),
+            tools=Translation._get_request_param(request, "tools"),
+            tool_choice=Translation._get_request_param(request, "tool_choice"),
+            extra_body=Translation._get_request_param(request, "extra_body"),
         )
 
     @staticmethod
@@ -618,8 +675,31 @@ class Translation(BaseTranslator):
 
             # Preserve tool_calls if present
             tool_calls = None
-            if isinstance(msg.get("tool_calls"), list):
-                tool_calls = list(msg.get("tool_calls"))
+            raw_tool_calls = msg.get("tool_calls")
+            if isinstance(raw_tool_calls, list):
+                # Validate each tool call in the list before including it
+                validated_tool_calls = []
+                for tc in raw_tool_calls:
+                    # Convert dict to ToolCall if necessary
+                    if isinstance(tc, dict):
+                        # Create a ToolCall object from the dict
+                        # Assuming the dict has the necessary structure for ToolCall
+                        # We'll need to import ToolCall if not already available
+                        # For now, we'll use a simple approach
+                        try:
+                            # Create ToolCall from dict, assuming proper structure
+                            tool_call_obj = ToolCall(**tc)
+                            validated_tool_calls.append(tool_call_obj)
+                        except (TypeError, ValueError):
+                            # If conversion fails, skip this tool call
+                            pass
+                    elif isinstance(tc, ToolCall):
+                        validated_tool_calls.append(tc)
+                    else:
+                        # Log or handle invalid tool call
+                        # For now, we'll skip invalid ones
+                        pass
+                tool_calls = validated_tool_calls if validated_tool_calls else None
 
             message_obj = ChatCompletionChoiceMessage(
                 role=role, content=content, tool_calls=tool_calls
@@ -1479,7 +1559,7 @@ class Translation(BaseTranslator):
 
         if candidates and len(candidates) > 0:
             candidate = candidates[0]
-            content = candidate.get("content", {})
+            content = candidate.get("content") or {}
             parts = content.get("parts", [])
 
             if parts and len(parts) > 0:
@@ -1545,7 +1625,7 @@ class Translation(BaseTranslator):
 
         if candidates and len(candidates) > 0:
             candidate = candidates[0]
-            content_obj = candidate.get("content", {})
+            content_obj = candidate.get("content") or {}
             parts = content_obj.get("parts", [])
 
             if parts and len(parts) > 0:
