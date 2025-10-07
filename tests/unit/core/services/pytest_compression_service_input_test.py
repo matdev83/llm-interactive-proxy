@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from src.core.services.pytest_compression_service import PytestCompressionService
 
 
@@ -10,7 +9,9 @@ def service() -> PytestCompressionService:
     return PytestCompressionService()
 
 
-def test_scan_for_pytest_detects_input_string(service: PytestCompressionService) -> None:
+def test_scan_for_pytest_detects_input_string(
+    service: PytestCompressionService,
+) -> None:
     arguments = {"input": "pytest -q"}
 
     result = service.scan_for_pytest("bash", arguments)
