@@ -282,6 +282,12 @@ class EmptyResponseConfig(DomainModel):
     """Maximum number of retries for empty responses."""
 
 
+class ModelAliasRule(DomainModel):
+    """A rule for rewriting a model name."""
+    pattern: str
+    replacement: str
+
+
 class RewritingConfig(DomainModel):
     """Configuration for content rewriting."""
 
@@ -513,6 +519,9 @@ class AppConfig(DomainModel, IConfig):
         default_factory=lambda: ReasoningAliasesConfig(reasoning_alias_settings=[])
     )
 
+    # Model name rewrite rules
+    model_aliases: list[ModelAliasRule] = Field(default_factory=list)
+
     # FastAPI app instance
     app: Any = None
 
@@ -549,6 +558,7 @@ class AppConfig(DomainModel, IConfig):
             "backends",
             "default_backend",
             "reasoning_aliases",
+            "model_aliases",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
         # Ensure nested sections only include serializable primitives

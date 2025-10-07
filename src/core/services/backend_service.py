@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, cast
 
 from src.connectors.base import LLMBackend
@@ -103,6 +104,34 @@ class BackendService(IBackendService):
                 self._backend_config_service = BackendConfigProvider(AppConfig())
         # Assign wire_capture if provided
         self._wire_capture: IWireCapture | None = wire_capture
+
+    def _apply_model_aliases(self, model: str) -> str:
+        """Applies the first matching model alias rule to the model name.
+        
+        Args:
+            model: The original model name
+            
+        Returns:
+            The rewritten model name, or the original if no rules match
+        """
+        from src.core.config.app_config import AppConfig
+        
+        app_config = cast(AppConfig, self._config)
+        if not app_config.model_aliases:
+            return model
+
+        for alias in app_config.model_aliases:
+            try:
+                if re.match(alias.pattern, model):
+                    # Use re.sub for proper replacement with capture groups
+                    new_model = re.sub(alias.pattern, alias.replacement, model)
+                    logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
+                    return new_model
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern in model alias '{alias.pattern}': {e}")
+                continue
+        
+        return model
 
     def _apply_reasoning_config(
         self, request: ChatRequest, session: Any
@@ -649,11 +678,15 @@ class BackendService(IBackendService):
             )
 
         effective_model: str = request.model
+        
+        # Apply model aliases BEFORE parsing backend from model name
+        effective_model = self._apply_model_aliases(effective_model)
+        
         if not backend_type:
             from src.core.domain.model_utils import parse_model_backend
 
             parsed_backend, parsed_model = parse_model_backend(
-                request.model, default_backend
+                effective_model, default_backend
             )
             backend_type = parsed_backend
             effective_model = parsed_model
