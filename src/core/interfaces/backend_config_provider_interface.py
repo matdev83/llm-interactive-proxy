@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Protocol, runtime_checkable
 
-from src.core.config.app_config import AppConfig, BackendConfigModel
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.chat import ChatRequest
 
 
@@ -11,12 +11,12 @@ from src.core.domain.chat import ChatRequest
 class IBackendConfigProvider(Protocol):
     """Interface for providing normalized backend configuration to services.
 
-    Implementations must return canonical `BackendConfigModel` objects so callers
-    do not need to handle mixed shapes (dict vs BackendConfigModel).
+    Implementations must return canonical `BackendConfig` objects so callers
+    do not need to handle mixed shapes (dict vs BackendConfig).
     """
 
-    def get_backend_config(self, name: str) -> BackendConfigModel | None:
-        """Return the `BackendConfigModel` for the given backend name or None."""
+    def get_backend_config(self, name: str) -> BackendConfig | None:
+        """Return the `BackendConfig` for the given backend name or None."""
 
     def iter_backend_names(self) -> Iterable[str]:
         """Iterate over known backend names."""
