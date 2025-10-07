@@ -38,6 +38,7 @@ This project is a swiss-army knife for anyone working with language models and a
 - **Customize System Prompts**: Rewrite or modify an agent's system prompt to better suit your specific needs and improve its performance.
 - **Leverage Your LLM Subscriptions**: Use your personal subscriptions, like OpenAI Plus/Pro or Anthropic Pro/MAX plans, with any third-party application, not just those developed by the LLM vendor.
 - **Automated Model Tuning for Precision**: The proxy automatically detects when a model struggles with tasks like precise file edits and adjusts its parameters to improve accuracy on subsequent attempts.
+- **Model Name Rewrites (NEW)**: Dynamically rewrite model names using powerful regex-based rules. Route all GPT requests to OpenRouter, replace specific models with alternatives, or create catch-all fallbacks - all configurable via CLI, environment variables, or config files.
 - **Planning-Phase Strong Model Overrides (NEW)**: Optionally route the first part of a session to a stronger model and override its parameters (e.g., temperature, top_p, reasoning effort, thinking budget) to maximize planning quality; automatically switch back to the default model after a set number of turns or file writes.
 - **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
 - **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
@@ -72,6 +73,7 @@ This project is a swiss-army knife for anyone working with language models and a
 
 ### Control & Ergonomics
 
+- **Model Name Rewrites**: Powerful regex-based model name transformation with configurable rules and precedence
 - In-chat switching: change back-end and model on the fly with `!/backend(...)` and `!/model(...)`
 - Force model override: static CLI parameter (`--force-model`) to override all client-requested models without modifying client code
 
@@ -465,6 +467,121 @@ authentications reset the counter immediately.
 ### Advanced Wire Capture Documentation
 
 For detailed information about wire capture formats, migration between versions, and processing examples, see [docs/wire_capture_formats.md](docs/wire_capture_formats.md).
+
+## Model Name Rewrites
+
+The Model Name Rewrites feature provides a powerful, rule-based system for dynamically transforming model names before they are processed by the proxy. This enables seamless model routing, backend abstraction, and fallback strategies without requiring changes to client applications.
+
+### Key Benefits
+
+- **Backend Abstraction**: Hide specific backend details from client applications
+- **Seamless Migration**: Switch underlying models without updating client code
+- **Cost Optimization**: Route expensive models to cheaper alternatives
+- **Fallback Strategies**: Create catch-all rules for unrecognized models
+- **Provider Consolidation**: Route all requests of a certain type through a preferred provider
+
+### Configuration Sources
+
+Model aliases can be configured through three sources with the following precedence order:
+
+**1. CLI Parameters (Highest Precedence)**
+```bash
+# Single alias
+--model-alias "^gpt-(.*)=openrouter:openai/gpt-\1"
+
+# Multiple aliases
+--model-alias "^gpt-(.*)=openrouter:openai/gpt-\1" \
+--model-alias "^claude-(.*)=anthropic:claude-\1" \
+--model-alias "^(.*)=gemini-cli-oauth-personal:gemini-1.5-pro"
+```
+
+**2. Environment Variables (Medium Precedence)**
+```bash
+export MODEL_ALIASES='[
+  {"pattern": "^gpt-(.*)", "replacement": "openrouter:openai/gpt-\\1"},
+  {"pattern": "^claude-(.*)", "replacement": "anthropic:claude-\\1"},
+  {"pattern": "^(.*)$", "replacement": "gemini-cli-oauth-personal:gemini-1.5-pro"}
+]'
+```
+
+**3. Config File (Lowest Precedence)**
+```yaml
+model_aliases:
+  # Static replacement for specific model
+  - pattern: "^claude-3-sonnet-20240229$"
+    replacement: "gemini-cli-oauth-personal:gemini-1.5-flash"
+  
+  # Dynamic replacement with capture groups
+  - pattern: "^gpt-(.*)"
+    replacement: "openrouter:openai/gpt-\\1"
+  
+  # Catch-all fallback for any other model
+  - pattern: "^(.*)$"
+    replacement: "gemini-cli-oauth-personal:gemini-1.5-pro"
+```
+
+### Rule Processing
+
+- **First Match Wins**: Rules are processed in order, and the first matching pattern is applied
+- **Regex Support**: Patterns use Python regular expressions with full capture group support
+- **Validation**: Invalid regex patterns are caught early with helpful error messages
+- **Precedence**: CLI parameters override environment variables, which override config file settings
+
+### Common Use Cases
+
+**Route All GPT Models to OpenRouter:**
+```yaml
+model_aliases:
+  - pattern: "^gpt-(.*)"
+    replacement: "openrouter:openai/gpt-\\1"
+```
+
+**Replace Expensive Models with Cheaper Alternatives:**
+```yaml
+model_aliases:
+  - pattern: "^gpt-4o$"
+    replacement: "gemini-cli-oauth-personal:gemini-1.5-pro"
+  - pattern: "^claude-3-opus.*"
+    replacement: "anthropic:claude-3-sonnet-20240229"
+```
+
+**Create Environment-Specific Routing:**
+```bash
+# Development environment - use free models
+export MODEL_ALIASES='[
+  {"pattern": "^.*$", "replacement": "gemini-cli-oauth-personal:gemini-1.5-flash"}
+]'
+
+# Production environment - use premium models
+export MODEL_ALIASES='[
+  {"pattern": "^gpt-(.*)", "replacement": "openai:gpt-\\1"},
+  {"pattern": "^claude-(.*)", "replacement": "anthropic:claude-\\1"}
+]'
+```
+
+**Override for Specific Applications:**
+```bash
+# Force a specific application to use your preferred model
+./my-app | llm-proxy --model-alias ".*=my-backend:my-preferred-model"
+```
+
+### Integration with Other Features
+
+Model aliases work seamlessly with other proxy features:
+
+- **Static Route**: `--static-route` takes precedence over model aliases
+- **Planning Phase**: Operates on the rewritten model names
+- **Failover**: Failover routes use the final rewritten model names
+- **In-Chat Commands**: `!/model(...)` commands respect alias rules
+
+### Error Handling
+
+The proxy provides robust error handling for model aliases:
+
+- **Invalid Regex**: Patterns are validated at startup/parse time
+- **Malformed JSON**: Environment variable errors are logged as warnings
+- **Schema Validation**: Config file validation ensures proper structure
+- **Graceful Fallback**: Invalid rules are skipped, processing continues
 
 ## Optional Capabilities (Short List)
 

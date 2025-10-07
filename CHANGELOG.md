@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Feature**: Added Model Name Rewrites system for dynamic model name transformation
+  - **Powerful Regex Engine**: Transform model names using Python regular expressions with capture group support
+  - **Multiple Configuration Sources**: Support for CLI parameters, environment variables, and config files with proper precedence (CLI > ENV > Config)
+  - **CLI Parameters**: `--model-alias PATTERN=REPLACEMENT` (repeatable) with real-time regex validation
+  - **Environment Variables**: `MODEL_ALIASES` JSON array with graceful error handling for malformed data
+  - **Config File**: `model_aliases` YAML section with schema validation and detailed error messages
+  - **First-Match-Wins Processing**: Rules processed in order with the first matching pattern applied
+  - **Seamless Integration**: Works with static routes, planning phase, failover, and in-chat commands
+  - **Common Use Cases**: Backend abstraction, cost optimization, environment-specific routing, and fallback strategies
+  - **Robust Error Handling**: Invalid regex patterns caught early, malformed JSON logged as warnings, graceful fallback for invalid rules
+  - **Comprehensive Testing**: 18 unit tests covering all configuration sources, precedence order, validation, and error scenarios
+  - **Production Ready**: Enterprise-grade configuration support with validation and error recovery
+  - **Examples**: Route all GPT models to OpenRouter (`^gpt-(.*)=openrouter:openai/gpt-\\1`), replace expensive models with cheaper alternatives, create catch-all fallbacks
+  - **Documentation**: Complete user documentation in README.md with usage examples and integration guidance
+
 - **Feature**: Added configurable strict command detection to reduce false positives when commands are mentioned in conversation
   - **Default Mode**: Commands are processed anywhere in the last user message (backward compatible)
   - **Strict Mode**: Commands are only processed if they appear on the last non-blank line of the message
