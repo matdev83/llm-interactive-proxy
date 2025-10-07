@@ -72,6 +72,8 @@ class PytestCompressionService:
             # Sometimes a sub-dict holds the command
             for key in ("input", "body", "data"):
                 inner = arguments.get(key)
+                if isinstance(inner, str) and inner.strip():
+                    return inner
                 if isinstance(inner, dict):
                     sub = inner.get("command") or inner.get("cmd")
                     if isinstance(sub, str) and sub.strip():
