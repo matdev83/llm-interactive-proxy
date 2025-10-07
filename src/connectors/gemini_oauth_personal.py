@@ -1151,7 +1151,7 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             model_name = effective_model
             prefix = "gemini-cli-oauth-personal:"
             if model_name.startswith(prefix):
-                model_name = model_name[len(prefix):]
+                model_name = model_name[len(prefix) :]
 
             # Check if streaming is requested
             is_streaming = getattr(request_data, "stream", False)
