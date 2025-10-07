@@ -115,17 +115,40 @@ class ToolCallTracker:
         if pruned_count > 0 and logger.isEnabledFor(logging.DEBUG):
             logger.debug("Pruned %d expired tool call signatures", pruned_count)
 
-        # Reset consecutive counts for signatures no longer in the list
-        current_signatures = {sig.get_full_signature() for sig in self.signatures}
-        for sig in list(self.consecutive_repeats.keys()):
-            if sig not in current_signatures:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Resetting consecutive count for expired signature: %s", sig
-                    )
-                del self.consecutive_repeats[sig]
-                # Also clear chance status if present
-                self.chance_given.pop(sig, None)
+        current_signatures = [sig.get_full_signature() for sig in self.signatures]
+        if pruned_count > 0:
+            active_signatures = set(current_signatures)
+            for sig in list(self.consecutive_repeats.keys()):
+                if sig not in active_signatures:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Resetting consecutive count for expired signature: %s", sig
+                        )
+                    del self.consecutive_repeats[sig]
+                    # Also clear chance status if present
+                    self.chance_given.pop(sig, None)
+
+            # Recompute consecutive repeat counters based on remaining signatures
+            new_counts: dict[str, int] = {}
+            current_sig: str | None = None
+            current_run = 0
+            for sig in current_signatures:
+                if sig == current_sig:
+                    current_run += 1
+                else:
+                    if current_sig is not None:
+                        new_counts[current_sig] = current_run
+                    current_sig = sig
+                    current_run = 1
+            if current_sig is not None:
+                new_counts[current_sig] = current_run
+
+            self.consecutive_repeats = new_counts
+
+            # Clear chance markers for signatures whose streak reset below the threshold
+            for sig in list(self.chance_given.keys()):
+                if sig not in new_counts or new_counts[sig] < self.config.max_repeats:
+                    self.chance_given.pop(sig, None)
 
         return pruned_count
 
