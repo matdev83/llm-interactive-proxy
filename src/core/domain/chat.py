@@ -225,69 +225,6 @@ class StreamingChatResponse(ValueObject):
     delta: dict[str, Any] | None = None
     system_fingerprint: str | None = None
 
-    @classmethod
-    def from_legacy_chunk(cls, chunk: dict[str, Any]) -> "StreamingChatResponse":
-        """
-        Create a StreamingChatResponse from a legacy chunk format.
-
-        Args:
-            chunk: A legacy streaming chunk
-
-        Returns:
-            A new StreamingChatResponse
-        """
-        # Extract the response content and other fields from the chunk
-        content: str | None = None
-        if chunk.get("choices"):
-            choice: dict[str, Any] = chunk["choices"][0]
-            if "delta" in choice:
-                delta: dict[str, Any] = choice["delta"]
-                if "content" in delta:
-                    content = delta["content"]
-
-                # Might have tool calls in delta
-                tool_calls: list[dict[str, Any]] | None = delta.get("tool_calls")
-
-                # The delta is the actual delta object
-                delta_obj: dict[str, Any] | None = delta
-            else:
-                # Simpler format
-                content = choice.get("text", "")
-                tool_calls = None
-                delta_obj = None
-
-            # Extract finish reason if present
-            finish_reason: str | None = choice.get("finish_reason")
-        else:
-            # Anthropic format
-            if "content" in chunk:
-                if isinstance(chunk["content"], list):
-                    content_parts: list[str] = [
-                        p["text"] for p in chunk["content"] if p.get("type") == "text"
-                    ]
-                    content = "".join(content_parts)
-                else:
-                    content = chunk["content"]
-
-            tool_calls = chunk.get("tool_calls")
-            delta_obj = None
-            finish_reason = chunk.get("stop_reason")
-
-        # Extract model
-        model: str = chunk.get("model", "unknown")
-
-        # Extract system fingerprint
-        system_fingerprint: str | None = chunk.get("system_fingerprint")
-
-        return cls(
-            content=content,
-            model=model,
-            finish_reason=finish_reason,
-            tool_calls=tool_calls,
-            delta=delta_obj,
-            system_fingerprint=system_fingerprint,
-        )
-
 
 # ChatUsage class is defined elsewhere in this file
 
