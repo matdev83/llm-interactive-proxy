@@ -104,7 +104,10 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
                     f"Error applying middleware {mw.__class__.__name__}: {e}",
                     exc_info=True,
                 )
-        return processed_response.content or ""
+        content_value = processed_response.content
+        if content_value is None:
+            return ""
+        return content_value
 
     async def _apply_streaming_middleware(
         self,
