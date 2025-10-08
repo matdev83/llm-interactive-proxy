@@ -94,6 +94,32 @@ class TestRedaction:
         result = redact_text(test_text, mask="[TEST]")
         assert result == test_text  # No API key pattern to redact
 
+    def test_redact_dict_handles_non_string_keys(self) -> None:
+        """Ensure redact_dict tolerates dictionaries with non-string keys."""
+        data = {
+            ("tuple", "key"): "tuple-value",
+            123: "numeric-value",
+            "api_key": "secret-value",
+            "nested": {"password": "inner-secret"},
+        }
+
+        redacted = redact_dict(data)
+
+        # Non-string keys should be preserved without modification.
+        assert redacted[("tuple", "key")] == "tuple-value"
+        assert redacted[123] == "numeric-value"
+        # String keys should still be redacted as usual.
+        assert redacted["api_key"] != "secret-value"
+        assert redacted["nested"]["password"] != "inner-secret"
+
+    def test_redact_dict_custom_fields_are_case_insensitive(self) -> None:
+        """Custom redaction fields should be matched without case sensitivity."""
+        data = {"Token": "super-secret"}
+
+        redacted = redact_dict(data, redacted_fields={"TOKEN"})
+
+        assert redacted["Token"] == "su***et"
+
 
 class TestLogging:
     """Test logging functions."""
