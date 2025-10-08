@@ -3,16 +3,17 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import pytest
-
+from src.core.domain.streaming_content import StreamingContent
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
-from src.core.services.middleware_application_manager import MiddlewareApplicationManager
+from src.core.services.middleware_application_manager import (
+    MiddlewareApplicationManager,
+)
 from src.core.services.streaming.middleware_application_processor import (
     MiddlewareApplicationProcessor,
 )
-from src.core.domain.streaming_content import StreamingContent
 
 
 class _FalsyContentMiddleware(IResponseMiddleware):
