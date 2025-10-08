@@ -10,6 +10,22 @@ def test_translation_service_initialization():
     assert service is not None, "TranslationService should initialize without errors."
 
 
+def test_to_domain_request_with_canonical_input():
+    service = TranslationService()
+    canonical_request = CanonicalChatRequest.model_validate(
+        {
+            "model": "gpt-test",
+            "messages": [{"role": "user", "content": "Ping"}],
+        }
+    )
+
+    translated = service.to_domain_request(canonical_request, "openai")
+
+    assert isinstance(translated, CanonicalChatRequest)
+    assert translated.model == canonical_request.model
+    assert translated.messages[0].content == "Ping"
+
+
 def test_to_domain_request_gemini():
     service = TranslationService()
     gemini_request = {

@@ -94,7 +94,7 @@ class TranslationService:
             ChatRequest as _ChatRequest,
         )
 
-        if isinstance(request, _Canonical | _ChatRequest):
+        if isinstance(request, (_Canonical, _ChatRequest)):
             return _Canonical.model_validate(request.model_dump())
 
         if source_format == "gemini":
