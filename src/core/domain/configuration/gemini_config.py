@@ -121,17 +121,21 @@ class GeminiGenerationConfig(ValueObject, IBackendSpecificConfig):
         ):
             updates["safety_settings"] = config_dict["safetySettings"]
 
-        # Handle generation parameters
-        for param in [
-            "temperature",
-            "top_p",
-            "top_k",
-            "max_output_tokens",
-            "candidate_count",
-            "stop_sequences",
-        ]:
-            if param in config_dict:
-                updates[param] = config_dict[param]
+        # Handle generation parameters (support both snake_case and camelCase)
+        parameter_aliases: dict[str, tuple[str, ...]] = {
+            "temperature": ("temperature",),
+            "top_p": ("top_p", "topP"),
+            "top_k": ("top_k", "topK"),
+            "max_output_tokens": ("max_output_tokens", "maxOutputTokens"),
+            "candidate_count": ("candidate_count", "candidateCount"),
+            "stop_sequences": ("stop_sequences", "stopSequences"),
+        }
+
+        for field_name, aliases in parameter_aliases.items():
+            for alias in aliases:
+                if alias in config_dict:
+                    updates[field_name] = config_dict[alias]
+                    break
 
         return self.model_copy(update=updates)
 
