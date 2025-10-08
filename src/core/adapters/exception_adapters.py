@@ -31,7 +31,11 @@ def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
         return None
 
     now = time.time()
-    delay_seconds = reset_at - now if reset_at > now else reset_at
+    if reset_at > now:
+        delay_seconds = reset_at - now
+    else:
+        delay_seconds = 0
+
     if delay_seconds <= 0:
         return {"Retry-After": "0"}
 

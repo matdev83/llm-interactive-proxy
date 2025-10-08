@@ -50,7 +50,7 @@ class PerformanceMetrics(InternalDTO):
 
         end_time = time.time()
         start_time = self._markers.get(f"{self._current_phase}_start")
-        if start_time:
+        if start_time is not None:
             duration = end_time - start_time
 
             # Store the duration based on phase name

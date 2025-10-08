@@ -72,25 +72,14 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if not tool_calls:
             return response
 
-        # Initialize tracker for this session if needed
-        if session_id not in self._session_trackers:
-            from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
+        tracker_config = self._build_tracker_config(config)
 
-            tracker = ToolCallTracker(
-                config=ToolCallLoopConfig(
-                    enabled=config.tool_loop_detection_enabled,
-                    max_repeats=config.tool_loop_max_repeats or 4,
-                    ttl_seconds=config.tool_loop_ttl_seconds or 120,
-                    mode=(
-                        config.tool_loop_mode
-                        if isinstance(config.tool_loop_mode, ToolLoopMode)
-                        else ToolLoopMode.BREAK
-                    ),
-                )
-            )
+        tracker = self._session_trackers.get(session_id)
+        if tracker is None:
+            tracker = ToolCallTracker(config=tracker_config)
             self._session_trackers[session_id] = tracker
-        else:
-            tracker = self._session_trackers[session_id]
+        elif tracker.config != tracker_config:
+            tracker.config = tracker_config
 
         # Process each tool call
         for tool_call in tool_calls:
@@ -186,3 +175,38 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             return data  # type: ignore[unreachable]
 
         return []
+
+    def _build_tracker_config(
+        self, config: LoopDetectionConfiguration
+    ) -> "ToolCallLoopConfig":
+        from src.tool_call_loop.config import ToolCallLoopConfig
+
+        return ToolCallLoopConfig(
+            enabled=config.tool_loop_detection_enabled,
+            max_repeats=config.tool_loop_max_repeats or 4,
+            ttl_seconds=config.tool_loop_ttl_seconds or 120,
+            mode=self._resolve_tool_loop_mode(config.tool_loop_mode),
+        )
+
+    def _resolve_tool_loop_mode(
+        self, mode_value: "ToolLoopMode" | str | None
+    ) -> "ToolLoopMode":
+        from src.tool_call_loop.config import ToolLoopMode
+
+        if isinstance(mode_value, ToolLoopMode):
+            return mode_value
+
+        if isinstance(mode_value, str):
+            normalized = mode_value.strip().lower()
+            if normalized == "chance":
+                normalized = "chance_then_break"
+            try:
+                return ToolLoopMode(normalized)
+            except ValueError:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Invalid tool loop mode '%s' provided; falling back to break mode.",
+                        mode_value,
+                    )
+
+        return ToolLoopMode.BREAK

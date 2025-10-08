@@ -6,7 +6,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
+try:  # pragma: no cover - optional dependency
+    import yaml  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    yaml = None  # type: ignore
+
 from pydantic import Field
 
 from src.core.interfaces.model_bases import DomainModel
@@ -110,6 +114,15 @@ def load_edit_precision_temperatures_config(
         )
     else:
         config_path = Path(config_path)
+
+    if yaml is None:
+        logger.warning(
+            "PyYAML is not installed; edit precision temperature overrides will use defaults"
+        )
+        config = EditPrecisionTemperaturesConfig()
+        if using_default_path:
+            _cached_config = config
+        return config
 
     if not config_path.exists():
         logger.warning(

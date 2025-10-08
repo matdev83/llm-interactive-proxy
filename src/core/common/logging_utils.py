@@ -139,8 +139,8 @@ def redact(value: str, mask: str = "***") -> str:
 
 
 def redact_dict(
-    data: dict[str, Any], redacted_fields: set[str] | None = None, mask: str = "***"
-) -> dict[str, Any]:
+    data: dict[Any, Any], redacted_fields: set[str] | None = None, mask: str = "***"
+) -> dict[Any, Any]:
     """Redact sensitive fields in a dictionary.
 
     Args:
@@ -154,10 +154,16 @@ def redact_dict(
     if redacted_fields is None:
         redacted_fields = DEFAULT_REDACTED_FIELDS
 
-    result: dict[str, Any] = {}
+    normalized_fields = {
+        field.lower() for field in redacted_fields if isinstance(field, str)
+    }
+
+    result: dict[Any, Any] = {}
 
     for key, value in data.items():
-        if key.lower() in redacted_fields:
+        key_lower = key.lower() if isinstance(key, str) else None
+
+        if key_lower is not None and key_lower in normalized_fields:
             if isinstance(value, str):
                 result[key] = redact(value, mask)
             else:
