@@ -188,6 +188,40 @@ async def test_handle_interactive_mode_enable_updates_state(
 
 
 @pytest.mark.asyncio
+async def test_handle_interactive_mode_accepts_boolean(
+    command: SetCommand,
+) -> None:
+    initial_state = SessionState(
+        backend_config=BackendConfiguration(
+            backend_type="test_backend", model="test_model", interactive_mode=False
+        ),
+        reasoning_config=ReasoningConfiguration(temperature=0.5),
+    )
+
+    result, new_state = await command._handle_interactive_mode(True, initial_state, {})
+
+    assert result.success is True
+    assert result.message == "Interactive mode enabled"
+    assert result.data == {"interactive-mode": True}
+    assert new_state.backend_config.interactive_mode is True
+    assert new_state.interactive_just_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_execute_interactive_alias_updates_state(
+    command: SetCommand, mock_session: Mock
+) -> None:
+    result = await command.execute({"interactive": "on"}, mock_session, {})
+
+    assert result.success is True
+    assert "Interactive mode enabled" in result.message
+    assert result.data == {"interactive-mode": True}
+    assert result.new_state is not None
+    assert result.new_state.backend_config.interactive_mode is True
+    assert result.new_state.interactive_just_enabled is True
+
+
+@pytest.mark.asyncio
 async def test_handle_project_success(command: SetCommand, mock_session: Mock) -> None:
     # Arrange
     value = "test_project"

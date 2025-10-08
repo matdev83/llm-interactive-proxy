@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 class SetCommand(StatefulCommandBase, BaseCommand):
     """Command for setting various session parameters."""
 
+    _PARAMETER_ALIASES: dict[str, str] = {"interactive": "interactive-mode"}
+
     def __init__(
         self, state_reader: ISecureStateAccess, state_modifier: ISecureStateModification
     ):
@@ -95,7 +97,18 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             remaining_args.pop("backend", None)
             remaining_args.pop("model", None)
 
+        normalized_args: dict[str, Any] = {}
         for param, value in remaining_args.items():
+            normalized = self._PARAMETER_ALIASES.get(param, param)
+            if normalized in normalized_args:
+                return CommandResult(
+                    success=False,
+                    message=f"Duplicate parameter provided: {normalized}",
+                    name=self.name,
+                )
+            normalized_args[normalized] = value
+
+        for param, value in normalized_args.items():
             handler = getattr(self, f"_handle_{param.replace('-', '_')}", None)
             if handler:
                 handler_result: CommandResult
@@ -275,24 +288,31 @@ class SetCommand(StatefulCommandBase, BaseCommand):
         self, value: Any, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
         """Handle setting interactive mode."""
-        if not isinstance(value, str):
-            return (
-                CommandResult(
-                    success=False, message="Interactive mode value must be a string"
-                ),
-                state,
-            )
-
-        value_upper = value.upper()
-        if value_upper in ("ON", "TRUE", "YES", "1", "ENABLED", "ENABLE"):
-            enabled = True
-        elif value_upper in ("OFF", "FALSE", "NO", "0", "DISABLED", "DISABLE"):
-            enabled = False
+        if isinstance(value, bool):
+            enabled = value
+        elif isinstance(value, str):
+            value_upper = value.upper()
+            if value_upper in ("ON", "TRUE", "YES", "1", "ENABLED", "ENABLE"):
+                enabled = True
+            elif value_upper in ("OFF", "FALSE", "NO", "0", "DISABLED", "DISABLE"):
+                enabled = False
+            else:
+                return (
+                    CommandResult(
+                        success=False,
+                        message=(
+                            f"Invalid interactive mode value: {value}. Use ON/OFF, TRUE/FALSE, etc."
+                        ),
+                    ),
+                    state,
+                )
         else:
             return (
                 CommandResult(
                     success=False,
-                    message=f"Invalid interactive mode value: {value}. Use ON/OFF, TRUE/FALSE, etc.",
+                    message=(
+                        "Interactive mode value must be a string or boolean"
+                    ),
                 ),
                 state,
             )
