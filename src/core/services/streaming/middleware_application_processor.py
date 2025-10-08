@@ -64,8 +64,12 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
                 processed_response = result
 
         # Convert back to StreamingContent
+        content_value = processed_response.content
+        if content_value is None:
+            content_value = ""
+
         return StreamingContent(
-            content=processed_response.content or "",
+            content=content_value,
             is_done=content.is_done,
             is_cancellation=content.is_cancellation,
             metadata=processed_response.metadata,
