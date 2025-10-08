@@ -604,7 +604,7 @@ class ResponsesController:
         # Validate additional properties if present
         if "additionalProperties" in schema:
             additional_props = schema["additionalProperties"]
-            if not isinstance(additional_props, bool | dict):
+            if not isinstance(additional_props, (bool, dict)):
                 raise ValueError("additionalProperties must be a boolean or schema")
 
         # Validate required fields if present

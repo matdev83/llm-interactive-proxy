@@ -220,7 +220,7 @@ class ChatController:
                                 or f"chatcmpl-{_uuid.uuid4().hex[:16]}"
                             )
                             created_ts = metadata.get("created")
-                            if isinstance(created_ts, int | float):
+                            if isinstance(created_ts, (int, float)):
                                 created_val = int(created_ts)
                             else:
                                 created_val = int(_time.time())
