@@ -1,7 +1,6 @@
 from unittest.mock import Mock
 
 import pytest
-
 from src.core.domain.commands.loop_detection_commands.loop_detection_command import (
     LoopDetectionCommand,
 )

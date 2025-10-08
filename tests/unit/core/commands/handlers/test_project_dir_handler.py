@@ -11,8 +11,8 @@ from unittest.mock import Mock
 import pytest
 from src.core.commands.handlers.base_handler import CommandHandlerResult
 from src.core.commands.handlers.project_dir_handler import ProjectDirCommandHandler
-from src.core.interfaces.domain_entities_interface import ISessionState
 from src.core.domain.session import SessionState
+from src.core.interfaces.domain_entities_interface import ISessionState
 
 
 class TestProjectDirCommandHandler:

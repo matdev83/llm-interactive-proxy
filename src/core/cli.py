@@ -20,6 +20,7 @@ from src.command_prefix import validate_command_prefix
 from src.core.app.application_builder import ApplicationBuilder, build_app
 from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG
 from src.core.config.app_config import AppConfig, LogLevel, load_config
+from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 # Import backend connectors to ensure they register themselves
 from src.core.services import backend_imports  # noqa: F401
@@ -32,8 +33,8 @@ def is_port_in_use(host: str, port: int) -> bool:
         return s.connect_ex((host, port)) == 0
 
 
-def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments with full feature parity to original CLI."""
+def build_cli_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser with full feature parity to original CLI."""
     parser = argparse.ArgumentParser(description="Run the LLM proxy server")
 
     # Dynamically get registered backends
@@ -413,6 +414,24 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable pytest output compression (overrides config)",
     )
 
+    # Pytest full-suite steering
+    pytest_full_suite_group = parser.add_mutually_exclusive_group()
+    pytest_full_suite_group.add_argument(
+        "--enable-pytest-full-suite-steering",
+        action="store_const",
+        const=True,
+        dest="pytest_full_suite_steering_enabled",
+        default=None,
+        help="Enable steering for full pytest suite commands (overrides config)",
+    )
+    pytest_full_suite_group.add_argument(
+        "--disable-pytest-full-suite-steering",
+        action="store_const",
+        const=False,
+        dest="pytest_full_suite_steering_enabled",
+        help="Disable steering for full pytest suite commands (overrides config)",
+    )
+
     # Security and process options
     parser.add_argument(
         "--allow-admin",
@@ -434,46 +453,68 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="IP address to trust for bypassing authorization. Can be specified multiple times.",
     )
 
+    return parser
+
+
+def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command line arguments with full feature parity to original CLI."""
+    parser = build_cli_parser()
     return parser.parse_args(argv)
 
 
-def apply_cli_args(args: argparse.Namespace) -> AppConfig:
+def apply_cli_args(
+    args: argparse.Namespace,
+    *,
+    return_resolution: bool = False,
+    resolution: ParameterResolution | None = None,
+) -> AppConfig | tuple[AppConfig, ParameterResolution]:
     """Apply CLI arguments to configuration with full feature parity."""
-    # Load base config (YAML only); pass through --config when provided
+    res = resolution or ParameterResolution()
+    config_path = getattr(args, "config_file", None)
     cfg: AppConfig = cast(
         AppConfig,
-        (
-            load_config(args.config_file)
-            if getattr(args, "config_file", None)
-            else load_config()
-        ),
+        load_config(config_path, resolution=res),
     )
+
+    def record_cli(path: str, value: Any, flag: str) -> None:
+        res.record(path, value, ParameterSource.CLI, origin=flag)
 
     # Basic server configuration
     if args.host is not None:
         cfg.host = args.host
+        record_cli("host", args.host, "--host")
     if args.port is not None:
         cfg.port = args.port
         os.environ["PROXY_PORT"] = str(args.port)
+        record_cli("port", args.port, "--port")
     if args.timeout is not None:
         cfg.proxy_timeout = args.timeout
+        record_cli("proxy_timeout", args.timeout, "--timeout")
     if args.command_prefix is not None:
         cfg.command_prefix = args.command_prefix
         os.environ["COMMAND_PREFIX"] = args.command_prefix
+        record_cli("command_prefix", args.command_prefix, "--command-prefix")
 
     # Context window override
     if args.force_context_window is not None:
         cfg.context_window_override = args.force_context_window
         os.environ["FORCE_CONTEXT_WINDOW"] = str(args.force_context_window)
+        record_cli(
+            "context_window_override",
+            args.force_context_window,
+            "--force-context-window",
+        )
 
     # Thinking budget override (for reasoning/thinking tokens)
     if args.thinking_budget is not None:
         # Store in environment for the translation layer to pick up
         os.environ["THINKING_BUDGET"] = str(args.thinking_budget)
+        record_cli("cli.thinking_budget", args.thinking_budget, "--thinking-budget")
 
     # Logging configuration
     if args.log_file is not None:
         cfg.logging.log_file = args.log_file
+        record_cli("logging.log_file", args.log_file, "--log")
     elif cfg.logging.log_file is None:
         # Set default log file only if none specified in config or CLI
         from pathlib import Path
@@ -485,32 +526,59 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         cfg.logging.log_file = default_log_file
     if args.log_level is not None:
         cfg.logging.level = LogLevel[args.log_level]
+        record_cli("logging.level", cfg.logging.level.value, "--log-level")
 
     # Wire capture configuration
     if getattr(args, "capture_file", None) is not None:
         cfg.logging.capture_file = args.capture_file
+        record_cli("logging.capture_file", args.capture_file, "--capture-file")
     if getattr(args, "capture_max_bytes", None) is not None:
         cfg.logging.capture_max_bytes = args.capture_max_bytes
+        record_cli(
+            "logging.capture_max_bytes", args.capture_max_bytes, "--capture-max-bytes"
+        )
     if getattr(args, "capture_truncate_bytes", None) is not None:
         cfg.logging.capture_truncate_bytes = args.capture_truncate_bytes
+        record_cli(
+            "logging.capture_truncate_bytes",
+            args.capture_truncate_bytes,
+            "--capture-truncate-bytes",
+        )
     if getattr(args, "capture_max_files", None) is not None:
         cfg.logging.capture_max_files = args.capture_max_files
+        record_cli(
+            "logging.capture_max_files", args.capture_max_files, "--capture-max-files"
+        )
     if getattr(args, "capture_rotate_interval_seconds", None) is not None:
         cfg.logging.capture_rotate_interval_seconds = (
             args.capture_rotate_interval_seconds
         )
+        record_cli(
+            "logging.capture_rotate_interval_seconds",
+            args.capture_rotate_interval_seconds,
+            "--capture-rotate-interval",
+        )
     if getattr(args, "capture_total_max_bytes", None) is not None:
         cfg.logging.capture_total_max_bytes = args.capture_total_max_bytes
+        record_cli(
+            "logging.capture_total_max_bytes",
+            args.capture_total_max_bytes,
+            "--capture-total-max-bytes",
+        )
 
     # Backend-specific configuration
     if args.default_backend is not None:
         cfg.backends.default_backend = args.default_backend
         os.environ["LLM_BACKEND"] = args.default_backend
+        record_cli(
+            "backends.default_backend", args.default_backend, "--default-backend"
+        )
 
     # Static route configuration
     if getattr(args, "static_route", None) is not None:
         cfg.backends.static_route = args.static_route
         os.environ["STATIC_ROUTE"] = args.static_route
+        record_cli("backends.static_route", args.static_route, "--static-route")
 
     # Model aliases configuration (CLI overrides config file)
     if getattr(args, "model_aliases", None) is not None:
@@ -522,6 +590,11 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
             for pattern, replacement in args.model_aliases
         ]
         cfg.model_aliases = cli_aliases
+        record_cli(
+            "model_aliases",
+            [alias.model_dump() for alias in cli_aliases],
+            "--model-alias",
+        )
 
         # Store in environment for other processes
         import json
@@ -535,15 +608,36 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     # API keys and URLs
     if args.openrouter_api_key is not None:
         cfg.backends["openrouter"].api_key = args.openrouter_api_key
+        record_cli(
+            "backends.openrouter.api_key",
+            args.openrouter_api_key,
+            "--openrouter-api-key",
+        )
     if args.openrouter_api_base_url is not None:
         cfg.backends["openrouter"].api_url = args.openrouter_api_base_url
+        record_cli(
+            "backends.openrouter.api_url",
+            args.openrouter_api_base_url,
+            "--openrouter-api-base-url",
+        )
     if args.gemini_api_key is not None:
         cfg.backends["gemini"].api_key = args.gemini_api_key
         os.environ["GEMINI_API_KEY"] = args.gemini_api_key
+        record_cli(
+            "backends.gemini.api_key",
+            args.gemini_api_key,
+            "--gemini-api-key",
+        )
     if args.gemini_api_base_url is not None:
         cfg.backends["gemini"].api_url = args.gemini_api_base_url
+        record_cli(
+            "backends.gemini.api_url",
+            args.gemini_api_base_url,
+            "--gemini-api-base-url",
+        )
     if args.zai_api_key is not None:
         cfg.backends["zai"].api_key = args.zai_api_key
+        record_cli("backends.zai.api_key", args.zai_api_key, "--zai-api-key")
 
     # Feature flags (inverted boolean logic)
     if args.disable_interactive_mode is not None:
@@ -551,62 +645,159 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
         os.environ["DISABLE_INTERACTIVE_MODE"] = (
             "True" if args.disable_interactive_mode else "False"
         )
+        record_cli(
+            "session.default_interactive_mode",
+            cfg.session.default_interactive_mode,
+            "--disable-interactive-mode",
+        )
     if args.disable_auth is not None:
         cfg.auth.disable_auth = args.disable_auth
+        record_cli("auth.disable_auth", args.disable_auth, "--disable-auth")
     if getattr(args, "trusted_ips", None) is not None:
         cfg.auth.trusted_ips = args.trusted_ips
+        record_cli("auth.trusted_ips", args.trusted_ips, "--trusted-ip")
     if args.force_set_project is not None:
         cfg.session.force_set_project = args.force_set_project
         os.environ["FORCE_SET_PROJECT"] = "true" if args.force_set_project else "false"
+        record_cli(
+            "session.force_set_project", args.force_set_project, "--force-set-project"
+        )
 
     # These still rely on environment variables for now
     if args.disable_redact_api_keys_in_prompts is not None:
         cfg.auth.redact_api_keys_in_prompts = (
             not args.disable_redact_api_keys_in_prompts
         )
+        record_cli(
+            "auth.redact_api_keys_in_prompts",
+            cfg.auth.redact_api_keys_in_prompts,
+            "--disable-redact-api-keys-in-prompts",
+        )
     if args.disable_interactive_commands is not None:
         cfg.session.disable_interactive_commands = args.disable_interactive_commands
+        record_cli(
+            "session.disable_interactive_commands",
+            args.disable_interactive_commands,
+            "--disable-interactive-commands",
+        )
     if args.disable_accounting is not None:
         os.environ["DISABLE_ACCOUNTING"] = (
             "true" if args.disable_accounting else "false"
         )
+        record_cli(
+            "cli.disable_accounting", args.disable_accounting, "--disable-accounting"
+        )
     if getattr(args, "strict_command_detection", None) is not None:
         cfg.strict_command_detection = args.strict_command_detection
+        record_cli(
+            "strict_command_detection",
+            args.strict_command_detection,
+            "--strict-command-detection",
+        )
 
     brute_force_cfg = getattr(cfg.auth, "brute_force_protection", None)
     if brute_force_cfg is not None:
         if getattr(args, "brute_force_protection_enabled", None) is not None:
             brute_force_cfg.enabled = bool(args.brute_force_protection_enabled)
+            record_cli(
+                "auth.brute_force_protection.enabled",
+                brute_force_cfg.enabled,
+                "--enable/disable-brute-force-protection",
+            )
         if getattr(args, "auth_max_failed_attempts", None) is not None:
             brute_force_cfg.max_failed_attempts = max(
                 1, int(args.auth_max_failed_attempts)
             )
+            record_cli(
+                "auth.brute_force_protection.max_failed_attempts",
+                brute_force_cfg.max_failed_attempts,
+                "--auth-max-failed-attempts",
+            )
         if getattr(args, "auth_brute_force_ttl", None) is not None:
             brute_force_cfg.ttl_seconds = max(1, int(args.auth_brute_force_ttl))
+            record_cli(
+                "auth.brute_force_protection.ttl_seconds",
+                brute_force_cfg.ttl_seconds,
+                "--auth-brute-force-ttl",
+            )
         if getattr(args, "auth_initial_block_seconds", None) is not None:
             brute_force_cfg.initial_block_seconds = max(
                 1, int(args.auth_initial_block_seconds)
             )
+            record_cli(
+                "auth.brute_force_protection.initial_block_seconds",
+                brute_force_cfg.initial_block_seconds,
+                "--auth-brute-force-initial-block",
+            )
         if getattr(args, "auth_block_multiplier", None) is not None:
             multiplier = float(args.auth_block_multiplier)
             brute_force_cfg.block_multiplier = multiplier if multiplier > 1 else 1.0
+            record_cli(
+                "auth.brute_force_protection.block_multiplier",
+                brute_force_cfg.block_multiplier,
+                "--auth-brute-force-multiplier",
+            )
         if getattr(args, "auth_max_block_seconds", None) is not None:
             brute_force_cfg.max_block_seconds = max(1, int(args.auth_max_block_seconds))
+            record_cli(
+                "auth.brute_force_protection.max_block_seconds",
+                brute_force_cfg.max_block_seconds,
+                "--auth-brute-force-max-block",
+            )
 
     # Pytest compression flag
     if args.pytest_compression_enabled is not None:
         cfg.session.pytest_compression_enabled = args.pytest_compression_enabled
+        record_cli(
+            "session.pytest_compression_enabled",
+            args.pytest_compression_enabled,
+            "--enable/disable-pytest-compression",
+        )
+
+    # Pytest full-suite steering flag
+    if getattr(args, "pytest_full_suite_steering_enabled", None) is not None:
+        cfg.session.pytest_full_suite_steering_enabled = (
+            args.pytest_full_suite_steering_enabled
+        )
+        cfg.session.tool_call_reactor.pytest_full_suite_steering_enabled = (
+            args.pytest_full_suite_steering_enabled
+        )
+        record_cli(
+            "session.pytest_full_suite_steering_enabled",
+            args.pytest_full_suite_steering_enabled,
+            "--enable/disable-pytest-full-suite-steering",
+        )
 
     # Planning phase configuration
     if getattr(args, "enable_planning_phase", None) is not None:
         cfg.session.planning_phase.enabled = args.enable_planning_phase
+        record_cli(
+            "session.planning_phase.enabled",
+            args.enable_planning_phase,
+            "--enable-planning-phase",
+        )
     if getattr(args, "planning_phase_strong_model", None) is not None:
         cfg.session.planning_phase.strong_model = args.planning_phase_strong_model
+        record_cli(
+            "session.planning_phase.strong_model",
+            args.planning_phase_strong_model,
+            "--planning-phase-strong-model",
+        )
     if getattr(args, "planning_phase_max_turns", None) is not None:
         cfg.session.planning_phase.max_turns = max(1, args.planning_phase_max_turns)
+        record_cli(
+            "session.planning_phase.max_turns",
+            cfg.session.planning_phase.max_turns,
+            "--planning-phase-max-turns",
+        )
     if getattr(args, "planning_phase_max_file_writes", None) is not None:
         cfg.session.planning_phase.max_file_writes = max(
             1, args.planning_phase_max_file_writes
+        )
+        record_cli(
+            "session.planning_phase.max_file_writes",
+            cfg.session.planning_phase.max_file_writes,
+            "--planning-phase-max-file-writes",
         )
 
     # Planning phase overrides
@@ -625,33 +816,82 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
             existing_overrides = {}
         existing_overrides.update(overrides_updates)
         cfg.session.planning_phase.overrides = existing_overrides
+        flag_mapping = {
+            "temperature": "--planning-phase-temperature",
+            "top_p": "--planning-phase-top-p",
+            "reasoning_effort": "--planning-phase-reasoning-effort",
+            "thinking_budget": "--planning-phase-thinking-budget",
+        }
+        for key, value in overrides_updates.items():
+            record_cli(
+                f"session.planning_phase.overrides.{key}",
+                value,
+                flag_mapping.get(key, "--planning-phase-override"),
+            )
 
     # Edit-precision tuning configuration
     if getattr(args, "edit_precision_enabled", None) is not None:
         cfg.edit_precision.enabled = args.edit_precision_enabled
+        record_cli(
+            "edit_precision.enabled",
+            args.edit_precision_enabled,
+            "--enable/disable-edit-precision",
+        )
     if getattr(args, "edit_precision_temperature", None) is not None:
         cfg.edit_precision.temperature = max(0.0, args.edit_precision_temperature)
+        record_cli(
+            "edit_precision.temperature",
+            cfg.edit_precision.temperature,
+            "--edit-precision-temperature",
+        )
     if getattr(args, "edit_precision_min_top_p", None) is not None:
         cfg.edit_precision.min_top_p = max(0.0, args.edit_precision_min_top_p)
+        record_cli(
+            "edit_precision.min_top_p",
+            cfg.edit_precision.min_top_p,
+            "--edit-precision-min-top-p",
+        )
     if getattr(args, "edit_precision_override_top_p", None) is not None:
         cfg.edit_precision.override_top_p = args.edit_precision_override_top_p
+        record_cli(
+            "edit_precision.override_top_p",
+            args.edit_precision_override_top_p,
+            "--edit-precision-override-top-p",
+        )
     if getattr(args, "edit_precision_override_top_k", None) is not None:
         cfg.edit_precision.override_top_k = args.edit_precision_override_top_k
+        record_cli(
+            "edit_precision.override_top_k",
+            args.edit_precision_override_top_k,
+            "--edit-precision-override-top-k",
+        )
     if getattr(args, "edit_precision_target_top_k", None) is not None:
         cfg.edit_precision.target_top_k = (
             args.edit_precision_target_top_k
             if args.edit_precision_target_top_k > 0
             else None
         )
+        record_cli(
+            "edit_precision.target_top_k",
+            cfg.edit_precision.target_top_k,
+            "--edit-precision-target-top-k",
+        )
     if getattr(args, "edit_precision_exclude_agents_regex", None) is not None:
         cfg.edit_precision.exclude_agents_regex = (
             args.edit_precision_exclude_agents_regex
+        )
+        record_cli(
+            "edit_precision.exclude_agents_regex",
+            args.edit_precision_exclude_agents_regex,
+            "--edit-precision-exclude-agents",
         )
 
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)
     _apply_feature_flags(cfg)
     _apply_security_flags(cfg)
+    if return_resolution:
+        return cfg, res
     return cfg
 
 
@@ -909,7 +1149,8 @@ def main(
 
     # Parse arguments and load configuration
     args: argparse.Namespace = parse_cli_args(argv)
-    cfg: AppConfig = apply_cli_args(args)
+    cfg_result = apply_cli_args(args, return_resolution=True)
+    cfg, resolution = cast(tuple[AppConfig, ParameterResolution], cfg_result)
 
     # Handle daemon mode early
     if _maybe_run_as_daemon(args, cfg):
@@ -917,6 +1158,8 @@ def main(
 
     # Configure logging
     _configure_logging(cfg)
+
+    resolution.log(logging.getLogger("config.resolution"), cfg)
 
     # Check privileges unless explicitly allowed
     if not args.allow_admin:

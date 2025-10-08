@@ -422,9 +422,7 @@ class TestModelAliasesConfiguration:
 
     def test_cli_overrides_config_file(self):
         """Test that CLI parameters override config file settings."""
-        import argparse
-
-        from src.core.cli import apply_cli_args
+        from src.core.cli import apply_cli_args, parse_cli_args
         from src.core.config.app_config import AppConfig, ModelAliasRule
 
         # Create config with file-based aliases
@@ -435,57 +433,17 @@ class TestModelAliasesConfiguration:
             ],
         )
 
-        # Create args with CLI aliases
-        args = argparse.Namespace()
-        args.model_aliases = [("^cli-pattern$", "cli-replacement")]
-        args.config_file = None
-        args.host = None
-        args.port = None
-        args.timeout = None
-        args.command_prefix = None
-        args.force_context_window = None
-        args.thinking_budget = None
-        args.log_file = None
-        args.log_level = None
-        args.default_backend = None
-        args.static_route = None
-        args.openrouter_api_key = None
-        args.openrouter_api_base_url = None
-        args.gemini_api_key = None
-        args.gemini_api_base_url = None
-        args.zai_api_key = None
-        args.disable_interactive_mode = None
-        args.disable_auth = None
-        args.trusted_ips = None
-        args.force_set_project = None
-        args.disable_redact_api_keys_in_prompts = None
-        args.disable_interactive_commands = None
-        args.strict_command_detection = None
-        args.disable_accounting = None
-        args.brute_force_protection_enabled = None
-        args.auth_max_failed_attempts = None
-        args.auth_brute_force_ttl = None
-        args.auth_initial_block_seconds = None
-        args.auth_block_multiplier = None
-        args.auth_max_block_seconds = None
-        args.pytest_compression_enabled = None
-        args.pytest_full_suite_steering_enabled = None
-        args.enable_planning_phase = None
-        args.planning_phase_strong_model = None
-        args.planning_phase_max_turns = None
-        args.planning_phase_max_file_writes = None
-        args.planning_phase_temperature = None
-        args.planning_phase_top_p = None
-        args.planning_phase_reasoning_effort = None
-        args.planning_phase_thinking_budget = None
+        # Parse CLI arguments that will override the config file
+        args = parse_cli_args(["--model-alias", "^cli-pattern$=cli-replacement"])
 
         # Mock the load_config function to return our test config
         import src.core.cli
 
         original_load_config = src.core.cli.load_config
-        src.core.cli.load_config = lambda path=None: config
+        src.core.cli.load_config = lambda path=None, resolution=None: config
 
         try:
+            # apply_cli_args returns a single AppConfig object by default
             result_config = apply_cli_args(args)
 
             # CLI should override config file
@@ -504,42 +462,47 @@ class TestModelAliasesConfiguration:
         from pathlib import Path
 
         import yaml
+        from src.core.cli import apply_cli_args, parse_cli_args
         from src.core.config.app_config import load_config
 
-        # Create temporary config file
+        # 1. Create temporary config file (lowest precedence)
         config_data = {
             "backends": {"default_backend": "openai"},
             "model_aliases": [
                 {"pattern": "^config-pattern$", "replacement": "config-replacement"}
             ],
         }
-
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
-        # Set environment variable
+        # 2. Set environment variable (middle precedence)
         env_alias_data = [
             {"pattern": "^env-pattern$", "replacement": "env-replacement"}
         ]
         os.environ["MODEL_ALIASES"] = json.dumps(env_alias_data)
 
-        try:
-            # Test 1: Config file only
-            config = load_config(config_path)
-            assert len(config.model_aliases) == 1
-            assert config.model_aliases[0].pattern == "^config-pattern$"
+        # 3. Define CLI arguments (highest precedence)
+        cli_args = parse_cli_args(
+            [
+                "--config",
+                config_path,
+                "--model-alias",
+                "^cli-pattern$=cli-replacement",
+            ]
+        )
 
-            # Test 2: ENV overrides config file
-            del os.environ["MODEL_ALIASES"]  # Clear first
-            os.environ["MODEL_ALIASES"] = json.dumps(env_alias_data)
-            config = load_config(config_path)
-            # Note: load_config merges env with file, so env should take precedence
-            # But the current implementation loads env in from_env(), not load_config()
-            # So we test from_env() directly
-            config_from_env = AppConfig.from_env()
-            assert len(config_from_env.model_aliases) == 1
-            assert config_from_env.model_aliases[0].pattern == "^env-pattern$"
+        try:
+            # Load config from file, which will also pick up env vars
+            load_config(config_path)
+
+            # Now, apply CLI args, which should override both file and env
+            final_config = apply_cli_args(cli_args)
+
+            # Assert that CLI arguments have the highest precedence
+            assert len(final_config.model_aliases) == 1
+            assert final_config.model_aliases[0].pattern == "^cli-pattern$"
+            assert final_config.model_aliases[0].replacement == "cli-replacement"
 
         finally:
             # Clean up

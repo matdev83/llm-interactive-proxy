@@ -75,11 +75,13 @@ def test_validation_exception_handler_formats_errors() -> None:
 
 def test_validation_exception_handler_defaults_missing_fields() -> None:
     request = make_request("/v1/test")
-    exc = RequestValidationError([
-        {
-            "loc": ("query",),
-        }
-    ])
+    exc = RequestValidationError(
+        [
+            {
+                "loc": ("query",),
+            }
+        ]
+    )
 
     response = call_handler(validation_exception_handler, request, exc)
 

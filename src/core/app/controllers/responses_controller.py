@@ -520,9 +520,9 @@ class ResponsesController:
         schema_type_raw = schema["type"]
         if isinstance(schema_type_raw, str):
             schema_types = [schema_type_raw]
-        elif isinstance(schema_type_raw, (list, tuple, set)):
+        elif isinstance(schema_type_raw, list | tuple | set):
             schema_types = [
-                str(t) for t in schema_type_raw if isinstance(t, (str, bytes))
+                str(t) for t in schema_type_raw if isinstance(t, str | bytes)
             ]
         else:
             schema_types = [str(schema_type_raw)]
@@ -577,14 +577,13 @@ class ResponsesController:
                         "dependentSchemas",
                     }
 
-                    if "type" not in prop_schema:
-                        if not any(
-                            key in prop_schema for key in allowed_structural_keywords
-                        ):
-                            raise ValueError(
-                                f"Property '{prop_name}' must define a type or a "
-                                "supported schema keyword"
-                            )
+                    if "type" not in prop_schema and not any(
+                        key in prop_schema for key in allowed_structural_keywords
+                    ):
+                        raise ValueError(
+                            f"Property '{prop_name}' must define a type or a "
+                            "supported schema keyword"
+                        )
 
         if "array" in schema_types:
             # Arrays should have items; allow both dict schemas and tuple-style lists
@@ -592,7 +591,7 @@ class ResponsesController:
                 raise ValueError("Array schemas must have an 'items' field")
 
             items_schema = schema["items"]
-            if not isinstance(items_schema, (dict, list, tuple, bool)):
+            if not isinstance(items_schema, dict | list | tuple | bool):
                 raise ValueError("Items schema must be a dictionary, list, or boolean")
 
         primitive_types = {"string", "number", "integer", "boolean", "null"}

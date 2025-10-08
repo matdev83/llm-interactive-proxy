@@ -149,11 +149,11 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     # Preserve the original value so downstream handlers still
                     # receive the raw arguments string.
                     tool_arguments = tool_arguments_raw
-                elif isinstance(parsed_args, (dict, list)):
+                elif isinstance(parsed_args, dict | list):
                     tool_arguments = parsed_args
                 else:
                     tool_arguments = parsed_args
-            elif isinstance(tool_arguments_raw, (dict, list)):
+            elif isinstance(tool_arguments_raw, dict | list):
                 tool_arguments = tool_arguments_raw
             else:
                 tool_arguments = tool_arguments_raw

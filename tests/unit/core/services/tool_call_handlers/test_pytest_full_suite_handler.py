@@ -39,7 +39,9 @@ def _build_context(command: str, session_id: str = "session-1") -> ToolCallConte
     )
 
 
-def _build_python_context(args: list[str], session_id: str = "session-1") -> ToolCallContext:
+def _build_python_context(
+    args: list[str], session_id: str = "session-1"
+) -> ToolCallContext:
     return ToolCallContext(
         session_id=session_id,
         backend_name="backend",
