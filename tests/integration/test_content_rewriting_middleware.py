@@ -358,6 +358,80 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_outbound_prompt_rewriting_handles_structured_messages(self):
+        """Rewrite text blocks inside structured chat messages."""
+
+        async def run_test():
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            payload = {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "This is an original system prompt.",
+                            }
+                        ],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "This is a user prompt.",
+                            }
+                        ],
+                    },
+                ]
+            }
+
+            async def get_body():
+                return json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = await get_body()
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            new_request = call_next.call_args[0][0]
+
+            new_body = await new_request.json()
+
+            rewritten_content = new_body["messages"][0]["content"][0]["text"]
+            self.assertEqual(
+                rewritten_content,
+                "This is an rewritten system prompt.",
+            )
+            self.assertEqual(
+                new_body["messages"][1]["content"][0]["text"],
+                "This is a user prompt.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_end_to_end_rewriting(self):
         """Verify that a lengthy prompt is rewritten and propagated correctly."""
 

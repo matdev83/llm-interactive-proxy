@@ -25,17 +25,33 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                 continue
 
             role = message.get("role")
-            original_content = message.get("content")
+            content = message.get("content")
+            role_value = role if isinstance(role, str) else ""
 
-            if not isinstance(original_content, str):
+            if isinstance(content, str):
+                rewritten_content = self.rewriter.rewrite_prompt(
+                    content, role_value
+                )
+                if content != rewritten_content:
+                    message["content"] = rewritten_content
+                    is_rewritten = True
                 continue
 
-            rewritten_content = self.rewriter.rewrite_prompt(
-                original_content, role if isinstance(role, str) else ""
-            )
-            if original_content != rewritten_content:
-                message["content"] = rewritten_content
-                is_rewritten = True
+            if not isinstance(content, list):
+                continue
+
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+
+                text_value = block.get("text")
+                if not isinstance(text_value, str):
+                    continue
+
+                rewritten_text = self.rewriter.rewrite_prompt(text_value, role_value)
+                if rewritten_text != text_value:
+                    block["text"] = rewritten_text
+                    is_rewritten = True
 
         return is_rewritten
 
