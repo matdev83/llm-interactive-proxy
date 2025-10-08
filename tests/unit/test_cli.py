@@ -1,4 +1,5 @@
 import argparse
+import os
 from unittest.mock import patch
 
 import pytest
@@ -175,6 +176,61 @@ def test_cli_context_window_override_environment_variable() -> None:
                 os.environ["FORCE_CONTEXT_WINDOW"] = original_env
             elif "FORCE_CONTEXT_WINDOW" in os.environ:
                 del os.environ["FORCE_CONTEXT_WINDOW"]
+
+
+def test_cli_api_key_arguments_wrapped_in_lists() -> None:
+    """Ensure CLI-supplied API keys are normalized to lists for backend configs."""
+    with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+        original_gemini_key = os.environ.get("GEMINI_API_KEY")
+        try:
+            args = parse_cli_args(
+                [
+                    "--openrouter-api-key",
+                    "openrouter-key-123",
+                    "--gemini-api-key",
+                    "gemini-key-456",
+                    "--zai-api-key",
+                    "zai-key-789",
+                ]
+            )
+
+            config = apply_cli_args(args)
+
+            assert config.backends["openrouter"].api_key == ["openrouter-key-123"]
+            assert config.backends["gemini"].api_key == ["gemini-key-456"]
+            assert config.backends["zai"].api_key == ["zai-key-789"]
+        finally:
+            if original_gemini_key is not None:
+                os.environ["GEMINI_API_KEY"] = original_gemini_key
+            else:
+                os.environ.pop("GEMINI_API_KEY", None)
+
+
+def test_cli_api_key_arguments_handle_missing_backend_configs() -> None:
+    """CLI should not crash if optional backends are absent from configuration."""
+
+    cfg = AppConfig()
+    for backend_name in ("openrouter", "gemini", "zai"):
+        cfg.backends.__dict__.pop(backend_name, None)
+
+    with patch("src.core.cli.load_config", return_value=cfg):
+        with patch.dict(os.environ, {}, clear=False):
+            args = parse_cli_args(
+                [
+                    "--openrouter-api-key",
+                    "openrouter-key-123",
+                    "--gemini-api-key",
+                    "gemini-key-456",
+                    "--zai-api-key",
+                    "zai-key-789",
+                ]
+            )
+
+            config = apply_cli_args(args)
+
+            assert config.backends["openrouter"].api_key == ["openrouter-key-123"]
+            assert config.backends["gemini"].api_key == ["gemini-key-456"]
+            assert config.backends["zai"].api_key == ["zai-key-789"]
 
 
 def test_cli_pytest_compression_flags() -> None:

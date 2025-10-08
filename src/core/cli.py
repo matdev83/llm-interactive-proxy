@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from src.command_prefix import validate_command_prefix
 from src.core.app.application_builder import ApplicationBuilder, build_app
 from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG
-from src.core.config.app_config import AppConfig, LogLevel, load_config
+from src.core.config.app_config import AppConfig, BackendConfig, LogLevel, load_config
 
 # Import backend connectors to ensure they register themselves
 from src.core.services import backend_imports  # noqa: F401
@@ -437,6 +437,23 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _get_or_create_backend_config(
+    cfg: AppConfig, backend_name: str
+) -> BackendConfig:
+    """Return an existing backend config or create a new one on demand."""
+
+    existing_config = cfg.backends.get(backend_name)
+    if isinstance(existing_config, BackendConfig):
+        return existing_config
+
+    # Backends can be optional extras; when the connector isn't installed the
+    # registry won't contain an entry. Create a fresh config so CLI arguments
+    # still apply without crashing on KeyError.
+    new_config = BackendConfig()
+    cfg.backends[backend_name] = new_config
+    return new_config
+
+
 def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     """Apply CLI arguments to configuration with full feature parity."""
     # Load base config (YAML only); pass through --config when provided
@@ -534,16 +551,21 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
 
     # API keys and URLs
     if args.openrouter_api_key is not None:
-        cfg.backends["openrouter"].api_key = args.openrouter_api_key
+        openrouter_cfg = _get_or_create_backend_config(cfg, "openrouter")
+        openrouter_cfg.api_key = [args.openrouter_api_key]
     if args.openrouter_api_base_url is not None:
-        cfg.backends["openrouter"].api_url = args.openrouter_api_base_url
+        openrouter_cfg = _get_or_create_backend_config(cfg, "openrouter")
+        openrouter_cfg.api_url = args.openrouter_api_base_url
     if args.gemini_api_key is not None:
-        cfg.backends["gemini"].api_key = args.gemini_api_key
+        gemini_cfg = _get_or_create_backend_config(cfg, "gemini")
+        gemini_cfg.api_key = [args.gemini_api_key]
         os.environ["GEMINI_API_KEY"] = args.gemini_api_key
     if args.gemini_api_base_url is not None:
-        cfg.backends["gemini"].api_url = args.gemini_api_base_url
+        gemini_cfg = _get_or_create_backend_config(cfg, "gemini")
+        gemini_cfg.api_url = args.gemini_api_base_url
     if args.zai_api_key is not None:
-        cfg.backends["zai"].api_key = args.zai_api_key
+        zai_cfg = _get_or_create_backend_config(cfg, "zai")
+        zai_cfg.api_key = [args.zai_api_key]
 
     # Feature flags (inverted boolean logic)
     if args.disable_interactive_mode is not None:

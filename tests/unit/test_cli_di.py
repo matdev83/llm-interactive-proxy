@@ -39,7 +39,7 @@ def test_apply_cli_args_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert os.environ["PROXY_PORT"] == "1234"
     assert os.environ["COMMAND_PREFIX"] == "$/"
     assert cfg.backends.default_backend == "gemini"
-    assert cfg.backends.gemini.api_key == "TESTKEY"
+    assert cfg.backends.gemini.api_key == ["TESTKEY"]
     assert cfg.port == 1234
     assert cfg.command_prefix == "$/"
     # cleanup environment variables set by apply_cli_args
