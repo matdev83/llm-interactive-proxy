@@ -36,6 +36,39 @@ class TestToolCallSignature:
         # Invalid JSON should be used as-is
         assert signature.arguments_signature == arguments
 
+    def test_from_tool_call_with_mapping_arguments(self):
+        """Tool calls with dict arguments should be canonicalized."""
+
+        tool_name = "test_tool"
+        arguments = {"b": 2, "a": 1}
+
+        signature = ToolCallSignature.from_tool_call(tool_name, arguments)
+
+        assert signature.tool_name == tool_name
+        # Raw arguments should be stringified for logging purposes
+        assert signature.raw_arguments == json.dumps(arguments, ensure_ascii=False)
+        # Canonical signature should use sorted keys for deterministic comparison
+        assert signature.arguments_signature == json.dumps(
+            {"a": 1, "b": 2}, sort_keys=True, ensure_ascii=False
+        )
+
+    def test_from_tool_call_with_sequence_arguments(self):
+        """List arguments should produce stable canonical signatures."""
+
+        tool_name = "test_tool"
+        arguments = [
+            {"b": 2},
+            {"a": 1},
+        ]
+
+        signature = ToolCallSignature.from_tool_call(tool_name, arguments)
+
+        assert signature.tool_name == tool_name
+        assert signature.raw_arguments == json.dumps(arguments, ensure_ascii=False)
+        assert signature.arguments_signature == json.dumps(
+            arguments, sort_keys=True, ensure_ascii=False
+        )
+
     def test_get_full_signature(self):
         """Test getting the full signature string."""
         tool_name = "test_tool"

@@ -9,7 +9,9 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from json_repair import repair_json
 
@@ -30,32 +32,24 @@ class ToolCallSignature(InternalDTO):
     raw_arguments: str
 
     @classmethod
-    def from_tool_call(cls, tool_name: str, arguments: str) -> ToolCallSignature:
+    def from_tool_call(cls, tool_name: str, arguments: Any) -> ToolCallSignature:
         """Create a signature from a tool call.
 
         Args:
             tool_name: Name of the tool being called
-            arguments: JSON string of the tool arguments
+            arguments: JSON string or structured payload of the tool arguments
 
         Returns:
             A ToolCallSignature instance with current timestamp
         """
-        # Parse and re-dump arguments with sorted keys for stable signature
-        try:
-            # Attempt to repair the JSON before loading
-            repaired_arguments = repair_json(arguments)
-            args_dict = json.loads(repaired_arguments)
-            # Stable signature for comparison (sorted keys)
-            canonical_args = json.dumps(args_dict, sort_keys=True)
-        except (json.JSONDecodeError, TypeError):
-            # If arguments are still invalid after repair, use as-is
-            canonical_args = arguments
+        canonical_args = cls._canonicalize_arguments(arguments)
+        raw_arguments = cls._stringify_raw_arguments(arguments)
 
         return cls(
             timestamp=datetime.datetime.now(),
             tool_name=tool_name,
             arguments_signature=canonical_args,
-            raw_arguments=arguments,
+            raw_arguments=raw_arguments,
         )
 
     def get_full_signature(self) -> str:
@@ -74,6 +68,51 @@ class ToolCallSignature(InternalDTO):
         now = datetime.datetime.now()
         age = now - self.timestamp
         return age.total_seconds() > ttl_seconds
+
+    @staticmethod
+    def _stringify_raw_arguments(arguments: Any) -> str:
+        """Return a readable string representation of the original arguments."""
+
+        if isinstance(arguments, str):
+            return arguments
+
+        try:
+            return json.dumps(arguments, ensure_ascii=False, default=str)
+        except TypeError:
+            return str(arguments)
+
+    @classmethod
+    def _canonicalize_arguments(cls, arguments: Any) -> str:
+        """Produce a stable string signature for tool call arguments."""
+
+        if isinstance(arguments, str):
+            try:
+                repaired_arguments = repair_json(arguments)
+            except TypeError:
+                return arguments
+
+            try:
+                parsed_arguments = json.loads(repaired_arguments)
+            except (json.JSONDecodeError, TypeError):
+                return arguments
+
+            return json.dumps(parsed_arguments, sort_keys=True, ensure_ascii=False, default=str)
+
+        if isinstance(arguments, Mapping) or (
+            isinstance(arguments, Sequence)
+            and not isinstance(arguments, (bytes, bytearray, str))
+        ):
+            try:
+                return json.dumps(
+                    arguments,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            except TypeError:
+                return str(arguments)
+
+        return str(arguments)
 
 
 class ToolCallTracker:
