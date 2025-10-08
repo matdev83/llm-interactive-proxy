@@ -8,6 +8,11 @@ def test_get_command_pattern_default_prefix() -> None:
     pattern = get_command_pattern(DEFAULT_COMMAND_PREFIX)
     assert pattern.match("!/hello")
     assert pattern.match("!/cmd(arg=val)")
+    # Hyphenated command names are common (e.g. project-dir, no-think)
+    match = pattern.match("!/project-dir(/tmp)")
+    assert match is not None
+    assert match.group("cmd") == "project-dir"
+    assert match.group("args") == "/tmp"
     assert not pattern.match("/hello")
     m = pattern.match("!/hello")
     assert m and m.group("cmd") == "hello" and (m.group("args") or "") == ""

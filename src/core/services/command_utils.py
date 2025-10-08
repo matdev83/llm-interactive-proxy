@@ -19,8 +19,16 @@ def get_command_pattern(command_prefix: str) -> re.Pattern:
     """
     # Escape special regex characters in the prefix
     escaped_prefix = re.escape(command_prefix)
-    # Pattern to match commands with optional arguments in parentheses
-    return re.compile(rf"{escaped_prefix}(?P<cmd>\w+)(?:\((?P<args>.*?)\))?")
+    # Pattern to match commands with optional arguments in parentheses.
+    # Historically command names have included hyphens (e.g. "project-dir" or
+    # "no-think"), but the previous implementation only used ``\w+`` which
+    # stops matching as soon as a hyphen is encountered. As a result those
+    # commands were never detected even though they are among the most common
+    # interactive commands. Expanding the character class to include hyphens
+    # restores the expected behaviour without affecting existing commands.
+    return re.compile(
+        rf"{escaped_prefix}(?P<cmd>[A-Za-z0-9][A-Za-z0-9_-]*)(?:\((?P<args>.*?)\))?"
+    )
 
 
 class CommandRegistry:
