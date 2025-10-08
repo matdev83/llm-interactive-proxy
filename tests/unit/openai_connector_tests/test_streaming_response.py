@@ -531,3 +531,75 @@ async def test_streaming_response_no_auth(connector: OpenAIConnector) -> None:
     # Verify the exception
     assert excinfo.value.status_code == 401
     assert "No auth credentials found" in str(excinfo.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_identity_headers_reset_between_calls() -> None:
+    """Ensure identity-specific headers do not persist between requests."""
+
+    response_payload = {
+        "id": "chatcmpl-123",
+        "object": "chat.completion",
+        "created": 1,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "hello"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.headers = {"content-type": "application/json"}
+    mock_response.json.return_value = response_payload
+
+    post_mock = AsyncMock(return_value=mock_response)
+
+    from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+
+    request = ChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="ping")],
+        stream=False,
+    )
+
+    client = MagicMock()
+    client.post = post_mock
+
+    connector = OpenAIConnector(
+        client=client,
+        config=AppConfig(),
+        translation_service=TranslationService(),
+    )
+    connector.api_key = "test-api-key"
+    connector.disable_health_check()
+
+    class IdentityStub:
+        def get_resolved_headers(self, _request: Any) -> dict[str, str]:
+            return {"X-Identity": "alpha"}
+
+    await connector.chat_completions(
+        request,
+        request.messages,
+        "gpt-4",
+        identity=IdentityStub(),
+    )
+    await connector.chat_completions(
+        request,
+        request.messages,
+        "gpt-4",
+        identity=None,
+    )
+
+    assert len(post_mock.await_args_list) == 2
+    first_headers = post_mock.await_args_list[0].kwargs["headers"]
+    second_headers = post_mock.await_args_list[1].kwargs["headers"]
+
+    assert first_headers.get("X-Identity") == "alpha"
+    assert "X-Identity" not in second_headers
+    assert "Authorization" in second_headers

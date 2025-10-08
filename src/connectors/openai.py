@@ -215,11 +215,12 @@ class OpenAIConnector(LLMBackend):
         payload = await self._prepare_payload(
             domain_request, processed_messages, effective_model
         )
+        # Always reset identity for each request to avoid leaking headers between calls
+        self.identity = identity
+
         headers = kwargs.pop("headers_override", None)
         if headers is None:
             try:
-                if identity:
-                    self.identity = identity
                 headers = self.get_headers()
             except Exception:
                 headers = None
@@ -538,11 +539,11 @@ class OpenAIConnector(LLMBackend):
         headers_override = kwargs.pop("headers_override", None)
         resolved_headers: dict[str, str] | None = None
 
+        # Reset identity to the current request context so headers do not leak across calls
+        self.identity = identity
+
         if headers_override is not None:
             resolved_headers = dict(headers_override)
-
-        if identity:
-            self.identity = identity
 
         base_headers: dict[str, str] | None
         try:
