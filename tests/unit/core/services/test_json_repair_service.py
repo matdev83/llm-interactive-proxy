@@ -69,3 +69,18 @@ def test_repair_and_validate_json_parse_failure_strict(
 ) -> None:
     with pytest.raises(JSONParsingError):
         json_repair_service.repair_and_validate_json("not-json", strict=True)
+
+
+def test_validate_response_schema_allows_boolean_subschemas(
+    json_repair_service: JsonRepairService,
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "any_value": True,
+            "forbidden": False,
+            "typed": {"type": "string"},
+        },
+    }
+
+    assert json_repair_service.validate_response_schema(schema)

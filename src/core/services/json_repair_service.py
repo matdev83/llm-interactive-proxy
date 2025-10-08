@@ -248,15 +248,31 @@ class JsonRepairService:
             test_object: dict[str, Any] = {}
             if schema.get("type") == "object" and "properties" in schema:
                 for prop_name, prop_schema in schema.get("properties", {}).items():
-                    if prop_schema.get("type") == "string":
+                    # Boolean schemas are valid in JSON Schema and simply
+                    # act as "always valid" (True) or "never valid" (False)
+                    # constraints. Skip type inference in those cases to
+                    # avoid attribute errors when calling `.get`.
+                    if isinstance(prop_schema, bool):
+                        continue
+
+                    if not isinstance(prop_schema, dict):
+                        logger.debug(
+                            "Skipping property %s with unsupported schema type %s",
+                            prop_name,
+                            type(prop_schema).__name__,
+                        )
+                        continue
+
+                    prop_type = prop_schema.get("type")
+                    if prop_type == "string":
                         test_object[prop_name] = "test"
-                    elif prop_schema.get("type") == "number":
+                    elif prop_type == "number":
                         test_object[prop_name] = 0.0
-                    elif prop_schema.get("type") == "boolean":
+                    elif prop_type == "boolean":
                         test_object[prop_name] = True
-                    elif prop_schema.get("type") == "array":
+                    elif prop_type == "array":
                         test_object[prop_name] = []
-                    elif prop_schema.get("type") == "object":
+                    elif prop_type == "object":
                         test_object[prop_name] = {}
 
             # Attempt validation to ensure schema is well-formed
