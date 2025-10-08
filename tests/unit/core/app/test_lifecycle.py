@@ -7,7 +7,6 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-
 from src.core.app.lifecycle import AppLifecycle
 from src.core.interfaces.session_service_interface import ISessionService
 
@@ -34,7 +33,9 @@ class _FakeTask:
         return _inner().__await__()
 
 
-def test_start_background_tasks_creates_cleanup_task(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_background_tasks_creates_cleanup_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app = FastAPI()
     config = {
         "session_cleanup_enabled": True,
@@ -45,9 +46,7 @@ def test_start_background_tasks_creates_cleanup_task(monkeypatch: pytest.MonkeyP
 
     created: dict[str, object] = {}
 
-    def fake_create_task(
-        coro: Coroutine[Any, Any, Any], name: str
-    ) -> _FakeTask:
+    def fake_create_task(coro: Coroutine[Any, Any, Any], name: str) -> _FakeTask:
         created["coro"] = coro
         created["name"] = name
         return _FakeTask(name)
@@ -61,7 +60,9 @@ def test_start_background_tasks_creates_cleanup_task(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
-async def test_shutdown_cancels_background_tasks(caplog: pytest.LogCaptureFixture) -> None:
+async def test_shutdown_cancels_background_tasks(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     app = FastAPI()
     lifecycle = AppLifecycle(app, {})
     task = _FakeTask("cleanup")
@@ -93,7 +94,9 @@ class _DummySessionService:
 
 
 @pytest.mark.asyncio
-async def test_session_cleanup_task_invokes_service(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+async def test_session_cleanup_task_invokes_service(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     app = FastAPI()
     lifecycle = AppLifecycle(app, {})
     service = _DummySessionService()
@@ -118,7 +121,9 @@ async def test_session_cleanup_task_invokes_service(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
-async def test_session_cleanup_task_warns_when_provider_missing(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+async def test_session_cleanup_task_warns_if_provider_missing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     app = FastAPI()
     lifecycle = AppLifecycle(app, {})
     app.state.service_provider = None
