@@ -83,7 +83,24 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
     if isinstance(openai_response, dict):
         return openai_response
     # pydantic-like model path
-    first_choice = openai_response.choices[0]
+    choices_attr = getattr(openai_response, "choices", None)
+    if not choices_attr:
+        usage_obj = getattr(openai_response, "usage", None)
+        return {
+            "id": getattr(openai_response, "id", "msg_unk"),
+            "model": getattr(openai_response, "model", "unknown"),
+            "choices": [],
+            "usage": {
+                "prompt_tokens": (
+                    getattr(usage_obj, "prompt_tokens", 0) if usage_obj else 0
+                ),
+                "completion_tokens": (
+                    getattr(usage_obj, "completion_tokens", 0) if usage_obj else 0
+                ),
+            },
+        }
+
+    first_choice = choices_attr[0]
     msg_obj: dict[str, Any] = {
         "role": first_choice.message.role,
         "content": first_choice.message.content,

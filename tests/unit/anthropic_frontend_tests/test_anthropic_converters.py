@@ -3,6 +3,7 @@ Unit tests for Anthropic front-end converters.
 Tests the conversion between Anthropic and OpenAI API formats.
 """
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from src.anthropic_converters import (
@@ -157,6 +158,23 @@ class TestAnthropicConverters:
         anthropic_response = openai_to_anthropic_response(openai_response)
 
         assert anthropic_response["content"][0]["text"] == "Hello world"
+
+    def test_openai_to_anthropic_response_model_with_empty_choices(self) -> None:
+        """Model responses without choices should yield an empty Anthropic message."""
+
+        class DummyResponse:
+            def __init__(self) -> None:
+                self.id = "chatcmpl-empty"
+                self.model = "gpt-4o"
+                self.choices: list[SimpleNamespace] = []
+                self.usage = SimpleNamespace(prompt_tokens=2, completion_tokens=3)
+
+        anthropic_response = openai_to_anthropic_response(DummyResponse())
+
+        assert anthropic_response["id"] == "chatcmpl-empty"
+        assert anthropic_response["content"][0]["text"] == ""
+        assert anthropic_response["usage"]["input_tokens"] == 2
+        assert anthropic_response["usage"]["output_tokens"] == 3
 
     def test_openai_stream_to_anthropic_stream_start(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - start."""
