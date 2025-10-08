@@ -431,7 +431,12 @@ class OpenAIConnector(LLMBackend):
         request = self.client.build_request(
             "POST", url, json=payload, headers=guarded_headers
         )
-        response = await self.client.send(request, stream=True)
+        try:
+            response = await self.client.send(request, stream=True)
+        except httpx.RequestError as exc:  # Normalize network failures
+            raise ServiceUnavailableError(
+                message=f"Could not connect to backend ({exc})"
+            ) from exc
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
