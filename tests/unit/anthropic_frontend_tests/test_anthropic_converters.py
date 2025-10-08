@@ -101,6 +101,23 @@ class TestAnthropicConverters:
         assert openai_req["stop"] == ["STOP", "END"]
         assert openai_req["stream"] is True
 
+    def test_anthropic_to_openai_request_with_max_output_tokens_alias(self) -> None:
+        """Anthropic max_output_tokens should map to OpenAI max_tokens."""
+        anthropic_req = AnthropicMessagesRequest.model_validate(
+            {
+                "model": "claude-3-haiku-20240307",
+                "messages": [
+                    {"role": "user", "content": "Hello"},
+                ],
+                "max_output_tokens": 77,
+            }
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        assert anthropic_req.max_tokens == 77
+        assert openai_req["max_tokens"] == 77
+
     def test_openai_to_anthropic_response_basic(self) -> None:
         """Test basic OpenAI to Anthropic response conversion."""
         openai_response = {
