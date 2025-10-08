@@ -135,6 +135,96 @@ class TestToolCallReactorMiddleware:
         assert call_args.tool_arguments == {"arg": "value"}
 
     @pytest.mark.asyncio
+    async def test_process_preserves_raw_arguments_on_parse_failure(
+        self, middleware, mock_reactor, monkeypatch
+    ):
+        """Unparseable argument strings should reach handlers unchanged."""
+
+        tool_call_response = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_789",
+                                "type": "function",
+                                "function": {
+                                    "name": "shell",
+                                    "arguments": "pytest -q",
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        response = ProcessedResponse(content=json.dumps(tool_call_response))
+
+        original_loads = json.loads
+
+        def _raise_decode_error(value: str, *args, **kwargs):
+            if value == "pytest -q":
+                raise json.JSONDecodeError("invalid", value, 0)
+            return original_loads(value, *args, **kwargs)
+
+        monkeypatch.setattr(
+            "src.core.services.tool_call_reactor_middleware.repair_json",
+            lambda s: s,
+        )
+        monkeypatch.setattr(
+            "src.core.services.tool_call_reactor_middleware.json.loads",
+            _raise_decode_error,
+        )
+
+        mock_reactor.process_tool_call.return_value = None
+
+        result = await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        assert result == response
+        call_args = mock_reactor.process_tool_call.call_args[0][0]
+        assert call_args.tool_arguments == "pytest -q"
+
+    @pytest.mark.asyncio
+    async def test_process_with_json_list_arguments(self, middleware, mock_reactor):
+        """JSON arrays in argument payloads should be preserved."""
+
+        tool_call_response = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_101",
+                                "type": "function",
+                                "function": {
+                                    "name": "shell",
+                                    "arguments": '["pytest", "-k", "fast"]',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        response = ProcessedResponse(content=json.dumps(tool_call_response))
+        mock_reactor.process_tool_call.return_value = None
+
+        await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        call_args = mock_reactor.process_tool_call.call_args[0][0]
+        assert call_args.tool_arguments == ["pytest", "-k", "fast"]
+
+    @pytest.mark.asyncio
     async def test_process_with_tool_call_list_payload(self, middleware, mock_reactor):
         """Tool calls provided as a list should be processed correctly."""
         tool_call_response = [
