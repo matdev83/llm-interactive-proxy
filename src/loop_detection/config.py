@@ -32,7 +32,7 @@ def _coerce_to_bool(value: Any) -> bool:
             )
         return True
 
-    if isinstance(value, int | float):
+    if isinstance(value, (int, float)):
         return bool(value)
 
     if isinstance(value, bool):
