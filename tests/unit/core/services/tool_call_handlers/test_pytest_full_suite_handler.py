@@ -39,6 +39,17 @@ def _build_context(command: str, session_id: str = "session-1") -> ToolCallConte
     )
 
 
+def _build_python_context(args: list[str], session_id: str = "session-1") -> ToolCallContext:
+    return ToolCallContext(
+        session_id=session_id,
+        backend_name="backend",
+        model_name="model",
+        full_response={},
+        tool_name="python",
+        tool_arguments={"args": args},
+    )
+
+
 @pytest.mark.asyncio
 async def test_handler_swallow_first_full_suite_command() -> None:
     handler = PytestFullSuiteHandler(enabled=True)
@@ -93,4 +104,26 @@ async def test_handler_enabled_flag_controls_behavior() -> None:
 
     assert await handler.can_handle(context) is False
     result = await handler.handle(context)
+    assert result.should_swallow is False
+
+
+@pytest.mark.asyncio
+async def test_handler_detects_python_pytest_invocation() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = _build_python_context(["-m", "pytest"])
+
+    assert await handler.can_handle(context) is True
+    result = await handler.handle(context)
+
+    assert result.should_swallow is True
+
+
+@pytest.mark.asyncio
+async def test_handler_allows_targeted_python_pytest_invocation() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = _build_python_context(["-m", "pytest", "tests/unit/test_example.py"])
+
+    assert await handler.can_handle(context) is False
+    result = await handler.handle(context)
+
     assert result.should_swallow is False

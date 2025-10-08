@@ -227,11 +227,19 @@ class PytestFullSuiteHandler(IToolCallHandler):
             "container.exec",
         }
 
-        if tool_name not in shell_tools:
-            # Some providers map pytest directly as function name
-            if _PYTEST_ROOT_PATTERN.search(tool_name):
-                arg_str = _extract_command(arguments)
-                return arg_str or tool_name
-            return None
+        command = _extract_command(arguments)
 
-        return _extract_command(arguments)
+        if tool_name in shell_tools:
+            return command
+
+        # Some providers map pytest directly as function name
+        if _PYTEST_ROOT_PATTERN.search(tool_name):
+            return command or tool_name
+
+        if command and _PYTEST_ROOT_PATTERN.search(command):
+            prefix = tool_name.strip()
+            if prefix:
+                return f"{prefix} {command}".strip()
+            return command
+
+        return None
