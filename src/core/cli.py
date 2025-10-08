@@ -26,6 +26,22 @@ from src.core.services import backend_imports  # noqa: F401
 from src.core.services.backend_registry import backend_registry
 
 
+def _set_backend_api_key(cfg: AppConfig, backend_name: str, api_key: str) -> None:
+    """Normalize CLI-provided API keys to the expected list format."""
+
+    if not api_key:
+        return
+
+    try:
+        backend_config = cfg.backends[backend_name]
+    except KeyError:
+        logging.warning("Backend '%s' is not registered; skipping API key assignment", backend_name)
+        return
+
+    # BackendConfig.api_key is defined as list[str]; ensure we preserve that contract.
+    backend_config.api_key = [api_key]
+
+
 def is_port_in_use(host: str, port: int) -> bool:
     """Check if a port is in use on a given host."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -534,16 +550,16 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
 
     # API keys and URLs
     if args.openrouter_api_key is not None:
-        cfg.backends["openrouter"].api_key = args.openrouter_api_key
+        _set_backend_api_key(cfg, "openrouter", args.openrouter_api_key)
     if args.openrouter_api_base_url is not None:
         cfg.backends["openrouter"].api_url = args.openrouter_api_base_url
     if args.gemini_api_key is not None:
-        cfg.backends["gemini"].api_key = args.gemini_api_key
+        _set_backend_api_key(cfg, "gemini", args.gemini_api_key)
         os.environ["GEMINI_API_KEY"] = args.gemini_api_key
     if args.gemini_api_base_url is not None:
         cfg.backends["gemini"].api_url = args.gemini_api_base_url
     if args.zai_api_key is not None:
-        cfg.backends["zai"].api_key = args.zai_api_key
+        _set_backend_api_key(cfg, "zai", args.zai_api_key)
 
     # Feature flags (inverted boolean logic)
     if args.disable_interactive_mode is not None:

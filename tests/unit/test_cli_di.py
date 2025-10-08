@@ -39,7 +39,7 @@ def test_apply_cli_args_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert os.environ["PROXY_PORT"] == "1234"
     assert os.environ["COMMAND_PREFIX"] == "$/"
     assert cfg.backends.default_backend == "gemini"
-    assert cfg.backends.gemini.api_key == "TESTKEY"
+    assert cfg.backends.gemini.api_key == ["TESTKEY"]
     assert cfg.port == 1234
     assert cfg.command_prefix == "$/"
     # cleanup environment variables set by apply_cli_args
@@ -47,6 +47,17 @@ def test_apply_cli_args_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("PROXY_PORT", raising=False)
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
+
+
+def test_cli_normalizes_backend_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+
+    args = parse_cli_args(["--gemini-api-key", "CLIKEY"])
+    cfg = apply_cli_args(args)
+
+    assert cfg.backends["gemini"].api_key == ["CLIKEY"]
 
 
 def test_cli_interactive_mode(monkeypatch: pytest.MonkeyPatch) -> None:
