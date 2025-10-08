@@ -8,6 +8,7 @@ tool call handlers and orchestrates their execution.
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -123,16 +124,18 @@ class ToolCallReactorService(IToolCallReactor):
             else:
                 timestamp = datetime.now(timezone.utc)
 
+            history_context = {
+                "backend_name": context.backend_name,
+                "model_name": context.model_name,
+                "calling_agent": context.calling_agent,
+                "timestamp": timestamp,
+                "tool_arguments": copy.deepcopy(context.tool_arguments),
+            }
+
             await self._history_tracker.record_tool_call(
                 context.session_id,
                 context.tool_name,
-                {
-                    "backend_name": context.backend_name,
-                    "model_name": context.model_name,
-                    "calling_agent": context.calling_agent,
-                    "timestamp": timestamp,
-                    "tool_arguments": context.tool_arguments,
-                },
+                history_context,
             )
 
         # Get handlers sorted by priority (highest first)
