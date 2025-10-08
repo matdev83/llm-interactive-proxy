@@ -625,7 +625,7 @@ class OpenAIConnector(LLMBackend):
         # Convert to domain response first, then back to ensure consistency
         # We'll treat the Responses API response as a special case of OpenAI response
         domain_response = self.translation_service.to_domain_response(
-            response_data, "openai"
+            response_data, "openai-responses"
         )
 
         # Convert back to Responses API format for the final response
