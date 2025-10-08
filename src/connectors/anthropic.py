@@ -278,7 +278,11 @@ class AnthropicBackend(LLMBackend):
         if request_data.top_p is not None:
             payload["top_p"] = request_data.top_p
         if request_data.stop is not None:
-            payload["stop_sequences"] = request_data.stop
+            stop_value = request_data.stop
+            if isinstance(stop_value, str):
+                payload["stop_sequences"] = [stop_value]
+            else:
+                payload["stop_sequences"] = list(stop_value)
         extra_body: dict[str, Any] = dict(request_data.extra_body or {})
         extra_metadata = extra_body.pop("metadata", None)
         if extra_metadata is not None:
