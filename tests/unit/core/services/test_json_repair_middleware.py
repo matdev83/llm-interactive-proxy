@@ -103,3 +103,26 @@ async def test_process_response_best_effort_failure_metrics(
 
     assert metric_calls
     assert metric_calls[-1] == "json_repair.non_streaming.best_effort_fail"
+
+
+async def test_process_streaming_chunks_are_skipped(
+    json_repair_middleware: JsonRepairMiddleware,
+) -> None:
+    response = ProcessedResponse(content="{'a': 1,}")
+    spy_calls: list[tuple[Any, dict[str, Any]]] = []
+
+    def spy_repair(*args: Any, **kwargs: Any) -> None:
+        spy_calls.append((args, kwargs))
+        return None
+
+    json_repair_middleware.json_repair_service.repair_and_validate_json = spy_repair  # type: ignore[assignment]
+
+    processed = await json_repair_middleware.process(
+        response,
+        "session_id",
+        {},
+        is_streaming=True,
+    )
+
+    assert processed is response
+    assert not spy_calls
