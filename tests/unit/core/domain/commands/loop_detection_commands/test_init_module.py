@@ -4,7 +4,6 @@ from importlib import import_module
 from types import ModuleType
 
 import pytest
-
 from src.core.domain.commands.loop_detection_commands import (
     get_loop_detection_command,
     get_loop_detection_commands,
