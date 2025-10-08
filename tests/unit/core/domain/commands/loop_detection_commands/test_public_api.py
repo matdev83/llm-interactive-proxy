@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from src.core.domain.commands.loop_detection_commands import (
     LoopDetectionCommand,
     ToolLoopDetectionCommand,

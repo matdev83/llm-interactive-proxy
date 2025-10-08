@@ -17,7 +17,6 @@ from typing import cast
 import httpx
 
 from src.core.config.app_config import AppConfig
-from src.core.config.config_loader import get_openrouter_headers
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
@@ -385,7 +384,6 @@ class BackendStage(InitializationStage):
 
         # Use the BackendFactory from the service container for proper DI
         try:
-            from src.core.models.backend_config import BackendConfig
             from src.core.services.backend_factory import BackendFactory
 
             backend_factory_service = services.build_service_provider().get_service(

@@ -4,7 +4,6 @@ import asyncio
 
 import pytest
 from fastapi import FastAPI
-
 from src.core.app.lifecycle import AppLifecycle
 
 
@@ -56,7 +55,7 @@ async def test_startup_and_shutdown_manage_cleanup_tasks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_cleanup_task_invokes_cleanup_when_available() -> None:
+async def test_session_cleanup_exercised_with_provider() -> None:
     app = FastAPI()
     service = DummySessionService()
     provider = DummyProvider(service)
@@ -78,7 +77,7 @@ async def test_session_cleanup_task_invokes_cleanup_when_available() -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_cleanup_task_skips_when_provider_missing() -> None:
+async def test_session_cleanup_bypassed_when_provider_missing() -> None:
     app = FastAPI()
     app.state.service_provider = None
 

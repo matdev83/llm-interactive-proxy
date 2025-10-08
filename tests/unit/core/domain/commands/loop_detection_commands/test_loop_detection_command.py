@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from pytest import MonkeyPatch
-from pytest import mark
+from pytest import MonkeyPatch, mark
 from src.core.domain.commands.loop_detection_commands.loop_detection_command import (
     LoopDetectionCommand,
 )

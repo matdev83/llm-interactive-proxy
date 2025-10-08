@@ -1,5 +1,4 @@
 import pytest
-
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
@@ -243,9 +242,7 @@ def test_register_custom_from_domain_request_converter() -> None:
     def custom_converter(request: CanonicalChatRequest) -> dict[str, str]:
         return {"model": request.model, "payload": "ok"}
 
-    service.register_converter(
-        "from_domain_request", "raw_text", custom_converter
-    )
+    service.register_converter("from_domain_request", "raw_text", custom_converter)
 
     converted = service.from_domain_request(canonical_request, "raw_text")
     assert converted == {"model": "gpt-4", "payload": "ok"}

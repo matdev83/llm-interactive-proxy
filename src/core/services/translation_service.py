@@ -26,9 +26,7 @@ class TranslationService:
         # Converters that translate vendor specific payloads into the canonical
         # domain models. These are used when a frontend request/response needs to
         # be normalized before handing it to the rest of the system.
-        self._to_domain_request_converters: dict[
-            str, Callable[..., Any]
-        ] = {
+        self._to_domain_request_converters: dict[str, Callable[..., Any]] = {
             "gemini": Translation.gemini_to_domain_request,
             "openai": Translation.openai_to_domain_request,
             "openrouter": Translation.openrouter_to_domain_request,
@@ -37,9 +35,7 @@ class TranslationService:
             "raw_text": Translation.raw_text_to_domain_request,
             "responses": Translation.responses_to_domain_request,
         }
-        self._to_domain_response_converters: dict[
-            str, Callable[..., Any]
-        ] = {
+        self._to_domain_response_converters: dict[str, Callable[..., Any]] = {
             "gemini": Translation.gemini_to_domain_response,
             "openai": Translation.openai_to_domain_response,
             "openai-responses": Translation.responses_to_domain_response,
@@ -84,9 +80,7 @@ class TranslationService:
         converters = self._get_converter_mapping(direction)
         converters[format] = converter
 
-    def _get_converter_mapping(
-        self, direction: str
-    ) -> dict[str, Callable[..., Any]]:
+    def _get_converter_mapping(self, direction: str) -> dict[str, Callable[..., Any]]:
         mapping: dict[str, dict[str, Callable[..., Any]]] = {
             "request": self._to_domain_request_converters,
             "to_domain_request": self._to_domain_request_converters,

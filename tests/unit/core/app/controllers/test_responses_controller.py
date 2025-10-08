@@ -1,7 +1,6 @@
 """Unit tests for the ResponsesController front-end logic."""
 
 import pytest
-
 from src.core.app.controllers.responses_controller import ResponsesController
 
 

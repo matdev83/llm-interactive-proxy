@@ -310,9 +310,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             return (
                 CommandResult(
                     success=False,
-                    message=(
-                        "Interactive mode value must be a string or boolean"
-                    ),
+                    message=("Interactive mode value must be a string or boolean"),
                 ),
                 state,
             )
