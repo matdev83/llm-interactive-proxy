@@ -176,7 +176,7 @@ class GeminiBackend(LLMBackend):
         if isinstance(raw_chunk, dict):
             return raw_chunk
 
-        if isinstance(raw_chunk, bytes | bytearray):
+        if isinstance(raw_chunk, (bytes, bytearray)):
             raw_chunk = raw_chunk.decode("utf-8", errors="ignore")
 
         if not isinstance(raw_chunk, str):
