@@ -1,8 +1,14 @@
 import argparse
+import socket
 from unittest.mock import patch
 
 import pytest
-from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
+from src.core.cli import (
+    _maybe_run_as_daemon,
+    apply_cli_args,
+    is_port_in_use,
+    parse_cli_args,
+)
 from src.core.config.app_config import AppConfig
 
 # Make sure all connectors are imported and registered
@@ -26,6 +32,17 @@ def test_cli_allows_all_registered_backends() -> None:
             # Test application of args
             config = apply_cli_args(args)
             assert config.backends.default_backend == backend_name
+
+
+def test_is_port_in_use_handles_wildcard_host() -> None:
+    """Ensure wildcard host detection checks loopback addresses."""
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+
+        assert is_port_in_use("0.0.0.0", port) is True
 
 
 def test_cli_strict_command_detection_flags() -> None:

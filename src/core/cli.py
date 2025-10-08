@@ -28,8 +28,31 @@ from src.core.services.backend_registry import backend_registry
 
 def is_port_in_use(host: str, port: int) -> bool:
     """Check if a port is in use on a given host."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex((host, port)) == 0
+
+    normalized_host = host.strip() if host else ""
+
+    targets: list[tuple[str, int]] = []
+    if normalized_host in {"", "0.0.0.0", "*"}:
+        # When binding to all interfaces, check loopback addresses explicitly.
+        targets.append(("127.0.0.1", socket.AF_INET))
+        targets.append(("::1", socket.AF_INET6))
+    elif normalized_host in {"::", "::0", "[::]"}:
+        targets.append(("::1", socket.AF_INET6))
+        targets.append(("127.0.0.1", socket.AF_INET))
+    else:
+        family = socket.AF_INET6 if ":" in normalized_host else socket.AF_INET
+        targets.append((normalized_host, family))
+
+    for target_host, family in targets:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex((target_host, port)) == 0:
+                    return True
+        except OSError:
+            # Ignore errors for unsupported address families on the platform.
+            continue
+    return False
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
