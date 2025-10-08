@@ -22,6 +22,12 @@ class PytestCompressionService:
             "container.exec",
         ]
 
+        # Normalize tool names for case-insensitive comparison while preserving
+        # the original list for backward-compatible access in tests.
+        self._normalized_shell_tool_names = {
+            name.lower() for name in self.shell_tool_names
+        }
+
         # Pattern to detect pytest in command arguments (supports pytest and py.test aliases)
         self.pytest_pattern = re.compile(r"\bpy\.?test\b", re.IGNORECASE)
 
@@ -103,8 +109,8 @@ class PytestCompressionService:
 
         Returns (True, command_string) if pytest is detected, otherwise None.
         """
-        # Only scan shell execution tools
-        if tool_name not in self.shell_tool_names:
+        # Only scan shell execution tools (case-insensitive match)
+        if tool_name.lower() not in self._normalized_shell_tool_names:
             return None
 
         command_to_check = self._extract_command_string(arguments)
