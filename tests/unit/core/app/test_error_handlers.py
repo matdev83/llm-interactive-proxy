@@ -115,6 +115,18 @@ def test_http_exception_handler_chat_completions(
     }
 
 
+def test_http_exception_handler_preserves_headers() -> None:
+    request = make_request("/v1/models")
+    exc = HTTPException(
+        status_code=503, detail="Unavailable", headers={"Retry-After": "5"}
+    )
+
+    response = call_handler(http_exception_handler, request, exc)
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
+
+
 def test_proxy_exception_handler_chat_completion_with_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -146,6 +158,25 @@ def test_proxy_exception_handler_standard_all_backends_failed() -> None:
     assert payload["detail"]["error"]["status_code"] == 500
 
 
+def test_proxy_exception_handler_standard_preserves_status_code() -> None:
+    request = make_request("/v1/completions")
+    exc = LLMProxyError("forbidden", status_code=403)
+
+    response = call_handler(proxy_exception_handler, request, exc)
+
+    assert response.status_code == 403
+    payload = parse_json_response(response)
+    assert payload == {
+        "detail": {
+            "error": {
+                "message": "forbidden",
+                "type": "LLMProxyError",
+                "status_code": 403,
+            }
+        }
+    }
+
+
 def test_proxy_exception_handler_non_proxy_exception() -> None:
     request = make_request("/v1/completions")
     exc = RuntimeError("unexpected failure")
@@ -160,6 +191,30 @@ def test_proxy_exception_handler_non_proxy_exception() -> None:
                 "message": "unexpected failure",
                 "type": "RuntimeError",
                 "status_code": 500,
+            }
+        }
+    }
+
+
+def test_proxy_exception_handler_non_proxy_exception_respects_status() -> None:
+    class CustomError(Exception):
+        def __init__(self) -> None:
+            super().__init__("teapot")
+            self.status_code = 418
+
+    request = make_request("/v1/completions")
+    exc = CustomError()
+
+    response = call_handler(proxy_exception_handler, request, exc)  # type: ignore[arg-type]
+
+    assert response.status_code == 418
+    payload = parse_json_response(response)
+    assert payload == {
+        "detail": {
+            "error": {
+                "message": "teapot",
+                "type": "CustomError",
+                "status_code": 418,
             }
         }
     }
