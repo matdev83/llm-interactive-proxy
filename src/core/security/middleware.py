@@ -197,12 +197,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
 
-        # Short-circuit for clients currently blocked for repeated failures
-        if client_ip:
-            blocked_response = await self._maybe_reject_for_bruteforce(client_ip)
-            if blocked_response is not None:
-                return blocked_response
-
         # Check if auth is disabled for tests or development using DI when available
         app_state_service: IApplicationState | None = None
         # Prefer a test-injected app_state_service when present (unit tests stub this attribute)
@@ -230,6 +224,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # Auth is disabled, skip validation
             response = await call_next(request)
             return response
+
+        # Short-circuit for clients currently blocked for repeated failures
+        if client_ip:
+            blocked_response = await self._maybe_reject_for_bruteforce(client_ip)
+            if blocked_response is not None:
+                return blocked_response
 
         # Check if auth is disabled in the app config
         app_config = (

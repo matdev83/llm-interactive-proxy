@@ -307,6 +307,87 @@ class TestAPIKeyMiddleware:
         assert blocked_reset.status_code == 429
         assert blocked_reset.headers.get("Retry-After") == "10"
 
+    async def test_bruteforce_bypass_when_auth_disabled(
+        self, mock_request, monkeypatch
+    ) -> None:
+        """Disabling auth should bypass brute-force blocking for subsequent requests."""
+
+        from src.core.security.middleware import APIKeyMiddleware
+
+        class FakeTime:
+            def __init__(self, start: float = 2_000.0) -> None:
+                self.current = start
+
+            def time(self) -> float:
+                return self.current
+
+            def advance(self, seconds: float) -> None:
+                self.current += seconds
+
+        clock = FakeTime()
+        monkeypatch.setattr("src.core.security.middleware.time.time", clock.time)
+
+        middleware = APIKeyMiddleware(
+            app=MagicMock(),
+            valid_keys=["valid-key"],
+            brute_force_enabled=True,
+            brute_force_max_attempts=1,
+            brute_force_ttl_seconds=60,
+            brute_force_initial_block_seconds=15,
+            brute_force_block_multiplier=2.0,
+            brute_force_max_block_seconds=60,
+        )
+
+        disable_flag = {"value": False}
+
+        def get_setting(key: str, default=None):
+            if key == "disable_auth":
+                return disable_flag["value"]
+            if key == "client_api_key":
+                return None
+            if key == "app_config":
+                config = MagicMock()
+                config.auth = MagicMock(
+                    disable_auth=disable_flag["value"], api_keys=["valid-key"]
+                )
+                return config
+            return default
+
+        app_state_service = MagicMock(spec=IApplicationState)
+        app_state_service.get_setting.side_effect = get_setting
+        middleware.app_state_service = app_state_service
+        mock_request.app.state.service_provider.get_service.return_value = (
+            app_state_service
+        )
+        mock_request.app.state.service_provider.get_required_service.return_value = (
+            app_state_service
+        )
+
+        async def _attempt() -> Response:
+            mock_request.headers = {"Authorization": "Bearer bad-key"}
+            mock_request.query_params = {}
+            call_next = AsyncMock(return_value="should-not-run")
+            return await middleware.dispatch(mock_request, call_next)
+
+        # First invalid attempt should result in a 401
+        first = await _attempt()
+        assert first.status_code == 401
+
+        # Second invalid attempt triggers brute-force blocking
+        second = await _attempt()
+        assert second.status_code == 429
+
+        # Disable auth via injected state service
+        disable_flag["value"] = True
+        mock_request.headers = {}
+        mock_request.query_params = {}
+        call_next = AsyncMock(return_value="ok")
+
+        # With auth disabled we should bypass brute-force blocking and reach call_next
+        result = await middleware.dispatch(mock_request, call_next)
+        assert result == "ok"
+        call_next.assert_called_once_with(mock_request)
+
 
 class TestAuthMiddleware:
     """Test the AuthMiddleware class."""
