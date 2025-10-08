@@ -265,6 +265,8 @@ class AnthropicController:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(f"Returning JSON response: {anthropic_response_data}")
 
+                status_code = getattr(adapted_response, "status_code", 200)
+
                 # If we're using the OpenAI format (choices), convert it to Anthropic format
                 if (
                     isinstance(anthropic_response_data, dict)
@@ -289,6 +291,7 @@ class AnthropicController:
                     return FastAPIResponse(
                         content=json.dumps(anthropic_formatted),
                         media_type="application/json",
+                        status_code=status_code,
                         headers=safe_headers,
                     )
                 else:
@@ -307,6 +310,7 @@ class AnthropicController:
                     return FastAPIResponse(
                         content=json.dumps(anthropic_response_data),
                         media_type="application/json",
+                        status_code=status_code,
                         headers=safe_headers,
                     )
         except LLMProxyError as e:
