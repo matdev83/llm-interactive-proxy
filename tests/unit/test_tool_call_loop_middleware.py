@@ -190,6 +190,39 @@ async def test_reset_session(middleware, loop_config, tool_call_response) -> Non
 
 
 @pytest.mark.asyncio
+async def test_config_changes_update_existing_tracker(
+    middleware: ToolCallLoopDetectionMiddleware, tool_call_response: ProcessedResponse
+) -> None:
+    """Config updates should refresh thresholds for existing session trackers."""
+
+    session_id = "session123"
+    initial_config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=4,
+        tool_loop_ttl_seconds=60,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+
+    # Prime the tracker with the initial configuration
+    await middleware.process(
+        tool_call_response, session_id, context={"config": initial_config}
+    )
+
+    updated_config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=2,
+        tool_loop_ttl_seconds=60,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+
+    # The stricter config should take effect immediately for the existing tracker
+    with pytest.raises(ToolCallLoopError):
+        await middleware.process(
+            tool_call_response, session_id, context={"config": updated_config}
+        )
+
+
+@pytest.mark.asyncio
 async def test_different_tool_calls(middleware, loop_config) -> None:
     """Test that different tool calls are tracked separately."""
     # Create two different tool call responses
