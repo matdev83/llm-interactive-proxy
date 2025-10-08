@@ -96,11 +96,13 @@ class ToolCallSignature(InternalDTO):
             except (json.JSONDecodeError, TypeError):
                 return arguments
 
-            return json.dumps(parsed_arguments, sort_keys=True, ensure_ascii=False, default=str)
+            return json.dumps(
+                parsed_arguments, sort_keys=True, ensure_ascii=False, default=str
+            )
 
         if isinstance(arguments, Mapping) or (
             isinstance(arguments, Sequence)
-            and not isinstance(arguments, (bytes, bytearray, str))
+            and not isinstance(arguments, bytes | bytearray | str)
         ):
             try:
                 return json.dumps(
