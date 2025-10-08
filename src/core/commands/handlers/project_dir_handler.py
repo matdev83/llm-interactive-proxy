@@ -43,6 +43,7 @@ class ProjectDirCommandHandler(BaseCommandHandler):
         return [
             "!/project-dir(/path/to/project)",
             "!/project-dir(C:\\Users\\username\\projects\\myproject)",
+            "!/project-dir()",
         ]
 
     def can_handle(self, param_name: str) -> bool:
@@ -75,16 +76,30 @@ class ProjectDirCommandHandler(BaseCommandHandler):
         Returns:
             A result containing success/failure status and updated state
         """
-        # Handle unset case (None or empty value)
-        if not param_value:
-            # Create new state with project directory unset
+        # Allow querying the current directory when no value is provided. This
+        # matches the documented behaviour of `!/project-dir()` returning the
+        # active path without mutating the session state.
+        if param_value is None:
+            current_dir = current_state.project_dir
+            message = (
+                current_dir if current_dir else "Project directory not set"
+            )
+            return CommandHandlerResult(success=True, message=message)
+
+        # Handle unset case (empty/whitespace value)
+        if isinstance(param_value, str):
+            normalized_input = param_value.strip()
+        else:
+            normalized_input = str(param_value)
+
+        if normalized_input == "":
             new_state = current_state.with_project_dir(None)
             return CommandHandlerResult(
                 success=True, message="Project directory unset", new_state=new_state
             )
 
         # Get the directory path
-        dir_path = str(param_value)
+        dir_path = normalized_input
 
         # Expand environment variables and user home shortcuts so commands like
         # !/project-dir(~\my_project) work cross-platform.
