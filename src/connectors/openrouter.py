@@ -67,6 +67,11 @@ class OpenRouterBackend(OpenAIConnector):
         )
         key_name = cast(str, kwargs.get("key_name"))
         api_base_url = kwargs.get("openrouter_api_base_url")
+        if api_base_url is None:
+            api_base_url = kwargs.get("api_base_url")
+
+        if api_base_url is not None and not isinstance(api_base_url, str):
+            raise TypeError("api_base_url must be a string if provided")
 
         if openrouter_headers_provider is not None and not callable(
             openrouter_headers_provider
@@ -125,6 +130,10 @@ class OpenRouterBackend(OpenAIConnector):
         key_name = kwargs.pop("key_name", None)
         api_key = kwargs.pop("api_key", None)
         api_base_url = kwargs.pop("openrouter_api_base_url", None)
+        if api_base_url is None:
+            api_base_url = kwargs.pop("api_base_url", None)
+        if api_base_url is not None and not isinstance(api_base_url, str):
+            raise TypeError("api_base_url must be a string if provided")
 
         original_headers_provider = self.headers_provider
         original_key_name = self.key_name
