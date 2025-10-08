@@ -437,6 +437,18 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _parse_api_key_argument(value: str | None) -> list[str]:
+    """Normalize CLI API key arguments into a list of strings."""
+
+    if value is None:
+        return []
+
+    # Support comma-separated lists to match environment/config loaders
+    keys = [item.strip() for item in value.split(",") if item.strip()]
+
+    return keys
+
+
 def apply_cli_args(args: argparse.Namespace) -> AppConfig:
     """Apply CLI arguments to configuration with full feature parity."""
     # Load base config (YAML only); pass through --config when provided
@@ -534,16 +546,19 @@ def apply_cli_args(args: argparse.Namespace) -> AppConfig:
 
     # API keys and URLs
     if args.openrouter_api_key is not None:
-        cfg.backends["openrouter"].api_key = args.openrouter_api_key
+        cfg.backends["openrouter"].api_key = _parse_api_key_argument(
+            args.openrouter_api_key
+        )
     if args.openrouter_api_base_url is not None:
         cfg.backends["openrouter"].api_url = args.openrouter_api_base_url
     if args.gemini_api_key is not None:
-        cfg.backends["gemini"].api_key = args.gemini_api_key
-        os.environ["GEMINI_API_KEY"] = args.gemini_api_key
+        gemini_keys = _parse_api_key_argument(args.gemini_api_key)
+        cfg.backends["gemini"].api_key = gemini_keys
+        os.environ["GEMINI_API_KEY"] = ",".join(gemini_keys)
     if args.gemini_api_base_url is not None:
         cfg.backends["gemini"].api_url = args.gemini_api_base_url
     if args.zai_api_key is not None:
-        cfg.backends["zai"].api_key = args.zai_api_key
+        cfg.backends["zai"].api_key = _parse_api_key_argument(args.zai_api_key)
 
     # Feature flags (inverted boolean logic)
     if args.disable_interactive_mode is not None:

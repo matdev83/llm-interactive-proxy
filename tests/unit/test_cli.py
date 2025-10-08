@@ -1,6 +1,8 @@
 import argparse
 from unittest.mock import patch
 
+import os
+
 import pytest
 from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
 from src.core.config.app_config import AppConfig
@@ -271,3 +273,32 @@ def test_cli_capture_limits_arguments() -> None:
         assert config.logging.capture_max_bytes == 1024
         assert config.logging.capture_truncate_bytes == 256
         assert config.logging.capture_max_files == 3
+
+
+def test_cli_api_key_arguments_normalized_to_lists() -> None:
+    """API key CLI arguments should populate BackendConfig lists."""
+
+    with (
+        patch("src.core.cli.load_config", return_value=AppConfig()),
+        patch.dict(os.environ, {}, clear=True),
+    ):
+        args = parse_cli_args(
+            [
+                "--openrouter-api-key",
+                "router-key",
+                "--gemini-api-key",
+                "gemini-primary,gemini-secondary",
+                "--zai-api-key",
+                "zai-key",
+            ]
+        )
+
+        cfg = apply_cli_args(args)
+
+        assert cfg.backends["openrouter"].api_key == ["router-key"]
+        assert cfg.backends["gemini"].api_key == [
+            "gemini-primary",
+            "gemini-secondary",
+        ]
+        assert os.environ["GEMINI_API_KEY"] == "gemini-primary,gemini-secondary"
+        assert cfg.backends["zai"].api_key == ["zai-key"]
