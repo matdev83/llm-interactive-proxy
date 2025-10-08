@@ -19,6 +19,8 @@ class DailyRequestCounter:
         self.last_reset_date = self._get_current_pacific_date()
         self._load_state()
         self._reset_if_needed()
+        if self._check_thresholds():
+            self._save_state()
 
     @property
     def logged_thresholds(self) -> set[int]:
@@ -91,11 +93,16 @@ class DailyRequestCounter:
         self._check_thresholds()
         self._save_state()
 
-    def _check_thresholds(self) -> None:
+    def _check_thresholds(self) -> bool:
+        """Log warnings for thresholds that have been met or exceeded."""
+
+        threshold_triggered = False
         for threshold in self._thresholds:
-            if self.count == threshold and threshold not in self._logged_thresholds:
+            if self.count >= threshold and threshold not in self._logged_thresholds:
                 self._logged_thresholds.add(threshold)
                 logger.warning(
                     f"Gemini CLI OAuth personal daily usage reached {threshold}"
                     f" requests ({self.count}/{self.limit})."
                 )
+                threshold_triggered = True
+        return threshold_triggered
