@@ -81,9 +81,7 @@ class ProjectDirCommandHandler(BaseCommandHandler):
         # active path without mutating the session state.
         if param_value is None:
             current_dir = current_state.project_dir
-            message = (
-                current_dir if current_dir else "Project directory not set"
-            )
+            message = current_dir if current_dir else "Project directory not set"
             return CommandHandlerResult(success=True, message=message)
 
         # Handle unset case (empty/whitespace value)
