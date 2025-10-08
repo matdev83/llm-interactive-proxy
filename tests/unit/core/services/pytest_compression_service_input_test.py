@@ -20,3 +20,18 @@ def test_scan_for_pytest_detects_input_string(
     detected, command = result
     assert detected is True
     assert command == "pytest -q"
+
+
+def test_scan_for_pytest_handles_mixed_case_tool_name(
+    service: PytestCompressionService,
+) -> None:
+    """Ensure detection works when the tool name uses different casing."""
+
+    arguments = "pytest --maxfail=1"
+
+    result = service.scan_for_pytest("Bash", arguments)
+
+    assert result is not None
+    detected, command = result
+    assert detected is True
+    assert command == "pytest --maxfail=1"
