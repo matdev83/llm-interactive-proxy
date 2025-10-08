@@ -1,9 +1,12 @@
 from collections.abc import Iterator  # Added import
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
 from src.core.di.container import ServiceCollection
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.di.services import (
+    get_service_collection,
     get_service_provider,
     register_core_services,
     set_service_provider,
@@ -79,6 +82,27 @@ class TestServiceRegistration:
 
         normalizer = global_provider.get_required_service(IStreamNormalizer)  # type: ignore[type-abstract]
         assert isinstance(normalizer, StreamNormalizer)
+
+    def test_get_service_collection_raises_when_core_registration_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ensure DI core registration failures raise ServiceResolutionError."""
+
+        import src.core.di.services as services_module
+
+        monkeypatch.setattr(services_module, "_service_collection", None, raising=False)
+
+        def _fail_register(_: ServiceCollection, __: Any | None = None) -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(services_module, "register_core_services", _fail_register)
+
+        with pytest.raises(ServiceResolutionError) as exc_info:
+            services_module.get_service_collection()
+
+        assert "Failed to register core services" in str(exc_info.value)
+        assert exc_info.value.details.get("error_type") == "RuntimeError"
+        assert services_module._service_collection is None
 
     def test_get_service_provider_recovers_tool_call_services(
         self, monkeypatch: pytest.MonkeyPatch
