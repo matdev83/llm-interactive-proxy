@@ -307,7 +307,12 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             rewriter = ContentRewriterService(config_path=self.test_config_dir)
             middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
 
-            structured_content = [{"type": "text", "text": "Structured user payload."}]
+            structured_content = [
+                {
+                    "type": "input_image",
+                    "image_url": {"url": "https://example.com/image.png"},
+                }
+            ]
             payload = {
                 "messages": [
                     {
@@ -352,7 +357,91 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                 new_body["messages"][0]["content"],
                 "This is an rewritten system prompt.",
             )
-            self.assertEqual(new_body["messages"][1]["content"], structured_content)
+            self.assertEqual(
+                new_body["messages"][1]["content"], structured_content
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_outbound_prompt_rewriting_updates_structured_text_blocks(self):
+        """Rewrite text blocks inside structured chat payloads."""
+
+        async def run_test():
+            os.makedirs(
+                os.path.join(self.test_config_dir, "prompts", "user", "003"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(
+                    self.test_config_dir, "prompts", "user", "003", "SEARCH.txt"
+                ),
+                "w",
+            ) as f:
+                f.write("Structured user payload.")
+            with open(
+                os.path.join(
+                    self.test_config_dir, "prompts", "user", "003", "REPLACE.txt"
+                ),
+                "w",
+            ) as f:
+                f.write("Rewritten user payload.")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            structured_content = [
+                {"type": "text", "text": "Structured user payload."}
+            ]
+            payload = {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "This is an original system prompt.",
+                    },
+                    {"role": "user", "content": structured_content},
+                ]
+            }
+
+            async def get_body():
+                return json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = await get_body()
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            new_request = call_next.call_args[0][0]
+
+            new_body = await new_request.json()
+
+            self.assertEqual(
+                new_body["messages"][0]["content"],
+                "This is an rewritten system prompt.",
+            )
+            self.assertEqual(
+                new_body["messages"][1]["content"],
+                [{"type": "text", "text": "Rewritten user payload."}],
+            )
 
         import asyncio
 
