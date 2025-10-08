@@ -105,6 +105,14 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
     def _extract_route_argument(self, args: Mapping[str, Any]) -> str | None:
         """Extract the backend/model argument from parsed command args."""
 
+        backend_value = args.get("backend")
+        model_value = args.get("model")
+        if isinstance(backend_value, str) and isinstance(model_value, str):
+            backend_candidate = backend_value.strip()
+            model_candidate = model_value.strip()
+            if backend_candidate and model_candidate:
+                return f"{backend_candidate}/{model_candidate}"
+
         candidate_keys = ("element", "value", "route", "target")
         for key in candidate_keys:
             value = args.get(key)
