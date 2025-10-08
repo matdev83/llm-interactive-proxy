@@ -190,6 +190,7 @@ class JsonRepairProcessor(IStreamProcessor):
             buf = self._buffer
             if not self._in_string and buf.rstrip().endswith(":"):
                 buf = buf + " null"
+                self._buffer = buf
             repaired_final = self._service.repair_and_validate_json(
                 buf, schema=self._schema, strict=self._strict_mode
             )
