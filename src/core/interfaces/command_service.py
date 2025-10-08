@@ -14,7 +14,9 @@ class FunctionCommandService(ICommandService):
 
     def __init__(self, handler: CommandServiceHandler):
         if handler is None:
-            raise ValueError("A handler callable must be provided for the command service.")
+            raise ValueError(
+                "A handler callable must be provided for the command service."
+            )
         if not callable(handler):
             raise TypeError("The command service handler must be callable.")
         self._handler = handler

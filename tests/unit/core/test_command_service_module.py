@@ -1,5 +1,4 @@
 import pytest
-
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service import ensure_command_service
 from src.core.interfaces.command_service_interface import ICommandService
