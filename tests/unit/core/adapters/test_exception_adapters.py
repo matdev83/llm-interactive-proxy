@@ -99,6 +99,31 @@ class TestCreateExceptionHandler:
         assert "Retry-After" not in response.headers
 
     @pytest.mark.asyncio
+    async def test_handle_rate_limit_error_with_expired_reset(
+        self,
+        mock_request: Mock,
+        exception_handler,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test handling RateLimitExceededError when reset time is in the past."""
+        current_time = 1_700_000_500.0
+        monkeypatch.setattr(
+            "src.core.adapters.exception_adapters.time.time",
+            lambda: current_time,
+        )
+
+        error = RateLimitExceededError(
+            message="Rate limit exceeded",
+            reset_at=current_time - 100.0,
+        )
+
+        response = await exception_handler(mock_request, error)
+
+        assert isinstance(response, JSONResponse)
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "0"
+
+    @pytest.mark.asyncio
     async def test_handle_authentication_error(
         self, mock_request: Mock, exception_handler
     ) -> None:
