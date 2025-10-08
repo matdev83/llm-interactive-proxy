@@ -74,6 +74,17 @@ def test_log_summary_reports_overhead_without_phase_timings(monkeypatch, caplog)
     assert "overhead=1.000s" in message
 
 
+def test_end_phase_handles_zero_start_time(monkeypatch):
+    time_values = _time_sequence(0.0, 1.5)
+    monkeypatch.setattr(performance_tracker.time, "time", time_values)
+
+    metrics = PerformanceMetrics(request_start=0.0)
+    metrics.start_phase("command_processing")
+    metrics.end_phase()
+
+    assert metrics.command_processing_time == 1.5
+
+
 def test_track_request_performance_finalizes(monkeypatch):
     calls: list[PerformanceMetrics] = []
 
