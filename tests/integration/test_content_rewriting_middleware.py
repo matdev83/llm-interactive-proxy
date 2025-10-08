@@ -103,8 +103,8 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_inbound_reply_rewriting_ignores_non_string_content(self):
-        """Ensure non-string replies are forwarded unchanged."""
+    def test_inbound_reply_rewriting_handles_structured_content(self):
+        """Rewrite textual blocks while leaving non-text content untouched."""
 
         os.makedirs(os.path.join(self.test_config_dir, "replies", "001"), exist_ok=True)
         with open(
@@ -125,7 +125,11 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                     "message": {
                         "role": "assistant",
                         "content": [
-                            {"type": "text", "text": "This is an original reply."}
+                            {"type": "text", "text": "This is an original reply."},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "http://example.com/image.png"},
+                            },
                         ],
                     }
                 }
@@ -162,7 +166,13 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             new_body = json.loads(response.body)
             self.assertEqual(
                 new_body["choices"][0]["message"]["content"],
-                [{"type": "text", "text": "This is an original reply."}],
+                [
+                    {"type": "text", "text": "This is an rewritten reply."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "http://example.com/image.png"},
+                    },
+                ],
             )
 
         import asyncio
@@ -300,14 +310,47 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_outbound_prompt_rewriting_ignores_non_string_content(self):
-        """Ensure non-string prompt content is left untouched."""
+    def test_outbound_prompt_rewriting_handles_structured_content(self):
+        """Rewrite textual blocks while leaving non-text content untouched."""
 
         async def run_test():
+            os.makedirs(
+                os.path.join(self.test_config_dir, "prompts", "user", "001"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(
+                    self.test_config_dir,
+                    "prompts",
+                    "user",
+                    "001",
+                    "SEARCH.txt",
+                ),
+                "w",
+            ) as f:
+                f.write("Structured user payload.")
+            with open(
+                os.path.join(
+                    self.test_config_dir,
+                    "prompts",
+                    "user",
+                    "001",
+                    "REPLACE.txt",
+                ),
+                "w",
+            ) as f:
+                f.write("Structured rewritten payload.")
+
             rewriter = ContentRewriterService(config_path=self.test_config_dir)
             middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
 
-            structured_content = [{"type": "text", "text": "Structured user payload."}]
+            structured_content = [
+                {"type": "text", "text": "Structured user payload."},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "http://example.com/image.png"},
+                },
+            ]
             payload = {
                 "messages": [
                     {
@@ -352,7 +395,16 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                 new_body["messages"][0]["content"],
                 "This is an rewritten system prompt.",
             )
-            self.assertEqual(new_body["messages"][1]["content"], structured_content)
+            self.assertEqual(
+                new_body["messages"][1]["content"],
+                [
+                    {"type": "text", "text": "Structured rewritten payload."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "http://example.com/image.png"},
+                    },
+                ],
+            )
 
         import asyncio
 
