@@ -3,8 +3,9 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import types
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Union, get_args, get_origin
 
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.interfaces.app_settings_interface import IAppSettings
@@ -230,11 +231,36 @@ class ServiceProvider(IServiceProvider):
             raise RuntimeError("Implementation type is None and no factory provided")
 
         # Check if constructor needs service provider
+        def _annotation_accepts_service_provider(annotation: Any) -> bool:
+            if annotation is inspect._empty:
+                return False
+
+            if annotation == IServiceProvider:
+                return True
+
+            if isinstance(annotation, str):
+                return "IServiceProvider" in annotation.replace(" ", "")
+
+            origin = get_origin(annotation)
+            if origin in (types.UnionType, Union):
+                return any(
+                    _annotation_accepts_service_provider(arg)
+                    for arg in get_args(annotation)
+                )
+
+            if origin is not None:
+                return any(
+                    _annotation_accepts_service_provider(arg)
+                    for arg in get_args(annotation)
+                )
+
+            return False
+
         try:
             signature = inspect.signature(impl_type)
             has_provider_param = any(
                 param.name == "service_provider"
-                and param.annotation == IServiceProvider
+                and _annotation_accepts_service_provider(param.annotation)
                 for param in signature.parameters.values()
             )
         except (ValueError, TypeError):
