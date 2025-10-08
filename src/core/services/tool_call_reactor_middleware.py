@@ -131,21 +131,31 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
             # Parse tool arguments if they are a JSON string
             tool_arguments_raw = function_payload.get("arguments", {})
-            tool_arguments: dict[str, Any] = {}
+            tool_arguments: Any = {}
             if isinstance(tool_arguments_raw, str):
+                parsed_args: Any | None = None
                 try:
                     # Attempt to repair the JSON before loading
                     repaired_arguments = repair_json(tool_arguments_raw)
                     parsed_args = json.loads(repaired_arguments)
-                    if isinstance(parsed_args, dict):
-                        tool_arguments = parsed_args
-                except (json.JSONDecodeError, TypeError):
-                    # If repair fails, log it and default to an empty dict
+                except (json.JSONDecodeError, TypeError, ValueError):
                     logger.warning(
-                        f"Could not parse tool arguments after repair: {tool_arguments_raw}",
+                        "Could not parse tool arguments after repair: %s",
+                        tool_arguments_raw,
                         exc_info=True,
                     )
-            elif isinstance(tool_arguments_raw, dict):
+
+                if parsed_args is None:
+                    # Preserve the original value so downstream handlers still
+                    # receive the raw arguments string.
+                    tool_arguments = tool_arguments_raw
+                elif isinstance(parsed_args, (dict, list)):
+                    tool_arguments = parsed_args
+                else:
+                    tool_arguments = parsed_args
+            elif isinstance(tool_arguments_raw, (dict, list)):
+                tool_arguments = tool_arguments_raw
+            else:
                 tool_arguments = tool_arguments_raw
 
             tool_context = ToolCallContext(
