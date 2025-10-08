@@ -4,7 +4,7 @@ Pydantic models for Anthropic API request/response structures.
 
 from typing import Any
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 from src.core.interfaces.model_bases import DomainModel
 
@@ -22,7 +22,10 @@ class AnthropicMessagesRequest(DomainModel):
     model: str
     messages: list[AnthropicMessage]
     system: str | None = None
-    max_tokens: int | None = None
+    max_tokens: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("max_output_tokens", "max_tokens"),
+    )
     metadata: dict[str, Any] | None = None
     stop_sequences: list[str] | None = Field(default=None, alias="stop_sequences")
     stream: bool | None = False
