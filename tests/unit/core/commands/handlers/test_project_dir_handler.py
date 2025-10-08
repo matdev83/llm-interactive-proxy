@@ -12,6 +12,7 @@ import pytest
 from src.core.commands.handlers.base_handler import CommandHandlerResult
 from src.core.commands.handlers.project_dir_handler import ProjectDirCommandHandler
 from src.core.interfaces.domain_entities_interface import ISessionState
+from src.core.domain.session import SessionState
 
 
 class TestProjectDirCommandHandler:
@@ -37,6 +38,7 @@ class TestProjectDirCommandHandler:
         assert handler.examples == [
             "!/project-dir(/path/to/project)",
             "!/project-dir(C:\\Users\\username\\projects\\myproject)",
+            "!/project-dir()",
         ]
 
     def test_can_handle_project_dir_variations(
@@ -121,19 +123,32 @@ class TestProjectDirCommandHandler:
         mock_state.with_project_dir.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_handle_with_none_value(
-        self, handler: ProjectDirCommandHandler, mock_state: ISessionState
+    async def test_handle_query_with_existing_directory(
+        self, handler: ProjectDirCommandHandler
     ) -> None:
-        """Test handle with None value (unset directory)."""
-        result = handler.handle(None, mock_state)
+        """Test querying the current project directory when set."""
+        state = SessionState(project_dir="/existing/project")
+
+        result = handler.handle(None, state)
 
         assert isinstance(result, CommandHandlerResult)
         assert result.success is True
-        assert result.message == "Project directory unset"
-        assert result.new_state is mock_state
+        assert result.message == "/existing/project"
+        assert result.new_state is None
 
-        # Verify the state was updated with None
-        mock_state.with_project_dir.assert_called_once_with(None)
+    @pytest.mark.asyncio
+    async def test_handle_query_with_no_directory(
+        self, handler: ProjectDirCommandHandler
+    ) -> None:
+        """Test querying the current project directory when unset."""
+        state = SessionState(project_dir=None)
+
+        result = handler.handle(None, state)
+
+        assert isinstance(result, CommandHandlerResult)
+        assert result.success is True
+        assert result.message == "Project directory not set"
+        assert result.new_state is None
 
     @pytest.mark.asyncio
     async def test_handle_with_empty_string(
