@@ -17,6 +17,8 @@ from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatMessage,
+    FunctionCall,
+    ToolCall,
 )
 from src.core.domain.responses_api import (
     JsonSchema,
@@ -197,13 +199,14 @@ class TestResponsesApiTranslation:
         )
 
         responses_response = self.service.from_domain_to_responses_response(
-            chat_response
+            chat_response, include_output=True
         )
 
         assert responses_response["id"] == "resp-123"
         assert responses_response["object"] == "response"
         assert responses_response["model"] == "gpt-4"
         assert len(responses_response["choices"]) == 1
+        assert len(responses_response["output"]) == 1
 
         choice_data = responses_response["choices"][0]
         assert choice_data["index"] == 0
@@ -218,6 +221,22 @@ class TestResponsesApiTranslation:
             "email": "john@example.com",
         }
         assert choice_data["finish_reason"] == "stop"
+
+        output_item = responses_response["output"][0]
+        assert output_item["role"] == "assistant"
+        assert output_item["status"] == "completed"
+        assert output_item["finish_reason"] == "stop"
+        assert output_item["content"]
+        text_part = output_item["content"][0]
+        assert text_part["type"] == "output_text"
+        assert text_part["text"] == (
+            '{"name": "John Doe", "age": 30, "email": "john@example.com"}'
+        )
+        assert text_part["parsed"] == {
+            "name": "John Doe",
+            "age": 30,
+            "email": "john@example.com",
+        }
 
         assert responses_response["usage"] == {
             "prompt_tokens": 10,
@@ -245,12 +264,17 @@ class TestResponsesApiTranslation:
         )
 
         responses_response = self.service.from_domain_to_responses_response(
-            chat_response
+            chat_response, include_output=True
         )
 
         choice_data = responses_response["choices"][0]
         assert choice_data["message"]["content"] == '{"name": "Jane Doe", "age": 25}'
         assert choice_data["message"]["parsed"] == {"name": "Jane Doe", "age": 25}
+
+        output_item = responses_response["output"][0]
+        text_part = output_item["content"][0]
+        assert text_part["text"] == '{"name": "Jane Doe", "age": 25}'
+        assert text_part["parsed"] == {"name": "Jane Doe", "age": 25}
 
     def test_from_domain_to_responses_response_invalid_json(self):
         """Test converting a response with invalid JSON content."""
@@ -271,12 +295,16 @@ class TestResponsesApiTranslation:
         )
 
         responses_response = self.service.from_domain_to_responses_response(
-            chat_response
+            chat_response, include_output=True
         )
 
         choice_data = responses_response["choices"][0]
         assert choice_data["message"]["content"] == "This is not valid JSON content"
         assert choice_data["message"]["parsed"] is None
+
+        output_item = responses_response["output"][0]
+        text_part = output_item["content"][0]
+        assert text_part.get("parsed") is None
 
     def test_from_domain_to_responses_response_json_in_text(self):
         """Test extracting JSON from mixed text content."""
@@ -298,12 +326,58 @@ class TestResponsesApiTranslation:
         )
 
         responses_response = self.service.from_domain_to_responses_response(
-            chat_response
+            chat_response, include_output=True
         )
 
         choice_data = responses_response["choices"][0]
         assert choice_data["message"]["content"] == '{"name": "Bob", "age": 35}'
         assert choice_data["message"]["parsed"] == {"name": "Bob", "age": 35}
+
+        output_item = responses_response["output"][0]
+        text_part = output_item["content"][0]
+        assert text_part["parsed"] == {"name": "Bob", "age": 35}
+
+    def test_from_domain_to_responses_response_tool_call_status(self):
+        """Tool call finish reasons should map to requires_action status."""
+
+        choice = ChatCompletionChoice(
+            index=0,
+            message=ChatCompletionChoiceMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call_1",
+                        function=FunctionCall(
+                            name="lookup",
+                            arguments='{"query": "value"}',
+                        ),
+                    )
+                ],
+            ),
+            finish_reason="tool_calls",
+        )
+
+        chat_response = CanonicalChatResponse(
+            id="resp-tool",
+            object="chat.completion",
+            created=int(time.time()),
+            model="gpt-4",
+            choices=[choice],
+        )
+
+        responses_response = self.service.from_domain_to_responses_response(
+            chat_response, include_output=True
+        )
+
+        output_item = responses_response["output"][0]
+        assert output_item["status"] == "requires_action"
+        assert output_item["finish_reason"] == "tool_calls"
+
+        tool_part = output_item["content"][0]
+        assert tool_part["type"] == "tool_call"
+        assert tool_part["function"]["name"] == "lookup"
+        assert tool_part["function"]["arguments"] == {"query": "value"}
 
     def test_from_domain_to_responses_request_basic(self):
         """Test converting a CanonicalChatRequest to Responses API request format."""

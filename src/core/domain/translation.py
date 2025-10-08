@@ -1845,7 +1845,27 @@ class Translation(BaseTranslator):
         return canonical_request
 
     @staticmethod
-    def from_domain_to_responses_response(response: ChatResponse) -> dict[str, Any]:
+    def _map_finish_reason_to_responses_status(
+        finish_reason: str | None,
+    ) -> str | None:
+        """Map canonical finish reasons to Responses API status values."""
+
+        if finish_reason is None:
+            return "in_progress"
+
+        normalized = finish_reason.lower()
+        if normalized == "stop":
+            return "completed"
+        if normalized == "length":
+            return "incomplete"
+        if normalized in {"tool_calls", "function_call"}:
+            return "requires_action"
+        return normalized
+
+    @staticmethod
+    def from_domain_to_responses_response(
+        response: ChatResponse, *, include_output: bool = False
+    ) -> dict[str, Any]:
         """
         Translate a domain ChatResponse to a Responses API response format.
 
@@ -1857,60 +1877,104 @@ class Translation(BaseTranslator):
 
         # Convert choices to Responses API format
         choices = []
-        for choice in response.choices:
-            if choice.message:
-                # Try to parse the content as JSON for structured output
-                parsed_content = None
-                content = choice.message.content or ""
+        output_items: list[dict[str, Any]] = [] if include_output else []
+        for idx, choice in enumerate(response.choices):
+            if not choice.message:
+                continue
 
-                # Clean up content for JSON parsing
-                cleaned_content = content.strip()
+            # Try to parse the content as JSON for structured output
+            parsed_content = None
+            content = choice.message.content or ""
 
-                # Handle cases where the model might wrap JSON in markdown code blocks
-                if cleaned_content.startswith("```json") and cleaned_content.endswith(
-                    "```"
-                ):
-                    cleaned_content = cleaned_content[7:-3].strip()
-                elif cleaned_content.startswith("```") and cleaned_content.endswith(
-                    "```"
-                ):
-                    cleaned_content = cleaned_content[3:-3].strip()
+            # Clean up content for JSON parsing
+            cleaned_content = content.strip()
 
-                # Attempt to parse JSON content
-                if cleaned_content:
+            # Handle cases where the model might wrap JSON in markdown code blocks
+            if cleaned_content.startswith("```json") and cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[7:-3].strip()
+            elif cleaned_content.startswith("```") and cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[3:-3].strip()
+
+            # Attempt to parse JSON content
+            if cleaned_content:
+                try:
+                    parsed_content = json.loads(cleaned_content)
+                    # If parsing succeeded, use the cleaned content as the actual content
+                    content = cleaned_content
+                except json.JSONDecodeError:
+                    # Content is not valid JSON, leave parsed as None
+                    # Try to extract JSON from the content if it contains other text
                     try:
-                        parsed_content = json.loads(cleaned_content)
-                        # If parsing succeeded, use the cleaned content as the actual content
-                        content = cleaned_content
-                    except json.JSONDecodeError:
-                        # Content is not valid JSON, leave parsed as None
-                        # Try to extract JSON from the content if it contains other text
+                        # Look for JSON-like patterns in the content
+                        import re
+
+                        json_pattern = r"\{.*\}"
+                        json_match = re.search(json_pattern, cleaned_content, re.DOTALL)
+                        if json_match:
+                            potential_json = json_match.group(0)
+                            parsed_content = json.loads(potential_json)
+                            content = potential_json
+                    except (json.JSONDecodeError, AttributeError):
+                        # Still not valid JSON, leave parsed as None
+                        pass
+
+            response_choice = {
+                "index": choice.index,
+                "message": {
+                    "role": choice.message.role,
+                    "content": content,
+                    "parsed": parsed_content,
+                },
+                "finish_reason": choice.finish_reason or "stop",
+            }
+            choices.append(response_choice)
+
+            if include_output:
+                content_parts: list[dict[str, Any]] = []
+                if content:
+                    text_part: dict[str, Any] = {"type": "output_text", "text": content}
+                    if parsed_content is not None:
+                        text_part["parsed"] = parsed_content
+                    content_parts.append(text_part)
+
+                for tool_call in choice.message.tool_calls or []:
+                    arguments_payload: Any = (
+                        tool_call.function.arguments if tool_call.function else "{}"
+                    )
+                    if isinstance(arguments_payload, str):
                         try:
-                            # Look for JSON-like patterns in the content
-                            import re
+                            arguments_payload = json.loads(arguments_payload)
+                        except json.JSONDecodeError:
+                            arguments_payload = arguments_payload
 
-                            json_pattern = r"\{.*\}"
-                            json_match = re.search(
-                                json_pattern, cleaned_content, re.DOTALL
-                            )
-                            if json_match:
-                                potential_json = json_match.group(0)
-                                parsed_content = json.loads(potential_json)
-                                content = potential_json
-                        except (json.JSONDecodeError, AttributeError):
-                            # Still not valid JSON, leave parsed as None
-                            pass
+                    content_parts.append(
+                        {
+                            "type": "tool_call",
+                            "id": tool_call.id,
+                            "function": {
+                                "name": tool_call.function.name
+                                if tool_call.function
+                                else "",
+                                "arguments": arguments_payload,
+                            },
+                        }
+                    )
 
-                response_choice = {
-                    "index": choice.index,
-                    "message": {
-                        "role": choice.message.role,
-                        "content": content,
-                        "parsed": parsed_content,
-                    },
-                    "finish_reason": choice.finish_reason or "stop",
+                status = Translation._map_finish_reason_to_responses_status(
+                    choice.finish_reason
+                )
+                output_item = {
+                    "id": f"item_{idx}",
+                    "type": "message",
+                    "role": choice.message.role,
+                    "content": content_parts,
                 }
-                choices.append(response_choice)
+                if status:
+                    output_item["status"] = status
+                if choice.finish_reason:
+                    output_item["finish_reason"] = choice.finish_reason
+
+                output_items.append(output_item)
 
         # Build the Responses API response
         responses_response = {
@@ -1920,6 +1984,9 @@ class Translation(BaseTranslator):
             "model": response.model,
             "choices": choices,
         }
+
+        if include_output:
+            responses_response["output"] = output_items
 
         # Add usage information if available
         if response.usage:
