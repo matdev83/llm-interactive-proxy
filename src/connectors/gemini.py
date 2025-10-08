@@ -552,12 +552,14 @@ class GeminiBackend(LLMBackend):
             data = response.json()
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Gemini response headers: %s", dict(response.headers))
+            domain_response = self.translation_service.to_domain_response(
+                data, source_format="gemini"
+            )
             return ResponseEnvelope(
-                content=self.translation_service.to_domain_response(
-                    data, source_format="gemini"
-                ),
+                content=domain_response.model_dump(),
                 headers=dict(response.headers),
                 status_code=response.status_code,
+                usage=domain_response.usage,
             )
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
