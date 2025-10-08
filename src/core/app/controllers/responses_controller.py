@@ -517,53 +517,89 @@ class ResponsesController:
             raise ValueError("Schema must have a 'type' field")
 
         # Basic structure validation
-        schema_type = schema["type"]
-        if schema_type == "object":
-            # Objects should have properties
-            if "properties" not in schema:
-                raise ValueError("Object schemas must have a 'properties' field")
+        schema_type_raw = schema["type"]
+        if isinstance(schema_type_raw, str):
+            schema_types = [schema_type_raw]
+        elif isinstance(schema_type_raw, (list, tuple, set)):
+            schema_types = [
+                str(t) for t in schema_type_raw if isinstance(t, (str, bytes))
+            ]
+        else:
+            schema_types = [str(schema_type_raw)]
 
-            if not isinstance(schema["properties"], dict):
+        if "object" in schema_types:
+            # Objects can describe their shape via properties, patternProperties,
+            # or references. Require at least one structural keyword so callers
+            # can use $ref-only schemas without triggering false positives.
+            object_keywords = {
+                "properties",
+                "patternProperties",
+                "additionalProperties",
+                "$ref",
+                "allOf",
+                "anyOf",
+                "oneOf",
+            }
+            if not any(key in schema for key in object_keywords):
+                raise ValueError(
+                    "Object schemas must declare properties, patternProperties, "
+                    "additionalProperties, or use a composition/ref keyword"
+                )
+
+            properties = schema.get("properties")
+            if properties is not None and not isinstance(properties, dict):
                 raise ValueError("Properties must be a dictionary")
 
-            # Validate each property
-            for prop_name, prop_schema in schema["properties"].items():
-                if not isinstance(prop_schema, dict):
-                    raise ValueError(
-                        f"Property '{prop_name}' schema must be a dictionary"
-                    )
+            if isinstance(properties, dict):
+                # Validate each property
+                for prop_name, prop_schema in properties.items():
+                    if not isinstance(prop_schema, dict):
+                        raise ValueError(
+                            f"Property '{prop_name}' schema must be a dictionary"
+                        )
 
-                if "type" not in prop_schema:
-                    raise ValueError(f"Property '{prop_name}' must have a 'type' field")
+                    allowed_structural_keywords = {
+                        "type",
+                        "$ref",
+                        "anyOf",
+                        "allOf",
+                        "oneOf",
+                        "enum",
+                        "const",
+                        "properties",
+                        "patternProperties",
+                        "items",
+                        "contains",
+                        "if",
+                        "then",
+                        "else",
+                        "not",
+                        "dependentSchemas",
+                    }
 
-        elif schema_type == "array":
-            # Arrays should have items
+                    if "type" not in prop_schema:
+                        if not any(
+                            key in prop_schema for key in allowed_structural_keywords
+                        ):
+                            raise ValueError(
+                                f"Property '{prop_name}' must define a type or a "
+                                "supported schema keyword"
+                            )
+
+        if "array" in schema_types:
+            # Arrays should have items; allow both dict schemas and tuple-style lists
             if "items" not in schema:
                 raise ValueError("Array schemas must have an 'items' field")
 
-            if not isinstance(schema["items"], dict):
-                raise ValueError("Items schema must be a dictionary")
+            items_schema = schema["items"]
+            if not isinstance(items_schema, (dict, list, tuple, bool)):
+                raise ValueError("Items schema must be a dictionary, list, or boolean")
 
-        elif schema_type in ["string", "number", "integer", "boolean"]:
-            # Primitive types are generally valid as-is
-            pass
-
-        elif schema_type == "null":
-            # Null type is generally valid as-is
-            pass
-
-        else:
-            # Unknown or complex types
-            if schema_type not in [
-                "string",
-                "number",
-                "integer",
-                "boolean",
-                "object",
-                "array",
-                "null",
-            ]:
-                logger.warning(f"Unusual schema type detected: {schema_type}")
+        primitive_types = {"string", "number", "integer", "boolean", "null"}
+        known_types = primitive_types | {"object", "array"}
+        unknown_types = [t for t in schema_types if t not in known_types]
+        for unknown in unknown_types:
+            logger.warning(f"Unusual schema type detected: {unknown}")
 
         # Validate additional properties if present
         if "additionalProperties" in schema:
@@ -577,7 +613,7 @@ class ResponsesController:
             if not isinstance(required, list):
                 raise ValueError("Required field must be a list")
 
-            if schema_type == "object" and "properties" in schema:
+            if "object" in schema_types and "properties" in schema:
                 properties = schema["properties"]
                 for req_field in required:
                     if req_field not in properties:
