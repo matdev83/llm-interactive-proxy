@@ -1182,10 +1182,12 @@ class GeminiCloudProjectConnector(GeminiBackend):
             # Convert to OpenAI-compatible format using the translation service
             if not domain_response:
                 raise BackendError("Failed to parse a valid response from the backend.")
-            openai_response = self.translation_service.from_domain_response(
-                response=domain_response,
-                target_format="openai",
-            ).model_dump(exclude_unset=True)
+            openai_response = self._normalize_openai_response(
+                self.translation_service.from_domain_response(
+                    response=domain_response,
+                    target_format="openai",
+                )
+            )
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
