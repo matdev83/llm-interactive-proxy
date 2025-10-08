@@ -2,7 +2,6 @@ from __future__ import annotations
 
 # type: ignore[unreachable]
 import logging
-from types import TracebackType
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -243,12 +242,7 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
     Returns:
         JSON response with error details
     """
-    exc_info: tuple[type[Exception], Exception, TracebackType | None] = (
-        type(exc),
-        exc,
-        exc.__traceback__,
-    )
-    logger.exception("Unhandled exception", exc_info=exc_info)
+    logger.exception("Unhandled exception", exc_info=exc)
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False

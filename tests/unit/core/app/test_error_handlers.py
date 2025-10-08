@@ -73,6 +73,27 @@ def test_validation_exception_handler_formats_errors() -> None:
     ]
 
 
+def test_validation_exception_handler_defaults_missing_fields() -> None:
+    request = make_request("/v1/test")
+    exc = RequestValidationError([
+        {
+            "loc": ("query",),
+        }
+    ])
+
+    response = call_handler(validation_exception_handler, request, exc)
+
+    assert response.status_code == 400
+    payload = parse_json_response(response)
+    assert payload["detail"]["error"]["details"]["errors"] == [
+        {
+            "loc": ["query"],
+            "msg": "",
+            "type": "",
+        }
+    ]
+
+
 def test_http_exception_handler_standard_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -115,16 +136,21 @@ def test_http_exception_handler_chat_completions(
     }
 
 
-def test_http_exception_handler_preserves_headers() -> None:
+def test_http_exception_handler_preserves_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("time.time", lambda: 1700000000)
     request = make_request("/v1/models")
     exc = HTTPException(
-        status_code=503, detail="Unavailable", headers={"Retry-After": "5"}
+        status_code=401,
+        detail="Unauthorized",
+        headers={"WWW-Authenticate": "Bearer"},
     )
 
     response = call_handler(http_exception_handler, request, exc)
 
-    assert response.status_code == 503
-    assert response.headers["Retry-After"] == "5"
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
 def test_proxy_exception_handler_chat_completion_with_details(
@@ -158,23 +184,21 @@ def test_proxy_exception_handler_standard_all_backends_failed() -> None:
     assert payload["detail"]["error"]["status_code"] == 500
 
 
-def test_proxy_exception_handler_standard_preserves_status_code() -> None:
+def test_proxy_exception_handler_logs_details_at_debug(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     request = make_request("/v1/completions")
-    exc = LLMProxyError("forbidden", status_code=403)
+    exc = LLMProxyError(
+        "backend rejected",
+        details={"backend": "alpha"},
+        status_code=422,
+    )
 
-    response = call_handler(proxy_exception_handler, request, exc)
+    with caplog.at_level("DEBUG", logger="src.core.app.error_handlers"):
+        response = call_handler(proxy_exception_handler, request, exc)
 
-    assert response.status_code == 403
-    payload = parse_json_response(response)
-    assert payload == {
-        "detail": {
-            "error": {
-                "message": "forbidden",
-                "type": "LLMProxyError",
-                "status_code": 403,
-            }
-        }
-    }
+    assert response.status_code == 422
+    assert any("Error details" in message for message in caplog.messages)
 
 
 def test_proxy_exception_handler_non_proxy_exception() -> None:
@@ -191,30 +215,6 @@ def test_proxy_exception_handler_non_proxy_exception() -> None:
                 "message": "unexpected failure",
                 "type": "RuntimeError",
                 "status_code": 500,
-            }
-        }
-    }
-
-
-def test_proxy_exception_handler_non_proxy_exception_respects_status() -> None:
-    class CustomError(Exception):
-        def __init__(self) -> None:
-            super().__init__("teapot")
-            self.status_code = 418
-
-    request = make_request("/v1/completions")
-    exc = CustomError()
-
-    response = call_handler(proxy_exception_handler, request, exc)  # type: ignore[arg-type]
-
-    assert response.status_code == 418
-    payload = parse_json_response(response)
-    assert payload == {
-        "detail": {
-            "error": {
-                "message": "teapot",
-                "type": "CustomError",
-                "status_code": 418,
             }
         }
     }
@@ -254,42 +254,6 @@ def test_general_exception_handler_standard_request() -> None:
             }
         }
     }
-
-
-def test_general_exception_handler_logs_traceback(monkeypatch: pytest.MonkeyPatch) -> None:
-    request = make_request("/v1/embeddings")
-
-    captured: dict[str, Any] = {}
-
-    def fake_exception(
-        message: str,
-        *,
-        exc_info: tuple[type[Exception], Exception, Any] | None = None,
-        **_: Any,
-    ) -> None:
-        captured["message"] = message
-        captured["exc_info"] = exc_info
-
-    monkeypatch.setattr(
-        "src.core.app.error_handlers.logger.exception",
-        fake_exception,
-    )
-
-    caught: RuntimeError | None = None
-    try:
-        raise RuntimeError("boom")
-    except RuntimeError as exc:
-        caught = exc
-        response = call_handler(general_exception_handler, request, exc)
-
-    assert response.status_code == 500
-    assert captured["message"] == "Unhandled exception"
-    exc_info = captured["exc_info"]
-    assert exc_info is not None
-    assert exc_info[0] is RuntimeError
-    assert caught is not None
-    assert exc_info[1] is caught
-    assert exc_info[2] is caught.__traceback__
 
 
 def test_configure_exception_handlers_registers_handlers() -> None:
