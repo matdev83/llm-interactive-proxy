@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 class ToolLoopDetectionCommand(StatelessCommandBase, BaseCommand):
     """Command for enabling/disabling tool loop detection."""
 
+    _TRUTHY_VALUES = {"true", "yes", "1", "on"}
+
     def __init__(self) -> None:
         """Initialize without state services."""
         StatelessCommandBase.__init__(self)
@@ -39,8 +41,7 @@ class ToolLoopDetectionCommand(StatelessCommandBase, BaseCommand):
         self, args: Mapping[str, Any], session: Session, context: Any = None
     ) -> CommandResult:
         """Enable or disable tool loop detection."""
-        enabled_arg = args.get("enabled", "true")
-        enabled = str(enabled_arg).lower() in ("true", "yes", "1", "on")
+        enabled = self._parse_enabled(args)
 
         try:
             loop_config = session.state.loop_config.with_tool_loop_detection_enabled(
@@ -56,9 +57,21 @@ class ToolLoopDetectionCommand(StatelessCommandBase, BaseCommand):
                 new_state=updated_state,
             )
         except Exception as e:
-            logger.error(f"Error toggling tool loop detection: {e}")
+            logger.error(
+                "Error toggling tool loop detection: %s", e, exc_info=True
+            )
             return CommandResult(
                 success=False,
                 message=f"Error toggling tool loop detection: {e}",
                 name=self.name,
             )
+
+    def _parse_enabled(self, args: Mapping[str, Any]) -> bool:
+        """Return the desired enabled flag from the provided arguments."""
+
+        enabled_arg = args.get("enabled", "true")
+        if isinstance(enabled_arg, bool):
+            return enabled_arg
+
+        value = str(enabled_arg).strip().lower()
+        return value in self._TRUTHY_VALUES

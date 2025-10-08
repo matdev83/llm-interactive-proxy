@@ -73,9 +73,12 @@ def test_execute_defaults_to_enable_when_argument_missing() -> None:
         ("YES", True),
         ("1", True),
         ("on", True),
+        ("   On   ", True),
         (True, True),
         ("no", False),
         ("0", False),
+        (" off ", False),
+        (None, False),
         (False, False),
     ],
 )
@@ -138,3 +141,4 @@ def test_execute_returns_error_result_when_state_update_fails(
         == "Error toggling tool loop detection: unable to persist loop configuration"
     )
     assert "Error toggling tool loop detection" in caplog.text
+    assert caplog.records[0].exc_info
