@@ -216,35 +216,42 @@ class OpenAIConnector(LLMBackend):
             domain_request, processed_messages, effective_model
         )
         headers = kwargs.pop("headers_override", None)
-        if headers is None:
-            try:
-                if identity:
-                    self.identity = identity
-                headers = self.get_headers()
-            except Exception:
-                headers = None
+        original_identity = self.identity
+        # Temporarily apply the identity (even if None) so get_headers uses the
+        # correct context for this call only.
+        self.identity = identity
+        try:
+            if headers is None:
+                try:
+                    headers = self.get_headers()
+                except Exception:
+                    headers = None
 
-        api_base = kwargs.get("openai_url") or self.api_base_url
-        url = f"{api_base.rstrip('/')}/chat/completions"
+            api_base = kwargs.get("openai_url") or self.api_base_url
+            url = f"{api_base.rstrip('/')}/chat/completions"
 
-        if domain_request.stream:
-            # Return a domain-level streaming envelope (raw bytes iterator)
-            try:
-                content_iterator = await self._handle_streaming_response(
+            if domain_request.stream:
+                # Return a domain-level streaming envelope (raw bytes iterator)
+                try:
+                    content_iterator = await self._handle_streaming_response(
+                        url, payload, headers, domain_request.session_id or ""
+                    )
+                except AuthenticationError as e:
+                    raise HTTPException(status_code=401, detail=str(e))
+                return StreamingResponseEnvelope(
+                    content=content_iterator,
+                    media_type="text/event-stream",
+                    headers={},
+                )
+            else:
+                # Return a domain ResponseEnvelope for non-streaming
+                return await self._handle_non_streaming_response(
                     url, payload, headers, domain_request.session_id or ""
                 )
-            except AuthenticationError as e:
-                raise HTTPException(status_code=401, detail=str(e))
-            return StreamingResponseEnvelope(
-                content=content_iterator,
-                media_type="text/event-stream",
-                headers={},
-            )
-        else:
-            # Return a domain ResponseEnvelope for non-streaming
-            return await self._handle_non_streaming_response(
-                url, payload, headers, domain_request.session_id or ""
-            )
+        finally:
+            # Restore previous identity so per-call overrides do not leak
+            # between requests.
+            self.identity = original_identity
 
     async def _prepare_payload(
         self,
@@ -541,46 +548,50 @@ class OpenAIConnector(LLMBackend):
         if headers_override is not None:
             resolved_headers = dict(headers_override)
 
-        if identity:
-            self.identity = identity
-
-        base_headers: dict[str, str] | None
+        original_identity = self.identity
+        # Scope the identity override to this call only.
+        self.identity = identity
         try:
-            base_headers = self.get_headers()
-        except Exception:
-            base_headers = None
-
-        if base_headers is not None:
-            merged_headers = dict(base_headers)
-            if resolved_headers:
-                merged_headers.update(resolved_headers)
-            resolved_headers = merged_headers
-
-        headers = resolved_headers
-
-        api_base = kwargs.get("openai_url") or self.api_base_url
-        url = f"{api_base.rstrip('/')}/responses"
-
-        guarded_headers = ensure_loop_guard_header(headers)
-
-        if domain_request.stream:
-            # Return a domain-level streaming envelope
+            base_headers: dict[str, str] | None
             try:
-                content_iterator = await self._handle_streaming_response(
+                base_headers = self.get_headers()
+            except Exception:
+                base_headers = None
+
+            if base_headers is not None:
+                merged_headers = dict(base_headers)
+                if resolved_headers:
+                    merged_headers.update(resolved_headers)
+                resolved_headers = merged_headers
+
+            headers = resolved_headers
+
+            api_base = kwargs.get("openai_url") or self.api_base_url
+            url = f"{api_base.rstrip('/')}/responses"
+
+            guarded_headers = ensure_loop_guard_header(headers)
+
+            if domain_request.stream:
+                # Return a domain-level streaming envelope
+                try:
+                    content_iterator = await self._handle_streaming_response(
+                        url, payload, guarded_headers, domain_request.session_id or ""
+                    )
+                except AuthenticationError as e:
+                    raise HTTPException(status_code=401, detail=str(e))
+                return StreamingResponseEnvelope(
+                    content=content_iterator,
+                    media_type="text/event-stream",
+                    headers={},
+                )
+            else:
+                # Return a domain ResponseEnvelope for non-streaming
+                return await self._handle_responses_non_streaming_response(
                     url, payload, guarded_headers, domain_request.session_id or ""
                 )
-            except AuthenticationError as e:
-                raise HTTPException(status_code=401, detail=str(e))
-            return StreamingResponseEnvelope(
-                content=content_iterator,
-                media_type="text/event-stream",
-                headers={},
-            )
-        else:
-            # Return a domain ResponseEnvelope for non-streaming
-            return await self._handle_responses_non_streaming_response(
-                url, payload, guarded_headers, domain_request.session_id or ""
-            )
+        finally:
+            # Restore prior identity regardless of outcome.
+            self.identity = original_identity
 
     async def _handle_responses_non_streaming_response(
         self,

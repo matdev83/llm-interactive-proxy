@@ -102,6 +102,7 @@ class OpenRouterBackend(OpenAIConnector):
         project: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        original_identity = self.identity
         self.identity = identity
 
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
@@ -235,6 +236,7 @@ class OpenRouterBackend(OpenAIConnector):
             self.key_name = original_key_name
             self.api_key = original_api_key
             self.api_base_url = original_api_base_url
+            self.identity = original_identity
 
 
 backend_registry.register_backend("openrouter", OpenRouterBackend)

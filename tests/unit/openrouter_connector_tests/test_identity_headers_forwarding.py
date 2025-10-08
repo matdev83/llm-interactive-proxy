@@ -98,3 +98,70 @@ def test_identity_headers_forwarded(
     assert sent_headers.get("X-Title") == "Custom Title"
     assert sent_headers.get("HTTP-Referer") == "https://example.invalid"
     assert sent_headers.get("User-Agent") == "CustomAgent/1.0"
+
+
+def test_identity_headers_not_leaked_between_calls(
+    backend_with_transport: tuple[OpenRouterBackend, RecordingTransport]
+) -> None:
+    backend, transport = backend_with_transport
+
+    identity = AppIdentityConfig(
+        title=HeaderConfig(
+            mode=HeaderOverrideMode.DEFAULT,
+            default_value="Custom Title",
+            passthrough_name="x-title",
+        ),
+        url=HeaderConfig(
+            mode=HeaderOverrideMode.DEFAULT,
+            default_value="https://example.invalid",
+            passthrough_name="http-referer",
+        ),
+        user_agent=HeaderConfig(
+            mode=HeaderOverrideMode.DEFAULT,
+            default_value="CustomAgent/1.0",
+            passthrough_name="user-agent",
+        ),
+    )
+
+    request = ChatRequest(
+        model="openai/gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    # First call with identity to populate headers
+    asyncio.run(
+        backend.chat_completions(
+            request_data=request,
+            processed_messages=[ChatMessage(role="user", content="Hello")],
+            effective_model="openai/gpt-4",
+            openrouter_api_base_url="https://openrouter.ai/api/v1",
+            openrouter_headers_provider=mock_headers_provider,
+            key_name="call-key",
+            api_key="call-api-key",
+            identity=identity,
+        )
+    )
+
+    # Second call without identity should not include previous identity headers
+    asyncio.run(
+        backend.chat_completions(
+            request_data=request,
+            processed_messages=[ChatMessage(role="user", content="Hello")],
+            effective_model="openai/gpt-4",
+            openrouter_api_base_url="https://openrouter.ai/api/v1",
+            openrouter_headers_provider=mock_headers_provider,
+            key_name="call-key-2",
+            api_key="call-api-key-2",
+        )
+    )
+
+    assert len(transport.requests) == 2
+    second_headers = transport.requests[-1].headers
+
+    assert second_headers.get("Authorization") == "Bearer call-api-key-2"
+    assert "X-Title" not in second_headers
+    assert "HTTP-Referer" not in second_headers
+    assert second_headers.get("User-Agent") != "CustomAgent/1.0"
+    # Connector should not retain identity after call completion
+    assert backend.identity is None
