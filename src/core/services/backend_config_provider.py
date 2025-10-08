@@ -61,7 +61,7 @@ class BackendConfigProvider(IBackendConfigProvider):
             # Try dict-style access
             try:
                 cfg = self._app_config.backends.get(lookup_name)
-                if cfg is not None and isinstance(cfg, BackendConfig | dict):
+                if cfg is not None and isinstance(cfg, (BackendConfig, dict)):
                     if isinstance(cfg, dict):
                         cfg = BackendConfig(**cfg)
                     found_configs.append((lookup_name, cfg, "dict"))
