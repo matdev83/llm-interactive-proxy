@@ -8,26 +8,28 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from src.core.app.lifecycle import AppLifecycle
-from src.core.interfaces.session_service_interface import ISessionService
 
 
 class _FakeTask:
     def __init__(self, name: str = "task") -> None:
         self._name = name
-        self.cancelled = False
+        self._cancelled = False
 
     def cancel(self) -> None:
-        self.cancelled = True
+        self._cancelled = True
 
     def done(self) -> bool:
-        return self.cancelled
+        return self._cancelled
 
     def get_name(self) -> str:
         return self._name
 
+    def cancelled(self) -> bool:
+        return self._cancelled
+
     def __await__(self):  # type: ignore[override]
         async def _inner() -> None:
-            if self.cancelled:
+            if self._cancelled:
                 raise asyncio.CancelledError()
 
         return _inner().__await__()
@@ -72,12 +74,12 @@ async def test_shutdown_cancels_background_tasks(
 
     await lifecycle.shutdown()
 
-    assert task.cancelled
+    assert task.cancelled()
     assert "Cancelled background task: cleanup" in caplog.text
 
 
 class _DummyProvider:
-    def __init__(self, service: ISessionService | None) -> None:
+    def __init__(self, service: Any | None) -> None:
         self._service = service
 
     def get_service(self, interface):  # type: ignore[no-untyped-def]
@@ -143,3 +145,93 @@ async def test_session_cleanup_task_warns_if_provider_missing(
         await lifecycle._session_cleanup_task(interval=1, max_age=7)
 
     assert "Service provider not available for session cleanup" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_session_cleanup_task_warns_if_service_missing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    app = FastAPI()
+    lifecycle = AppLifecycle(app, {})
+    app.state.service_provider = _DummyProvider(None)
+
+    call_count = 0
+
+    async def fake_sleep(interval: int) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    caplog.set_level(logging.WARNING, logger="src.core.app.lifecycle")
+
+    with pytest.raises(asyncio.CancelledError):
+        await lifecycle._session_cleanup_task(interval=1, max_age=5)
+
+    assert "Session service not available for cleanup" in caplog.text
+
+
+class _ServiceWithoutCleanup:
+    pass
+
+
+@pytest.mark.asyncio
+async def test_session_cleanup_task_skips_when_cleanup_not_supported(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    app = FastAPI()
+    lifecycle = AppLifecycle(app, {})
+    app.state.service_provider = _DummyProvider(_ServiceWithoutCleanup())
+
+    call_count = 0
+
+    async def fake_sleep(interval: int) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    caplog.set_level(logging.INFO, logger="src.core.app.lifecycle")
+
+    with pytest.raises(asyncio.CancelledError):
+        await lifecycle._session_cleanup_task(interval=1, max_age=6)
+
+    assert "Cleaned up" not in caplog.text
+
+
+class _FailingSessionService:
+    def __init__(self) -> None:
+        self.calls: list[int] = []
+
+    async def cleanup_expired_sessions(self, max_age: int) -> int:
+        self.calls.append(max_age)
+        raise RuntimeError("cleanup failed")
+
+
+@pytest.mark.asyncio
+async def test_session_cleanup_task_logs_error_when_cleanup_fails(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    app = FastAPI()
+    lifecycle = AppLifecycle(app, {})
+    service = _FailingSessionService()
+    app.state.service_provider = _DummyProvider(service)
+
+    call_count = 0
+
+    async def fake_sleep(interval: int) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    caplog.set_level(logging.ERROR, logger="src.core.app.lifecycle")
+
+    with pytest.raises(asyncio.CancelledError):
+        await lifecycle._session_cleanup_task(interval=1, max_age=8)
+
+    assert service.calls == [8]
+    assert "Error during session cleanup" in caplog.text
