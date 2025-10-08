@@ -236,3 +236,16 @@ class TestExceptionAdapters:
         immediate_reset_error = RateLimitExceededError("retry now", reset_at=500.0)
         http_exc = map_domain_exception_to_http_exception(immediate_reset_error)
         assert http_exc.headers == {"Retry-After": "0"}
+
+        # Expired reset timestamps should clamp to zero seconds
+        monkeypatch.setattr(
+            "src.core.transport.fastapi.exception_adapters.time.time",
+            lambda: 1_600_000_500.0,
+        )
+        expired_rate_error = RateLimitExceededError(
+            "slow down",
+            reset_at=1_600_000_000.0,
+        )
+        http_exc = map_domain_exception_to_http_exception(expired_rate_error)
+        assert http_exc.status_code == 429
+        assert http_exc.headers == {"Retry-After": "0"}
