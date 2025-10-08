@@ -124,7 +124,26 @@ class InMemorySessionRepository(ISessionRepository):
             # Use session's last_active_at if available, otherwise fall back to _last_accessed
             if hasattr(session, "last_active_at") and session.last_active_at:
                 last_active = session.last_active_at
-                age = (now - last_active).total_seconds()
+
+                if isinstance(last_active, datetime):
+                    # Normalize to aware UTC to avoid subtraction errors
+                    if last_active.tzinfo is None:
+                        last_active = last_active.replace(tzinfo=timezone.utc)
+                    else:
+                        last_active = last_active.astimezone(timezone.utc)
+
+                    age = (now - last_active).total_seconds()
+                else:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Session %s has non-datetime last_active_at value: %r",
+                            session_id,
+                            last_active,
+                        )
+                    last_access_timestamp = self._last_accessed.get(
+                        session_id, time.time()
+                    )
+                    age = time.time() - last_access_timestamp
             else:
                 # Fall back to internal tracking
                 last_access_timestamp = self._last_accessed.get(session_id, time.time())

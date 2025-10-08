@@ -287,6 +287,28 @@ class TestInMemorySessionRepository:
         assert sample_session.session_id in repository._sessions
 
     @pytest.mark.asyncio
+    async def test_cleanup_handles_naive_last_active_timestamp(
+        self, repository: InMemorySessionRepository, sample_session: Session
+    ) -> None:
+        """Ensure cleanup_expired handles sessions with naive timestamps."""
+
+        await repository.add(sample_session)
+
+        naive_session = MockSessionWithUser(
+            session_id="naive-session",
+            user_id="user-789",
+            state=sample_session.state,
+        )
+        naive_session.last_active_at = datetime.now() - timedelta(seconds=1000)
+        await repository.add(naive_session)
+
+        deleted_count = await repository.cleanup_expired(500)
+
+        assert deleted_count == 1
+        assert naive_session.session_id not in repository._sessions
+        assert sample_session.session_id in repository._sessions
+
+    @pytest.mark.asyncio
     async def test_cleanup_no_expired_sessions(
         self, repository: InMemorySessionRepository, sample_session: Session
     ) -> None:
