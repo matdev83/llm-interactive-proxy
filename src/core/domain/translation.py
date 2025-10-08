@@ -1052,7 +1052,7 @@ class Translation(BaseTranslator):
                 "medium": 2048,
                 "high": -1,  # Dynamic/unlimited
             }
-            budget = effort_to_budget.get(request.reasoning_effort, -1)
+            budget = effort_to_budget.get(request.reasoning_effort.lower(), -1)
             config["thinkingConfig"] = {
                 "thinkingBudget": budget,
                 "includeThoughts": True,  # Include reasoning in output

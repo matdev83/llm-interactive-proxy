@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
 import pytest
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.app.test_builder import build_test_app as app_main_build_app
 from src.core.cli import apply_cli_args, main, parse_cli_args
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, load_config
 from src.core.interfaces.session_service_interface import ISessionService
 
 from tests.utils.test_di_utils import get_required_service_from_app
@@ -47,6 +48,35 @@ def test_apply_cli_args_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("PROXY_PORT", raising=False)
     monkeypatch.delenv("COMMAND_PREFIX", raising=False)
+
+
+def test_configuration_precedence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg_file = tmp_path / "proxy.yaml"
+    cfg_file.write_text("host: config-host\n")
+
+    # config-only
+    monkeypatch.delenv("APP_HOST", raising=False)
+    config_only = load_config(str(cfg_file))
+    assert config_only.host == "config-host"
+
+    # env overrides config
+    monkeypatch.setenv("APP_HOST", "env-host")
+    env_args = parse_cli_args(["--config", str(cfg_file)])
+    env_config, _ = apply_cli_args(env_args, return_resolution=True)
+    assert env_config.host == "env-host"
+
+    # CLI overrides env
+    cli_args = parse_cli_args(["--config", str(cfg_file), "--host", "cli-host"])
+    cli_config, resolution = apply_cli_args(cli_args, return_resolution=True)
+    assert cli_config.host == "cli-host"
+    assert any(
+        entry.source.name == "CLI" and entry.name == "host"
+        for entry in resolution.build_report(cli_config)
+    )
+
+    monkeypatch.delenv("APP_HOST", raising=False)
 
 
 def test_cli_interactive_mode(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,9 +125,6 @@ def test_cli_disable_interactive_commands(monkeypatch: pytest.MonkeyPatch) -> No
     cfg = apply_cli_args(args)
     assert cfg.session.disable_interactive_commands is True
     monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
-
-
-from pathlib import Path
 
 
 def test_cli_log_argument(tmp_path: Path) -> None:

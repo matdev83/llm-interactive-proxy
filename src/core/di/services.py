@@ -1146,7 +1146,6 @@ def register_core_services(
         import httpx
 
         from src.core.services.backend_factory import BackendFactory
-        from src.core.services.backend_registry import backend_registry
         from src.core.services.rate_limiter import RateLimiter
 
         # Get or create dependencies
@@ -1178,15 +1177,7 @@ def register_core_services(
         # Get app config
         app_config: AppConfig = provider.get_required_service(AppConfig)
 
-        # Create backend factory - always use real implementation, ignore any mocks
-        # This ensures BackendService uses real backends even in test environments
-        from src.core.services.translation_service import TranslationService
-
-        translation_service = provider.get_required_service(TranslationService)
-
-        backend_factory: BackendFactory = BackendFactory(
-            httpx_client, backend_registry, app_config, translation_service
-        )
+        backend_factory: BackendFactory = provider.get_required_service(BackendFactory)
 
         # Create rate limiter
         rate_limiter: RateLimiter = RateLimiter()

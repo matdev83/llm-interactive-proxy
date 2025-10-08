@@ -173,9 +173,9 @@ class TestToolCallReactorService:
         tool_arguments["arg"].append("mutated")
 
         async with history_tracker._lock:  # type: ignore[attr-defined]
-            stored_arguments = history_tracker._history["test_session"][0][
-                "context"
-            ]["tool_arguments"]
+            stored_arguments = history_tracker._history["test_session"][0]["context"][
+                "tool_arguments"
+            ]
 
         assert stored_arguments == {"arg": ["value"]}
 

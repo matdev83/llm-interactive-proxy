@@ -349,6 +349,11 @@ class BackendStage(InitializationStage):
         if config.backends.default_backend and config.backends.default_backend.strip():
             configured_backends.append(config.backends.default_backend)
 
+        if config.backends.static_route:
+            static_backend = config.backends.static_route.split(":", 1)[0]
+            if static_backend not in configured_backends:
+                configured_backends.append(static_backend)
+
         # Add other configured backends
         for backend_name in [
             "openai",
@@ -386,12 +391,34 @@ class BackendStage(InitializationStage):
         try:
             from src.core.services.backend_factory import BackendFactory
 
-            backend_factory_service = services.build_service_provider().get_service(
-                BackendFactory
-            )
+            provider = services.build_service_provider()
+
+            # Manually create a backend_factory_service if not available
+            backend_factory_service = provider.get_service(BackendFactory)
             if backend_factory_service is None:
                 logger.warning(
-                    "BackendFactory service not available for validation check"
+                    "BackendFactory service not available for validation check, creating a temporary one."
+                )
+                # This is a workaround. The DI container should ideally be fully configured.
+                # Replicating the logic from di/services.py's _backend_service_factory's manual creation
+                from src.core.services.backend_registry import BackendRegistry
+
+                httpx_client = provider.get_required_service(httpx.AsyncClient)
+                backend_registry_instance: BackendRegistry = (
+                    provider.get_required_service(BackendRegistry)
+                )
+                app_config = provider.get_required_service(AppConfig)
+                translation_service = provider.get_required_service(TranslationService)
+                backend_factory_service = BackendFactory(
+                    httpx_client,
+                    backend_registry_instance,
+                    app_config,
+                    translation_service,
+                )
+
+            if backend_factory_service is None:
+                logger.error(
+                    "Could not create or resolve BackendFactory for validation."
                 )
                 return functional_backends
 
@@ -481,14 +508,24 @@ class BackendStage(InitializationStage):
                                 TranslationService,
                             )
 
-                            translation_service = services.build_service_provider().get_service(ITranslationService)  # type: ignore[type-abstract]
+                            translation_service = cast(
+                                TranslationService,
+                                services.build_service_provider().get_service(
+                                    ITranslationService
+                                ),
+                            )
                         except Exception:
                             # Translation service not available from container, create a temporary instance
                             from src.core.services.translation_service import (
                                 TranslationService,
                             )
 
-                            translation_service = TranslationService()
+                            translation_service = (
+                                services.build_service_provider().get_service(
+                                    TranslationService
+                                )
+                                or TranslationService()
+                            )
 
                         # Create backend with available dependencies
                         try:

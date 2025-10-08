@@ -274,8 +274,7 @@ ignore_missing_imports = true
 
 # Performance optimizations
 # Enable incremental mode with cache
-incremental = true
-cache_dir = ".mypy_cache"
+
 # Reduce strictness for performance in tests
 strict = false
 disallow_untyped_defs = true

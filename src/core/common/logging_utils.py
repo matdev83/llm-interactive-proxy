@@ -9,6 +9,8 @@ This module provides utilities for logging, including:
 - Test/production environment tagging
 """
 
+from __future__ import annotations
+
 # type: ignore[unreachable]
 import contextlib
 import logging
@@ -17,11 +19,12 @@ import re
 import sys
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
+
+if TYPE_CHECKING:
+    from src.core.config.app_config import AppConfig
 
 import structlog
-
-from src.core.config.app_config import AppConfig
 
 # Type variable for generic functions
 T = TypeVar("T")
@@ -519,7 +522,9 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
             found.add(key)
 
 
-def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:
+def discover_api_keys_from_config_and_env(
+    config: AppConfig | None = None,
+) -> list[str]:
     """Discover API keys from both in-memory config and environment variables for redaction.
 
     SECURITY NOTICE: This function reads API keys from the in-memory AppConfig object

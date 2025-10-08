@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
+from collections.abc import Callable, Mapping
 from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from src.core.config.config_loader import _collect_api_keys
+from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import (
     HeaderConfig,
@@ -38,46 +39,120 @@ def _process_api_keys(keys_string: str) -> list[str]:
     return result
 
 
-def _get_api_keys_from_env() -> list[str]:
+def _get_api_keys_from_env(
+    env: Mapping[str, str], resolution: ParameterResolution | None = None
+) -> list[str]:
     """Get API keys from environment variables."""
     result: list[str] = []
 
     # Get API keys from API_KEYS environment variable
-    api_keys_raw: str | None = os.environ.get("API_KEYS")
+    api_keys_raw: str | None = env.get("API_KEYS")
     if api_keys_raw and isinstance(api_keys_raw, str):
         result.extend(_process_api_keys(api_keys_raw))
+
+    if result and resolution is not None:
+        resolution.record(
+            "auth.api_keys",
+            result,
+            ParameterSource.ENVIRONMENT,
+            origin="API_KEYS",
+        )
 
     return result
 
 
-def _env_to_bool(name: str, default: bool) -> bool:
+def _env_to_bool(
+    name: str,
+    default: bool,
+    env: Mapping[str, str],
+    *,
+    path: str | None = None,
+    resolution: ParameterResolution | None = None,
+) -> bool:
     """Return an environment variable parsed as a boolean flag."""
-    value = os.environ.get(name)
+    value = env.get(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    result = value.strip().lower() in {"1", "true", "yes", "on"}
+    if resolution is not None and path is not None:
+        resolution.record(path, result, ParameterSource.ENVIRONMENT, origin=name)
+    return result
 
 
-def _env_to_int(name: str, default: int) -> int:
+def _env_to_int(
+    name: str,
+    default: int,
+    env: Mapping[str, str],
+    *,
+    path: str | None = None,
+    resolution: ParameterResolution | None = None,
+) -> int:
     """Return an environment variable parsed as an integer."""
-    value = os.environ.get(name)
+    value = env.get(name)
     if value is None:
         return default
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        result = default
+    if resolution is not None and path is not None and value is not None:
+        resolution.record(path, result, ParameterSource.ENVIRONMENT, origin=name)
+    return result
+
+
+def _env_to_float(
+    name: str,
+    default: float,
+    env: Mapping[str, str],
+    *,
+    path: str | None = None,
+    resolution: ParameterResolution | None = None,
+) -> float:
+    """Return an environment variable parsed as a float."""
+    value = env.get(name)
+    if value is None:
+        return default
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        result = default
+    if resolution is not None and path is not None and value is not None:
+        resolution.record(path, result, ParameterSource.ENVIRONMENT, origin=name)
+    return result
+
+
+def _get_env_value(
+    env: Mapping[str, str],
+    name: str,
+    default: Any,
+    *,
+    path: str,
+    resolution: ParameterResolution | None = None,
+    transform: Callable[[str], Any] | None = None,
+) -> Any:
+    """Return an environment variable value and optionally record its source."""
+
+    if name in env:
+        raw_value = env[name]
+        value = transform(raw_value) if transform is not None else raw_value
+        if resolution is not None:
+            resolution.record(path, value, ParameterSource.ENVIRONMENT, origin=name)
+        return value
+    return default
+
+
+def _to_int(value: str, fallback: int) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
-        return default
+        return fallback
 
 
-def _env_to_float(name: str, default: float | None) -> float | None:
-    """Return an environment variable parsed as a float."""
-    value = os.environ.get(name)
-    if value is None:
-        return default
+def _to_float(value: str, fallback: float | None) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
-        return default
+        return fallback
 
 
 class LogLevel(str, Enum):
@@ -202,6 +277,12 @@ class ToolCallReactorConfig(DomainModel):
     If None, uses the default message. Can be customized to fit your workflow.
     """
 
+    pytest_full_suite_steering_enabled: bool = False
+    """Whether steering for full pytest suite commands is enabled."""
+
+    pytest_full_suite_steering_message: str | None = None
+    """Optional custom steering message when detecting full pytest suite runs."""
+
     # New: fully configurable steering rules
     steering_rules: list[dict[str, Any]] = Field(default_factory=list)
     """Configurable steering rules.
@@ -252,7 +333,32 @@ class SessionConfig(DomainModel):
     dangerous_command_steering_message: str | None = None
     pytest_compression_enabled: bool = True
     pytest_compression_min_lines: int = 30
+    pytest_full_suite_steering_enabled: bool | None = None
+    pytest_full_suite_steering_message: str | None = None
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
+
+    @model_validator(mode="after")
+    def _sync_pytest_full_suite_settings(self) -> SessionConfig:
+        """Keep pytest full-suite steering settings mirrored with reactor config."""
+        if self.pytest_full_suite_steering_enabled is not None:
+            self.tool_call_reactor.pytest_full_suite_steering_enabled = (
+                self.pytest_full_suite_steering_enabled
+            )
+        else:
+            self.pytest_full_suite_steering_enabled = (
+                self.tool_call_reactor.pytest_full_suite_steering_enabled
+            )
+
+        if self.pytest_full_suite_steering_message is not None:
+            self.tool_call_reactor.pytest_full_suite_steering_message = (
+                self.pytest_full_suite_steering_message
+            )
+        else:
+            self.pytest_full_suite_steering_message = (
+                self.tool_call_reactor.pytest_full_suite_steering_message
+            )
+
+        return self
 
 
 class EmptyResponseConfig(DomainModel):
@@ -512,7 +618,7 @@ class AppConfig(DomainModel, IConfig):
     def save(self, path: str | Path) -> None:
         """Save the current configuration to a file."""
         p = Path(path)
-        data = self.model_dump(mode="json")
+        data = self.model_dump(mode="json", exclude_none=True)
         # Normalize structure to match schema expectations
         # - default_backend must be at top-level (already present)
         # - Remove runtime-only fields that are not part of schema or can cause validation errors
@@ -526,6 +632,7 @@ class AppConfig(DomainModel, IConfig):
             "anthropic_port",
             "proxy_timeout",
             "command_prefix",
+            "strict_command_detection",
             "context_window_override",
             "default_rate_limit",
             "default_rate_window",
@@ -558,43 +665,132 @@ class AppConfig(DomainModel, IConfig):
                 f.write(self.model_dump_json(indent=4))
 
     @classmethod
-    def from_env(cls) -> AppConfig:
+    def from_env(
+        cls,
+        *,
+        environ: Mapping[str, str] | None = None,
+        resolution: ParameterResolution | None = None,
+    ) -> AppConfig:
         """Create AppConfig from environment variables.
 
         Returns:
             AppConfig instance
         """
+        env: Mapping[str, str] = environ or os.environ
+
         # Build configuration from environment
         config: dict[str, Any] = {
             # Server settings
-            "host": os.environ.get("APP_HOST", "0.0.0.0"),
-            "port": int(os.environ.get("APP_PORT", "8000")),
-            "anthropic_port": int(os.environ.get("ANTHROPIC_PORT") or 0)
-            or (int(os.environ.get("APP_PORT", "8000")) + 1),
-            "proxy_timeout": int(os.environ.get("PROXY_TIMEOUT", "120")),
-            "command_prefix": os.environ.get("COMMAND_PREFIX", "!/"),
+            "host": _get_env_value(
+                env,
+                "APP_HOST",
+                "0.0.0.0",
+                path="host",
+                resolution=resolution,
+            ),
+            "port": _get_env_value(
+                env,
+                "APP_PORT",
+                8000,
+                path="port",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 8000),
+            ),
+            "anthropic_port": _get_env_value(
+                env,
+                "ANTHROPIC_PORT",
+                None,
+                path="anthropic_port",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0) if value else None,
+            ),
+            "proxy_timeout": _get_env_value(
+                env,
+                "PROXY_TIMEOUT",
+                120,
+                path="proxy_timeout",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 120),
+            ),
+            "command_prefix": _get_env_value(
+                env,
+                "COMMAND_PREFIX",
+                "!/",
+                path="command_prefix",
+                resolution=resolution,
+            ),
             "auth": {
-                "disable_auth": os.environ.get("DISABLE_AUTH", "").lower() == "true",
-                "api_keys": _get_api_keys_from_env(),
-                "auth_token": os.environ.get("AUTH_TOKEN"),
+                "disable_auth": _env_to_bool(
+                    "DISABLE_AUTH",
+                    False,
+                    env,
+                    path="auth.disable_auth",
+                    resolution=resolution,
+                ),
+                "api_keys": _get_api_keys_from_env(env, resolution),
+                "auth_token": _get_env_value(
+                    env,
+                    "AUTH_TOKEN",
+                    None,
+                    path="auth.auth_token",
+                    resolution=resolution,
+                ),
                 "brute_force_protection": {
-                    "enabled": _env_to_bool("BRUTE_FORCE_PROTECTION_ENABLED", True),
-                    "max_failed_attempts": _env_to_int(
-                        "BRUTE_FORCE_MAX_FAILED_ATTEMPTS", 5
+                    "enabled": _env_to_bool(
+                        "BRUTE_FORCE_PROTECTION_ENABLED",
+                        True,
+                        env,
+                        path="auth.brute_force_protection.enabled",
+                        resolution=resolution,
                     ),
-                    "ttl_seconds": _env_to_int("BRUTE_FORCE_TTL_SECONDS", 900),
+                    "max_failed_attempts": _env_to_int(
+                        "BRUTE_FORCE_MAX_FAILED_ATTEMPTS",
+                        5,
+                        env,
+                        path="auth.brute_force_protection.max_failed_attempts",
+                        resolution=resolution,
+                    ),
+                    "ttl_seconds": _env_to_int(
+                        "BRUTE_FORCE_TTL_SECONDS",
+                        900,
+                        env,
+                        path="auth.brute_force_protection.ttl_seconds",
+                        resolution=resolution,
+                    ),
                     "initial_block_seconds": _env_to_int(
-                        "BRUTE_FORCE_INITIAL_BLOCK_SECONDS", 30
+                        "BRUTE_FORCE_INITIAL_BLOCK_SECONDS",
+                        30,
+                        env,
+                        path="auth.brute_force_protection.initial_block_seconds",
+                        resolution=resolution,
                     ),
                     "block_multiplier": _env_to_float(
-                        "BRUTE_FORCE_BLOCK_MULTIPLIER", 2.0
+                        "BRUTE_FORCE_BLOCK_MULTIPLIER",
+                        2.0,
+                        env,
+                        path="auth.brute_force_protection.block_multiplier",
+                        resolution=resolution,
                     ),
                     "max_block_seconds": _env_to_int(
-                        "BRUTE_FORCE_MAX_BLOCK_SECONDS", 3600
+                        "BRUTE_FORCE_MAX_BLOCK_SECONDS",
+                        3600,
+                        env,
+                        path="auth.brute_force_protection.max_block_seconds",
+                        resolution=resolution,
                     ),
                 },
             },
         }
+
+        if not config.get("anthropic_port"):
+            config["anthropic_port"] = int(config["port"]) + 1
+            if resolution is not None:
+                resolution.record(
+                    "anthropic_port",
+                    config["anthropic_port"],
+                    ParameterSource.DERIVED,
+                    origin="port+1",
+                )
 
         # After populating auth config, if disable_auth is true, clear api_keys
         auth_config: dict[str, Any] = config["auth"]
@@ -602,169 +798,391 @@ class AppConfig(DomainModel, IConfig):
             auth_config["api_keys"] = []
 
         # Add session, logging, and backend config
+        planning_overrides: dict[str, Any] = {}
+        planning_temperature = _get_env_value(
+            env,
+            "PLANNING_PHASE_TEMPERATURE",
+            None,
+            path="session.planning_phase.overrides.temperature",
+            resolution=resolution,
+            transform=lambda value: _to_float(value, None),
+        )
+        if planning_temperature is not None:
+            planning_overrides["temperature"] = planning_temperature
+
+        planning_top_p = _get_env_value(
+            env,
+            "PLANNING_PHASE_TOP_P",
+            None,
+            path="session.planning_phase.overrides.top_p",
+            resolution=resolution,
+            transform=lambda value: _to_float(value, None),
+        )
+        if planning_top_p is not None:
+            planning_overrides["top_p"] = planning_top_p
+
+        planning_reasoning = _get_env_value(
+            env,
+            "PLANNING_PHASE_REASONING_EFFORT",
+            None,
+            path="session.planning_phase.overrides.reasoning_effort",
+            resolution=resolution,
+        )
+        if planning_reasoning is not None:
+            planning_overrides["reasoning_effort"] = planning_reasoning
+
+        planning_budget = _get_env_value(
+            env,
+            "PLANNING_PHASE_THINKING_BUDGET",
+            None,
+            path="session.planning_phase.overrides.thinking_budget",
+            resolution=resolution,
+            transform=lambda value: _to_int(value, 0),
+        )
+        if planning_budget is not None:
+            planning_overrides["thinking_budget"] = planning_budget
+
         config["session"] = {
-            "cleanup_enabled": os.environ.get("SESSION_CLEANUP_ENABLED", "true").lower()
-            == "true",
-            "cleanup_interval": int(os.environ.get("SESSION_CLEANUP_INTERVAL", "3600")),
-            "max_age": int(os.environ.get("SESSION_MAX_AGE", "86400")),
-            "default_interactive_mode": os.environ.get(
-                "DEFAULT_INTERACTIVE_MODE", "true"
-            ).lower()
-            == "true",
-            "force_set_project": os.environ.get("FORCE_SET_PROJECT", "").lower()
-            == "true",
-            "tool_call_repair_enabled": os.environ.get(
-                "TOOL_CALL_REPAIR_ENABLED", "true"
-            ).lower()
-            == "true",
-            # Optional cap for streaming repair buffer
-            "tool_call_repair_buffer_cap_bytes": (
-                int(os.environ.get("TOOL_CALL_REPAIR_BUFFER_CAP_BYTES", "65536"))
-                if os.environ.get("TOOL_CALL_REPAIR_BUFFER_CAP_BYTES")
-                else 65536
+            "cleanup_enabled": _env_to_bool(
+                "SESSION_CLEANUP_ENABLED",
+                True,
+                env,
+                path="session.cleanup_enabled",
+                resolution=resolution,
             ),
-            "json_repair_enabled": os.environ.get("JSON_REPAIR_ENABLED", "true").lower()
-            == "true",
-            # Optional cap for streaming repair buffer
-            "json_repair_buffer_cap_bytes": (
-                int(os.environ.get("JSON_REPAIR_BUFFER_CAP_BYTES", "65536"))
-                if os.environ.get("JSON_REPAIR_BUFFER_CAP_BYTES")
-                else 65536
+            "cleanup_interval": _env_to_int(
+                "SESSION_CLEANUP_INTERVAL",
+                3600,
+                env,
+                path="session.cleanup_interval",
+                resolution=resolution,
             ),
-            "json_repair_schema": json.loads(
-                os.environ.get("JSON_REPAIR_SCHEMA", "null")
-            ),  # Added
-            "dangerous_command_prevention_enabled": os.environ.get(
-                "DANGEROUS_COMMAND_PREVENTION_ENABLED", "true"
-            ).lower()
-            == "true",
-            "dangerous_command_steering_message": os.environ.get(
-                "DANGEROUS_COMMAND_STEERING_MESSAGE"
+            "max_age": _env_to_int(
+                "SESSION_MAX_AGE",
+                86400,
+                env,
+                path="session.max_age",
+                resolution=resolution,
             ),
-            "pytest_compression_enabled": os.environ.get(
-                "PYTEST_COMPRESSION_ENABLED", "true"
-            ).lower()
-            == "true",
-            "pytest_compression_min_lines": int(
-                os.environ.get("PYTEST_COMPRESSION_MIN_LINES", "30")
+            "default_interactive_mode": _env_to_bool(
+                "DEFAULT_INTERACTIVE_MODE",
+                True,
+                env,
+                path="session.default_interactive_mode",
+                resolution=resolution,
+            ),
+            "force_set_project": _env_to_bool(
+                "FORCE_SET_PROJECT",
+                False,
+                env,
+                path="session.force_set_project",
+                resolution=resolution,
+            ),
+            "tool_call_repair_enabled": _env_to_bool(
+                "TOOL_CALL_REPAIR_ENABLED",
+                True,
+                env,
+                path="session.tool_call_repair_enabled",
+                resolution=resolution,
+            ),
+            "tool_call_repair_buffer_cap_bytes": _get_env_value(
+                env,
+                "TOOL_CALL_REPAIR_BUFFER_CAP_BYTES",
+                65536,
+                path="session.tool_call_repair_buffer_cap_bytes",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 65536),
+            ),
+            "json_repair_enabled": _env_to_bool(
+                "JSON_REPAIR_ENABLED",
+                True,
+                env,
+                path="session.json_repair_enabled",
+                resolution=resolution,
+            ),
+            "json_repair_buffer_cap_bytes": _get_env_value(
+                env,
+                "JSON_REPAIR_BUFFER_CAP_BYTES",
+                65536,
+                path="session.json_repair_buffer_cap_bytes",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 65536),
+            ),
+            "json_repair_schema": _get_env_value(
+                env,
+                "JSON_REPAIR_SCHEMA",
+                None,
+                path="session.json_repair_schema",
+                resolution=resolution,
+                transform=lambda value: json.loads(value),
+            ),
+            "dangerous_command_prevention_enabled": _env_to_bool(
+                "DANGEROUS_COMMAND_PREVENTION_ENABLED",
+                True,
+                env,
+                path="session.dangerous_command_prevention_enabled",
+                resolution=resolution,
+            ),
+            "dangerous_command_steering_message": _get_env_value(
+                env,
+                "DANGEROUS_COMMAND_STEERING_MESSAGE",
+                None,
+                path="session.dangerous_command_steering_message",
+                resolution=resolution,
+            ),
+            "pytest_compression_enabled": _env_to_bool(
+                "PYTEST_COMPRESSION_ENABLED",
+                True,
+                env,
+                path="session.pytest_compression_enabled",
+                resolution=resolution,
+            ),
+            "pytest_compression_min_lines": _env_to_int(
+                "PYTEST_COMPRESSION_MIN_LINES",
+                30,
+                env,
+                path="session.pytest_compression_min_lines",
+                resolution=resolution,
+            ),
+            "pytest_full_suite_steering_enabled": _env_to_bool(
+                "PYTEST_FULL_SUITE_STEERING_ENABLED",
+                False,
+                env,
+                path="session.pytest_full_suite_steering_enabled",
+                resolution=resolution,
+            ),
+            "pytest_full_suite_steering_message": _get_env_value(
+                env,
+                "PYTEST_FULL_SUITE_STEERING_MESSAGE",
+                None,
+                path="session.pytest_full_suite_steering_message",
+                resolution=resolution,
             ),
             "planning_phase": {
-                "enabled": os.environ.get("PLANNING_PHASE_ENABLED", "false").lower()
-                == "true",
-                "strong_model": os.environ.get("PLANNING_PHASE_STRONG_MODEL"),
-                "max_turns": int(os.environ.get("PLANNING_PHASE_MAX_TURNS", "10")),
-                "max_file_writes": int(
-                    os.environ.get("PLANNING_PHASE_MAX_FILE_WRITES", "1")
+                "enabled": _env_to_bool(
+                    "PLANNING_PHASE_ENABLED",
+                    False,
+                    env,
+                    path="session.planning_phase.enabled",
+                    resolution=resolution,
                 ),
-                "overrides": {
-                    # Only include keys that are actually provided to avoid schema validation noise
-                    **(
-                        {
-                            "temperature": _env_to_float(
-                                "PLANNING_PHASE_TEMPERATURE", None
-                            )
-                        }
-                        if os.environ.get("PLANNING_PHASE_TEMPERATURE")
-                        else {}
-                    ),
-                    **(
-                        {"top_p": _env_to_float("PLANNING_PHASE_TOP_P", None)}
-                        if os.environ.get("PLANNING_PHASE_TOP_P")
-                        else {}
-                    ),
-                    **(
-                        {
-                            "reasoning_effort": os.environ.get(
-                                "PLANNING_PHASE_REASONING_EFFORT"
-                            )
-                        }
-                        if os.environ.get("PLANNING_PHASE_REASONING_EFFORT")
-                        else {}
-                    ),
-                    **(
-                        {
-                            "thinking_budget": _env_to_int(
-                                "PLANNING_PHASE_THINKING_BUDGET", 0
-                            )
-                        }
-                        if os.environ.get("PLANNING_PHASE_THINKING_BUDGET")
-                        else {}
-                    ),
-                },
+                "strong_model": _get_env_value(
+                    env,
+                    "PLANNING_PHASE_STRONG_MODEL",
+                    None,
+                    path="session.planning_phase.strong_model",
+                    resolution=resolution,
+                ),
+                "max_turns": _env_to_int(
+                    "PLANNING_PHASE_MAX_TURNS",
+                    10,
+                    env,
+                    path="session.planning_phase.max_turns",
+                    resolution=resolution,
+                ),
+                "max_file_writes": _env_to_int(
+                    "PLANNING_PHASE_MAX_FILE_WRITES",
+                    1,
+                    env,
+                    path="session.planning_phase.max_file_writes",
+                    resolution=resolution,
+                ),
+                "overrides": planning_overrides,
             },
         }
 
         config["logging"] = {
-            "level": os.environ.get("LOG_LEVEL", "INFO"),
-            "request_logging": os.environ.get("REQUEST_LOGGING", "").lower() == "true",
-            "response_logging": os.environ.get("RESPONSE_LOGGING", "").lower()
-            == "true",
-            "log_file": os.environ.get("LOG_FILE"),
-            # Optional wire-capture file (disabled by default)
-            "capture_file": os.environ.get("CAPTURE_FILE"),
-            # Optional rotation/truncation
-            "capture_max_bytes": (
-                int(os.environ.get("CAPTURE_MAX_BYTES", "0"))
-                if os.environ.get("CAPTURE_MAX_BYTES")
-                else None
+            "level": _get_env_value(
+                env,
+                "LOG_LEVEL",
+                "INFO",
+                path="logging.level",
+                resolution=resolution,
             ),
-            "capture_truncate_bytes": (
-                int(os.environ.get("CAPTURE_TRUNCATE_BYTES", "0"))
-                if os.environ.get("CAPTURE_TRUNCATE_BYTES")
-                else None
+            "request_logging": _env_to_bool(
+                "REQUEST_LOGGING",
+                False,
+                env,
+                path="logging.request_logging",
+                resolution=resolution,
             ),
-            "capture_max_files": (
-                int(os.environ.get("CAPTURE_MAX_FILES", "0"))
-                if os.environ.get("CAPTURE_MAX_FILES")
-                else None
+            "response_logging": _env_to_bool(
+                "RESPONSE_LOGGING",
+                False,
+                env,
+                path="logging.response_logging",
+                resolution=resolution,
             ),
-            "capture_rotate_interval_seconds": (
-                int(os.environ.get("CAPTURE_ROTATE_INTERVAL_SECONDS", "86400"))
+            "log_file": _get_env_value(
+                env,
+                "LOG_FILE",
+                None,
+                path="logging.log_file",
+                resolution=resolution,
             ),
-            "capture_total_max_bytes": (
-                int(os.environ.get("CAPTURE_TOTAL_MAX_BYTES", "104857600"))
+            "capture_file": _get_env_value(
+                env,
+                "CAPTURE_FILE",
+                None,
+                path="logging.capture_file",
+                resolution=resolution,
             ),
-            "capture_buffer_size": (
-                int(os.environ.get("CAPTURE_BUFFER_SIZE", "65536"))
+            "capture_max_bytes": _get_env_value(
+                env,
+                "CAPTURE_MAX_BYTES",
+                None,
+                path="logging.capture_max_bytes",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
             ),
-            "capture_flush_interval": (
-                float(os.environ.get("CAPTURE_FLUSH_INTERVAL", "1.0"))
+            "capture_truncate_bytes": _get_env_value(
+                env,
+                "CAPTURE_TRUNCATE_BYTES",
+                None,
+                path="logging.capture_truncate_bytes",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
             ),
-            "capture_max_entries_per_flush": (
-                int(os.environ.get("CAPTURE_MAX_ENTRIES_PER_FLUSH", "100"))
+            "capture_max_files": _get_env_value(
+                env,
+                "CAPTURE_MAX_FILES",
+                None,
+                path="logging.capture_max_files",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
+            ),
+            "capture_rotate_interval_seconds": _get_env_value(
+                env,
+                "CAPTURE_ROTATE_INTERVAL_SECONDS",
+                86400,
+                path="logging.capture_rotate_interval_seconds",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 86400),
+            ),
+            "capture_total_max_bytes": _get_env_value(
+                env,
+                "CAPTURE_TOTAL_MAX_BYTES",
+                104857600,
+                path="logging.capture_total_max_bytes",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 104857600),
+            ),
+            "capture_buffer_size": _get_env_value(
+                env,
+                "CAPTURE_BUFFER_SIZE",
+                65536,
+                path="logging.capture_buffer_size",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 65536),
+            ),
+            "capture_flush_interval": _get_env_value(
+                env,
+                "CAPTURE_FLUSH_INTERVAL",
+                1.0,
+                path="logging.capture_flush_interval",
+                resolution=resolution,
+                transform=lambda value: _to_float(value, 1.0),
+            ),
+            "capture_max_entries_per_flush": _get_env_value(
+                env,
+                "CAPTURE_MAX_ENTRIES_PER_FLUSH",
+                100,
+                path="logging.capture_max_entries_per_flush",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 100),
             ),
         }
 
         config["empty_response"] = {
-            "enabled": os.environ.get("EMPTY_RESPONSE_HANDLING_ENABLED", "true").lower()
-            == "true",
-            "max_retries": int(os.environ.get("EMPTY_RESPONSE_MAX_RETRIES", "1")),
+            "enabled": _env_to_bool(
+                "EMPTY_RESPONSE_HANDLING_ENABLED",
+                True,
+                env,
+                path="empty_response.enabled",
+                resolution=resolution,
+            ),
+            "max_retries": _env_to_int(
+                "EMPTY_RESPONSE_MAX_RETRIES",
+                1,
+                env,
+                path="empty_response.max_retries",
+                resolution=resolution,
+            ),
         }
 
         # Edit precision settings
         config["edit_precision"] = {
-            "enabled": _env_to_bool("EDIT_PRECISION_ENABLED", True),
-            "temperature": _env_to_float("EDIT_PRECISION_TEMPERATURE", 0.1) or 0.1,
-            "min_top_p": _env_to_float("EDIT_PRECISION_MIN_TOP_P", 0.3),
-            "override_top_p": _env_to_bool("EDIT_PRECISION_OVERRIDE_TOP_P", False),
-            "override_top_k": _env_to_bool("EDIT_PRECISION_OVERRIDE_TOP_K", False),
-            "target_top_k": (
-                int(os.environ.get("EDIT_PRECISION_TARGET_TOP_K", "0")) or None
+            "enabled": _env_to_bool(
+                "EDIT_PRECISION_ENABLED",
+                True,
+                env,
+                path="edit_precision.enabled",
+                resolution=resolution,
             ),
-            "exclude_agents_regex": os.environ.get(
-                "EDIT_PRECISION_EXCLUDE_AGENTS_REGEX"
+            "temperature": _env_to_float(
+                "EDIT_PRECISION_TEMPERATURE",
+                0.1,
+                env,
+                path="edit_precision.temperature",
+                resolution=resolution,
+            ),
+            "min_top_p": _env_to_float(
+                "EDIT_PRECISION_MIN_TOP_P",
+                0.3,
+                env,
+                path="edit_precision.min_top_p",
+                resolution=resolution,
+            ),
+            "override_top_p": _env_to_bool(
+                "EDIT_PRECISION_OVERRIDE_TOP_P",
+                False,
+                env,
+                path="edit_precision.override_top_p",
+                resolution=resolution,
+            ),
+            "override_top_k": _env_to_bool(
+                "EDIT_PRECISION_OVERRIDE_TOP_K",
+                False,
+                env,
+                path="edit_precision.override_top_k",
+                resolution=resolution,
+            ),
+            "target_top_k": _get_env_value(
+                env,
+                "EDIT_PRECISION_TARGET_TOP_K",
+                None,
+                path="edit_precision.target_top_k",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0) or None,
+            ),
+            "exclude_agents_regex": _get_env_value(
+                env,
+                "EDIT_PRECISION_EXCLUDE_AGENTS_REGEX",
+                None,
+                path="edit_precision.exclude_agents_regex",
+                resolution=resolution,
             ),
         }
 
         config["rewriting"] = {
-            "enabled": _env_to_bool("REWRITING_ENABLED", False),
-            "config_path": os.environ.get(
-                "REWRITING_CONFIG_PATH", "config/replacements"
+            "enabled": _env_to_bool(
+                "REWRITING_ENABLED",
+                False,
+                env,
+                path="rewriting.enabled",
+                resolution=resolution,
+            ),
+            "config_path": _get_env_value(
+                env,
+                "REWRITING_CONFIG_PATH",
+                "config/replacements",
+                path="rewriting.config_path",
+                resolution=resolution,
             ),
         }
 
         # Model aliases configuration from environment
-        model_aliases_env = os.environ.get("MODEL_ALIASES")
+        model_aliases_env = env.get("MODEL_ALIASES")
         if model_aliases_env:
             try:
                 alias_data = json.loads(model_aliases_env)
@@ -776,6 +1194,13 @@ class AppConfig(DomainModel, IConfig):
                         and "pattern" in item
                         and "replacement" in item
                     ]
+                    if resolution is not None:
+                        resolution.record(
+                            "model_aliases",
+                            config["model_aliases"],
+                            ParameterSource.ENVIRONMENT,
+                            origin="MODEL_ALIASES",
+                        )
             except (json.JSONDecodeError, KeyError, TypeError) as e:
                 logger.warning(
                     f"Invalid MODEL_ALIASES environment variable format: {e}"
@@ -785,28 +1210,72 @@ class AppConfig(DomainModel, IConfig):
             config["model_aliases"] = []
 
         config["backends"] = {
-            "default_backend": os.environ.get("LLM_BACKEND", "openai")
+            "default_backend": _get_env_value(
+                env,
+                "LLM_BACKEND",
+                "openai",
+                path="backends.default_backend",
+                resolution=resolution,
+            )
         }
 
         config["identity"] = AppIdentityConfig(
             title=HeaderConfig(
-                override_value=os.environ.get("APP_TITLE"),
+                override_value=_get_env_value(
+                    env,
+                    "APP_TITLE",
+                    None,
+                    path="identity.title.override_value",
+                    resolution=resolution,
+                ),
                 mode=HeaderOverrideMode(
-                    os.environ.get("APP_TITLE_MODE", "passthrough")
+                    _get_env_value(
+                        env,
+                        "APP_TITLE_MODE",
+                        "passthrough",
+                        path="identity.title.mode",
+                        resolution=resolution,
+                    )
                 ),
                 default_value="llm-interactive-proxy",
                 passthrough_name="x-title",
             ),
             url=HeaderConfig(
-                override_value=os.environ.get("APP_URL"),
-                mode=HeaderOverrideMode(os.environ.get("APP_URL_MODE", "passthrough")),
+                override_value=_get_env_value(
+                    env,
+                    "APP_URL",
+                    None,
+                    path="identity.url.override_value",
+                    resolution=resolution,
+                ),
+                mode=HeaderOverrideMode(
+                    _get_env_value(
+                        env,
+                        "APP_URL_MODE",
+                        "passthrough",
+                        path="identity.url.mode",
+                        resolution=resolution,
+                    )
+                ),
                 default_value="https://github.com/matdev83/llm-interactive-proxy",
                 passthrough_name="http-referer",
             ),
             user_agent=HeaderConfig(
-                override_value=os.environ.get("APP_USER_AGENT"),
+                override_value=_get_env_value(
+                    env,
+                    "APP_USER_AGENT",
+                    None,
+                    path="identity.user_agent.override_value",
+                    resolution=resolution,
+                ),
                 mode=HeaderOverrideMode(
-                    os.environ.get("APP_USER_AGENT_MODE", "passthrough")
+                    _get_env_value(
+                        env,
+                        "APP_USER_AGENT_MODE",
+                        "passthrough",
+                        path="identity.user_agent.mode",
+                        resolution=resolution,
+                    )
                 ),
                 default_value="llm-interactive-proxy",
                 passthrough_name="user-agent",
@@ -827,74 +1296,158 @@ class AppConfig(DomainModel, IConfig):
         if openrouter_keys:
             config_backends["openrouter"] = config_backends.get("openrouter", {})
             config_backends["openrouter"]["api_key"] = list(openrouter_keys.values())
-            config_backends["openrouter"]["api_url"] = os.environ.get(
-                "OPENROUTER_API_BASE_URL", "https://openrouter.ai/api/v1"
+            config_backends["openrouter"]["api_url"] = _get_env_value(
+                env,
+                "OPENROUTER_API_BASE_URL",
+                "https://openrouter.ai/api/v1",
+                path="backends.openrouter.api_url",
+                resolution=resolution,
             )
-            if os.environ.get("OPENROUTER_TIMEOUT"):
-                with contextlib.suppress(ValueError):
-                    config_backends["openrouter"]["timeout"] = int(
-                        os.environ.get("OPENROUTER_TIMEOUT", "0")
-                    )
+            timeout_value = _get_env_value(
+                env,
+                "OPENROUTER_TIMEOUT",
+                None,
+                path="backends.openrouter.timeout",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
+            )
+            if timeout_value:
+                config_backends["openrouter"]["timeout"] = timeout_value
+            if resolution is not None:
+                resolution.record(
+                    "backends.openrouter.api_key",
+                    config_backends["openrouter"]["api_key"],
+                    ParameterSource.ENVIRONMENT,
+                    origin="OPENROUTER_API_KEY*",
+                )
 
         gemini_keys: dict[str, str] = _collect_api_keys("GEMINI_API_KEY")
         if gemini_keys:
             config_backends["gemini"] = config_backends.get("gemini", {})
             config_backends["gemini"]["api_key"] = list(gemini_keys.values())
-            config_backends["gemini"]["api_url"] = os.environ.get(
-                "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
+            config_backends["gemini"]["api_url"] = _get_env_value(
+                env,
+                "GEMINI_API_BASE_URL",
+                "https://generativelanguage.googleapis.com",
+                path="backends.gemini.api_url",
+                resolution=resolution,
             )
-            if os.environ.get("GEMINI_TIMEOUT"):
-                with contextlib.suppress(ValueError):
-                    config_backends["gemini"]["timeout"] = int(
-                        os.environ.get("GEMINI_TIMEOUT", "0")
-                    )
+            gemini_timeout = _get_env_value(
+                env,
+                "GEMINI_TIMEOUT",
+                None,
+                path="backends.gemini.timeout",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
+            )
+            if gemini_timeout:
+                config_backends["gemini"]["timeout"] = gemini_timeout
+            if resolution is not None:
+                resolution.record(
+                    "backends.gemini.api_key",
+                    config_backends["gemini"]["api_key"],
+                    ParameterSource.ENVIRONMENT,
+                    origin="GEMINI_API_KEY*",
+                )
 
         anthropic_keys: dict[str, str] = _collect_api_keys("ANTHROPIC_API_KEY")
         if anthropic_keys:
             config_backends["anthropic"] = config_backends.get("anthropic", {})
             config_backends["anthropic"]["api_key"] = list(anthropic_keys.values())
-            config_backends["anthropic"]["api_url"] = os.environ.get(
-                "ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1"
+            config_backends["anthropic"]["api_url"] = _get_env_value(
+                env,
+                "ANTHROPIC_API_BASE_URL",
+                "https://api.anthropic.com/v1",
+                path="backends.anthropic.api_url",
+                resolution=resolution,
             )
-            if os.environ.get("ANTHROPIC_TIMEOUT"):
-                with contextlib.suppress(ValueError):
-                    config_backends["anthropic"]["timeout"] = int(
-                        os.environ.get("ANTHROPIC_TIMEOUT", "0")
-                    )
+            anthropic_timeout = _get_env_value(
+                env,
+                "ANTHROPIC_TIMEOUT",
+                None,
+                path="backends.anthropic.timeout",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
+            )
+            if anthropic_timeout:
+                config_backends["anthropic"]["timeout"] = anthropic_timeout
+            if resolution is not None:
+                resolution.record(
+                    "backends.anthropic.api_key",
+                    config_backends["anthropic"]["api_key"],
+                    ParameterSource.ENVIRONMENT,
+                    origin="ANTHROPIC_API_KEY*",
+                )
 
         zai_keys: dict[str, str] = _collect_api_keys("ZAI_API_KEY")
         if zai_keys:
             config_backends["zai"] = config_backends.get("zai", {})
             config_backends["zai"]["api_key"] = list(zai_keys.values())
-            config_backends["zai"]["api_url"] = os.environ.get("ZAI_API_BASE_URL")
-            if os.environ.get("ZAI_TIMEOUT"):
-                with contextlib.suppress(ValueError):
-                    config_backends["zai"]["timeout"] = int(
-                        os.environ.get("ZAI_TIMEOUT", "0")
-                    )
+            config_backends["zai"]["api_url"] = _get_env_value(
+                env,
+                "ZAI_API_BASE_URL",
+                None,
+                path="backends.zai.api_url",
+                resolution=resolution,
+            )
+            zai_timeout = _get_env_value(
+                env,
+                "ZAI_TIMEOUT",
+                None,
+                path="backends.zai.timeout",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
+            )
+            if zai_timeout:
+                config_backends["zai"]["timeout"] = zai_timeout
+            if resolution is not None:
+                resolution.record(
+                    "backends.zai.api_key",
+                    config_backends["zai"]["api_key"],
+                    ParameterSource.ENVIRONMENT,
+                    origin="ZAI_API_KEY*",
+                )
 
         openai_keys: dict[str, str] = _collect_api_keys("OPENAI_API_KEY")
         if openai_keys:
             config_backends["openai"] = config_backends.get("openai", {})
             config_backends["openai"]["api_key"] = list(openai_keys.values())
-            config_backends["openai"]["api_url"] = os.environ.get(
-                "OPENAI_API_BASE_URL", "https://api.openai.com/v1"
+            config_backends["openai"]["api_url"] = _get_env_value(
+                env,
+                "OPENAI_API_BASE_URL",
+                "https://api.openai.com/v1",
+                path="backends.openai.api_url",
+                resolution=resolution,
             )
-            if os.environ.get("OPENAI_TIMEOUT"):
-                with contextlib.suppress(ValueError):
-                    config_backends["openai"]["timeout"] = int(
-                        os.environ.get("OPENAI_TIMEOUT", "0")
-                    )
+            openai_timeout = _get_env_value(
+                env,
+                "OPENAI_TIMEOUT",
+                None,
+                path="backends.openai.timeout",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
+            )
+            if openai_timeout:
+                config_backends["openai"]["timeout"] = openai_timeout
+            if resolution is not None:
+                resolution.record(
+                    "backends.openai.api_key",
+                    config_backends["openai"]["api_key"],
+                    ParameterSource.ENVIRONMENT,
+                    origin="OPENAI_API_KEY*",
+                )
 
         # Handle default backend if it's not explicitly configured above
-        default_backend_type: str = os.environ.get("LLM_BACKEND", "openai")
+        default_backend_type: str = str(
+            config["backends"].get("default_backend", "openai")
+        )
         if default_backend_type not in config_backends:
             # If the default backend is not explicitly configured, ensure it has a basic config
             config_backends[default_backend_type] = config_backends.get(
                 default_backend_type, {}
             )
             # Add a dummy API key if running in test environment and no API key is present
-            if os.environ.get("PYTEST_CURRENT_TEST") and (
+            if env.get("PYTEST_CURRENT_TEST") and (
                 not config_backends[default_backend_type]
                 or not config_backends[default_backend_type].get("api_key")
             ):
@@ -939,7 +1492,45 @@ def _merge_dicts(d1: dict[str, Any], d2: dict[str, Any]) -> dict[str, Any]:
     return d1
 
 
-def load_config(config_path: str | Path | None = None) -> AppConfig:
+def _set_by_path(target: dict[str, Any], path: str, value: Any) -> None:
+    parts = path.split(".")
+    current: dict[str, Any] = target
+    for key in parts[:-1]:
+        current = current.setdefault(key, {})  # type: ignore[assignment]
+    current[parts[-1]] = value
+
+
+def _get_by_path(source: dict[str, Any], path: str) -> Any:
+    parts = path.split(".")
+    current: Any = source
+    for key in parts:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _flatten_dict(data: dict[str, Any]) -> dict[str, Any]:
+    flattened: dict[str, Any] = {}
+
+    def _walk(value: Any, prefix: str) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                new_prefix = f"{prefix}.{key}" if prefix else key
+                _walk(child, new_prefix)
+        else:
+            flattened[prefix] = value
+
+    _walk(data, "")
+    return flattened
+
+
+def load_config(
+    config_path: str | Path | None = None,
+    *,
+    resolution: ParameterResolution | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> AppConfig:
     """
     Load configuration from file and environment.
 
@@ -949,31 +1540,27 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
     Returns:
         AppConfig instance
     """
-    # Start with environment configuration
-    config: AppConfig = AppConfig.from_env()
+    env = environ or os.environ
+    res = resolution or ParameterResolution()
 
-    # Override with file configuration if provided
+    config_data: dict[str, Any] = AppConfig().model_dump()
+
     if config_path:
         try:
-
             import yaml
 
             path: Path = Path(config_path)
             if not path.exists():
                 logger.warning(f"Configuration file not found: {config_path}")
-                return config
+            else:
+                if path.suffix.lower() not in [".yaml", ".yml"]:
+                    raise ValueError(
+                        f"Unsupported configuration file format: {path.suffix}. Use YAML (.yaml/.yml)."
+                    )
 
-            # YAML-only configuration files
-            if path.suffix.lower() not in [".yaml", ".yml"]:
-                raise ValueError(
-                    f"Unsupported configuration file format: {path.suffix}. Use YAML (.yaml/.yml)."
-                )
+                with open(path, encoding="utf-8") as f:
+                    file_config: dict[str, Any] = yaml.safe_load(f) or {}
 
-            with open(path, encoding="utf-8") as f:
-                file_config: dict[str, Any] = yaml.safe_load(f)
-
-            # Validate against schema for helpful diagnostics
-            try:
                 from pathlib import Path as _Path
 
                 from src.core.config.semantic_validation import (
@@ -984,39 +1571,26 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
                 schema_path = (
                     _Path.cwd() / "config" / "schemas" / "app_config.schema.yaml"
                 )
-                # First validate JSON schema
                 validate_yaml_against_schema(_Path(path), schema_path)
-
-                # Then validate semantic correctness
                 validate_config_semantics(file_config, path)
 
-            except Exception as _ex:  # pragma: no cover
-                logger.critical("Config validation failed for %s: %s", str(path), _ex)
-                raise
-
-            # Merge file config with environment defaults, preferring file values
-            if isinstance(file_config, dict):
-                env_dict: dict[str, Any] = config.model_dump()
-
-                def _merge_missing(
-                    dst: dict[str, Any], src: dict[str, Any]
-                ) -> dict[str, Any]:
-                    for k, v in src.items():
-                        if k in dst:
-                            if isinstance(dst[k], dict) and isinstance(v, dict):
-                                _merge_missing(dst[k], v)
-                            # else: keep dst value (from file)
-                        else:
-                            dst[k] = v
-                    return dst
-
-                merged_config_dict: dict[str, Any] = _merge_missing(
-                    dict(file_config), env_dict
-                )
-                config = AppConfig.model_validate(merged_config_dict)
-
-        except Exception as e:  # type: ignore[misc]
-            logger.critical(f"Error loading configuration file: {e!s}")
+                _merge_dicts(config_data, file_config)
+                origin = str(path)
+                for name, value in _flatten_dict(file_config).items():
+                    res.record(
+                        name,
+                        value,
+                        ParameterSource.CONFIG_FILE,
+                        origin=origin,
+                    )
+        except Exception as exc:  # type: ignore[misc]
+            logger.critical(f"Error loading configuration file: {exc!s}")
             raise
 
-    return config
+    env_config = AppConfig.from_env(environ=env, resolution=res)
+    env_dump = env_config.model_dump()
+    for name in res.latest_by_source(ParameterSource.ENVIRONMENT):
+        value = _get_by_path(env_dump, name)
+        _set_by_path(config_data, name, value)
+
+    return AppConfig.model_validate(config_data)

@@ -39,8 +39,10 @@ def parse_cli_args(argv: list[str] | None = None) -> Any:
 
 def apply_cli_args(args: Any) -> AppConfig:
     """Apply parsed CLI arguments to an :class:`AppConfig` instance."""
-
-    return _cli_module.apply_cli_args(args)
+    result = _cli_module.apply_cli_args(args)
+    if isinstance(result, tuple):
+        return result[0]
+    return result
 
 
 def is_port_in_use(host: str, port: int) -> bool:

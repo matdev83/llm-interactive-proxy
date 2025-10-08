@@ -66,7 +66,11 @@ pip-log.txt
 # Keep data folder in repo but ignore its contents
 data/*
 !data/.gitkeep
+!data/cli_flag_snapshot.txt
+!data\test_suite_state.json
 data/accounting.sqlite3
+data/accounting.sqlite
+data/accounting.db
 *.lock
 *.state
 WARP.md

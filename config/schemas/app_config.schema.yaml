@@ -80,6 +80,8 @@ properties:
       dangerous_command_steering_message: { type: ["string", "null"] }
       pytest_compression_enabled: { type: boolean }
       pytest_compression_min_lines: { type: integer, minimum: 1 }
+      pytest_full_suite_steering_enabled: { type: boolean }
+      pytest_full_suite_steering_message: { type: ["string", "null"] }
       planning_phase:
         type: object
         additionalProperties: false
@@ -111,7 +113,6 @@ properties:
           steering_rules:
             type: array
             items: { type: object }
-      pytest_full_suite_steering_enabled: { type: boolean }
   backends:
     type: object
     additionalProperties: true

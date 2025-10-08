@@ -6,7 +6,6 @@ import os
 import socket
 
 import pytest
-
 from src.core.cli_v2 import AppConfig, apply_cli_args, is_port_in_use, parse_cli_args
 from src.core.cli_v2 import main as cli_main
 from src.core.config.app_config import ModelAliasRule
@@ -59,15 +58,19 @@ def test_parse_cli_args_accepts_model_alias(backend_choices: list[str]) -> None:
 
 def test_parse_cli_args_rejects_invalid_model_alias(backend_choices: list[str]) -> None:
     with pytest.raises(SystemExit):
-        parse_cli_args([
-            "--default-backend",
-            backend_choices[0],
-            "--model-alias",
-            "invalid-alias",
-        ])
+        parse_cli_args(
+            [
+                "--default-backend",
+                backend_choices[0],
+                "--model-alias",
+                "invalid-alias",
+            ]
+        )
 
 
-def test_apply_cli_args_updates_configuration(monkeypatch: pytest.MonkeyPatch, backend_choices: list[str], tmp_path) -> None:
+def test_apply_cli_args_updates_configuration(
+    monkeypatch: pytest.MonkeyPatch, backend_choices: list[str], tmp_path
+) -> None:
     log_file = tmp_path / "proxy.log"
     args = parse_cli_args(
         [
@@ -101,10 +104,9 @@ def test_apply_cli_args_updates_configuration(monkeypatch: pytest.MonkeyPatch, b
     assert os.environ["FORCE_CONTEXT_WINDOW"] == "4096"
     assert os.environ["THINKING_BUDGET"] == "123"
     assert os.environ["LLM_BACKEND"] == backend_choices[0]
-    assert [
-        (alias.pattern, alias.replacement)
-        for alias in config.model_aliases
-    ] == [(r"^gpt-(.*)", r"openrouter:openai/gpt-\\1")]
+    assert [(alias.pattern, alias.replacement) for alias in config.model_aliases] == [
+        (r"^gpt-(.*)", r"openrouter:openai/gpt-\\1")
+    ]
     assert all(isinstance(alias, ModelAliasRule) for alias in config.model_aliases)
 
 
@@ -118,7 +120,9 @@ def test_is_port_in_use_detects_bound_socket() -> None:
     assert not is_port_in_use(host, port)
 
 
-def test_main_delegates_to_cli(monkeypatch: pytest.MonkeyPatch, backend_choices: list[str]) -> None:
+def test_main_delegates_to_cli(
+    monkeypatch: pytest.MonkeyPatch, backend_choices: list[str]
+) -> None:
     called = {}
 
     def fake_main(*, argv, build_app_fn):

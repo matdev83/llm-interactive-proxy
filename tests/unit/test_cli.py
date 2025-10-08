@@ -225,6 +225,39 @@ def test_cli_pytest_compression_flags() -> None:
         assert config_override.session.pytest_compression_enabled is True
 
 
+def test_cli_pytest_full_suite_steering_flags() -> None:
+    """Test CLI flags controlling pytest full-suite steering."""
+
+    with patch("src.core.cli.load_config") as mock_load_config:
+        # Enable flag should override configuration
+        mock_load_config.return_value = AppConfig()
+        args_enable = parse_cli_args(["--enable-pytest-full-suite-steering"])
+        assert args_enable.pytest_full_suite_steering_enabled is True
+        config_enable = apply_cli_args(args_enable)
+        reactor_config = config_enable.session.tool_call_reactor
+        assert reactor_config.pytest_full_suite_steering_enabled is True
+
+        # Disable flag should override configuration
+        mock_load_config.return_value = AppConfig()
+        args_disable = parse_cli_args(["--disable-pytest-full-suite-steering"])
+        assert args_disable.pytest_full_suite_steering_enabled is False
+        config_disable = apply_cli_args(args_disable)
+        reactor_config = config_disable.session.tool_call_reactor
+        assert reactor_config.pytest_full_suite_steering_enabled is False
+
+        # Default behaviour should preserve existing configuration state
+        existing_config = AppConfig()
+        existing_config.session.tool_call_reactor.pytest_full_suite_steering_enabled = (
+            True
+        )
+        mock_load_config.return_value = existing_config
+        args_default = parse_cli_args([])
+        assert args_default.pytest_full_suite_steering_enabled is None
+        config_default = apply_cli_args(args_default)
+        reactor_config = config_default.session.tool_call_reactor
+        assert reactor_config.pytest_full_suite_steering_enabled is True
+
+
 def test_maybe_run_as_daemon_posix_continues(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure daemon mode continues execution on POSIX systems."""
 
