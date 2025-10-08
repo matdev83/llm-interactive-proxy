@@ -107,7 +107,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         content_value = processed_response.content
         if content_value is None:
             return ""
-        return content_value
+        return str(content_value)
 
     async def _apply_streaming_middleware(
         self,

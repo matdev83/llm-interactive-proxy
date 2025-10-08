@@ -10,7 +10,7 @@ from __future__ import annotations
 # type: ignore[unreachable]
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.core.common.exceptions import ToolCallLoopError
 from src.core.domain.configuration.loop_detection_config import (
@@ -18,6 +18,9 @@ from src.core.domain.configuration.loop_detection_config import (
 )
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
 from src.tool_call_loop.tracker import ToolCallTracker
+
+if TYPE_CHECKING:
+    from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +181,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
     def _build_tracker_config(
         self, config: LoopDetectionConfiguration
-    ) -> "ToolCallLoopConfig":
+    ) -> ToolCallLoopConfig:
         from src.tool_call_loop.config import ToolCallLoopConfig
 
         return ToolCallLoopConfig(
@@ -189,8 +192,8 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         )
 
     def _resolve_tool_loop_mode(
-        self, mode_value: "ToolLoopMode" | str | None
-    ) -> "ToolLoopMode":
+        self, mode_value: ToolLoopMode | str | None
+    ) -> ToolLoopMode:
         from src.tool_call_loop.config import ToolLoopMode
 
         if isinstance(mode_value, ToolLoopMode):

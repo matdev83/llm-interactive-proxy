@@ -52,7 +52,9 @@ def _build_context_with_input(
     )
 
 
-def _build_python_context(args: list[str], session_id: str = "session-1") -> ToolCallContext:
+def _build_python_context(
+    args: list[str], session_id: str = "session-1"
+) -> ToolCallContext:
     return ToolCallContext(
         session_id=session_id,
         backend_name="backend",

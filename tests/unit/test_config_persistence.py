@@ -1,4 +1,12 @@
 import pytest
+
+
+@pytest.fixture
+def functional_backend() -> str:
+    """Provide a known functional backend for tests to use."""
+    return "zai-coding-plan"
+
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
@@ -18,7 +26,9 @@ def manage_env_vars(monkeypatch):
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
 
 
-def test_save_and_load_persistent_config(tmp_path, monkeypatch):
+def test_save_and_load_persistent_config(
+    tmp_path, monkeypatch, functional_backend: str
+):
     cfg_path = tmp_path / "cfg.yaml"
     # Ensure a clean slate for keys that might be set by other tests or global env
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -31,26 +41,22 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
     with TestClient(
         app
     ) as client:  # Auth headers not needed if client fixture handles it
-        client.app.state.app_config.failover_routes["r1"] = {
+        client.app.state.app_config.failover_routes["r1"] = {  # type: ignore
             "policy": "k",
             "elements": ["openrouter:model-a"],
         }
-        client.app.state.app_config.session.default_interactive_mode = True
-        client.app.state.app_config.backends.default_backend = (
-            "gemini"  # This is the runtime state
-        )
-        client.app.state.app_config.auth.redact_api_keys_in_prompts = False
-        client.app.state.app_config.command_prefix = "$/"
-        client.app.state.app_config.save(cfg_path)
+        client.app.state.app_config.session.default_interactive_mode = True  # type: ignore
+        client.app.state.app_config.backends.default_backend = functional_backend  # type: ignore
+        client.app.state.app_config.auth.redact_api_keys_in_prompts = False  # type: ignore
+        client.app.state.app_config.command_prefix = "$/"  # type: ignore
+        client.app.state.app_config.save(cfg_path)  # type: ignore
 
     import yaml
 
     yaml_content = cfg_path.read_text()
-    print("Saved YAML content:")
-    print(yaml_content)
 
     data = yaml.safe_load(cfg_path.read_text())
-    assert data["backends"]["default_backend"] == "gemini"
+    assert data["backends"]["default_backend"] == functional_backend
     assert data["session"]["default_interactive_mode"] is True  # Updated path
     assert data["failover_routes"]["r1"]["elements"] == ["openrouter:model-a"]
     assert data["auth"]["redact_api_keys_in_prompts"] is False  # Updated path
@@ -73,16 +79,18 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
             print(yaml_content)
             print(f"Validation error type: {type(e).__name__}")
             print(f"Validation error message: {e}")
-            if hasattr(e, "details") and "errors" in e.details:
-                print(f"Specific errors: {e.details['errors']}")
-            elif hasattr(e, "details"):
-                print(f"Error details: {e.details}")
+            if hasattr(e, "details") and "errors" in e.details:  # type: ignore
+                print(f"Specific errors: {e.details['errors']}")  # type: ignore
+            elif hasattr(e, "details"):  # type: ignore
+                print(f"Error details: {e.details}")  # type: ignore
             raise
         app2 = build_app(config=app2_config)
 
     with TestClient(app2) as client2:
-        # Config file (default_backend=gemini) should be used since no CLI argument overrides it
-        assert client2.app.state.app_config.backends.default_backend == "gemini"
+        # Config file should be used since no CLI argument overrides it
+        assert (
+            client2.app.state.app_config.backends.default_backend == functional_backend
+        )
         assert client2.app.state.app_config.session.default_interactive_mode is True
 
         expected_elements = ["openrouter:model-a"]
@@ -99,7 +107,7 @@ def test_save_and_load_persistent_config(tmp_path, monkeypatch):
             )  # If no "r1" route, expected_elements should be empty
 
 
-def test_invalid_persisted_backend(tmp_path, monkeypatch):
+def test_invalid_persisted_backend(tmp_path, monkeypatch, functional_backend: str):
     cfg_path = tmp_path / "cfg.yaml"
     # Persist an invalid default_backend
     import yaml
@@ -123,7 +131,7 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch):
     with TestClient(app) as client:
         # The invalid backend should be loaded but won't be functional
         assert (
-            client.app.state.app_config.backends.default_backend
+            client.app.state.app_config.backends.default_backend  # type: ignore
             == "non_existent_backend"
         )
         # In the new architecture, functional_backends is determined at runtime

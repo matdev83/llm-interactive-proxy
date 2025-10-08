@@ -18,7 +18,7 @@ def _install_backend_config_module() -> None:
         return
 
     shim = ModuleType(module_name)
-    shim.BackendConfig = BackendConfig
+    shim.BackendConfig = BackendConfig  # type: ignore
     sys.modules[module_name] = shim
 
 
