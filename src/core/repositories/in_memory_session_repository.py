@@ -124,6 +124,11 @@ class InMemorySessionRepository(ISessionRepository):
             # Use session's last_active_at if available, otherwise fall back to _last_accessed
             if hasattr(session, "last_active_at") and session.last_active_at:
                 last_active = session.last_active_at
+                if (
+                    last_active.tzinfo is None
+                    or last_active.tzinfo.utcoffset(last_active) is None
+                ):
+                    last_active = last_active.replace(tzinfo=timezone.utc)
                 age = (now - last_active).total_seconds()
             else:
                 # Fall back to internal tracking
