@@ -223,3 +223,7 @@ class TestExceptionAdapters:
         http_exc = map_domain_exception_to_http_exception(rate_error)
         assert http_exc.status_code == 429
         assert http_exc.headers == {"Retry-After": "61"}
+
+        expired_rate_error = RateLimitExceededError("slow down", reset_at=450.0)
+        http_exc = map_domain_exception_to_http_exception(expired_rate_error)
+        assert http_exc.headers == {"Retry-After": "0"}

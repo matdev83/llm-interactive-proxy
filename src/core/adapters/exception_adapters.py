@@ -31,8 +31,9 @@ def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
         return None
 
     now = time.time()
-    delay_seconds = reset_at - now if reset_at > now else reset_at
+    delay_seconds = reset_at - now
     if delay_seconds <= 0:
+        # Timestamp already elapsed; instruct clients they can retry immediately.
         return {"Retry-After": "0"}
 
     return {"Retry-After": str(math.ceil(delay_seconds))}
