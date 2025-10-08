@@ -132,6 +132,24 @@ def test_gemini_public_generation_config_clamping_and_topk() -> None:
     assert gc.get("topK") == 50
 
 
+def test_gemini_generation_config_allows_zero_thinking_budget() -> None:
+    cfg = AppConfig()
+    backend = GeminiBackend(
+        httpx.AsyncClient(), cfg, translation_service=TranslationService()
+    )
+    payload: dict[str, Any] = {}
+    req = ChatRequest(
+        model="gemini-pro",
+        messages=_messages(),
+        thinking_budget=0,
+    )
+
+    backend._apply_generation_config(payload, req)
+
+    gc = payload.get("generationConfig", {})
+    assert gc.get("thinkingConfig", {}).get("thinkingBudget") == 0
+
+
 def test_gemini_oauth_personal_builds_topk() -> None:
     cfg = AppConfig()
     backend = GeminiOAuthPersonalConnector(

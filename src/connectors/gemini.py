@@ -456,9 +456,10 @@ class GeminiBackend(LLMBackend):
         generation_config = payload.setdefault("generationConfig", {})
 
         # thinking budget
-        if getattr(request_data, "thinking_budget", None):
+        thinking_budget = getattr(request_data, "thinking_budget", None)
+        if thinking_budget is not None:
             thinking_config = generation_config.setdefault("thinkingConfig", {})
-            thinking_config["thinkingBudget"] = request_data.thinking_budget  # type: ignore[index]
+            thinking_config["thinkingBudget"] = thinking_budget  # type: ignore[index]
 
         # top_k
         if getattr(request_data, "top_k", None) is not None:
