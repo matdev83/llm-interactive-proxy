@@ -60,6 +60,8 @@ def _extract_command(arguments: Any) -> str | None:
         command = arguments.get("command") or arguments.get("cmd")
         if isinstance(command, str) and command.strip():
             return command
+        if isinstance(command, (list, tuple)) and command:
+            return " ".join(str(item) for item in command)
 
         for key in ("input", "body", "data"):
             inner = arguments.get(key)
@@ -67,6 +69,8 @@ def _extract_command(arguments: Any) -> str | None:
                 sub = inner.get("command") or inner.get("cmd")
                 if isinstance(sub, str) and sub.strip():
                     return sub
+                if isinstance(sub, (list, tuple)) and sub:
+                    return " ".join(str(item) for item in sub)
 
         args_list = arguments.get("args")
         if isinstance(args_list, list) and args_list:

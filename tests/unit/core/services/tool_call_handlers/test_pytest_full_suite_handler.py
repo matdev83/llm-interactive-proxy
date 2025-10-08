@@ -87,6 +87,24 @@ async def test_handler_passes_through_targeted_pytest() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handler_detects_list_based_command() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = ToolCallContext(
+        session_id="session-list",
+        backend_name="backend",
+        model_name="model",
+        full_response={},
+        tool_name="bash",
+        tool_arguments={"command": ["pytest", "-q"]},
+    )
+
+    assert await handler.can_handle(context) is True
+    result = await handler.handle(context)
+
+    assert result.should_swallow is True
+
+
+@pytest.mark.asyncio
 async def test_handler_enabled_flag_controls_behavior() -> None:
     handler = PytestFullSuiteHandler(enabled=False)
     context = _build_context("pytest")
