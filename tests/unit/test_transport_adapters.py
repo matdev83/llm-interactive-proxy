@@ -223,3 +223,8 @@ class TestExceptionAdapters:
         http_exc = map_domain_exception_to_http_exception(rate_error)
         assert http_exc.status_code == 429
         assert http_exc.headers == {"Retry-After": "61"}
+
+        # Test rate limit when reset_at equals current time (immediate retry)
+        immediate_reset_error = RateLimitExceededError("retry now", reset_at=500.0)
+        http_exc = map_domain_exception_to_http_exception(immediate_reset_error)
+        assert http_exc.headers == {"Retry-After": "0"}
