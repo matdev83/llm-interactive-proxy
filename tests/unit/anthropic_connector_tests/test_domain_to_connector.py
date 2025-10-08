@@ -288,6 +288,52 @@ async def test_chat_completions_with_tools(
 
 
 @pytest.mark.asyncio
+async def test_chat_completions_stop_string_normalized(
+    anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
+) -> None:
+    """Ensure string stop values are converted to Anthropic stop_sequences lists."""
+
+    httpx_mock.add_response(
+        url=f"{TEST_ANTHROPIC_API_BASE_URL}/messages",
+        method="POST",
+        json={
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Done."}],
+            "model": "claude-3-haiku-20240307",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 3},
+        },
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
+
+    request = ChatRequest(
+        model="anthropic:claude-3-haiku-20240307",
+        messages=[ChatMessage(role="user", content="Say done when finished.")],
+        max_tokens=100,
+        stop="DONE",
+    )
+
+    processed_messages = [
+        ChatMessage(role="user", content="Say done when finished."),
+    ]
+
+    await anthropic_backend.chat_completions(
+        request_data=request,
+        processed_messages=processed_messages,
+        effective_model="claude-3-haiku-20240307",
+    )
+
+    sent_request = httpx_mock.get_request()
+    assert sent_request is not None
+    sent_payload = json.loads(sent_request.content)
+
+    assert sent_payload["stop_sequences"] == ["DONE"]
+
+
+@pytest.mark.asyncio
 async def test_chat_completions_streaming(
     anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
 ) -> None:
