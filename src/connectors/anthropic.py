@@ -227,19 +227,30 @@ class AnthropicBackend(LLMBackend):
         system_prompt = None
         anth_messages: list[dict[str, Any]] = []
         for msg in processed_messages:
-            if msg.role == "system":
-                if isinstance(msg.content, str):
-                    system_prompt = msg.content
+            if isinstance(msg, dict):
+                role = msg.get("role")
+                content = msg.get("content")
+            else:
+                role = getattr(msg, "role", None)
+                content = getattr(msg, "content", None)
+
+            if not role:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Skipping message without role: %r", msg)
+                continue
+
+            if role == "system":
+                if isinstance(content, str):
+                    system_prompt = content
                 else:
                     # If list/parts, flatten to string for system
-                    system_prompt = json.dumps(msg.content)
+                    system_prompt = json.dumps(content)
                 continue
 
             # Map content - content is already processed by middleware
-            content = msg.content
             if isinstance(content, str):
-                anth_messages.append({"role": msg.role, "content": content})
-            else:
+                anth_messages.append({"role": role, "content": content})
+            elif isinstance(content, list):
                 # For list-of-parts, Anthropic only supports string or array of dict {"type":"text","text":...}
                 parts: list[Any] = []
                 for part in content:
@@ -253,7 +264,11 @@ class AnthropicBackend(LLMBackend):
                     else:
                         # unknown part type -> stringify
                         parts.append({"type": "text", "text": str(part)})
-                anth_messages.append({"role": msg.role, "content": parts})
+                anth_messages.append({"role": role, "content": parts})
+            elif content is None:
+                anth_messages.append({"role": role, "content": ""})
+            else:
+                anth_messages.append({"role": role, "content": str(content)})
 
         payload["messages"] = anth_messages
         if system_prompt:
