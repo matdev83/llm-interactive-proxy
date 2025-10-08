@@ -152,6 +152,34 @@ class TestToolCallReactorService:
         assert call_count == 1
 
     @pytest.mark.asyncio
+    async def test_process_tool_call_history_uses_argument_snapshot(
+        self, reactor, history_tracker
+    ):
+        """Recorded tool arguments should not be affected by later mutations."""
+
+        tool_arguments = {"arg": ["value"]}
+
+        context = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="test_tool",
+            tool_arguments=tool_arguments,
+        )
+
+        await reactor.process_tool_call(context)
+
+        tool_arguments["arg"].append("mutated")
+
+        async with history_tracker._lock:  # type: ignore[attr-defined]
+            stored_arguments = history_tracker._history["test_session"][0][
+                "context"
+            ]["tool_arguments"]
+
+        assert stored_arguments == {"arg": ["value"]}
+
+    @pytest.mark.asyncio
     async def test_process_tool_call_handler_can_handle_false(self, reactor):
         """Test processing tool call when handler cannot handle it."""
         handler = MockToolCallHandler("test_handler", can_handle_return=False)
