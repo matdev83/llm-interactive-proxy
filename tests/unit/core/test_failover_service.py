@@ -81,6 +81,28 @@ def test_get_failover_attempts_invalid_element() -> None:
     assert attempts[0].backend == "openai"
     assert attempts[0].model == "gpt-4"
 
-    # Verify the invalid attempt gets parsed with empty backend
-    assert attempts[1].backend == ""
+    # Invalid attempt falls back to provided backend type
+    assert attempts[1].backend == "openai"
     assert attempts[1].model == "invalid-element"
+
+
+def test_get_failover_attempts_infers_backend_from_context() -> None:
+    """Elements without explicit backend should fall back to provided backend type."""
+
+    backend_config = Mock()
+    backend_config.failover_routes = {
+        "test-route": {
+            "policy": "k",
+            "elements": [
+                "gpt-4o",  # Implicit backend expected to be openai
+            ],
+        }
+    }
+
+    service = FailoverService({})
+
+    attempts = service.get_failover_attempts(backend_config, "test-route", "openai")
+
+    assert len(attempts) == 1
+    assert attempts[0].backend == "openai"
+    assert attempts[0].model == "gpt-4o"

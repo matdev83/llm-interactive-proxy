@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import types
 from uuid import UUID
 from unittest.mock import patch
@@ -47,7 +49,7 @@ async def test_resolver_generates_unique_session_ids_when_missing() -> None:
     second_uuid = UUID("87654321-4321-8765-4321-876543218765")
 
     with patch(
-        "src.core.services.session_resolver_service.uuid4",
+        "src.core.services.session_resolver_service.uuid.uuid4",
         side_effect=[first_uuid, second_uuid],
     ):
         first_id = await resolver.resolve_session_id(context_one)

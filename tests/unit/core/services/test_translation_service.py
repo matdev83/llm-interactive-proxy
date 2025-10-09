@@ -120,6 +120,68 @@ def test_to_domain_response_openai_responses_output():
         assert domain_response.usage["completion_tokens"] == 7
 
 
+def test_responses_to_domain_request_with_input_field():
+    service = TranslationService()
+    responses_request = {
+        "model": "gpt-4o-mini",
+        "input": [
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": "You are helpful."}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Hello there"}],
+            },
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "test_schema",
+                "schema": {
+                    "type": "object",
+                    "properties": {"message": {"type": "string"}},
+                    "required": ["message"],
+                },
+            },
+        },
+    }
+
+    domain_request = service.to_domain_request(responses_request, "responses")
+
+    assert domain_request.model == "gpt-4o-mini"
+    assert len(domain_request.messages) == 2
+    assert domain_request.messages[0].role == "system"
+    assert domain_request.messages[0].content == "You are helpful."
+    assert domain_request.messages[1].role == "user"
+    assert domain_request.messages[1].content == "Hello there"
+    assert domain_request.extra_body is not None
+    assert domain_request.extra_body["response_format"]["json_schema"]["name"] == (
+        "test_schema"
+    )
+
+
+def test_responses_to_domain_request_with_string_input():
+    service = TranslationService()
+    responses_request = {
+        "model": "gpt-4o-mini",
+        "input": "Plain text input",
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "text_schema",
+                "schema": {"type": "object"},
+            },
+        },
+    }
+
+    domain_request = service.to_domain_request(responses_request, "responses")
+
+    assert len(domain_request.messages) == 1
+    assert domain_request.messages[0].role == "user"
+    assert domain_request.messages[0].content == "Plain text input"
+
+
 def test_to_domain_request_code_assist():
     """Test translation from Code Assist API request format."""
     service = TranslationService()

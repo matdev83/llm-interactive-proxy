@@ -69,6 +69,45 @@ async def test_chat_completions_clears_identity_between_calls(
 
 
 @pytest.mark.asyncio
+async def test_chat_completions_uses_identity_without_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = AsyncMock()
+    connector = OpenAIConnector(client=client, config=AppConfig())
+    connector.disable_health_check()
+
+    observed_headers: list[dict[str, str] | None] = []
+
+    async def fake_handle(
+        self: OpenAIConnector,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+    ) -> ResponseEnvelope:
+        observed_headers.append(headers)
+        return ResponseEnvelope(content={}, headers={}, status_code=200)
+
+    monkeypatch.setattr(
+        OpenAIConnector,
+        "_handle_non_streaming_response",
+        fake_handle,
+    )
+
+    request = _build_request()
+    identity = DummyIdentity({"Authorization": "Bearer identity-token"})
+
+    await connector.chat_completions(request, [], "gpt-4", identity=identity)
+
+    assert observed_headers
+    assert observed_headers[0] is not None
+    assert (
+        observed_headers[0].get("Authorization")
+        == "Bearer identity-token"
+    )
+
+
+@pytest.mark.asyncio
 async def test_responses_clears_identity_between_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

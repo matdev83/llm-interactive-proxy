@@ -518,6 +518,70 @@ async def test_request_processor_redacts_command_modified_messages(
 
 
 @pytest.mark.asyncio
+async def test_request_processor_handles_plain_dict_model_defaults() -> None:
+    """Ensure model default lookup accepts plain dictionaries without errors."""
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session = AsyncMock(id="test-session", agent=None)
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+    session_manager.update_session_agent.return_value = session
+
+    request_data = create_mock_request(
+        messages=[ChatMessage(role="user", content="Hello there")],
+        model="gpt-4",
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_disable_commands.return_value = False
+    mock_app_state.get_backend_type.return_value = "openai"
+    mock_app_state.get_model_defaults.return_value = {
+        "gpt-4": {
+            "limits": {
+                "max_input_tokens": 1000,
+                "context_window": 2000,
+            }
+        }
+    }
+
+    def _get_setting(name: str, default: object | None = None) -> object | None:
+        if name == "app_config":
+            return None
+        if name == "edit_precision_pending":
+            return {}
+        return default
+
+    mock_app_state.get_setting.side_effect = _get_setting
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    await processor.process_request(MockRequestContext(), request_data)
+
+    backend_request_manager.process_backend_request.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_request_processor_respects_redaction_feature_flag_disabled(
     session_service: MockSessionService,
 ) -> None:

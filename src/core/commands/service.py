@@ -89,7 +89,6 @@ class NewCommandService(ICommandService):
         command_results: list[Any] = []
         command_executed = False
 
-        executed_at: int | None = None
         executed_command_name: str | None = None
         for message in reversed(modified_messages):
             if message.role != "user":
@@ -109,9 +108,8 @@ class NewCommandService(ICommandService):
                     "",
                 )
 
-            # Apply strict command detection if enabled
-            if self.strict_command_detection:
-                content_str = self._get_last_non_blank_line_content(content_str)
+            # The command service should only ever parse the last line for commands.
+            content_str = self._get_last_non_blank_line_content(content_str)
 
             parse_result = self.command_parser.parse(content_str)
             if not parse_result:
@@ -119,20 +117,26 @@ class NewCommandService(ICommandService):
 
             command, matched_text = parse_result
 
+            # Only execute commands that appear at the END of the message (after trimming)
+            trimmed_content = content_str.rstrip()
+            if not trimmed_content.endswith(matched_text):
+                # Command is not at the end, skip it
+                continue
+
             # Remove the command from the message content.
             if isinstance(message.content, str):
-                if command.name == "hello":
-                    # For 'hello': replace command with empty space to preserve structure
-                    idx = content_str.find(matched_text)
-                    if idx != -1:
-                        before = content_str[:idx]
-                        after = content_str[idx + len(matched_text) :]
+                # Find and remove the command from the full message content
+                original_content = message.content
+                idx = original_content.rfind(matched_text)
+                if idx != -1:
+                    before = original_content[:idx]
+                    after = original_content[idx + len(matched_text) :]
+                    if command.name == "hello":
+                        # For 'hello': preserve structure without stripping
                         message.content = before + after
                     else:
-                        message.content = content_str
-                else:
-                    # Default: replace the matched command in place and trim
-                    message.content = content_str.replace(matched_text, "").strip()
+                        # Default: strip trailing whitespace
+                        message.content = (before + after).rstrip()
             elif isinstance(message.content, list):
                 for i, part in enumerate(message.content):
                     if (
@@ -178,27 +182,9 @@ class NewCommandService(ICommandService):
             executed_command_name = command.name
             wrapped_result = CommandResultWrapper(executed_command_name, result)
             command_executed = True
-            executed_at = (
-                modified_messages.index(message) if message in modified_messages else 0
-            )
+            (modified_messages.index(message) if message in modified_messages else 0)
             command_results.append(wrapped_result)
             break
-
-        # Cleanup: strip commands from earlier messages without executing them
-        if command_executed and executed_at is not None:
-            for idx in range(executed_at):
-                m = modified_messages[idx]
-                if m.role != "user":
-                    continue
-                content_val = m.content if isinstance(m.content, str) else None
-                if not isinstance(content_val, str):
-                    continue
-                pr = self.command_parser.parse(content_val)
-                if pr:
-                    _, match = pr
-                    m.content = content_val.replace(match, "").strip()
-                else:
-                    m.content = content_val.strip()
 
         # If, after command execution, there is no meaningful user content left,
         # return a command-only result to avoid unnecessary backend calls.
