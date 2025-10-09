@@ -45,6 +45,11 @@ class ModelCommandHandler(ICommandHandler):
     async def handle(self, command: Command, session: Session) -> CommandResult:
         args: Mapping[str, Any] = command.args
         result = await self._model_command.execute(args, session)
+
+        if result.new_state is not None:
+            session.state = result.new_state
+            result.new_state = session.state
+
         if not result.success:
             return result
 
@@ -53,7 +58,7 @@ class ModelCommandHandler(ICommandHandler):
                 name=result.name or self.command_name,
                 success=result.success,
                 message=result.message,
-                data=getattr(result, "data", None),
-                new_state=getattr(result, "new_state", None),
+                data=result.data,
+                new_state=result.new_state,
             )
         return result
