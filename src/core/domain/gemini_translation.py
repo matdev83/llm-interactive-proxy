@@ -164,12 +164,18 @@ def canonical_response_to_gemini_response(
                 message = choice.get("message", {})
                 content = message.get("content", "")
 
+                finish_reason = choice.get("finish_reason")
+                if isinstance(finish_reason, str) and finish_reason:
+                    finish_reason_value = finish_reason.upper()
+                else:
+                    finish_reason_value = "STOP"
+
                 candidate = {
                     "content": {
                         "parts": [{"text": content}],
                         "role": "model",  # Always use 'model' role for Gemini responses
                     },
-                    "finishReason": choice.get("finish_reason", "STOP").upper(),
+                    "finishReason": finish_reason_value,
                     "index": idx,
                 }
 

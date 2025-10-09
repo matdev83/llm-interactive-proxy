@@ -236,6 +236,29 @@ class TestCanonicalResponseToGemini:
         # Check finish reason
         assert gemini_response["candidates"][0]["finishReason"] == "TOOL_CALLS"
 
+    def test_response_with_missing_finish_reason(self) -> None:
+        """Test conversion when finish_reason is missing or None."""
+        response = {
+            "id": "chatcmpl-456",
+            "object": "chat.completion",
+            "created": 1677652299,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Partial response without finish reason.",
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+        gemini_response = canonical_response_to_gemini_response(response)
+
+        assert gemini_response["candidates"][0]["finishReason"] == "STOP"
+
 
 class TestTranslationIntegration:
     """Integration tests for the Translation class."""
