@@ -46,3 +46,16 @@ def test_model_command_handler_unsets_model() -> None:
     assert result.message == "Model unset"
     assert result.new_state is not None
     assert result.new_state.backend_config.model is None
+
+
+def test_model_command_handler_preserves_message_with_service() -> None:
+    handler = ModelCommandHandler(command_service=object())
+    session = Session(session_id="test-session")
+    command = Command(name="model", args={"name": "gpt-4-turbo"})
+
+    result = asyncio.run(handler.handle(command, session))
+
+    assert result.success is True
+    assert result.message == "Model changed to gpt-4-turbo"
+    assert result.new_state is not None
+    assert result.new_state.backend_config.model == "gpt-4-turbo"

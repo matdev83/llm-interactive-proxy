@@ -50,9 +50,9 @@ class ModelCommandHandler(ICommandHandler):
 
         if self._command_service is not None:
             return CommandResult(
-                name=result.name,
-                success=True,
-                message="Model command executed",
+                name=result.name or self.command_name,
+                success=result.success,
+                message=result.message,
                 data=getattr(result, "data", None),
                 new_state=getattr(result, "new_state", None),
             )
