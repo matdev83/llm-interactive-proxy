@@ -13,6 +13,7 @@ import logging
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 
 from .base import InitializationStage
@@ -131,7 +132,12 @@ class CommandStage(InitializationStage):
 
                 session_service = provider.get_required_service(SessionService)
                 command_parser = provider.get_required_service(CommandParser)
-                return NewCommandService(session_service, command_parser)
+                app_state = provider.get_service(IApplicationState)
+                return NewCommandService(
+                    session_service,
+                    command_parser,
+                    app_state=app_state,
+                )
 
             services.add_singleton(
                 NewCommandService, implementation_factory=command_service_factory
