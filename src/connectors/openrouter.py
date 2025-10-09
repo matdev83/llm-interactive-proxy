@@ -101,7 +101,11 @@ class OpenRouterBackend(OpenAIConnector):
         project: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        self.identity = identity
+        original_identity = self.identity
+        if identity is not None:
+            self.identity = identity
+        else:
+            self.identity = original_identity
 
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
         # (the frontend controller converts from frontend-specific format to domain format)
@@ -154,12 +158,21 @@ class OpenRouterBackend(OpenAIConnector):
                 except Exception:
                     headers_override = None
 
-            # Ensure Authorization header exists when we have an api_key
             if headers_override is None:
-                headers_override = {"Authorization": f"Bearer {self.api_key}"}
-            else:
-                if "Authorization" not in headers_override and self.api_key:
-                    headers_override["Authorization"] = f"Bearer {self.api_key}"
+                headers_override = {}
+
+            if self.api_key and "Authorization" not in headers_override:
+                headers_override["Authorization"] = f"Bearer {self.api_key}" 
+
+            identity_headers: dict[str, str] = {}
+            if self.identity is not None:
+                try:
+                    identity_headers = self.identity.get_resolved_headers(None)
+                except Exception:
+                    identity_headers = {}
+
+            if identity_headers:
+                headers_override.update(identity_headers)
 
             # Determine the exact URL to call so tests that mock it see the
             # same value. The parent expects `openai_url` kwarg for URL
@@ -224,6 +237,7 @@ class OpenRouterBackend(OpenAIConnector):
             self.key_name = original_key_name
             self.api_key = original_api_key
             self.api_base_url = original_api_base_url
+            self.identity = original_identity
 
 
 backend_registry.register_backend("openrouter", OpenRouterBackend)
