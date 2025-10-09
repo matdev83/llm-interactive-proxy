@@ -520,7 +520,7 @@ class ResponsesController:
         schema_type_raw = schema["type"]
         if isinstance(schema_type_raw, str):
             schema_types = [schema_type_raw]
-        elif isinstance(schema_type_raw, list | tuple | set):
+        elif isinstance(schema_type_raw, (list, tuple, set)):
             schema_types = [
                 str(t) for t in schema_type_raw if isinstance(t, str | bytes)
             ]

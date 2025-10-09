@@ -39,3 +39,17 @@ class TestResponsesControllerSchemaValidation:
 
         with pytest.raises(ValueError):
             ResponsesController._validate_json_schema(schema)
+
+    def test_validate_json_schema_supports_union_type_list(self) -> None:
+        """Schema validation should accept union type declarations provided as lists."""
+
+        schema = {
+            "type": ["object", "null"],
+            "properties": {
+                "id": {"type": "string"},
+            },
+            "required": ["id"],
+        }
+
+        # Should not raise an exception when handling list-based union types
+        ResponsesController._validate_json_schema(schema)
