@@ -164,18 +164,20 @@ async def initialized_app(app: FastAPI):
 
 
 def test_versioned_endpoint_exists(client: TestClient):
-    """Test that the versioned endpoint exists."""
-    # Should not return 404
+    """The chat completions endpoint should authenticate and return a response."""
     response = client.post(
         "/v1/chat/completions",
         json={
             "model": "test-model",
             "messages": [{"role": "user", "content": "Test message"}],
         },
+        headers={"Authorization": "Bearer test-proxy-key"},
     )
 
-    # We expect an error due to missing services, but not a 404
-    assert response.status_code != 404
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model"] == "test-model"
+    assert body["choices"][0]["message"]["role"] == "assistant"
 
 
 @pytest.mark.asyncio
