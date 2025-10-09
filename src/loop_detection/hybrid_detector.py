@@ -322,6 +322,12 @@ class HybridLoopDetector(ILoopDetector):
             else:
                 pattern_length = len(event.pattern)
 
+            short_chunk_size = self.short_detector.content_chunk_size
+            if pattern_length <= short_chunk_size:
+                detection_method = "short_pattern"
+            else:
+                detection_method = "long_pattern"
+
             return LoopDetectionResult(
                 has_loop=True,
                 pattern=event.pattern,
@@ -329,9 +335,7 @@ class HybridLoopDetector(ILoopDetector):
                 details={
                     "pattern_length": pattern_length,
                     "total_repeated_chars": event.total_length,
-                    "detection_method": (
-                        "short_pattern" if event.total_length < 500 else "long_pattern"
-                    ),
+                    "detection_method": detection_method,
                 },
             )
         finally:
