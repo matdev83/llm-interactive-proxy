@@ -35,21 +35,65 @@ class OpenRouterBackend(OpenAIConnector):
     ) -> None:  # Modified
         super().__init__(client, config, translation_service=translation_service)
         self.api_base_url = "https://openrouter.ai/api/v1"
-        self.headers_provider: Callable[[str, str], dict[str, str]] | None = None
+        self.headers_provider: Callable[[Any, str], dict[str, str]] | None = None
         self.key_name: str | None = None
         self.api_keys: list[str] = []
 
+    def _build_headers_provider_context(self) -> dict[str, str]:
+        """Build the context dictionary expected by the default provider."""
+
+        referer = "http://localhost:8000"
+        title = "InterceptorProxy"
+
+        identity = getattr(self.config, "identity", None)
+        if identity is not None:
+            referer = getattr(identity, "url_value", referer) or referer
+            title = getattr(identity, "title_value", title) or title
+
+        return {"app_site_url": referer, "app_x_title": title}
+
     def get_headers(self) -> dict[str, str]:
-        if not self.headers_provider or not self.key_name or not self.api_key:
+        if not self.headers_provider or not self.api_key:
             raise AuthenticationError(
-                message="OpenRouter headers provider, key name, or API key not set.",
+                message="OpenRouter headers provider or API key not set.",
                 code="missing_credentials",
             )
-        headers = self.headers_provider(self.key_name, self.api_key)
+
+        provider_errors: list[str] = []
+        headers: dict[str, str] | None = None
+
+        if self.key_name is not None:
+            try:
+                headers = self.headers_provider(self.key_name, self.api_key)
+            except Exception as exc:  # pragma: no cover - captured below
+                provider_errors.append(f"key_name invocation failed: {exc}")
+
+        if headers is None:
+            context = self._build_headers_provider_context()
+            try:
+                headers = self.headers_provider(context, self.api_key)
+            except Exception as exc:
+                provider_errors.append(f"config invocation failed: {exc}")
+                raise AuthenticationError(
+                    message="Failed to construct OpenRouter headers.",
+                    code="header_provider_error",
+                    details={"provider_errors": provider_errors} if provider_errors else None,
+                ) from exc
+
+        if headers is None:
+            raise AuthenticationError(
+                message="OpenRouter headers provider returned no headers.",
+                code="header_provider_error",
+                details={"provider_errors": provider_errors} if provider_errors else None,
+            )
+
         if self.identity:
             headers.update(self.identity.get_resolved_headers(None))
         logger.info(
-            f"OpenRouter headers: Authorization: Bearer {self.api_key[:20]}..., HTTP-Referer: {headers.get('HTTP-Referer', 'NOT_SET')}, X-Title: {headers.get('X-Title', 'NOT_SET')}"
+            "OpenRouter headers: Authorization: Bearer %s..., HTTP-Referer: %s, X-Title: %s",
+            (self.api_key or "")[:20],
+            headers.get("HTTP-Referer", "NOT_SET"),
+            headers.get("X-Title", "NOT_SET"),
         )
         return headers
 

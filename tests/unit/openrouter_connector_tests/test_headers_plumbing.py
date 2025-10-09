@@ -3,6 +3,7 @@ import pytest
 import pytest_asyncio
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+from src.core.config.config_loader import get_openrouter_headers
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 
@@ -56,3 +57,41 @@ async def test_headers_plumbing(
     req = httpx_mock.get_request()
     assert req is not None
     assert req.headers.get("Authorization") == "Bearer TEST-HEADER"
+
+
+@pytest.mark.asyncio
+@pytest.mark.httpx_mock()
+async def test_headers_provider_accepts_config_dict(httpx_mock: HTTPXMock) -> None:
+    async with httpx.AsyncClient() as client:
+        from src.core.config.app_config import AppConfig
+
+        config = AppConfig()
+        config.identity.title.default_value = "Custom Title"
+        config.identity.url.default_value = "https://example.test/app"
+
+        backend = OpenRouterBackend(client=client, config=config)
+        await backend.initialize(
+            api_key="CONFIG-KEY",
+            key_name="openrouter",
+            openrouter_headers_provider=get_openrouter_headers,
+        )
+
+        request_data = ChatRequest(
+            model="openai/gpt-4",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+        )
+
+        httpx_mock.add_response(json={"id": "ok"}, status_code=200)
+
+        await backend.chat_completions(
+            request_data=request_data,
+            processed_messages=request_data.messages,
+            effective_model=request_data.model,
+        )
+
+        req = httpx_mock.get_request()
+        assert req is not None
+        assert req.headers.get("Authorization") == "Bearer CONFIG-KEY"
+        assert req.headers.get("HTTP-Referer") == "https://example.test/app"
+        assert req.headers.get("X-Title") == "Custom Title"
