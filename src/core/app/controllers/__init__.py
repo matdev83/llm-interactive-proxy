@@ -10,6 +10,7 @@ import contextlib
 import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator
+from types import SimpleNamespace
 from typing import Any, cast
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
@@ -659,13 +660,41 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                         stream_iterator = result.body_iterator
 
                     if stream_iterator is not None:
+                        done_sent = False
                         # Process streaming response
                         async for chunk in stream_iterator:
                             try:
                                 processed_chunk = getattr(chunk, "content", chunk)
+
+                                if isinstance(processed_chunk, (bytes, bytearray)):
+                                    processed_chunk = processed_chunk.decode(
+                                        "utf-8", errors="ignore"
+                                    )
+
+                                if isinstance(processed_chunk, str):
+                                    normalized = processed_chunk.strip()
+
+                                    if normalized in {"data: [DONE]", "[DONE]"}:
+                                        done_sent = True
+                                        done_payload = "data: [DONE]"
+                                        yield f"{done_payload}\n\n".encode()
+                                        continue
+
+                                    sse_prefixes = ("data:", "event:", "id:", "retry:", ":")
+                                    if normalized.startswith(sse_prefixes):
+                                        payload_text = processed_chunk
+                                        if not payload_text.endswith("\n\n"):
+                                            payload_text = payload_text.rstrip("\r\n") + "\n\n"
+                                        yield payload_text.encode()
+                                        continue
+
+                                    domain_chunk = SimpleNamespace(content=processed_chunk)
+                                else:
+                                    domain_chunk = processed_chunk
+
                                 gemini_format = (
                                     translation_service.from_domain_to_gemini_stream_chunk(  # type: ignore[arg-type]
-                                        processed_chunk
+                                        domain_chunk
                                     )
                                 )
                                 yield f"data: {json.dumps(gemini_format)}\n\n".encode()
@@ -681,8 +710,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                 }
                                 yield f"data: {json.dumps(error_format)}\n\n".encode()
 
-                        # Send the final [DONE] marker
-                        yield b"data: [DONE]\n\n"
+                        # Send the final [DONE] marker if the backend did not already emit one
+                        if not done_sent:
+                            yield b"data: [DONE]\n\n"
                     else:
                         # Fallback for non-streaming responses
                         fallback_chunks = [

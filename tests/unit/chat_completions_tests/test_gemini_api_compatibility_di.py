@@ -297,6 +297,46 @@ class TestGeminiStreamGenerateContent:
         awaited_args = backend_service.call_completion.await_args
         assert awaited_args.kwargs.get("stream") is True
 
+    def test_stream_generate_content_preserves_sse_chunks(self, gemini_client):
+        """Ensure raw Gemini SSE chunks are forwarded without translation stripping content."""
+        backend_service = get_required_service_from_app(
+            gemini_client.app, IBackendService
+        )
+
+        first_chunk_payload = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [{"text": "Hello"}],
+                        "role": "model",
+                    }
+                }
+            ]
+        }
+
+        async def streaming_iterator():
+            yield ProcessedResponse(
+                content=f"data: {json.dumps(first_chunk_payload)}\n\n"
+            )
+            yield ProcessedResponse(content="data: [DONE]\n\n")
+
+        backend_service.call_completion = AsyncMock(
+            return_value=StreamingResponseEnvelope(content=streaming_iterator())
+        )
+
+        with gemini_client.stream(
+            "POST",
+            "/v1beta/models/gemini-pro:streamGenerateContent",
+            json={"contents": [{"parts": [{"text": "Ping"}], "role": "user"}]},
+        ) as response:
+            assert response.status_code == 200
+
+            raw_lines = [line for line in response.iter_lines() if line]
+            assert raw_lines == [
+                f"data: {json.dumps(first_chunk_payload)}",
+                "data: [DONE]",
+            ]
+
 
 class TestGeminiAuthentication:
     """Test authentication for Gemini API."""
