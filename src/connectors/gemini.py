@@ -379,27 +379,45 @@ class GeminiBackend(LLMBackend):
                 existing = payload.get("generationConfig", {})
                 merged = dict(existing)
 
-                # Handle nested structures like thinkingConfig
-                for key, value in extra_gen_cfg.items():
-                    if (
-                        key == "thinkingConfig"
-                        and isinstance(value, dict)
-                        and "thinkingConfig" in merged
-                        and isinstance(merged["thinkingConfig"], dict)
-                    ):
-                        # Deep merge thinkingConfig
-                        merged["thinkingConfig"].update(value)
-                    elif key == "maxOutputTokens" and "maxOutputTokens" not in merged:
-                        # Add maxOutputTokens if not present
-                        merged["maxOutputTokens"] = value
-                    else:
-                        # Regular update for other keys
-                        merged[key] = value
+                extra_reasoning_effort: Any | None = None
+                extra_thinking_cfg: dict[str, Any] | None = None
 
-                # Ensure extra_body overrides win for temperature specifically
+                for key, value in extra_gen_cfg.items():
+                    if key == "thinkingConfig" and isinstance(value, dict):
+                        extra_thinking_cfg = dict(value)
+                        extra_reasoning_effort = extra_thinking_cfg.pop(
+                            "reasoning_effort", extra_reasoning_effort
+                        )
+                        continue
+                    if key == "reasoning_effort":
+                        extra_reasoning_effort = value
+                        continue
+                    if (
+                        key == "maxOutputTokens"
+                        and "maxOutputTokens" not in merged
+                    ):
+                        merged["maxOutputTokens"] = value
+                        continue
+                    merged[key] = value
+
+                if extra_thinking_cfg is not None:
+                    existing_thinking = merged.get("thinkingConfig")
+                    if isinstance(existing_thinking, dict):
+                        existing_thinking.update(extra_thinking_cfg)
+                    else:
+                        merged["thinkingConfig"] = extra_thinking_cfg
+
                 if "temperature" in extra_gen_cfg:
                     merged["temperature"] = extra_gen_cfg["temperature"]
+
+                if extra_reasoning_effort is not None:
+                    self._apply_reasoning_effort_to_generation_config(
+                        merged, extra_reasoning_effort
+                    )
+
+                merged.pop("reasoning_effort", None)
                 payload["generationConfig"] = merged
+                generation_config = payload["generationConfig"]
 
             # Finally update payload with remaining extra body fields
             if extra_body_copy:
@@ -407,6 +425,17 @@ class GeminiBackend(LLMBackend):
         # Remove generation_config (legacy key) if present; we've migrated it
         # into 'generationConfig' in _apply_generation_config.
         payload.pop("generation_config", None)
+
+        if "generationConfig" in payload:
+            generation_config = payload["generationConfig"]
+            if isinstance(generation_config, dict):
+                self._apply_reasoning_effort_to_generation_config(
+                    generation_config,
+                    generation_config.get("thinkingConfig", {}).get(
+                        "reasoning_effort"
+                    ),
+                )
+                generation_config.pop("reasoning_effort", None)
         # Debug output
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Final payload: %s", payload)
@@ -449,6 +478,38 @@ class GeminiBackend(LLMBackend):
             )
         return base.rstrip("/"), ensure_loop_guard_header({"x-goog-api-key": key})
 
+    @staticmethod
+    def _map_reasoning_effort_to_budget(reasoning_effort: Any) -> int:
+        """Map OpenAI-style reasoning_effort strings to Gemini thinking budgets."""
+
+        if not isinstance(reasoning_effort, str):
+            return -1
+
+        effort_map = {
+            "low": 512,
+            "medium": 2048,
+            "high": -1,
+        }
+        return effort_map.get(reasoning_effort.lower(), -1)
+
+    def _apply_reasoning_effort_to_generation_config(
+        self, generation_config: dict[str, Any], reasoning_effort: Any
+    ) -> None:
+        """Ensure reasoning_effort values become valid Gemini thinkingConfig."""
+
+        if not reasoning_effort:
+            return
+
+        thinking_config = generation_config.setdefault("thinkingConfig", {})
+        thinking_config.pop("reasoning_effort", None)
+
+        if "thinkingBudget" not in thinking_config:
+            thinking_config["thinkingBudget"] = self._map_reasoning_effort_to_budget(
+                reasoning_effort
+            )
+
+        thinking_config.setdefault("includeThoughts", True)
+
     def _apply_generation_config(
         self, payload: dict[str, Any], request_data: ChatRequest
     ) -> None:
@@ -464,10 +525,11 @@ class GeminiBackend(LLMBackend):
         if getattr(request_data, "top_k", None) is not None:
             generation_config["topK"] = request_data.top_k
 
-        # reasoning_effort
+        # reasoning_effort -> thinkingBudget translation
         if getattr(request_data, "reasoning_effort", None) is not None:
-            thinking_config = generation_config.setdefault("thinkingConfig", {})
-            thinking_config["reasoning_effort"] = request_data.reasoning_effort
+            self._apply_reasoning_effort_to_generation_config(
+                generation_config, request_data.reasoning_effort
+            )
 
         # generation config blob - merge with existing config
         if getattr(request_data, "generation_config", None):
