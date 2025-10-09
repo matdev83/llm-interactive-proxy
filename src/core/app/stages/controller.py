@@ -167,10 +167,24 @@ class ControllerStage(InitializationStage):
             """Factory function for creating ResponsesController."""
             from typing import cast
 
+            from src.core.interfaces.translation_service_interface import (
+                ITranslationService,
+            )
+            from src.core.services.translation_service import TranslationService
+
             request_processor: IRequestProcessor = provider.get_required_service(
                 cast(type, IRequestProcessor)
             )
-            return ResponsesController(request_processor)
+            translation_service = provider.get_service(
+                cast(type, ITranslationService)
+            )
+            if translation_service is None:
+                translation_service = provider.get_service(TranslationService)
+
+            return ResponsesController(
+                request_processor,
+                translation_service=translation_service,
+            )
 
         # Register as singleton
         services.add_singleton(
