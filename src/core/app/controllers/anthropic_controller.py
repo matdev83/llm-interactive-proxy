@@ -97,14 +97,27 @@ class AnthropicController:
             # Convert the dict to a ChatRequest object
             from src.core.domain.chat import ChatMessage, ChatRequest
 
-            messages = []
-            if "messages" in openai_request_data:
-                messages = [
-                    ChatMessage(
-                        role=msg.get("role", "user"), content=msg.get("content", "")
-                    )
-                    for msg in openai_request_data.get("messages", [])
-                ]
+            messages: list[ChatMessage] = []
+            for msg in openai_request_data.get("messages", []):
+                content_value = msg.get("content", "")
+                message_kwargs: dict[str, Any] = {
+                    "role": msg.get("role", "user"),
+                    "content": content_value,
+                }
+
+                name_value = msg.get("name")
+                if name_value is not None:
+                    message_kwargs["name"] = name_value
+
+                tool_calls_value = msg.get("tool_calls")
+                if tool_calls_value:
+                    message_kwargs["tool_calls"] = tool_calls_value
+
+                tool_call_id_value = msg.get("tool_call_id")
+                if tool_call_id_value:
+                    message_kwargs["tool_call_id"] = tool_call_id_value
+
+                messages.append(ChatMessage(**message_kwargs))
 
             chat_request = ChatRequest(
                 messages=messages,
