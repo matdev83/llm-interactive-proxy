@@ -815,6 +815,45 @@ class Translation(BaseTranslator):
             )
 
         if not choices:
+            # Fallback to output_text aggregation used by the Responses API when
+            # the structured output array is empty. This happens when the
+            # backend only returns plain text without additional metadata.
+            output_text = response.get("output_text")
+            text_segments: list[str] = []
+            if isinstance(output_text, list):
+                text_segments = [str(segment) for segment in output_text if segment]
+            elif isinstance(output_text, str):
+                if output_text:
+                    text_segments = [output_text]
+
+            if text_segments:
+                aggregated_text = "".join(text_segments)
+                status = response.get("status")
+                finish_reason: str | None
+                if status == "completed":
+                    finish_reason = "stop"
+                elif status == "incomplete":
+                    finish_reason = "length"
+                elif status in {"in_progress", "generating"}:
+                    finish_reason = None
+                else:
+                    finish_reason = "stop" if aggregated_text else None
+
+                message = ChatCompletionChoiceMessage(
+                    role="assistant",
+                    content=aggregated_text,
+                    tool_calls=None,
+                )
+
+                choices.append(
+                    ChatCompletionChoice(
+                        index=0,
+                        message=message,
+                        finish_reason=finish_reason,
+                    )
+                )
+
+        if not choices:
             # Fallback to OpenAI conversion to avoid returning an empty response
             return Translation.openai_to_domain_response(response)
 
