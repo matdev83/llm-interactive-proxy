@@ -607,7 +607,7 @@ def apply_cli_args(
 
     # API keys and URLs
     if args.openrouter_api_key is not None:
-        cfg.backends["openrouter"].api_key = args.openrouter_api_key
+        cfg.backends["openrouter"].api_key = [args.openrouter_api_key]
         record_cli(
             "backends.openrouter.api_key",
             args.openrouter_api_key,
@@ -621,7 +621,7 @@ def apply_cli_args(
             "--openrouter-api-base-url",
         )
     if args.gemini_api_key is not None:
-        cfg.backends["gemini"].api_key = args.gemini_api_key
+        cfg.backends["gemini"].api_key = [args.gemini_api_key]
         os.environ["GEMINI_API_KEY"] = args.gemini_api_key
         record_cli(
             "backends.gemini.api_key",
@@ -636,7 +636,7 @@ def apply_cli_args(
             "--gemini-api-base-url",
         )
     if args.zai_api_key is not None:
-        cfg.backends["zai"].api_key = args.zai_api_key
+        cfg.backends["zai"].api_key = [args.zai_api_key]
         record_cli("backends.zai.api_key", args.zai_api_key, "--zai-api-key")
 
     # Feature flags (inverted boolean logic)
