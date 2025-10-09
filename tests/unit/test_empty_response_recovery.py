@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.empty_response_middleware import (
     EmptyResponseRetryError,
@@ -47,7 +48,12 @@ async def test_empty_response_recovery(
         session_id=session_id,
     )
 
-    # Simulate an empty response
+    # First, configure the backend processor to return a response with content
+    # so that the response processing logic gets executed
+    mock_backend_response = ResponseEnvelope(content="initial content")
+    mock_backend_processor.process_backend_request.return_value = mock_backend_response
+
+    # Simulate an empty response by having the response processor raise an exception
     mock_response_processor.process_response.side_effect = EmptyResponseRetryError(
         recovery_prompt="Please provide a valid response.",
         session_id=session_id,

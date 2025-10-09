@@ -464,10 +464,27 @@ class GeminiBackend(LLMBackend):
         if getattr(request_data, "top_k", None) is not None:
             generation_config["topK"] = request_data.top_k
 
-        # reasoning_effort
-        if getattr(request_data, "reasoning_effort", None) is not None:
+        # reasoning_effort -> thinkingBudget mapping (Gemini expects thinkingBudget int)
+        reasoning_effort = getattr(request_data, "reasoning_effort", None)
+        if reasoning_effort is not None:
             thinking_config = generation_config.setdefault("thinkingConfig", {})
-            thinking_config["reasoning_effort"] = request_data.reasoning_effort
+
+            # Ensure Gemini-compatible thinkingBudget is present rather than the
+            # OpenAI-specific reasoning_effort string. TranslationService already
+            # applies this mapping, but connectors may receive pre-built payloads
+            # (e.g., in tests) that bypass the converter. Guard against missing
+            # thinkingBudget values here without reintroducing unsupported fields.
+            if "thinkingBudget" not in thinking_config:
+                effort_to_budget = {
+                    "low": 512,
+                    "medium": 2048,
+                    "high": -1,
+                }
+                budget = effort_to_budget.get(str(reasoning_effort).lower(), -1)
+                thinking_config["thinkingBudget"] = budget
+
+            # Always include thoughts in the output when reasoning is requested.
+            thinking_config.setdefault("includeThoughts", True)
 
         # generation config blob - merge with existing config
         if getattr(request_data, "generation_config", None):

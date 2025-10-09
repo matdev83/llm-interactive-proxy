@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from json_repair import repair_json
@@ -76,22 +77,27 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if not self._enabled:
             return response
 
-        # Skip processing if no response content
-        if not hasattr(response, "content") or not response.content:
-            return response
-
         # Extract tool calls from metadata first, then from content as fallback
         tool_calls: list[dict[str, Any]] = []
         try:
             meta_calls = getattr(response, "metadata", {}).get("tool_calls")
             if isinstance(meta_calls, list):
-                tool_calls.extend([tc for tc in meta_calls if isinstance(tc, dict)])
+                for raw_call in meta_calls:
+                    normalized_call = self._normalize_tool_call(raw_call)
+                    if normalized_call is not None:
+                        tool_calls.append(normalized_call)
         except Exception as e:
             logger.debug(
                 f"Error extracting tool calls from metadata: {e}", exc_info=True
             )
 
         if not tool_calls:
+            if not hasattr(response, "content"):
+                return response
+
+            if not response.content:
+                return response
+
             tool_calls = self._extract_tool_calls(response.content)
         if not tool_calls:
             return response
@@ -158,11 +164,13 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             else:
                 tool_arguments = tool_arguments_raw
 
+            full_response = getattr(response, "content", None)
+
             tool_context = ToolCallContext(
                 session_id=session_id,
                 backend_name=backend_name,
                 model_name=model_name,
-                full_response=response.content,
+                full_response=full_response,
                 tool_name=function_payload.get("name", "unknown"),
                 tool_arguments=tool_arguments,
                 calling_agent=calling_agent,
@@ -301,6 +309,42 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         # If it's a raw dict/string, return the replacement content
         return replacement_content
+
+    def _normalize_tool_call(self, tool_call: Any) -> dict[str, Any] | None:
+        """Normalize a tool call entry from metadata into a dictionary."""
+
+        if isinstance(tool_call, dict):
+            return tool_call
+
+        if is_dataclass(tool_call):
+            try:
+                return asdict(tool_call)
+            except TypeError:
+                logger.debug(
+                    "Failed to convert dataclass tool call to dict", exc_info=True
+                )
+
+        for attr in ("model_dump", "dict", "to_dict"):
+            if hasattr(tool_call, attr):
+                converter = getattr(tool_call, attr)
+                if callable(converter):
+                    try:
+                        result = converter()
+                    except Exception:
+                        logger.debug(
+                            "Failed to normalize tool call using %s",
+                            attr,
+                            exc_info=True,
+                        )
+                        continue
+
+                    if isinstance(result, dict):
+                        return result
+
+        logger.debug(
+            "Skipping unsupported tool call type from metadata: %s", type(tool_call)
+        )
+        return None
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable the middleware.

@@ -116,6 +116,27 @@ def test_cli_force_set_project(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FORCE_SET_PROJECT", raising=False)
 
 
+def test_cli_normalizes_backend_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    for i in range(1, 21):
+        monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+    args = parse_cli_args(
+        [
+            "--gemini-api-key",
+            " gemini-key ",
+            "--openrouter-api-key",
+            "openrouter-key",
+            "--zai-api-key",
+            "zai-key",
+        ]
+    )
+
+    cfg = apply_cli_args(args)
+
+    assert cfg.backends.gemini.api_key == ["gemini-key"]
+    assert cfg.backends.openrouter.api_key == ["openrouter-key"]
+    assert cfg.backends.zai.api_key == ["zai-key"]
+
 def test_cli_disable_interactive_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)

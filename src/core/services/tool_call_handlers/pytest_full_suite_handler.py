@@ -140,10 +140,6 @@ def _looks_like_full_suite(command: str) -> bool:
         ):
             return False
 
-        if stripped == ".":
-            # pytest . explicitly targets current directory
-            return False
-
     return True
 
 

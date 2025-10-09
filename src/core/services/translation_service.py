@@ -231,21 +231,32 @@ class TranslationService:
         """Translates a CanonicalChatRequest to an Anthropic request."""
         return Translation.from_domain_to_anthropic_request(request)
 
-    def to_domain_stream_chunk(self, chunk: Any, source_format: str) -> Any:
+    def to_domain_stream_chunk(
+        self, chunk: Any, source_format: str, target_format: str = "domain"
+    ) -> Any:
         """
         Translates a streaming chunk from a specific API format to the internal domain stream chunk.
+        Implements lazy translation - only translates when format mismatch occurs.
 
         Args:
             chunk: The stream chunk object in the source format.
             source_format: The source API format (e.g., "anthropic", "gemini").
+            target_format: The target format (default: "domain").
 
         Returns:
-            The stream chunk in the internal domain format.
+            The stream chunk in the target format (only translated if needed).
         """
+        # Lazy translation: skip if source and target formats match
+        if source_format == target_format:
+            return chunk
+
+        # Only translate when there's a format mismatch
         if source_format == "gemini":
             return Translation.gemini_to_domain_stream_chunk(chunk)
-        elif source_format in {"openai", "openai-responses"}:
+        elif source_format == "openai":
             return Translation.openai_to_domain_stream_chunk(chunk)
+        elif source_format == "openai-responses":
+            return Translation.responses_to_domain_stream_chunk(chunk)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_stream_chunk(chunk)
         elif source_format == "code_assist":
@@ -257,17 +268,26 @@ class TranslationService:
             f"Stream chunk converter for format '{source_format}' not implemented."
         )
 
-    def from_domain_stream_chunk(self, chunk: Any, target_format: str) -> Any:
+    def from_domain_stream_chunk(
+        self, chunk: Any, target_format: str, source_format: str = "domain"
+    ) -> Any:
         """
         Translates an internal domain stream chunk to a specific API format.
+        Implements lazy translation - only translates when format mismatch occurs.
 
         Args:
             chunk: The internal domain stream chunk object.
             target_format: The target API format (e.g., "anthropic", "gemini").
+            source_format: The source format (default: "domain").
 
         Returns:
-            The stream chunk in the target format.
+            The stream chunk in the target format (only translated if needed).
         """
+        # Lazy translation: skip if source and target formats match
+        if source_format == target_format:
+            return chunk
+
+        # Only translate when there's a format mismatch
         if target_format == "openai":
             return self.from_domain_to_openai_stream_chunk(chunk)
         elif target_format == "anthropic":

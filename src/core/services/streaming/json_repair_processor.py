@@ -87,12 +87,20 @@ class JsonRepairProcessor(IStreamProcessor):
             return StreamingContent(
                 content=new_text,
                 is_done=content.is_done,
+                is_cancellation=content.is_cancellation,
                 metadata=content.metadata,
                 usage=content.usage,
                 raw_data=content.raw_data,
             )
 
-        return StreamingContent(content="")
+        return StreamingContent(
+            content="",
+            is_done=content.is_done,
+            is_cancellation=content.is_cancellation,
+            metadata=content.metadata,
+            usage=content.usage,
+            raw_data=content.raw_data,
+        )
 
     def _handle_non_json_text(self, text: str, i: int, n: int) -> tuple[int, list[str]]:
         out_parts: list[str] = []
@@ -190,6 +198,7 @@ class JsonRepairProcessor(IStreamProcessor):
             buf = self._buffer
             if not self._in_string and buf.rstrip().endswith(":"):
                 buf = buf + " null"
+                self._buffer = buf
             repaired_final = self._service.repair_and_validate_json(
                 buf, schema=self._schema, strict=self._strict_mode
             )
