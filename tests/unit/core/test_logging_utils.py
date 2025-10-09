@@ -53,7 +53,8 @@ class TestRedaction:
 
         result = redact_dict(data)
 
-        assert result["api_key"] != "sk_12345678"  # Redacted
+        assert result["api_key"] != data["api_key"]  # Redacted
+        assert "***" in result["api_key"]
         assert result["name"] == "test"  # Not redacted
         assert result["config"]["password"] != "secret123"  # Redacted
         assert result["config"]["public"] == "public_value"  # Not redacted
