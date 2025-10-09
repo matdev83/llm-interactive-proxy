@@ -48,6 +48,12 @@ class DefaultSessionResolver(ISessionResolver):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Could not read default session ID from config: {e}")
 
+    @staticmethod
+    def _generate_session_id() -> str:
+        """Generate a new random session ID for anonymous requests."""
+
+        return str(uuid.uuid4())
+
     async def resolve_session_id(self, context: RequestContext) -> str:
         """Resolve a session ID from a request context.
 
@@ -115,9 +121,3 @@ class DefaultSessionResolver(ISessionResolver):
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Unable to set session_id on context", exc_info=True)
-
-    @staticmethod
-    def _generate_session_id() -> str:
-        """Generate a new random session ID for anonymous requests."""
-
-        return str(uuid.uuid4())

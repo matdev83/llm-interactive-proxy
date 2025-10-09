@@ -41,7 +41,11 @@ class LoopDetectionCommand(StatelessCommandBase, BaseCommand):
         """Enable or disable loop detection."""
         # Defaults to enabled=True if no value is provided, e.g., !/loop-detection()
         enabled_arg = args.get("enabled", "true")
-        enabled = str(enabled_arg).lower() in ("true", "yes", "1", "on")
+        if isinstance(enabled_arg, bool):
+            enabled = enabled_arg
+        else:
+            normalized_value = str(enabled_arg).strip().lower()
+            enabled = normalized_value in ("true", "yes", "1", "on")
 
         try:
             loop_config = session.state.loop_config.with_loop_detection_enabled(enabled)

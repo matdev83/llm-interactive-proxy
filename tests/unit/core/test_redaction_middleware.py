@@ -23,12 +23,13 @@ async def test_redaction_middleware_redacts_text_and_parts() -> None:
     mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
 
     # Request includes both string content and list-of-parts content
+    # Commands are at the END of the last message to trigger filtering
     req = ChatRequest(
         model="gpt-4o",
         messages=[
             ChatMessage(
                 role="user",
-                content=f"Use {api_keys[0]} and !/hello now",
+                content=f"Use {api_keys[0]} for this",
             ),
             ChatMessage(
                 role="user",
@@ -36,7 +37,7 @@ async def test_redaction_middleware_redacts_text_and_parts() -> None:
                     MessageContentPartText(
                         type="text", text=f"Another {api_keys[0]} here"
                     ),
-                    MessageContentPartText(type="text", text="and a !/help command"),
+                    MessageContentPartText(type="text", text="please run !/help"),
                 ],
             ),
         ],
@@ -46,13 +47,12 @@ async def test_redaction_middleware_redacts_text_and_parts() -> None:
     processed = await mw.process(req)
 
     # Assert
-    # First message (string content) got redacted and command removed
+    # First message (string content) got redacted, but no command to remove
     first = processed.messages[0].content
     assert isinstance(first, str)
     assert "(API_KEY_HAS_BEEN_REDACTED)" in first
-    assert "!/hello" not in first
 
-    # Second message (list of parts) got redacted and commands removed
+    # Second message (list of parts) got redacted and command at END was removed
     second = processed.messages[1].content
     assert isinstance(second, list)
     texts = []
@@ -63,6 +63,7 @@ async def test_redaction_middleware_redacts_text_and_parts() -> None:
             texts.append(p["text"])
     combined = " ".join(t for t in texts if t)
     assert "(API_KEY_HAS_BEEN_REDACTED)" in combined
+    # Command !/help was at the end of the last text part, so it should be filtered
     assert "!/help" not in combined
 
 

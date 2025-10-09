@@ -1,4 +1,5 @@
 import argparse
+import os
 from unittest.mock import patch
 
 import pytest
@@ -304,3 +305,33 @@ def test_cli_capture_limits_arguments() -> None:
         assert config.logging.capture_max_bytes == 1024
         assert config.logging.capture_truncate_bytes == 256
         assert config.logging.capture_max_files == 3
+
+
+@pytest.mark.parametrize(
+    ("flag", "backend_name", "env_var"),
+    [
+        ("--openrouter-api-key", "openrouter", None),
+        ("--gemini-api-key", "gemini", "GEMINI_API_KEY"),
+        ("--zai-api-key", "zai", None),
+    ],
+)
+def test_cli_api_keys_are_stored_as_lists(
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+    backend_name: str,
+    env_var: str | None,
+) -> None:
+    """CLI API key flags should normalize single keys into singleton lists."""
+
+    if env_var:
+        monkeypatch.delenv(env_var, raising=False)
+
+    with patch("src.core.cli.load_config", return_value=AppConfig()):
+        args = parse_cli_args([flag, "test-key"])
+        config = apply_cli_args(args)
+
+    backend_config = config.backends[backend_name]
+    assert backend_config.api_key == ["test-key"]
+
+    if env_var:
+        assert os.environ.get(env_var) == "test-key"

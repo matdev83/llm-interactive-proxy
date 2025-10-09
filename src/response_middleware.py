@@ -1,11 +1,11 @@
-"""
-Response processing middleware for handling cross-cutting concerns like loop detection and API key redaction.
+"""Response processing middleware.
 
+This module handles cross-cutting concerns like loop detection and API key
+redaction for responses returned by any backend without coupling the logic to
+individual connectors.
 
-This module provides a pluggable middleware system that can process responses
-from any backend without coupling the loop detection logic to individual connectors.
-
-Note: For request processing (e.g., API key redaction), see request_middleware.py
+Note: For request processing (e.g., API key redaction), see
+``request_middleware.py``.
 """
 
 from __future__ import annotations

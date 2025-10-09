@@ -169,6 +169,80 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_request_rewriting_handles_multimodal_messages(self):
+        """Verify chat request rewriting works for list-style content blocks."""
+
+        os.makedirs(
+            os.path.join(self.test_config_dir, "prompts", "user", "001"), exist_ok=True
+        )
+        with open(
+            os.path.join(
+                self.test_config_dir, "prompts", "user", "001", "SEARCH.txt"
+            ),
+            "w",
+        ) as f:
+            f.write("original user text")
+        with open(
+            os.path.join(
+                self.test_config_dir, "prompts", "user", "001", "REPLACE.txt"
+            ),
+            "w",
+        ) as f:
+            f.write("rewritten user text")
+
+        rewriter = ContentRewriterService(config_path=self.test_config_dir)
+        middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+        request_payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "original user text"},
+                        {"type": "image_url", "image_url": {"url": "https://example.com"}},
+                    ],
+                }
+            ]
+        }
+
+        async def call_next(request):
+            data = await request.json()
+            content_blocks = data["messages"][0]["content"]
+            self.assertEqual(content_blocks[0]["text"], "rewritten user text")
+            return Response(content=json.dumps({"ok": True}), media_type="application/json")
+
+        async def receive():
+            return {
+                "type": "http.request",
+                "body": json.dumps(request_payload).encode("utf-8"),
+                "more_body": False,
+            }
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "headers": Headers({"content-type": "application/json"}).raw,
+                "http_version": "1.1",
+                "server": ("testserver", 80),
+                "client": ("testclient", 123),
+                "scheme": "http",
+                "root_path": "",
+                "path": "/test",
+                "raw_path": b"/test",
+                "query_string": b"",
+            },
+            receive=receive,
+        )
+
+        async def run_test():
+            response = await middleware.dispatch(request, call_next)
+            self.assertEqual(response.status_code, 200)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_outbound_prompt_rewriting(self):
         """Verify that outbound prompts are rewritten correctly."""
 
@@ -219,6 +293,66 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             )
             self.assertEqual(
                 new_body["messages"][1]["content"], "This is a user prompt."
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_outbound_prompt_rewriting_updates_content_length_header(self):
+        """Ensure rewritten requests expose the correct Content-Length."""
+
+        async def run_test():
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            payload = {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "This is an original system prompt.",
+                    },
+                ]
+            }
+
+            original_body = json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers(
+                        {
+                            "content-type": "application/json",
+                            "content-length": str(len(original_body)),
+                        }
+                    ).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = original_body
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            forwarded_request = call_next.call_args[0][0]
+
+            forwarded_body = await forwarded_request.body()
+            self.assertNotEqual(len(forwarded_body), len(original_body))
+
+            self.assertEqual(
+                forwarded_request.headers["content-length"],
+                str(len(forwarded_body)),
             )
 
         import asyncio
@@ -639,6 +773,81 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                 body["output_text"][0],
                 "This is an rewritten reply.",
             )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_inbound_responses_output_prepend_rules_apply_once(self):
+        """Ensure PREPEND rules are not applied twice to output text."""
+
+        async def run_test():
+            os.makedirs(
+                os.path.join(self.test_config_dir, "replies", "005"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(self.test_config_dir, "replies", "005", "SEARCH.txt"),
+                "w",
+            ) as f:
+                f.write("Original snippet")
+            with open(
+                os.path.join(self.test_config_dir, "replies", "005", "PREPEND.txt"),
+                "w",
+            ) as f:
+                f.write("Prefix: ")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            response_payload = {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Original snippet",
+                            }
+                        ]
+                    }
+                ],
+                "output_text": ["Original snippet"],
+            }
+
+            async def call_next(request):
+                return Response(
+                    content=json.dumps(response_payload),
+                    media_type="application/json",
+                )
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                },
+                receive=receive,
+            )
+
+            response = await middleware.dispatch(request, call_next)
+            body = json.loads(response.body)
+
+            self.assertEqual(
+                body["output"][0]["content"][0]["text"],
+                "Prefix: Original snippet",
+            )
+            self.assertEqual(body["output_text"][0], "Prefix: Original snippet")
 
         import asyncio
 

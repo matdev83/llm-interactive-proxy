@@ -227,7 +227,9 @@ def test_proxy_exception_handler_non_proxy_exception(
             }
         }
     }
-    assert any("RuntimeError: unexpected failure" in message for message in caplog.messages)
+    assert any(
+        "RuntimeError: unexpected failure" in message for message in caplog.messages
+    )
 
 
 def test_proxy_exception_handler_non_proxy_exception_with_status(
@@ -258,7 +260,9 @@ def test_proxy_exception_handler_non_proxy_exception_with_status(
             }
         }
     }
-    assert any("StatusError (409): conflict detected" in message for message in caplog.messages)
+    assert any(
+        "StatusError (409): conflict detected" in message for message in caplog.messages
+    )
 
 
 def test_general_exception_handler_chat_completions(
