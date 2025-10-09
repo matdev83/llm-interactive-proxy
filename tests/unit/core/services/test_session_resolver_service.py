@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
 import pytest
 
 from src.core.domain.request_context import RequestContext
@@ -5,49 +9,47 @@ from src.core.services.session_resolver_service import DefaultSessionResolver
 
 
 @pytest.mark.asyncio
-async def test_resolver_prefers_explicit_header_session_id() -> None:
+async def test_resolver_prefers_context_session_id() -> None:
     context = RequestContext(
-        headers={"x-session-id": "explicit-session"},
+        headers={},
         cookies={},
         state={},
-        app_state=None,
+        app_state={},
+        session_id="context-session",
     )
-
     resolver = DefaultSessionResolver()
 
     resolved = await resolver.resolve_session_id(context)
 
-    assert resolved == "explicit-session"
+    assert resolved == "context-session"
+    assert context.session_id == "context-session"
 
 
 @pytest.mark.asyncio
 async def test_resolver_generates_unique_session_id_when_missing() -> None:
-    context = RequestContext(headers={}, cookies={}, state={}, app_state=None)
     resolver = DefaultSessionResolver()
+    context_one = RequestContext(headers={}, cookies={}, state={}, app_state={})
+    context_two = RequestContext(headers={}, cookies={}, state={}, app_state={})
 
-    generated_first = await resolver.resolve_session_id(context)
-    generated_second = await resolver.resolve_session_id(context)
+    resolved_one = await resolver.resolve_session_id(context_one)
+    resolved_two = await resolver.resolve_session_id(context_two)
 
-    assert generated_first == generated_second
-    assert generated_first.startswith("default-")
-
-    new_context = RequestContext(headers={}, cookies={}, state={}, app_state=None)
-    new_generated = await resolver.resolve_session_id(new_context)
-
-    assert new_generated.startswith("default-")
-    assert new_generated != generated_first
-
-
-class _ConfigWithCustomDefault:
-    class session:  # type: ignore[too-few-public-methods]
-        default_session_id = "custom-prefix"
+    assert resolved_one
+    assert resolved_two
+    assert resolved_one != resolved_two
+    assert context_one.session_id == resolved_one
+    assert context_two.session_id == resolved_two
 
 
 @pytest.mark.asyncio
-async def test_resolver_uses_configured_prefix_for_generated_ids() -> None:
-    context = RequestContext(headers={}, cookies={}, state={}, app_state=None)
-    resolver = DefaultSessionResolver(_ConfigWithCustomDefault())
+async def test_resolver_uses_configured_default_when_available() -> None:
+    config = SimpleNamespace(
+        session=SimpleNamespace(default_session_id="configured-default")
+    )
+    resolver = DefaultSessionResolver(config)
+    context = RequestContext(headers={}, cookies={}, state={}, app_state={})
 
-    generated = await resolver.resolve_session_id(context)
+    resolved = await resolver.resolve_session_id(context)
 
-    assert generated.startswith("custom-prefix-")
+    assert resolved == "configured-default"
+    assert context.session_id == "configured-default"
