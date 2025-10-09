@@ -80,13 +80,33 @@ class BackendProcessor(IBackendProcessor):
 
             # Get failover routes from session and add them to extra_body
             failover_routes: list[dict[str, Any]] | None = None
-            if context:
-                # Always use injected application state
-                failover_routes = self._app_state.get_failover_routes()
-            elif hasattr(session.state.backend_config, "failover_routes"):  # type: ignore[unreachable]
-                _failover_routes = session.state.backend_config.failover_routes
-                if isinstance(_failover_routes, list):  # type: ignore[unreachable]
-                    failover_routes = _failover_routes  # type: ignore[unreachable]
+
+            # Prefer session-scoped failover routes so that interactive commands or
+            # per-session configuration changes do not leak across requests.
+            try:
+                backend_config = getattr(session.state, "backend_config", None)
+                if backend_config is not None and hasattr(
+                    backend_config, "failover_routes"
+                ):
+                    session_routes = backend_config.failover_routes
+                    if isinstance(session_routes, dict) and session_routes:
+                        failover_routes = [
+                            {"name": name, **data}
+                            for name, data in session_routes.items()
+                            if isinstance(data, dict)
+                        ]
+                    elif isinstance(session_routes, list) and session_routes:
+                        # Some tests provide pre-normalised lists; accept them as-is.
+                        failover_routes = list(session_routes)
+            except Exception:
+                # Session state access should never break request processing.
+                failover_routes = None
+
+            if not failover_routes and self._app_state is not None:
+                try:
+                    failover_routes = self._app_state.get_failover_routes()
+                except Exception:
+                    failover_routes = None
 
             if failover_routes:
                 extra_body_dict["failover_routes"] = failover_routes
