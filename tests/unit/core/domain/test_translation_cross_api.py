@@ -362,3 +362,82 @@ class TestOpenAIToAnthropicTranslation:
 
         # Check tool choice
         assert anthropic_request["tool_choice"] == "auto"
+
+
+class TestAnthropicToDomainTranslation:
+    """Tests for translating Anthropic payloads into canonical requests."""
+
+    def test_includes_system_and_stop_sequences(self) -> None:
+        """System prompts and stop sequences should survive canonical translation."""
+        payload = {
+            "model": "claude-3-sonnet-20240229",
+            "system": "Stay in character",
+            "max_tokens": 128,
+            "stop_sequences": ["CUT"],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Describe the latest weather update."}
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": "Sure, let me check that for you.",
+                },
+            ],
+        }
+
+        canonical = Translation.anthropic_to_domain_request(payload)
+
+        assert canonical.model == "claude-3-sonnet-20240229"
+        assert canonical.max_tokens == 128
+        assert canonical.stop == ["CUT"]
+
+        assert len(canonical.messages) == 3
+        assert canonical.messages[0].role == "system"
+        assert canonical.messages[0].content == "Stay in character"
+        assert canonical.messages[1].role == "user"
+        user_content = canonical.messages[1].content
+        assert isinstance(user_content, list)
+        assert len(user_content) == 1
+        first_part = user_content[0]
+        if hasattr(first_part, "text"):
+            assert first_part.text == "Describe the latest weather update."
+        else:
+            assert first_part["text"] == "Describe the latest weather update."
+        assert canonical.messages[2].role == "assistant"
+        assert canonical.messages[2].content == "Sure, let me check that for you."
+
+    def test_tools_and_tool_choice_preserved(self) -> None:
+        """Ensure Anthropic tool definitions are available on the canonical request."""
+
+        payload = {
+            "model": "claude-3-sonnet-20240229",
+            "messages": [{"role": "user", "content": "Call the tool"}],
+            "tools": [
+                {
+                    "type": "tool",
+                    "function": {
+                        "name": "lookup",
+                        "description": "Lookup information",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"query": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": {"type": "function", "function": {"name": "lookup"}},
+        }
+
+        canonical = Translation.anthropic_to_domain_request(payload)
+
+        assert canonical.tools is not None
+        assert len(canonical.tools) == 1
+        first_tool = canonical.tools[0]
+        assert first_tool["function"]["name"] == "lookup"  # type: ignore[index]
+        assert canonical.tool_choice == {
+            "type": "function",
+            "function": {"name": "lookup"},
+        }

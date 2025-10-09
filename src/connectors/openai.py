@@ -90,22 +90,26 @@ class OpenAIConnector(LLMBackend):
         if "api_base_url" in kwargs:
             self.api_base_url = kwargs["api_base_url"]
 
-        # Proceed to fetch models; failures are non-fatal
-
-        # Fetch available models
-        try:
-            headers = self.get_headers()
-            response = await self.client.get(
-                f"{self.api_base_url}/models", headers=headers
-            )
-            # For mock responses in tests, status_code might not be accessible
-            # or might not be 200, so we just try to access the data directly
-            data = response.json()
-            self.available_models = [model["id"] for model in data.get("data", [])]
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to fetch models: %s", e, exc_info=True)
-            # Log the error but don't fail initialization
+        # Proceed to fetch models only when we have credentials; failures are non-fatal
+        if not self.api_key:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping OpenAI model listing during init; no API key configured"
+                )
+        else:
+            try:
+                headers = self.get_headers()
+                response = await self.client.get(
+                    f"{self.api_base_url}/models", headers=headers
+                )
+                # For mock responses in tests, status_code might not be accessible
+                # or might not be 200, so we just try to access the data directly
+                data = response.json()
+                self.available_models = [model["id"] for model in data.get("data", [])]
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to fetch models: %s", e, exc_info=True)
+                # Log the error but don't fail initialization
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity.
@@ -218,8 +222,24 @@ class OpenAIConnector(LLMBackend):
         payload = await self._prepare_payload(
             domain_request, processed_messages, effective_model
         )
-        headers = kwargs.pop("headers_override", None)
-        if headers is None:
+        headers_override = kwargs.pop("headers_override", None)
+        headers: dict[str, str] | None = None
+
+        if headers_override is not None:
+            # Avoid mutating the caller-provided mapping while preserving any
+            # Authorization header we compute from the configured API key.
+            headers = dict(headers_override)
+
+            try:
+                base_headers = self.get_headers()
+            except Exception:
+                base_headers = None
+
+            if base_headers:
+                merged_headers = dict(base_headers)
+                merged_headers.update(headers)
+                headers = merged_headers
+        else:
             try:
                 # Always update the cached identity so that per-request
                 # identity headers do not leak between calls. Downstream
@@ -237,7 +257,11 @@ class OpenAIConnector(LLMBackend):
             # Return a domain-level streaming envelope (raw bytes iterator)
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, headers, domain_request.session_id or ""
+                    url,
+                    payload,
+                    headers,
+                    domain_request.session_id or "",
+                    "openai",
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -281,7 +305,7 @@ class OpenAIConnector(LLMBackend):
                     return getattr(message, key, None)
 
                 def _normalize_content(value: Any) -> Any:
-                    if isinstance(value, list | tuple):
+                    if isinstance(value, (list, tuple)):
                         normalized_parts: list[Any] = []
                         for part in value:
                             if hasattr(part, "model_dump") and callable(
@@ -420,6 +444,7 @@ class OpenAIConnector(LLMBackend):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        stream_format: str,
     ) -> AsyncIterator[ProcessedResponse]:
         """Return an AsyncIterator of ProcessedResponse objects (transport-agnostic)"""
 
@@ -431,7 +456,12 @@ class OpenAIConnector(LLMBackend):
         request = self.client.build_request(
             "POST", url, json=payload, headers=guarded_headers
         )
-        response = await self.client.send(request, stream=True)
+        try:
+            response = await self.client.send(request, stream=True)
+        except httpx.RequestError as exc:  # Normalize network failures
+            raise ServiceUnavailableError(
+                message=f"Could not connect to backend ({exc})"
+            ) from exc
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
@@ -459,7 +489,7 @@ class OpenAIConnector(LLMBackend):
             async def text_generator() -> AsyncGenerator[str, None]:
                 async for chunk in response.aiter_text():
                     yield self.translation_service.to_domain_stream_chunk(
-                        chunk, "openai"
+                        chunk, stream_format
                     )
 
             try:
@@ -576,7 +606,11 @@ class OpenAIConnector(LLMBackend):
             # Return a domain-level streaming envelope
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, guarded_headers, domain_request.session_id or ""
+                    url,
+                    payload,
+                    guarded_headers,
+                    domain_request.session_id or "",
+                    "openai-responses",
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -625,7 +659,7 @@ class OpenAIConnector(LLMBackend):
         # Convert to domain response first, then back to ensure consistency
         # We'll treat the Responses API response as a special case of OpenAI response
         domain_response = self.translation_service.to_domain_response(
-            response_data, "openai"
+            response_data, "openai-responses"
         )
 
         # Convert back to Responses API format for the final response

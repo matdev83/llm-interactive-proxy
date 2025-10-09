@@ -1,4 +1,10 @@
-from src.agents import detect_agent, wrap_proxy_message
+import json
+
+from src.agents import (
+    convert_cline_marker_to_gemini_function_call,
+    detect_agent,
+    wrap_proxy_message,
+)
 
 
 def test_detect_agent_cline() -> None:
@@ -25,3 +31,13 @@ def test_wrap_proxy_message_aider() -> None:
     out = wrap_proxy_message("aider", "line1\nline2")
     assert out.splitlines()[0] == "*** Begin Patch"
     assert out.splitlines()[-1] == "*** End Patch"
+
+
+def test_convert_cline_marker_to_gemini_function_call() -> None:
+    marker = "__CLINE_TOOL_CALL_MARKER__do the thing__END_CLINE_TOOL_CALL_MARKER__"
+    result = convert_cline_marker_to_gemini_function_call(marker)
+
+    parsed = json.loads(result)
+    assert "functionCall" in parsed
+    assert parsed["functionCall"]["name"] == "attempt_completion"
+    assert parsed["functionCall"]["args"] == {"result": "do the thing"}

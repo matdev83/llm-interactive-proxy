@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from typing import Any
@@ -61,6 +60,3 @@ class StreamNormalizer(IStreamNormalizer):
                     yield content
                 else:
                     raise ValueError(f"Unsupported output_format: {output_format}")
-
-            # Small delay to prevent overwhelming the client
-            await asyncio.sleep(0.01)

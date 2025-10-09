@@ -11,6 +11,7 @@ from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError
 from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
@@ -87,12 +88,22 @@ def create_backend_service():
     # Create concrete implementation
     class ConcreteBackendService(BackendService):
         async def chat_completions(
-            self, request: ChatRequest, **kwargs: Any
+            self,
+            request: ChatRequest,
+            *,
+            stream: bool = False,
+            allow_failover: bool = True,
+            context: RequestContext | None = None,
+            **kwargs: Any,
         ) -> ResponseEnvelope:
-            stream = kwargs.get("stream", False)
             from src.core.domain.responses import StreamingResponseEnvelope
 
-            result = await self.call_completion(request, stream=stream)
+            result = await self.call_completion(
+                request,
+                stream=stream,
+                allow_failover=allow_failover,
+                context=context,
+            )
             if isinstance(result, StreamingResponseEnvelope):
                 # In a real scenario, you'd handle the stream. For this test, we just consume it.
                 async for _ in result.content:
@@ -207,6 +218,47 @@ class TestBackendServiceTargeted:
             # Assert
             assert mock_backend.chat_completions_called
             assert response.content["model"] == "test-model"
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_forwards_control_flags(self):
+        """Ensure chat_completions forwards failover and context to call_completion."""
+
+        service = BackendService(
+            factory=Mock(spec=BackendFactory),
+            rate_limiter=Mock(),
+            config=Mock(),
+            session_service=Mock(spec=ISessionService),
+            app_state=Mock(spec=IApplicationState),
+        )
+
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="test-model",
+            extra_body={},
+        )
+        context = Mock(spec=RequestContext)
+
+        expected_response = ResponseEnvelope(content={}, headers={})
+
+        with patch.object(
+            service,
+            "call_completion",
+            AsyncMock(return_value=expected_response),
+        ) as call_completion_mock:
+            result = await service.chat_completions(
+                chat_request,
+                stream=True,
+                allow_failover=False,
+                context=context,
+            )
+
+        assert result is expected_response
+        call_completion_mock.assert_awaited_once_with(
+            chat_request,
+            stream=True,
+            allow_failover=False,
+            context=context,
+        )
 
     @pytest.mark.asyncio
     async def test_call_completion_raises_when_backend_not_functional(self):

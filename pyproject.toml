@@ -25,6 +25,7 @@ dependencies = [
     "google-auth>=2.27.0",
     "google-auth-oauthlib>=1.2.0",
     "json-repair",
+    "ijson",
     "watchdog",
     "pytz",
     "pytest-asyncio==0.23.7",
@@ -96,7 +97,7 @@ package-dir = {"" = "src"}
 [tool.pytest.ini_options]
 pythonpath = "."
 testpaths = ["tests"]
-addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --durations=0 --junit-xml=test-results.xml -W ignore -n 16 --dist=loadscope --max-worker-restart=3"
+addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --junit-xml=test-results.xml -W ignore -n 16 --dist=loadscope --max-worker-restart=3"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "INFO"

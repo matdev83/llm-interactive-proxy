@@ -93,13 +93,13 @@ async def test_process_messages_processes_command_in_last_message_and_stops() ->
     processor = CoreCommandProcessor(service)
     messages = [
         ChatMessage(role="user", content="!/hello"),
-        ChatMessage(role="user", content="!/anothercmd"),
+        ChatMessage(role="user", content="text before !/hello"),
     ]
 
     # `process_messages` iterates from last to first message to find the *last* message
     # containing a command. It then processes only that message and stops.
-    # In this case, "!/anothercmd" is in the last message, so it will be processed.
-    # "!/hello" will not be processed.
+    # In this case, "text before !/hello" has a command AT THE END, so it will be processed.
+    # "!/hello" in the first message will not be processed.
 
     result = await processor.process_messages(messages, session_id="test-session")
     processed_messages = result.modified_messages
@@ -107,5 +107,7 @@ async def test_process_messages_processes_command_in_last_message_and_stops() ->
 
     assert any_command_processed is True
     assert len(processed_messages) == 2
-    assert processed_messages[0].content.startswith("!/hello")
-    assert processed_messages[1].content in ("", " ")
+    assert processed_messages[0].content == "!/hello"
+    # The last message had its command removed. The 'hello' command preserves structure,
+    # so the trailing space remains.
+    assert processed_messages[1].content == "text before "
