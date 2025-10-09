@@ -216,7 +216,9 @@ class PytestFullSuiteHandler(IToolCallHandler):
         )
 
     def _extract_pytest_command(self, context: ToolCallContext) -> str | None:
-        tool_name = context.tool_name or ""
+        tool_name_raw = context.tool_name or ""
+        tool_name = tool_name_raw.strip()
+        normalized_tool_name = tool_name.lower()
         arguments = context.tool_arguments
 
         shell_tools = {
@@ -231,7 +233,7 @@ class PytestFullSuiteHandler(IToolCallHandler):
 
         command = _extract_command(arguments)
 
-        if tool_name in shell_tools:
+        if normalized_tool_name in shell_tools:
             return command
 
         # Some providers map pytest directly as function name
@@ -239,7 +241,7 @@ class PytestFullSuiteHandler(IToolCallHandler):
             return command or tool_name
 
         if command and _PYTEST_ROOT_PATTERN.search(command):
-            prefix = tool_name.strip()
+            prefix = tool_name
             if prefix:
                 return f"{prefix} {command}".strip()
             return command
