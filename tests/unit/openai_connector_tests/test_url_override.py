@@ -115,6 +115,59 @@ async def test_chat_completions_uses_custom_url(openai_connector, mock_client):
     assert url == "https://custom-api.example.com/v1/chat/completions"
 
 
+async def test_chat_completions_headers_override_merges_auth(
+    openai_connector, mock_client
+) -> None:
+    """Ensure headers overrides augment rather than replace auth headers."""
+
+    request_data = ChatRequest(
+        model="gpt-3.5-turbo",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+    processed_messages = [ChatMessage(role="user", content="Hello")]
+    effective_model = "gpt-3.5-turbo"
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.headers = {"content-type": "application/json"}
+    mock_response.json.return_value = {
+        "id": "test-id",
+        "object": "chat.completion",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "Hello there!"},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+
+    mock_client.post = AsyncMock(return_value=mock_response)
+
+    headers_override = {"X-Test": "value"}
+
+    await openai_connector.chat_completions(
+        request_data=request_data,
+        processed_messages=processed_messages,
+        effective_model=effective_model,
+        headers_override=headers_override,
+    )
+
+    mock_client.post.assert_called_once()
+    call_args = mock_client.post.call_args
+    sent_headers = call_args[1]["headers"]
+
+    assert sent_headers["Authorization"] == "Bearer test-api-key"
+    assert sent_headers["X-Test"] == "value"
+
+    from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
+
+    assert sent_headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
+    # Ensure we did not mutate the caller's mapping
+    assert headers_override == {"X-Test": "value"}
+
+
 async def test_initialize_with_custom_url(mock_client):
     """Test that initialize uses a custom URL when provided."""
     # Setup

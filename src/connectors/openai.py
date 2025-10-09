@@ -218,8 +218,24 @@ class OpenAIConnector(LLMBackend):
         payload = await self._prepare_payload(
             domain_request, processed_messages, effective_model
         )
-        headers = kwargs.pop("headers_override", None)
-        if headers is None:
+        headers_override = kwargs.pop("headers_override", None)
+        headers: dict[str, str] | None = None
+
+        if headers_override is not None:
+            # Avoid mutating the caller-provided mapping while preserving any
+            # Authorization header we compute from the configured API key.
+            headers = dict(headers_override)
+
+            try:
+                base_headers = self.get_headers()
+            except Exception:
+                base_headers = None
+
+            if base_headers:
+                merged_headers = dict(base_headers)
+                merged_headers.update(headers)
+                headers = merged_headers
+        else:
             try:
                 # Always update the cached identity so that per-request
                 # identity headers do not leak between calls. Downstream
