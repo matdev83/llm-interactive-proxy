@@ -1944,29 +1944,41 @@ class Translation(BaseTranslator):
         # Start with basic OpenAI request format
         payload = Translation.from_domain_to_openai_request(request)
 
-        # Extract and restructure response_format from extra_body
-        if request.extra_body and "response_format" in request.extra_body:
-            response_format = request.extra_body["response_format"]
+        if request.extra_body:
+            extra_body_copy = dict(request.extra_body)
 
-            # Ensure the response_format is properly structured for Responses API
-            if isinstance(response_format, dict):
-                payload["response_format"] = response_format
-            else:
-                # Handle case where response_format might be a Pydantic model
-                if hasattr(response_format, "model_dump"):
+            # Extract and restructure response_format from extra_body
+            response_format = extra_body_copy.pop("response_format", None)
+            if response_format is not None:
+                # Ensure the response_format is properly structured for Responses API
+                if isinstance(response_format, dict):
+                    payload["response_format"] = response_format
+                elif hasattr(response_format, "model_dump"):
                     payload["response_format"] = response_format.model_dump()
                 else:
                     payload["response_format"] = response_format
 
-            # Remove response_format from extra_body to avoid duplication
-            extra_body_copy = dict(request.extra_body)
-            del extra_body_copy["response_format"]
-
-            # Add any remaining extra_body parameters
-            if extra_body_copy:
-                payload.update(extra_body_copy)
+            # Add any remaining extra_body parameters that are safe for Responses API
+            safe_extra_body = Translation._filter_responses_extra_body(extra_body_copy)
+            if safe_extra_body:
+                payload.update(safe_extra_body)
 
         return payload
+
+    @staticmethod
+    def _filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
+        """Filter extra_body entries to include only Responses API specific parameters."""
+
+        if not extra_body:
+            return {}
+
+        allowed_keys: set[str] = {"metadata"}
+
+        return {
+            key: value
+            for key, value in extra_body.items()
+            if key in allowed_keys
+        }
 
     @staticmethod
     def enhance_structured_output_response(

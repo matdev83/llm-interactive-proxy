@@ -121,6 +121,7 @@ class TestOpenAIResponsesTranslation:
             messages=[ChatMessage(role="user", content="Hello")],
             max_tokens=100,
             temperature=0.7,
+            extra_body={"metadata": {"foo": "bar"}},
         )
 
         result = Translation.from_domain_to_responses_request(domain_request)
@@ -128,6 +129,37 @@ class TestOpenAIResponsesTranslation:
         assert isinstance(result, dict)
         assert result["model"] == "gpt-4"
         assert "response_format" not in result
+        assert result.get("metadata") == {"foo": "bar"}
+
+    def test_from_domain_to_responses_request_preserves_extra_body_fields(self):
+        """Ensure arbitrary extra_body fields are included in the Responses payload."""
+        extra_body = {
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "test_schema",
+                    "description": "A test schema",
+                    "schema": {"type": "object"},
+                    "strict": True,
+                },
+            },
+            "metadata": {"foo": "bar"},
+            "experimental_flag": True,
+            "session_id": "should-be-filtered",
+        }
+
+        domain_request = CanonicalChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="Hello")],
+            extra_body=extra_body,
+        )
+
+        result = Translation.from_domain_to_responses_request(domain_request)
+
+        assert result["response_format"]["type"] == "json_schema"
+        assert result.get("metadata") == {"foo": "bar"}
+        assert "experimental_flag" not in result
+        assert "session_id" not in result
 
     def test_from_domain_to_responses_response(self):
         """Test converting a domain response to Responses API response format."""
