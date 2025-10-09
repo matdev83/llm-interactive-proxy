@@ -7,6 +7,7 @@ This package contains controllers that handle HTTP endpoints in the application.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -34,6 +35,7 @@ from src.core.app.controllers.responses_controller import (
 )
 from src.core.app.controllers.usage_controller import router as usage_router
 from src.core.common.exceptions import ServiceResolutionError
+from src.gemini_converters import openai_to_gemini_stream_chunk
 
 # Import HTTP status constants
 from src.core.constants import (
@@ -610,8 +612,6 @@ def register_versioned_endpoints(app: FastAPI) -> None:
     ) -> Response:
         """Stream generate content using Gemini API format."""
         try:
-            import json
-
             from fastapi.responses import StreamingResponse
 
             from src.core.interfaces.backend_service_interface import IBackendService
@@ -646,72 +646,105 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     # Call the backend service
                     result = await backend_service.call_completion(domain_request)
 
-                    if hasattr(result, "content") and hasattr(
-                        result.content, "__aiter__"
-                    ):
+                    stream_source: Any | None = None
+                    if hasattr(result, "content"):
+                        if hasattr(result.content, "__aiter__"):
+                            stream_source = result.content
+                        elif hasattr(result.content, "body_iterator") and hasattr(
+                            result.content.body_iterator, "__aiter__"
+                        ):
+                            stream_source = result.content.body_iterator
+
+                    if stream_source is not None:
+                        done_emitted = False
+
                         # Process streaming response
-                        async for chunk in result.content:
+                        async for chunk in stream_source:
                             try:
-                                # Convert OpenAI streaming format to Gemini streaming format
+                                processed = False
+                                fallback_text = ""
+
                                 if isinstance(chunk, dict):
-                                    # Use the translation function to convert the chunk
-                                    from src.core.domain.translation import Translation
-
-                                    gemini_chunk = (
-                                        Translation.gemini_to_domain_stream_chunk(chunk)
-                                    )
-
-                                    # Extract content from the converted chunk
-                                    content = ""
-                                    if (
-                                        gemini_chunk.get("choices")
-                                        and "delta" in gemini_chunk["choices"][0]
-                                    ):
-                                        content = gemini_chunk["choices"][0][
-                                            "delta"
-                                        ].get("content", "")
-
-                                    # Create Gemini format chunk
-                                    gemini_format = {
-                                        "candidates": [
-                                            {
-                                                "content": {
-                                                    "parts": [{"text": content}],
-                                                    "role": "model",
-                                                },
-                                                "index": 0,
-                                            }
-                                        ]
-                                    }
-
-                                    # Format as SSE
-                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
+                                    if "choices" in chunk:
+                                        gemini_sse = openai_to_gemini_stream_chunk(
+                                            f"data: {json.dumps(chunk)}"
+                                        )
+                                        if gemini_sse:
+                                            if "[DONE]" in gemini_sse:
+                                                done_emitted = True
+                                            yield gemini_sse.encode("utf-8")
+                                            processed = True
+                                    elif "candidates" in chunk:
+                                        yield f"data: {json.dumps(chunk)}\n\n".encode(
+                                            "utf-8"
+                                        )
+                                        processed = True
+                                    else:
+                                        fallback_text = json.dumps(chunk)
                                 else:
-                                    # Handle string chunks
-                                    gemini_format = {
-                                        "candidates": [
-                                            {
-                                                "content": {
-                                                    "parts": [{"text": str(chunk)}],
-                                                    "role": "model",
-                                                },
-                                                "index": 0,
-                                            }
-                                        ]
-                                    }
-                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
+                                    if isinstance(chunk, bytes):
+                                        chunk_text = chunk.decode(
+                                            "utf-8", errors="ignore"
+                                        )
+                                    else:
+                                        chunk_text = str(chunk)
+
+                                    fallback_text = chunk_text
+
+                                    for event in chunk_text.split("\n\n"):
+                                        normalized = event.strip()
+                                        if not normalized:
+                                            continue
+                                        if not normalized.startswith("data:"):
+                                            normalized = f"data: {normalized}"
+                                        gemini_sse = openai_to_gemini_stream_chunk(
+                                            normalized
+                                        )
+                                        if gemini_sse:
+                                            if "[DONE]" in gemini_sse:
+                                                done_emitted = True
+                                            yield gemini_sse.encode("utf-8")
+                                            processed = True
+
+                                if processed:
+                                    continue
+
+                                if not fallback_text:
+                                    fallback_text = ""
+
+                                gemini_format = {
+                                    "candidates": [
+                                        {
+                                            "content": {
+                                                "parts": [
+                                                    {"text": fallback_text}
+                                                ],
+                                                "role": "model",
+                                            },
+                                            "index": 0,
+                                        }
+                                    ]
+                                }
+                                yield f"data: {json.dumps(gemini_format)}\n\n".encode(
+                                    "utf-8"
+                                )
                             except Exception as chunk_error:
-                                logger.error(f"Error processing chunk: {chunk_error}")
+                                logger.error(
+                                    f"Error processing chunk: {chunk_error}",
+                                )
                                 # Send error message as a chunk
                                 error_format = {
                                     "error": {
                                         "message": "Error processing response chunk"
                                     }
                                 }
-                                yield f"data: {json.dumps(error_format)}\n\n".encode()
+                                yield f"data: {json.dumps(error_format)}\n\n".encode(
+                                    "utf-8"
+                                )
 
-                        # Send the final [DONE] marker
-                        yield b"data: [DONE]\n\n"
+                        if not done_emitted:
+                            # Send the final [DONE] marker if upstream did not
+                            yield b"data: [DONE]\n\n"
                     else:
                         # Fallback for non-streaming responses
                         fallback_chunks = [
@@ -744,7 +777,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                         ]
 
                         for chunk in fallback_chunks:
-                            yield f"data: {json.dumps(chunk)}\n\n".encode()
+                            yield f"data: {json.dumps(chunk)}\n\n".encode("utf-8")
 
                         yield b"data: [DONE]\n\n"
                 except Exception as stream_error:
@@ -756,7 +789,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                             "message": f"Error generating stream: {stream_error!s}"
                         }
                     }
-                    yield f"data: {json.dumps(error_format)}\n\n".encode()
+                    yield f"data: {json.dumps(error_format)}\n\n".encode("utf-8")
                     yield b"data: [DONE]\n\n"
 
             return StreamingResponse(generate_stream(), media_type="text/event-stream")

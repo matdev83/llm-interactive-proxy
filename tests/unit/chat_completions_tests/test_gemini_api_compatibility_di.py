@@ -5,7 +5,8 @@ This file contains tests for the Gemini API compatibility endpoints,
 refactored to use proper dependency injection instead of direct app.state access.
 """
 
-from unittest.mock import Mock
+from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -14,6 +15,8 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 from fastapi.testclient import TestClient
+from fastapi.responses import StreamingResponse
+from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.rate_limit import RateLimitRegistry
 
@@ -305,6 +308,55 @@ class TestGeminiStreamGenerateContent:
             # Check that we get streaming responses
             chunks = list(response.iter_lines())
             assert len(chunks) > 0
+
+    def test_stream_generate_content_translates_openai_chunks(self, gemini_client):
+        """Test that OpenAI-formatted SSE chunks are translated to Gemini format."""
+
+        backend_service = get_required_service_from_app(
+            gemini_client.app, IBackendService
+        )
+
+        async def openai_stream() -> AsyncGenerator[bytes, None]:
+            for payload in [
+                b'data: {"choices":[{"index":0,"delta":{"content":"Hello"}}]}\n\n',
+                b'data: {"choices":[{"index":0,"delta":{"content":" world"}}]}\n\n',
+                b"data: [DONE]\n\n",
+            ]:
+                yield payload
+
+        streaming_response = StreamingResponse(
+            openai_stream(), media_type="text/event-stream"
+        )
+
+        backend_service.call_completion = AsyncMock(
+            return_value=ResponseEnvelope(content=streaming_response, headers={})
+        )
+
+        request_data = {
+            "contents": [
+                {
+                    "parts": [{"text": "Stream something"}],
+                    "role": "user",
+                }
+            ],
+            "generationConfig": {"temperature": 0.1},
+            "stream": True,
+        }
+
+        with gemini_client.stream(
+            "POST", "/v1beta/models/gemini-pro:streamGenerateContent", json=request_data
+        ) as response:
+            assert response.status_code == 200
+
+            data_lines = [
+                line.decode("utf-8") if isinstance(line, bytes) else line
+                for line in response.iter_lines()
+                if line
+            ]
+
+            assert any('"text": "Hello"' in line for line in data_lines)
+            assert any('"text": " world"' in line for line in data_lines)
+            assert any("[DONE]" in line for line in data_lines)
 
 
 class TestGeminiAuthentication:
