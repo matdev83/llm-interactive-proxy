@@ -633,6 +633,8 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             backend_service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
 
             async def generate_stream() -> AsyncGenerator[bytes, None]:
+                from src.gemini_converters import openai_to_gemini_stream_chunk
+
                 try:
                     # Call the backend service
                     result = await backend_service.call_completion(domain_request)
@@ -645,52 +647,36 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                             try:
                                 # Convert OpenAI streaming format to Gemini streaming format
                                 if isinstance(chunk, dict):
-                                    # Use the translation function to convert the chunk
-                                    from src.core.domain.translation import Translation
-
-                                    gemini_chunk = (
-                                        Translation.gemini_to_domain_stream_chunk(chunk)
+                                    chunk_payload = json.dumps(chunk)
+                                    gemini_sse = openai_to_gemini_stream_chunk(
+                                        f"data: {chunk_payload}"
                                     )
 
-                                    # Extract content from the converted chunk
-                                    content = ""
-                                    if (
-                                        gemini_chunk.get("choices")
-                                        and "delta" in gemini_chunk["choices"][0]
-                                    ):
-                                        content = gemini_chunk["choices"][0][
-                                            "delta"
-                                        ].get("content", "")
+                                    if not gemini_sse.endswith("\n\n"):
+                                        gemini_sse = f"{gemini_sse}\n\n"
 
-                                    # Create Gemini format chunk
-                                    gemini_format = {
-                                        "candidates": [
-                                            {
-                                                "content": {
-                                                    "parts": [{"text": content}],
-                                                    "role": "model",
-                                                },
-                                                "index": 0,
-                                            }
-                                        ]
-                                    }
-
-                                    # Format as SSE
-                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
+                                    yield gemini_sse.encode()
                                 else:
-                                    # Handle string chunks
-                                    gemini_format = {
-                                        "candidates": [
-                                            {
-                                                "content": {
-                                                    "parts": [{"text": str(chunk)}],
-                                                    "role": "model",
-                                                },
-                                                "index": 0,
-                                            }
-                                        ]
-                                    }
-                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
+                                    raw_chunk = (
+                                        chunk.decode("utf-8", errors="ignore")
+                                        if isinstance(chunk, (bytes, bytearray))
+                                        else str(chunk)
+                                    )
+
+                                    if not raw_chunk.strip():
+                                        continue
+
+                                    if not raw_chunk.startswith("data:"):
+                                        raw_chunk = f"data: {raw_chunk}"
+
+                                    gemini_sse = openai_to_gemini_stream_chunk(
+                                        raw_chunk
+                                    )
+
+                                    if not gemini_sse.endswith("\n\n"):
+                                        gemini_sse = f"{gemini_sse}\n\n"
+
+                                    yield gemini_sse.encode()
                             except Exception as chunk_error:
                                 logger.error(f"Error processing chunk: {chunk_error}")
                                 # Send error message as a chunk
