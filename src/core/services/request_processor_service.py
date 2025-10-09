@@ -346,14 +346,31 @@ class RequestProcessor(IRequestProcessor):
                     except (AttributeError, KeyError, TypeError):
                         app_config = None
 
-                # Only apply if feature flag is enabled (default True)
+                # Only apply if feature flag or session override enable it
                 should_redact = True
+                session_override: bool | None = None
                 try:
-                    if app_config is not None and hasattr(app_config, "auth"):
-                        should_redact = bool(app_config.auth.redact_api_keys_in_prompts)
-                except (AttributeError, TypeError, ValueError):
-                    # Be conservative: keep redaction enabled on errors
-                    should_redact = True
+                    session_state = getattr(session, "state", None)
+                    if session_state is not None:
+                        session_override = getattr(
+                            session_state, "api_key_redaction_enabled", None
+                        )
+                        if not isinstance(session_override, (bool, type(None))):
+                            session_override = None
+                except Exception:
+                    session_override = None
+
+                if session_override is None:
+                    try:
+                        if app_config is not None and hasattr(app_config, "auth"):
+                            should_redact = bool(
+                                app_config.auth.redact_api_keys_in_prompts
+                            )
+                    except (AttributeError, TypeError, ValueError):
+                        # Be conservative: keep redaction enabled on errors
+                        should_redact = True
+                else:
+                    should_redact = bool(session_override)
 
                 if should_redact:
                     api_keys = discover_api_keys_from_config_and_env(app_config)
