@@ -34,9 +34,7 @@ def test_wrap_proxy_message_aider() -> None:
 
 
 def test_convert_cline_marker_to_gemini_function_call() -> None:
-    marker = (
-        "__CLINE_TOOL_CALL_MARKER__do the thing__END_CLINE_TOOL_CALL_MARKER__"
-    )
+    marker = "__CLINE_TOOL_CALL_MARKER__do the thing__END_CLINE_TOOL_CALL_MARKER__"
     result = convert_cline_marker_to_gemini_function_call(marker)
 
     parsed = json.loads(result)

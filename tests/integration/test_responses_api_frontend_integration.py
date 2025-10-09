@@ -6,6 +6,7 @@ including backend compatibility, error handling, multimodal inputs, streaming,
 and integration with existing proxy infrastructure.
 """
 
+import json
 import logging
 from collections.abc import Generator
 from unittest.mock import patch
@@ -14,6 +15,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.config.app_config import AppConfig, AuthConfig, BackendSettings
+from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 logger = logging.getLogger(__name__)
 
@@ -481,7 +484,6 @@ class TestResponsesAPIFrontendIntegration:
         with patch(
             "src.core.services.request_processor_service.RequestProcessor.process_request"
         ) as mock_process:
-            from src.core.domain.responses import StreamingResponseEnvelope
 
             # Create a mock streaming response
             async def mock_stream():
@@ -507,6 +509,69 @@ class TestResponsesAPIFrontendIntegration:
             assert response.status_code == 200
             # Content type should be text/event-stream for streaming
             assert "text/event-stream" in response.headers.get("content-type", "")
+
+    def test_responses_api_streaming_propagates_tool_calls(
+        self, client: TestClient
+    ) -> None:
+        """Tool-call deltas should reach Responses frontend clients."""
+        request_data = {
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Stream tool call"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "tool_stream",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"result": {"type": "string"}},
+                        "required": ["result"],
+                    },
+                    "strict": True,
+                },
+            },
+            "stream": True,
+        }
+
+        with patch(
+            "src.core.services.request_processor_service.RequestProcessor.process_request"
+        ) as mock_process:
+
+            async def mock_stream():
+                yield ProcessedResponse(
+                    content="",
+                    metadata={
+                        "tool_calls": [
+                            {
+                                "id": "call_abc",
+                                "type": "function",
+                                "function": {
+                                    "name": "fetch_data",
+                                    "arguments": '{"query": "status"}',
+                                },
+                            }
+                        ]
+                    },
+                )
+                yield ProcessedResponse(content="", metadata={"is_done": True})
+
+            mock_response = StreamingResponseEnvelope(
+                content=mock_stream(), headers={}, media_type="text/event-stream"
+            )
+            mock_process.return_value = mock_response
+
+            response = client.post("/v1/responses", json=request_data)
+
+            assert response.status_code == 200
+            body = response.content.decode("utf-8")
+            data_lines = [
+                line for line in body.splitlines() if line.startswith("data:")
+            ]
+            assert data_lines, body
+            first_payload = json.loads(data_lines[0].split("data: ", 1)[1])
+            tool_delta = first_payload["choices"][0]["delta"].get("tool_calls")
+            assert tool_delta, first_payload
+            assert tool_delta[0]["function"]["name"] == "fetch_data"
+            assert tool_delta[0]["function"]["arguments"] == '{"query": "status"}'
 
     def test_responses_api_non_streaming_functionality(
         self, client: TestClient

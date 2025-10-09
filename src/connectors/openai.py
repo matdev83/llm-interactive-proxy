@@ -237,7 +237,11 @@ class OpenAIConnector(LLMBackend):
             # Return a domain-level streaming envelope (raw bytes iterator)
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, headers, domain_request.session_id or ""
+                    url,
+                    payload,
+                    headers,
+                    domain_request.session_id or "",
+                    "openai",
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -420,6 +424,7 @@ class OpenAIConnector(LLMBackend):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        stream_format: str,
     ) -> AsyncIterator[ProcessedResponse]:
         """Return an AsyncIterator of ProcessedResponse objects (transport-agnostic)"""
 
@@ -464,7 +469,7 @@ class OpenAIConnector(LLMBackend):
             async def text_generator() -> AsyncGenerator[str, None]:
                 async for chunk in response.aiter_text():
                     yield self.translation_service.to_domain_stream_chunk(
-                        chunk, "openai"
+                        chunk, stream_format
                     )
 
             try:
@@ -581,7 +586,11 @@ class OpenAIConnector(LLMBackend):
             # Return a domain-level streaming envelope
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, guarded_headers, domain_request.session_id or ""
+                    url,
+                    payload,
+                    guarded_headers,
+                    domain_request.session_id or "",
+                    "openai-responses",
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))

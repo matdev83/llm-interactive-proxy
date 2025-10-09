@@ -64,4 +64,3 @@ class IBackendService(ABC):
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Alias for :meth:`call_completion` used by legacy callers."""
-

@@ -1880,10 +1880,10 @@ class Translation(BaseTranslator):
             if choice.message:
                 # Try to parse the content as JSON for structured output
                 parsed_content = None
-                content = choice.message.content or ""
+                raw_content = choice.message.content or ""
 
                 # Clean up content for JSON parsing
-                cleaned_content = content.strip()
+                cleaned_content = raw_content.strip()
 
                 # Handle cases where the model might wrap JSON in markdown code blocks
                 if cleaned_content.startswith("```json") and cleaned_content.endswith(
@@ -1900,7 +1900,7 @@ class Translation(BaseTranslator):
                     try:
                         parsed_content = json.loads(cleaned_content)
                         # If parsing succeeded, use the cleaned content as the actual content
-                        content = cleaned_content
+                        raw_content = cleaned_content
                     except json.JSONDecodeError:
                         # Content is not valid JSON, leave parsed as None
                         # Try to extract JSON from the content if it contains other text
@@ -1915,18 +1915,51 @@ class Translation(BaseTranslator):
                             if json_match:
                                 potential_json = json_match.group(0)
                                 parsed_content = json.loads(potential_json)
-                                content = potential_json
+                                raw_content = potential_json
                         except (json.JSONDecodeError, AttributeError):
                             # Still not valid JSON, leave parsed as None
                             pass
 
+                message_payload: dict[str, Any] = {
+                    "role": choice.message.role,
+                    "content": raw_content or None,
+                    "parsed": parsed_content,
+                }
+
+                tool_calls_payload: list[dict[str, Any]] = []
+                if choice.message.tool_calls:
+                    for tool_call in choice.message.tool_calls:
+                        if hasattr(tool_call, "model_dump"):
+                            tool_data = tool_call.model_dump()
+                        elif isinstance(tool_call, dict):
+                            tool_data = dict(tool_call)
+                        else:
+                            function = getattr(tool_call, "function", None)
+                            tool_data = {
+                                "id": getattr(tool_call, "id", ""),
+                                "type": getattr(tool_call, "type", "function"),
+                                "function": {
+                                    "name": getattr(function, "name", ""),
+                                    "arguments": getattr(function, "arguments", "{}"),
+                                },
+                            }
+
+                        function_payload = tool_data.get("function")
+                        if isinstance(function_payload, dict):
+                            arguments = function_payload.get("arguments")
+                            if isinstance(arguments, dict | list):
+                                function_payload["arguments"] = json.dumps(arguments)
+                            elif arguments is None:
+                                function_payload["arguments"] = "{}"
+
+                        tool_calls_payload.append(tool_data)
+
+                if tool_calls_payload:
+                    message_payload["tool_calls"] = tool_calls_payload
+
                 response_choice = {
                     "index": choice.index,
-                    "message": {
-                        "role": choice.message.role,
-                        "content": content,
-                        "parsed": parsed_content,
-                    },
+                    "message": message_payload,
                     "finish_reason": choice.finish_reason or "stop",
                 }
                 choices.append(response_choice)

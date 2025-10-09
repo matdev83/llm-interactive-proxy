@@ -12,6 +12,7 @@ from src.core.common.exceptions import InitializationError, LLMProxyError
 from src.core.domain.responses_api import ResponsesRequest
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -202,26 +203,90 @@ class ResponsesController:
 
                     async for chunk in response.content:
                         try:
-                            # Handle different chunk formats
-                            if hasattr(chunk, "content") and chunk.content:
-                                chunk_content = chunk.content
+                            chunk_content = ""
+                            chunk_metadata: dict[str, Any] = {}
+
+                            if isinstance(chunk, ProcessedResponse):
+                                chunk_content = chunk.content or ""
+                                chunk_metadata = chunk.metadata or {}
+                            elif isinstance(chunk, dict):
+                                chunk_content = str(chunk.get("content", ""))
+                                chunk_metadata = chunk.get("metadata", {}) or {}
+                            elif hasattr(chunk, "content"):
+                                chunk_content = getattr(chunk, "content", "") or ""
+                                chunk_metadata = getattr(chunk, "metadata", {}) or {}
                             elif isinstance(chunk, str):
                                 chunk_content = chunk
-                            elif isinstance(chunk, dict):
-                                # Extract content from dict if available
-                                chunk_content = chunk.get("content", str(chunk))
                             else:
                                 chunk_content = str(chunk)
 
-                            # Format chunk for Responses API streaming
+                            chunk_id = chunk_metadata.get("id") or response_id
+                            chunk_model = (
+                                chunk_metadata.get("model") or domain_request.model
+                            )
+                            chunk_created = (
+                                chunk_metadata.get("created") or created_timestamp
+                            )
+
+                            delta: dict[str, Any] = {}
+                            if chunk_content:
+                                delta["content"] = chunk_content
+
+                            tool_calls = chunk_metadata.get("tool_calls") or []
+                            if tool_calls:
+                                normalized_calls: list[dict[str, Any]] = []
+                                for tool_call in tool_calls:
+                                    if hasattr(tool_call, "model_dump"):
+                                        call_data = tool_call.model_dump()
+                                    elif isinstance(tool_call, dict):
+                                        call_data = dict(tool_call)
+                                    else:
+                                        function = getattr(tool_call, "function", None)
+                                        call_data = {
+                                            "id": getattr(tool_call, "id", ""),
+                                            "type": getattr(
+                                                tool_call, "type", "function"
+                                            ),
+                                            "function": {
+                                                "name": getattr(function, "name", ""),
+                                                "arguments": getattr(
+                                                    function, "arguments", "{}"
+                                                ),
+                                            },
+                                        }
+
+                                    function_payload = call_data.get("function")
+                                    if isinstance(function_payload, dict):
+                                        arguments = function_payload.get("arguments")
+                                        if isinstance(arguments, dict | list):
+                                            function_payload["arguments"] = json.dumps(
+                                                arguments
+                                            )
+                                        elif arguments is None:
+                                            function_payload["arguments"] = "{}"
+
+                                    normalized_calls.append(call_data)
+
+                                delta["tool_calls"] = normalized_calls
+
+                            if not delta:
+                                delta["content"] = ""
+
+                            finish_reason = chunk_metadata.get("finish_reason")
+
+                            choice_payload: dict[str, Any] = {
+                                "index": 0,
+                                "delta": delta,
+                            }
+                            if finish_reason:
+                                choice_payload["finish_reason"] = finish_reason
+
                             streaming_chunk = {
-                                "id": response_id,
+                                "id": chunk_id,
                                 "object": "response.chunk",
-                                "created": created_timestamp,
-                                "model": domain_request.model,
-                                "choices": [
-                                    {"index": 0, "delta": {"content": chunk_content}}
-                                ],
+                                "created": chunk_created,
+                                "model": chunk_model,
+                                "choices": [choice_payload],
                             }
 
                             # Format as Server-Sent Events
