@@ -144,9 +144,11 @@ class ContentRewriterService:
 
     def rewrite_prompt(self, prompt: str, prompt_type: str) -> str:
         """Rewrites a prompt based on its type."""
-        if prompt_type == "system":
+        normalized_type = (prompt_type or "").lower()
+
+        if normalized_type in {"system", "developer"}:
             rules = self.prompt_system_rules
-        elif prompt_type == "user":
+        elif normalized_type == "user":
             rules = self.prompt_user_rules
         else:
             return prompt

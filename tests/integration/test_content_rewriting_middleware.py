@@ -225,6 +225,65 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_outbound_developer_prompt_rewriting(self):
+        """Developer role prompts should use system rewrite rules."""
+
+        async def run_test():
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            payload = {
+                "messages": [
+                    {
+                        "role": "developer",
+                        "content": "This is an original system prompt.",
+                    },
+                    {"role": "user", "content": "This is a user prompt."},
+                ]
+            }
+
+            async def get_body():
+                return json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = await get_body()
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            new_request = call_next.call_args[0][0]
+
+            new_body = await new_request.json()
+
+            self.assertEqual(
+                new_body["messages"][0]["content"],
+                "This is an rewritten system prompt.",
+            )
+            self.assertEqual(
+                new_body["messages"][1]["content"], "This is a user prompt."
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_outbound_responses_input_rewriting(self):
         """Verify that Responses API input payloads are rewritten."""
 
