@@ -138,3 +138,24 @@ async def test_stream_with_multiple_reparable_json_objects(
         processor, "Text1 {'a': 1,} Text2 {'b': 2,} Text3"
     )
     assert result == 'Text1 {"a": 1} Text2 {"b": 2} Text3'
+
+
+@pytest.mark.asyncio
+async def test_buffered_chunks_preserve_metadata_and_usage(
+    processor: JsonRepairProcessor,
+) -> None:
+    chunk = StreamingContent(
+        content='{"partial": ',
+        metadata={"id": "chunk-123"},
+        usage={"prompt_tokens": 4},
+        raw_data={"raw": "data"},
+    )
+
+    result = await processor.process(chunk)
+
+    assert result.content == ""
+    assert result.metadata == {"id": "chunk-123"}
+    assert result.usage == {"prompt_tokens": 4}
+    assert result.raw_data == {"raw": "data"}
+    assert not result.is_done
+    assert not result.is_cancellation

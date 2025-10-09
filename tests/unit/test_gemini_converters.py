@@ -105,6 +105,33 @@ class TestMessageConversion:
         )
         assert messages[0].content == expected_content
 
+    def test_gemini_to_openai_function_call(self) -> None:
+        """Function call parts should produce tool calls."""
+        contents = [
+            Content(
+                parts=[
+                    Part(
+                        functionCall={
+                            "name": "get_weather",
+                            "args": {"location": "Paris"},
+                        }
+                    )
+                ],
+                role="model",
+            )
+        ]
+
+        messages = gemini_to_openai_messages(contents)
+
+        assert len(messages) == 1
+        message = messages[0]
+        assert message.role == "assistant"
+        assert message.tool_calls is not None
+        assert len(message.tool_calls) == 1
+        tool_call = message.tool_calls[0]
+        assert tool_call.function.name == "get_weather"
+        assert json.loads(tool_call.function.arguments) == {"location": "Paris"}
+
     def test_openai_to_gemini_simple_message(self) -> None:
         """Test converting OpenAI message to Gemini content."""
         messages = [ChatMessage(role="user", content="Hello!")]

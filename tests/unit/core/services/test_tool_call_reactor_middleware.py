@@ -621,7 +621,9 @@ class TestToolCallReactorMiddleware:
         mock_reactor.process_tool_call.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_metadata_tool_calls_domain_model(self, middleware, mock_reactor):
+    async def test_process_metadata_tool_calls_domain_model(
+        self, middleware, mock_reactor
+    ):
         """Metadata tool_calls provided as models should be normalized."""
 
         class DummyToolCall:

@@ -126,7 +126,10 @@ class InMemorySessionRepository(ISessionRepository):
                 last_active = session.last_active_at
 
                 if isinstance(last_active, datetime):
-                    if last_active.tzinfo is None or last_active.tzinfo.utcoffset(last_active) is None:
+                    if (
+                        last_active.tzinfo is None
+                        or last_active.tzinfo.utcoffset(last_active) is None
+                    ):
                         last_active = last_active.replace(tzinfo=timezone.utc)
                     else:
                         last_active = last_active.astimezone(timezone.utc)
@@ -138,11 +141,15 @@ class InMemorySessionRepository(ISessionRepository):
                         session_id,
                         type(last_active).__name__,
                     )
-                    last_access_timestamp = self._last_accessed.get(session_id, now_timestamp)
+                    last_access_timestamp = self._last_accessed.get(
+                        session_id, now_timestamp
+                    )
                     age = now_timestamp - last_access_timestamp
             else:
                 # Fall back to internal tracking
-                last_access_timestamp = self._last_accessed.get(session_id, now_timestamp)
+                last_access_timestamp = self._last_accessed.get(
+                    session_id, now_timestamp
+                )
                 age = now_timestamp - last_access_timestamp
 
             if age > max_age_seconds:

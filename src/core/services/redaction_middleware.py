@@ -42,6 +42,27 @@ class RedactionMiddleware(IRequestMiddleware):
         self._command_filter = ProxyCommandFilter(command_prefix)
         self._strict_command_detection = strict_command_detection
 
+    @staticmethod
+    def _extract_text(part: Any) -> str | None:
+        """Extract the text payload from a message part if available."""
+
+        if isinstance(part, MessageContentPartText):
+            return part.text
+        if isinstance(part, dict):
+            text = part.get("text")
+            if isinstance(text, str):
+                return text
+        return None
+
+    @staticmethod
+    def _assign_text(part: Any, value: str) -> None:
+        """Assign text back to a message part, preserving its structure."""
+
+        if isinstance(part, MessageContentPartText):
+            part.text = value
+        elif isinstance(part, dict):
+            part["text"] = value
+
     async def process(
         self, request: ChatRequest, context: dict[str, Any] | None = None
     ) -> ChatRequest:
@@ -65,60 +86,59 @@ class RedactionMiddleware(IRequestMiddleware):
         # Create a copy of the request to modify
         processed_request = request.model_copy(deep=True)
 
-        # Process each message
-        for message in processed_request.messages:
-            if message.content:
-                # Skip command filtering for tool/function responses
-                # These contain legitimate tool output that may include proxy command examples
-                is_tool_response = message.role in ["tool", "function"]
+        num_messages = len(processed_request.messages)
+        for i, message in enumerate(processed_request.messages):
+            if not message.content:
+                continue
 
-                # Handle string content
+            is_last_message = i == num_messages - 1
+            is_tool_response = message.role in ["tool", "function"]
+
+            # Redact API keys from all messages
+            if isinstance(message.content, str):
+                message.content = self._api_key_redactor.redact(message.content)
+            elif isinstance(message.content, list):
+                text_part_indexes: list[int] = []
+                for index, part in enumerate(message.content):
+                    part_text = self._extract_text(part)
+                    if not part_text:
+                        continue
+
+                    redacted_text = self._api_key_redactor.redact(part_text)
+                    if redacted_text != part_text:
+                        self._assign_text(part, redacted_text)
+                        part_text = redacted_text
+
+                    text_part_indexes.append(index)
+
+            # Only filter commands on the last message, and only if it's not a tool response
+            if is_last_message and not is_tool_response:
+                filter_fn = (
+                    self._command_filter.filter_commands_with_strict_mode
+                    if self._strict_command_detection
+                    else self._command_filter.filter_commands
+                )
+
                 if isinstance(message.content, str):
-                    # Apply API key redaction
-                    message.content = self._api_key_redactor.redact(message.content)
-                    # Filter commands only for user/assistant/system messages
-                    if not is_tool_response:
-                        if self._strict_command_detection:
-                            message.content = (
-                                self._command_filter.filter_commands_with_strict_mode(
-                                    message.content
-                                )
-                            )
-                        else:
-                            message.content = self._command_filter.filter_commands(
-                                message.content
-                            )
-                # Handle list of content parts
+                    message.content = filter_fn(message.content)
                 elif isinstance(message.content, list):
-                    for part in message.content:
-                        if isinstance(part, dict) and "text" in part and part["text"]:
-                            # Apply API key redaction
-                            part["text"] = self._api_key_redactor.redact(part["text"])
-                            # Filter commands only for user/assistant/system messages
-                            if not is_tool_response:
-                                if self._strict_command_detection:
-                                    part["text"] = (
-                                        self._command_filter.filter_commands_with_strict_mode(
-                                            part["text"]
-                                        )
-                                    )
-                                else:
-                                    part["text"] = self._command_filter.filter_commands(
-                                        part["text"]
-                                    )
-                        elif isinstance(part, MessageContentPartText) and part.text:
-                            # Apply API key redaction
-                            part.text = self._api_key_redactor.redact(part.text)
-                            # Filter commands only for user/assistant/system messages
-                            if not is_tool_response:
-                                if self._strict_command_detection:
-                                    part.text = self._command_filter.filter_commands_with_strict_mode(
-                                        part.text
-                                    )
-                                else:
-                                    part.text = self._command_filter.filter_commands(
-                                        part.text
-                                    )
+                    # Only inspect parts that actually contained text after redaction
+                    text_part_indexes = [
+                        idx
+                        for idx, part in enumerate(message.content)
+                        if self._extract_text(part)
+                    ]
+
+                    for index in reversed(text_part_indexes):
+                        part = message.content[index]
+                        part_text = self._extract_text(part)
+                        if not part_text or not part_text.strip():
+                            continue
+
+                        filtered_text = filter_fn(part_text)
+                        if filtered_text != part_text:
+                            self._assign_text(part, filtered_text)
+                        break
 
         return processed_request
 

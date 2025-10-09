@@ -332,7 +332,9 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                         result = converter()
                     except Exception:
                         logger.debug(
-                            "Failed to normalize tool call using %s", attr, exc_info=True
+                            "Failed to normalize tool call using %s",
+                            attr,
+                            exc_info=True,
                         )
                         continue
 
