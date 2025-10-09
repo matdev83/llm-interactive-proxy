@@ -22,7 +22,10 @@ class CommandSettingsService(ICommandSettingsService):
     """
 
     def __init__(
-        self, default_command_prefix: str = "!/", default_api_key_redaction: bool = True
+        self,
+        default_command_prefix: str = "!/",
+        default_api_key_redaction: bool = True,
+        default_disable_interactive_commands: bool = False,
     ) -> None:
         """Initialize the command settings service.
 
@@ -32,8 +35,12 @@ class CommandSettingsService(ICommandSettingsService):
         """
         self._command_prefix = default_command_prefix
         self._api_key_redaction_enabled = default_api_key_redaction
+        self._disable_interactive_commands = default_disable_interactive_commands
         self._default_command_prefix = default_command_prefix
         self._default_api_key_redaction = default_api_key_redaction
+        self._default_disable_interactive_commands = (
+            default_disable_interactive_commands
+        )
 
     @property
     def command_prefix(self) -> str:
@@ -69,10 +76,37 @@ class CommandSettingsService(ICommandSettingsService):
         self._api_key_redaction_enabled = value
         logger.debug(f"API key redaction {'enabled' if value else 'disabled'}")
 
+    @property
+    def disable_interactive_commands(self) -> bool:
+        """Get whether interactive commands are disabled."""
+        return self._disable_interactive_commands
+
+    @disable_interactive_commands.setter
+    def disable_interactive_commands(self, value: bool) -> None:
+        """Set whether interactive commands are disabled."""
+        self.set_disable_interactive_commands(value)
+
+    def get_command_prefix(self) -> str:
+        """Compatibility getter for legacy command settings access."""
+        return self._command_prefix
+
+    def get_api_key_redaction_enabled(self) -> bool:
+        """Compatibility getter for legacy command settings access."""
+        return self._api_key_redaction_enabled
+
+    def get_disable_interactive_commands(self) -> bool:
+        """Compatibility getter for legacy command settings access."""
+        return self._disable_interactive_commands
+
+    def set_disable_interactive_commands(self, disabled: bool) -> None:
+        """Update disable-interactive-commands flag for compatibility users."""
+        self._disable_interactive_commands = bool(disabled)
+
     def reset_to_defaults(self) -> None:
         """Reset all settings to their default values."""
         self._command_prefix = self._default_command_prefix
         self._api_key_redaction_enabled = self._default_api_key_redaction
+        self._disable_interactive_commands = self._default_disable_interactive_commands
         logger.debug("Command settings reset to defaults")
 
 
