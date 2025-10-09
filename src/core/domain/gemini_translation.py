@@ -4,6 +4,7 @@ Gemini translation utilities.
 This module provides utilities for translating between Gemini API format and other formats.
 """
 
+import json
 from typing import Any
 
 from src.core.domain.chat import (
@@ -38,6 +39,50 @@ def gemini_content_to_chat_messages(
             continue
 
         parts = content["parts"]
+
+        # Handle Gemini functionResponse parts (tool results)
+        handled_tool_responses = False
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+
+            function_response = part.get("functionResponse") or part.get(
+                "function_response"
+            )
+            if not function_response:
+                continue
+
+            if not isinstance(function_response, dict):
+                continue
+
+            response_payload = function_response.get("response")
+
+            if isinstance(response_payload, (dict, list)):
+                try:
+                    content_text = json.dumps(response_payload)
+                except (TypeError, ValueError):
+                    content_text = str(response_payload)
+            elif response_payload is None:
+                content_text = ""
+            else:
+                content_text = str(response_payload)
+
+            tool_call_id = function_response.get("id") or function_response.get("name")
+            tool_name = function_response.get("name")
+
+            chat_messages.append(
+                ChatMessage(
+                    role="tool",
+                    content=content_text,
+                    name=tool_name,
+                    tool_call_id=tool_call_id if isinstance(tool_call_id, str) else None,
+                )
+            )
+
+            handled_tool_responses = True
+
+        if handled_tool_responses:
+            continue
 
         # Simple case: single text part
         if len(parts) == 1 and "text" in parts[0]:
