@@ -164,7 +164,7 @@ def convert_cline_marker_to_gemini_function_call(content: str) -> str:
         actual_content = content
 
     function_response = {
-        "function_call": {
+        "functionCall": {
             "name": "attempt_completion",
             "args": {"result": actual_content},
         }
