@@ -4,7 +4,7 @@ import pytest
 @pytest.fixture
 def functional_backend() -> str:
     """Provide a known functional backend for tests to use."""
-    return "zai-coding-plan"
+    return "gemini"
 
 
 from fastapi import FastAPI
