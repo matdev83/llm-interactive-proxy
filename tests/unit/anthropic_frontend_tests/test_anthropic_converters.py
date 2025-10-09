@@ -1,8 +1,6 @@
-"""
-Unit tests for Anthropic front-end converters.
-Tests the conversion between Anthropic and OpenAI API formats.
-"""
+"""Unit tests for Anthropic front-end converters."""
 
+import json
 from unittest.mock import Mock
 
 from src.anthropic_converters import (
@@ -14,6 +12,7 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
+from src.core.domain.chat import ChatRequest
 
 
 class TestAnthropicConverters:
@@ -98,6 +97,59 @@ class TestAnthropicConverters:
         assert "top_k" not in openai_req  # Should be dropped
         assert openai_req["stop"] == ["STOP", "END"]
         assert openai_req["stream"] is True
+
+    def test_anthropic_to_openai_request_tool_use_and_results(self) -> None:
+        """Tool use blocks convert to OpenAI tool calls and tool messages."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[
+                AnthropicMessage(role="user", content="Run a lookup"),
+                AnthropicMessage(
+                    role="assistant",
+                    content=[
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "lookup_weather",
+                            "input": {"location": "San Francisco"},
+                        }
+                    ],
+                ),
+                AnthropicMessage(
+                    role="user",
+                    content=[
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_1",
+                            "content": "65F and sunny",
+                        }
+                    ],
+                ),
+            ],
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+        assert [m["role"] for m in openai_req["messages"]] == [
+            "user",
+            "assistant",
+            "tool",
+        ]
+
+        chat_request = ChatRequest(**openai_req)
+        assistant_message = chat_request.messages[1]
+        assert assistant_message.tool_calls is not None
+        assert len(assistant_message.tool_calls) == 1
+        tool_call = assistant_message.tool_calls[0]
+        assert tool_call.function.name == "lookup_weather"
+        assert json.loads(tool_call.function.arguments) == {
+            "location": "San Francisco"
+        }
+
+        tool_message = chat_request.messages[2]
+        assert tool_message.role == "tool"
+        assert tool_message.tool_call_id == "toolu_1"
+        assert tool_message.content == "65F and sunny"
 
     def test_openai_to_anthropic_response_basic(self) -> None:
         """Test basic OpenAI to Anthropic response conversion."""

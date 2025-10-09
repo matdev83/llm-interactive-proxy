@@ -19,13 +19,84 @@ def anthropic_to_openai_request(
 
     messages: list[dict[str, Any]] = []
 
-    # Optional system message comes first
     if anthropic_request.system:
         messages.append({"role": "system", "content": anthropic_request.system})
 
-    # Conversation messages
     for msg in anthropic_request.messages:
-        messages.append({"role": msg.role, "content": msg.content})
+        content = msg.content
+
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            other_blocks: list[dict[str, Any]] = []
+            tool_calls: list[dict[str, Any]] = []
+            extra_messages: list[dict[str, Any]] = []
+
+            for block in content:
+                if not isinstance(block, dict):
+                    text_parts.append(str(block))
+                    continue
+
+                block_type = block.get("type")
+                if block_type == "tool_use":
+                    tool_calls.append(
+                        {
+                            "id": str(
+                                block.get("id") or f"tool_call_{len(tool_calls)}"
+                            ),
+                            "type": "function",
+                            "function": {
+                                "name": str(block.get("name") or ""),
+                                "arguments": _stringify_tool_arguments(
+                                    block.get("input")
+                                ),
+                            },
+                        }
+                    )
+                    continue
+
+                if block_type == "tool_result":
+                    tool_call_id = block.get("tool_use_id") or block.get("id")
+                    extra_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": str(
+                                tool_call_id or f"tool_call_{len(extra_messages)}"
+                            ),
+                            "content": _stringify_tool_result_content(
+                                block.get("content")
+                            ),
+                        }
+                    )
+                    continue
+
+                if block_type == "text" and isinstance(block.get("text"), str):
+                    text_parts.append(block.get("text", ""))
+                    continue
+
+                other_blocks.append(block)
+
+            message_payload: dict[str, Any] = {"role": msg.role}
+
+            if other_blocks:
+                combined_blocks = [
+                    {"type": "text", "text": text} for text in text_parts
+                ]
+                combined_blocks.extend(other_blocks)
+                message_payload["content"] = combined_blocks
+            elif text_parts:
+                message_payload["content"] = "\n".join(text_parts)
+
+            if tool_calls:
+                message_payload["tool_calls"] = tool_calls
+
+            if "content" in message_payload or tool_calls:
+                messages.append(message_payload)
+
+            if extra_messages:
+                messages.extend(extra_messages)
+            continue
+
+        messages.append({"role": msg.role, "content": content})
 
     result: dict[str, Any] = {
         "model": anthropic_request.model,
@@ -191,6 +262,48 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
 
     # If we get here, it's an unhandled case - return empty string to keep stream alive
     return ""
+
+
+def _stringify_tool_arguments(tool_input: Any) -> str:
+    """Convert Anthropic tool input payloads to JSON strings."""
+
+    if isinstance(tool_input, str):
+        return tool_input
+
+    try:
+        return json.dumps(tool_input, default=str)
+    except TypeError:
+        return str(tool_input)
+
+
+def _stringify_tool_result_content(content: Any) -> str:
+    """Normalize Anthropic tool result content to a plain string."""
+
+    if content is None:
+        return ""
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, dict):
+        text_value = content.get("text") if isinstance(content.get("text"), str) else None
+        if text_value is not None:
+            return text_value
+        try:
+            return json.dumps(content, default=str)
+        except TypeError:
+            return str(content)
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+            else:
+                parts.append(_stringify_tool_result_content(item))
+        return "\n".join(parts)
+
+    return str(content)
 
 
 # --- Added helper functions for Anthropic frontend compatibility ---
