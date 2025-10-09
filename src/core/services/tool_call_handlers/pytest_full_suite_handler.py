@@ -60,7 +60,7 @@ def _extract_command(arguments: Any) -> str | None:
         command = arguments.get("command") or arguments.get("cmd")
         if isinstance(command, str) and command.strip():
             return command
-        if isinstance(command, list | tuple) and command:
+        if isinstance(command, (list, tuple)) and command:
             return " ".join(str(item) for item in command)
 
         for key in ("input", "body", "data"):
@@ -71,7 +71,7 @@ def _extract_command(arguments: Any) -> str | None:
                 sub = inner.get("command") or inner.get("cmd")
                 if isinstance(sub, str) and sub.strip():
                     return sub
-                if isinstance(sub, list | tuple) and sub:
+                if isinstance(sub, (list, tuple)) and sub:
                     return " ".join(str(item) for item in sub)
 
         args_list = arguments.get("args")
@@ -138,10 +138,6 @@ def _looks_like_full_suite(command: str) -> bool:
         if any(sep in stripped for sep in ("/", "\\")) or stripped.endswith(
             file_like_extensions
         ):
-            return False
-
-        if stripped == ".":
-            # pytest . explicitly targets current directory
             return False
 
     return True
@@ -220,7 +216,9 @@ class PytestFullSuiteHandler(IToolCallHandler):
         )
 
     def _extract_pytest_command(self, context: ToolCallContext) -> str | None:
-        tool_name = context.tool_name or ""
+        tool_name_raw = context.tool_name or ""
+        tool_name = tool_name_raw.strip()
+        normalized_tool_name = tool_name.lower()
         arguments = context.tool_arguments
 
         shell_tools = {
@@ -235,7 +233,7 @@ class PytestFullSuiteHandler(IToolCallHandler):
 
         command = _extract_command(arguments)
 
-        if tool_name in shell_tools:
+        if normalized_tool_name in shell_tools:
             return command
 
         # Some providers map pytest directly as function name
@@ -243,7 +241,7 @@ class PytestFullSuiteHandler(IToolCallHandler):
             return command or tool_name
 
         if command and _PYTEST_ROOT_PATTERN.search(command):
-            prefix = tool_name.strip()
+            prefix = tool_name
             if prefix:
                 return f"{prefix} {command}".strip()
             return command

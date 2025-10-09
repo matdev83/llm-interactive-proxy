@@ -12,6 +12,10 @@ from src.core.common.exceptions import InitializationError, LLMProxyError
 from src.core.domain.responses_api import ResponsesRequest
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.translation_service_interface import (
+    ITranslationService,
+)
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -26,13 +30,23 @@ logger = logging.getLogger(__name__)
 class ResponsesController:
     """Controller for Responses API endpoints."""
 
-    def __init__(self, request_processor: IRequestProcessor) -> None:
+    def __init__(
+        self,
+        request_processor: IRequestProcessor,
+        translation_service: ITranslationService | None = None,
+    ) -> None:
         """Initialize the controller.
 
         Args:
             request_processor: The request processor service
         """
         self._processor = request_processor
+        if translation_service is None:
+            from src.core.services.translation_service import TranslationService
+
+            translation_service = TranslationService()
+
+        self._translation_service = translation_service
 
     async def handle_responses_request(
         self,
@@ -98,9 +112,7 @@ class ResponsesController:
 
         try:
             # Convert ResponsesRequest to internal ChatRequest format using TranslationService
-            from src.core.services.translation_service import TranslationService
-
-            translation_service = TranslationService()
+            translation_service = self._translation_service
 
             # Log schema validation attempt if schema is present
             if has_schema:
@@ -199,30 +211,131 @@ class ResponsesController:
 
                     response_id = f"resp_{int(time.time())}_{id(response)}"
                     created_timestamp = int(time.time())
+                    last_chunk_model = domain_request.model
 
                     async for chunk in response.content:
                         try:
-                            # Handle different chunk formats
-                            if hasattr(chunk, "content") and chunk.content:
-                                chunk_content = chunk.content
+                            chunk_content = ""
+                            chunk_metadata: dict[str, Any] = {}
+                            chunk_payload: dict[str, Any] | None = None
+
+                            if isinstance(chunk, ProcessedResponse):
+                                chunk_content = chunk.content or ""
+                                chunk_metadata = chunk.metadata or {}
+                                if isinstance(chunk.content, dict):
+                                    chunk_payload = chunk.content
+                            elif isinstance(chunk, dict):
+                                chunk_content = str(chunk.get("content", ""))
+                                chunk_metadata = chunk.get("metadata", {}) or {}
+                                chunk_payload = chunk
+                            elif hasattr(chunk, "content"):
+                                chunk_content = getattr(chunk, "content", "") or ""
+                                chunk_metadata = getattr(chunk, "metadata", {}) or {}
+                                if isinstance(chunk_content, dict):
+                                    chunk_payload = chunk_content
                             elif isinstance(chunk, str):
                                 chunk_content = chunk
-                            elif isinstance(chunk, dict):
-                                # Extract content from dict if available
-                                chunk_content = chunk.get("content", str(chunk))
                             else:
                                 chunk_content = str(chunk)
 
-                            # Format chunk for Responses API streaming
-                            streaming_chunk = {
-                                "id": response_id,
-                                "object": "response.chunk",
-                                "created": created_timestamp,
-                                "model": domain_request.model,
-                                "choices": [
-                                    {"index": 0, "delta": {"content": chunk_content}}
-                                ],
+                            chunk_id = chunk_metadata.get("id") or response_id
+                            chunk_model = (
+                                chunk_metadata.get("model") or domain_request.model
+                            )
+                            chunk_created = (
+                                chunk_metadata.get("created") or created_timestamp
+                            )
+
+                            finish_reason = chunk_metadata.get("finish_reason")
+                            delta: dict[str, Any] = {}
+
+                            if chunk_payload and isinstance(chunk_payload, dict):
+                                chunk_id = chunk_payload.get("id", chunk_id)
+                                chunk_model = chunk_payload.get("model", chunk_model)
+                                chunk_created = chunk_payload.get(
+                                    "created", chunk_created
+                                )
+
+                                choices = chunk_payload.get("choices")
+                                if isinstance(choices, list) and choices:
+                                    primary_choice = choices[0] or {}
+                                    delta_payload = primary_choice.get("delta") or {}
+                                    if isinstance(delta_payload, dict):
+                                        delta = dict(delta_payload)
+                                    finish_reason = (
+                                        primary_choice.get("finish_reason")
+                                        or finish_reason
+                                    )
+
+                            if not delta and chunk_content:
+                                delta["content"] = chunk_content
+
+                            # Normalize delta content to string when present
+                            content_value = delta.get("content")
+                            if content_value is not None and not isinstance(
+                                content_value, str
+                            ):
+                                delta["content"] = json.dumps(content_value)
+
+                            # Merge tool calls from delta or chunk metadata
+                            tool_calls = delta.get("tool_calls") or chunk_metadata.get(
+                                "tool_calls"
+                            )
+                            if tool_calls:
+                                normalized_calls: list[dict[str, Any]] = []
+                                for tool_call in tool_calls:
+                                    if hasattr(tool_call, "model_dump"):
+                                        call_data = tool_call.model_dump()
+                                    elif isinstance(tool_call, dict):
+                                        call_data = dict(tool_call)
+                                    else:
+                                        function = getattr(tool_call, "function", None)
+                                        call_data = {
+                                            "id": getattr(tool_call, "id", ""),
+                                            "type": getattr(
+                                                tool_call, "type", "function"
+                                            ),
+                                            "function": {
+                                                "name": getattr(function, "name", ""),
+                                                "arguments": getattr(
+                                                    function, "arguments", "{}"
+                                                ),
+                                            },
+                                        }
+
+                                    function_payload = call_data.get("function")
+                                    if isinstance(function_payload, dict):
+                                        arguments = function_payload.get("arguments")
+                                        if isinstance(arguments, dict | list):
+                                            function_payload["arguments"] = json.dumps(
+                                                arguments
+                                            )
+                                        elif arguments is None:
+                                            function_payload["arguments"] = "{}"
+
+                                    normalized_calls.append(call_data)
+
+                                delta["tool_calls"] = normalized_calls
+
+                            if not delta:
+                                delta["content"] = ""
+
+                            choice_payload: dict[str, Any] = {
+                                "index": 0,
+                                "delta": delta,
                             }
+                            if finish_reason:
+                                choice_payload["finish_reason"] = finish_reason
+
+                            streaming_chunk = {
+                                "id": chunk_id,
+                                "object": "response.chunk",
+                                "created": chunk_created,
+                                "model": chunk_model,
+                                "choices": [choice_payload],
+                            }
+
+                            last_chunk_model = chunk_model
 
                             # Format as Server-Sent Events
                             yield f"data: {json.dumps(streaming_chunk)}\n\n"
@@ -239,7 +352,7 @@ class ResponsesController:
                         "id": response_id,
                         "object": "response.chunk",
                         "created": created_timestamp,
-                        "model": domain_request.model,
+                        "model": last_chunk_model,
                         "choices": [{"index": 0, "finish_reason": "stop", "delta": {}}],
                     }
                     yield f"data: {json.dumps(final_chunk)}\n\n"
@@ -880,6 +993,19 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
         if request_processor is None:
             raise InitializationError("Could not find or create RequestProcessor")
 
-        return ResponsesController(request_processor)
+        translation_service = service_provider.get_service(  # type: ignore[type-abstract]
+            ITranslationService
+        )
+        if translation_service is None:
+            from src.core.services.translation_service import TranslationService
+
+            translation_service = service_provider.get_service(TranslationService)
+            if translation_service is None:
+                translation_service = TranslationService()
+
+        return ResponsesController(
+            request_processor,
+            translation_service=translation_service,
+        )
     except Exception as e:
         raise InitializationError(f"Failed to create ResponsesController: {e}") from e

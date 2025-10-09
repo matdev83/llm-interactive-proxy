@@ -63,6 +63,20 @@ def client(test_app):
             client.close()
 
 
+@pytest.fixture
+async def cleanup_wire_capture(test_app):
+    """Ensure wire capture service is properly cleaned up after async tests."""
+    yield
+    # Cleanup runs after test
+    app, _ = test_app
+    with contextlib.suppress(Exception):
+        from src.core.interfaces.wire_capture_interface import IWireCapture
+
+        wire_capture = app.state.service_provider.get_service(IWireCapture)
+        if wire_capture and hasattr(wire_capture, "shutdown"):
+            await wire_capture.shutdown()
+
+
 def test_buffered_wire_capture_integration(client, test_app):
     """Test that buffered wire capture works through the application's DI system."""
     app, capture_file = test_app
@@ -89,7 +103,7 @@ def test_buffered_wire_capture_integration(client, test_app):
 
 
 @pytest.mark.asyncio
-async def test_buffered_wire_capture_end_to_end(test_app):
+async def test_buffered_wire_capture_end_to_end(test_app, cleanup_wire_capture):
     """Test end-to-end wire capture functionality."""
     app, capture_file = test_app
 
@@ -180,7 +194,7 @@ async def test_buffered_wire_capture_end_to_end(test_app):
 
 
 @pytest.mark.asyncio
-async def test_buffered_wire_capture_streaming(test_app):
+async def test_buffered_wire_capture_streaming(test_app, cleanup_wire_capture):
     """Test buffered wire capture with streaming responses."""
     app, capture_file = test_app
 
@@ -258,7 +272,7 @@ async def test_buffered_wire_capture_streaming(test_app):
 
 
 @pytest.mark.asyncio
-async def test_buffered_wire_capture_performance(test_app):
+async def test_buffered_wire_capture_performance(test_app, cleanup_wire_capture):
     """Test that buffered wire capture can handle high throughput."""
     app, capture_file = test_app
 
@@ -322,13 +336,18 @@ def test_buffered_wire_capture_configuration_validation(temp_capture_file):
     capture = BufferedWireCapture(config)
     assert capture.enabled() is True
 
-    # Clean up
-    if hasattr(capture, "_flush_task") and capture._flush_task:
+    # Clean up by disabling and cancelling the task
+    capture._enabled = False
+    if (
+        hasattr(capture, "_flush_task")
+        and capture._flush_task
+        and not capture._flush_task.done()
+    ):
         capture._flush_task.cancel()
 
 
 @pytest.mark.asyncio
-async def test_buffered_wire_capture_shutdown_cleanup(test_app):
+async def test_buffered_wire_capture_shutdown_cleanup(test_app, cleanup_wire_capture):
     """Test that wire capture properly cleans up on shutdown."""
     app, capture_file = test_app
 

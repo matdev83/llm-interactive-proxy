@@ -199,6 +199,167 @@ class Translation(BaseTranslator):
             }
 
     @staticmethod
+    def _normalize_responses_input_to_messages(
+        input_payload: Any,
+    ) -> list[dict[str, Any]]:
+        """Coerce OpenAI Responses API input payloads into chat messages."""
+
+        def _normalize_message_entry(entry: Any) -> dict[str, Any] | None:
+            if entry is None:
+                return None
+
+            if isinstance(entry, str):
+                return {"role": "user", "content": entry}
+
+            if isinstance(entry, dict):
+                role = str(entry.get("role") or "user")
+                message: dict[str, Any] = {"role": role}
+
+                content = Translation._normalize_responses_content(entry.get("content"))
+                if content is not None:
+                    message["content"] = content
+
+                if "name" in entry and entry.get("name") is not None:
+                    message["name"] = entry["name"]
+
+                if "tool_calls" in entry and entry.get("tool_calls") is not None:
+                    message["tool_calls"] = entry["tool_calls"]
+
+                if "tool_call_id" in entry and entry.get("tool_call_id") is not None:
+                    message["tool_call_id"] = entry["tool_call_id"]
+
+                return message
+
+            # Fallback: convert to string representation
+            return {"role": "user", "content": str(entry)}
+
+        if input_payload is None:
+            return []
+
+        if isinstance(input_payload, str | bytes):
+            text_value = (
+                input_payload.decode("utf-8", "ignore")
+                if isinstance(input_payload, bytes | bytearray)
+                else input_payload
+            )
+            return [{"role": "user", "content": text_value}]
+
+        if isinstance(input_payload, dict):
+            normalized = _normalize_message_entry(input_payload)
+            return [normalized] if normalized else []
+
+        if isinstance(input_payload, list | tuple):
+            messages: list[dict[str, Any]] = []
+            for item in input_payload:
+                normalized = _normalize_message_entry(item)
+                if normalized:
+                    messages.append(normalized)
+            return messages
+
+        # Unknown type - coerce to a single user message
+        return [{"role": "user", "content": str(input_payload)}]
+
+    @staticmethod
+    def _normalize_responses_content(content: Any) -> Any:
+        """Normalize Responses API content blocks into chat-compatible structures."""
+
+        def _coerce_text_value(value: Any) -> str:
+            if isinstance(value, str):
+                return value
+            if isinstance(value, bytes | bytearray):
+                return value.decode("utf-8", "ignore")
+            if isinstance(value, list):
+                segments: list[str] = []
+                for segment in value:
+                    if isinstance(segment, dict):
+                        segments.append(_coerce_text_value(segment.get("text")))
+                    else:
+                        segments.append(str(segment))
+                return "".join(segments)
+            if isinstance(value, dict) and "text" in value:
+                return _coerce_text_value(value.get("text"))
+            return str(value) if value is not None else ""
+
+        if content is None:
+            return None
+
+        if isinstance(content, str | bytes | bytearray):
+            return _coerce_text_value(content)
+
+        if isinstance(content, dict):
+            normalized_parts = Translation._normalize_responses_content_part(content)
+            if not normalized_parts:
+                return None
+            if len(normalized_parts) == 1 and normalized_parts[0].get("type") == "text":
+                return normalized_parts[0]["text"]
+            return normalized_parts
+
+        if isinstance(content, list | tuple):
+            collected_parts: list[dict[str, Any]] = []
+            for part in content:
+                if isinstance(part, dict):
+                    collected_parts.extend(
+                        Translation._normalize_responses_content_part(part)
+                    )
+                elif isinstance(part, str | bytes | bytearray):
+                    collected_parts.append(
+                        {"type": "text", "text": _coerce_text_value(part)}
+                    )
+            if not collected_parts:
+                return None
+            if len(collected_parts) == 1 and collected_parts[0].get("type") == "text":
+                return collected_parts[0]["text"]
+            return collected_parts
+
+        return str(content)
+
+    @staticmethod
+    def _normalize_responses_content_part(part: dict[str, Any]) -> list[dict[str, Any]]:
+        """Normalize a single Responses API content part."""
+
+        part_type = str(part.get("type") or "").lower()
+        normalized_parts: list[dict[str, Any]] = []
+
+        if part_type in {"text", "input_text", "output_text"}:
+            text_value = part.get("text")
+            if text_value is None:
+                text_value = part.get("value")
+            normalized_parts.append(
+                {"type": "text", "text": Translation._safe_string(text_value)}
+            )
+        elif "image" in part_type:
+            image_payload = (
+                part.get("image_url")
+                or part.get("imageUrl")
+                or part.get("image")
+                or part.get("image_data")
+            )
+            if isinstance(image_payload, str):
+                image_payload = {"url": image_payload}
+            if isinstance(image_payload, dict) and image_payload.get("url"):
+                normalized_parts.append(
+                    {"type": "image_url", "image_url": image_payload}
+                )
+        elif part_type == "tool_call":
+            # Tool call parts are handled elsewhere in the pipeline; ignore here.
+            return []
+        else:
+            # Preserve already-normalized structures (e.g., function calls) as-is
+            normalized_parts.append(part)
+
+        return [p for p in normalized_parts if p]
+
+    @staticmethod
+    def _safe_string(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bytes | bytearray):
+            return value.decode("utf-8", "ignore")
+        return str(value)
+
+    @staticmethod
     def _map_gemini_finish_reason(finish_reason: str | None) -> str | None:
         """Map Gemini finish reasons to canonical values."""
         if finish_reason is None:
@@ -362,15 +523,34 @@ class Translation(BaseTranslator):
         Translate an Anthropic request to a CanonicalChatRequest.
         """
         # Use the helper method to safely access request parameters
+        system_prompt = Translation._get_request_param(request, "system")
+        raw_messages = Translation._get_request_param(request, "messages", [])
+        normalized_messages: list[Any] = []
+
+        if system_prompt:
+            normalized_messages.append({"role": "system", "content": system_prompt})
+
+        if raw_messages:
+            for message in raw_messages:
+                normalized_messages.append(message)
+
+        stop_param = Translation._get_request_param(request, "stop")
+        stop_sequences = Translation._get_request_param(request, "stop_sequences")
+        normalized_stop = stop_param
+        if (
+            normalized_stop is None or normalized_stop == [] or normalized_stop == ""
+        ) and stop_sequences not in (None, [], ""):
+            normalized_stop = stop_sequences
+
         return CanonicalChatRequest(
             model=Translation._get_request_param(request, "model"),
-            messages=Translation._get_request_param(request, "messages", []),
+            messages=normalized_messages,
             temperature=Translation._get_request_param(request, "temperature"),
             top_p=Translation._get_request_param(request, "top_p"),
             top_k=Translation._get_request_param(request, "top_k"),
             n=Translation._get_request_param(request, "n"),
             stream=Translation._get_request_param(request, "stream"),
-            stop=Translation._get_request_param(request, "stop"),
+            stop=normalized_stop,
             max_tokens=Translation._get_request_param(request, "max_tokens"),
             presence_penalty=Translation._get_request_param(
                 request, "presence_penalty"
@@ -815,6 +995,46 @@ class Translation(BaseTranslator):
             )
 
         if not choices:
+            # Fallback to output_text aggregation used by the Responses API when
+            # the structured output array is empty. This happens when the
+            # backend only returns plain text without additional metadata.
+            output_text = response.get("output_text")
+            fallback_text_segments: list[str] = []
+            if isinstance(output_text, list):
+                fallback_text_segments = [
+                    str(segment) for segment in output_text if segment
+                ]
+            elif isinstance(output_text, str) and output_text:
+                fallback_text_segments = [output_text]
+
+            if fallback_text_segments:
+                aggregated_text = "".join(fallback_text_segments)
+                status = response.get("status")
+                fallback_finish_reason: str | None
+                if status == "completed":
+                    fallback_finish_reason = "stop"
+                elif status == "incomplete":
+                    fallback_finish_reason = "length"
+                elif status in {"in_progress", "generating"}:
+                    fallback_finish_reason = None
+                else:
+                    fallback_finish_reason = "stop" if aggregated_text else None
+
+                message = ChatCompletionChoiceMessage(
+                    role="assistant",
+                    content=aggregated_text,
+                    tool_calls=None,
+                )
+
+                choices.append(
+                    ChatCompletionChoice(
+                        index=0,
+                        message=message,
+                        finish_reason=fallback_finish_reason,
+                    )
+                )
+
+        if not choices:
             # Fallback to OpenAI conversion to avoid returning an empty response
             return Translation.openai_to_domain_response(response)
 
@@ -905,6 +1125,147 @@ class Translation(BaseTranslator):
         # For simplicity, we'll return the chunk as a dictionary.
         # In a more complex scenario, you might map this to a Pydantic model.
         return dict(chunk)
+
+    @staticmethod
+    def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+        """Translate an OpenAI Responses streaming chunk to canonical format."""
+        import json
+        import time
+
+        if isinstance(chunk, bytes | bytearray):
+            try:
+                chunk = chunk.decode("utf-8")
+            except UnicodeDecodeError:
+                return {
+                    "error": "Invalid chunk format: unable to decode bytes",
+                }
+
+        if isinstance(chunk, str):
+            stripped_chunk = chunk.strip()
+
+            if not stripped_chunk:
+                return {"error": "Invalid chunk format: empty string"}
+
+            if stripped_chunk.startswith(":"):
+                return {
+                    "id": f"resp-{int(time.time())}",
+                    "object": "response.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": None},
+                    ],
+                }
+
+            if stripped_chunk.startswith("data:"):
+                stripped_chunk = stripped_chunk[5:].strip()
+
+            if stripped_chunk == "[DONE]":
+                return {
+                    "id": f"resp-{int(time.time())}",
+                    "object": "response.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "stop"},
+                    ],
+                }
+
+            try:
+                chunk = json.loads(stripped_chunk)
+            except json.JSONDecodeError as exc:
+                return {
+                    "error": "Invalid chunk format: expected JSON after 'data:' prefix",
+                    "details": {"message": str(exc)},
+                }
+
+        if not isinstance(chunk, dict):
+            return {"error": "Invalid chunk format: expected a dictionary"}
+
+        chunk_id = chunk.get("id", f"resp-{int(time.time())}")
+        created = chunk.get("created", int(time.time()))
+        model = chunk.get("model", "unknown")
+        object_type = chunk.get("object", "response.chunk")
+        choices = chunk.get("choices") or []
+
+        if not isinstance(choices, list) or not choices:
+            choices = [
+                {"index": 0, "delta": {}, "finish_reason": None},
+            ]
+
+        primary_choice = choices[0] or {}
+        finish_reason = primary_choice.get("finish_reason")
+        delta = primary_choice.get("delta") or {}
+
+        if not isinstance(delta, dict):
+            delta = {"content": str(delta)}
+
+        content_value = delta.get("content")
+        if isinstance(content_value, list):
+            text_parts: list[str] = []
+            for part in content_value:
+                if not isinstance(part, dict):
+                    continue
+                part_type = part.get("type")
+                if part_type in {"output_text", "text", "input_text"}:
+                    text_value = part.get("text") or part.get("value") or ""
+                    if text_value:
+                        text_parts.append(str(text_value))
+            delta["content"] = "".join(text_parts)
+        elif isinstance(content_value, dict):
+            delta["content"] = json.dumps(content_value)
+        elif content_value is None:
+            delta.pop("content", None)
+        else:
+            delta["content"] = str(content_value)
+
+        tool_calls = delta.get("tool_calls")
+        if isinstance(tool_calls, list):
+            normalized_tool_calls: list[dict[str, Any]] = []
+            for tool_call in tool_calls:
+                if isinstance(tool_call, dict):
+                    call_data = dict(tool_call)
+                else:
+                    function = getattr(tool_call, "function", None)
+                    call_data = {
+                        "id": getattr(tool_call, "id", ""),
+                        "type": getattr(tool_call, "type", "function"),
+                        "function": {
+                            "name": getattr(function, "name", ""),
+                            "arguments": getattr(function, "arguments", "{}"),
+                        },
+                    }
+
+                function_payload = call_data.get("function") or {}
+                if isinstance(function_payload, dict):
+                    arguments = function_payload.get("arguments")
+                    if isinstance(arguments, dict | list):
+                        function_payload["arguments"] = json.dumps(arguments)
+                    elif arguments is None:
+                        function_payload["arguments"] = "{}"
+                    else:
+                        function_payload["arguments"] = str(arguments)
+
+                normalized_tool_calls.append(call_data)
+
+            if normalized_tool_calls:
+                delta["tool_calls"] = normalized_tool_calls
+            else:
+                delta.pop("tool_calls", None)
+
+        return {
+            "id": chunk_id,
+            "object": object_type,
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": primary_choice.get("index", 0),
+                    "delta": delta,
+                    "finish_reason": finish_reason,
+                }
+            ],
+        }
 
     @staticmethod
     def openrouter_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -1785,38 +2146,55 @@ class Translation(BaseTranslator):
         """
         from src.core.domain.responses_api import ResponsesRequest
 
-        # Handle both dict and object formats
+        # Normalize incoming payload regardless of format (dict, model, or object)
+        def _prepare_payload(payload: dict[str, Any]) -> dict[str, Any]:
+            normalized_payload = dict(payload)
+            if "messages" not in normalized_payload and "input" in normalized_payload:
+                normalized_payload["messages"] = (
+                    Translation._normalize_responses_input_to_messages(
+                        normalized_payload["input"]
+                    )
+                )
+            return normalized_payload
+
         if isinstance(request, dict):
-            # Convert dict to ResponsesRequest for validation
-            responses_request = ResponsesRequest(**request)
+            request_payload = _prepare_payload(request)
+            responses_request = ResponsesRequest(**request_payload)
         elif hasattr(request, "model_dump"):
-            # Already a Pydantic model
+            request_payload = _prepare_payload(request.model_dump())
             responses_request = (
                 request
                 if isinstance(request, ResponsesRequest)
-                else ResponsesRequest(**request.model_dump())
+                else ResponsesRequest(**request_payload)
             )
         else:
-            # Try to extract attributes
-            responses_request = ResponsesRequest(
-                model=request.model,
-                messages=getattr(request, "messages", []),
-                response_format=request.response_format,
-                max_tokens=getattr(request, "max_tokens", None),
-                temperature=getattr(request, "temperature", None),
-                top_p=getattr(request, "top_p", None),
-                n=getattr(request, "n", None),
-                stream=getattr(request, "stream", None),
-                stop=getattr(request, "stop", None),
-                presence_penalty=getattr(request, "presence_penalty", None),
-                frequency_penalty=getattr(request, "frequency_penalty", None),
-                logit_bias=getattr(request, "logit_bias", None),
-                user=getattr(request, "user", None),
-                seed=getattr(request, "seed", None),
-                session_id=getattr(request, "session_id", None),
-                agent=getattr(request, "agent", None),
-                extra_body=getattr(request, "extra_body", None),
-            )
+            request_payload = {
+                "model": getattr(request, "model", None),
+                "messages": getattr(request, "messages", None),
+                "response_format": getattr(request, "response_format", None),
+                "max_tokens": getattr(request, "max_tokens", None),
+                "temperature": getattr(request, "temperature", None),
+                "top_p": getattr(request, "top_p", None),
+                "n": getattr(request, "n", None),
+                "stream": getattr(request, "stream", None),
+                "stop": getattr(request, "stop", None),
+                "presence_penalty": getattr(request, "presence_penalty", None),
+                "frequency_penalty": getattr(request, "frequency_penalty", None),
+                "logit_bias": getattr(request, "logit_bias", None),
+                "user": getattr(request, "user", None),
+                "seed": getattr(request, "seed", None),
+                "session_id": getattr(request, "session_id", None),
+                "agent": getattr(request, "agent", None),
+                "extra_body": getattr(request, "extra_body", None),
+            }
+
+            input_value = getattr(request, "input", None)
+            if (not request_payload.get("messages")) and input_value is not None:
+                request_payload["messages"] = (
+                    Translation._normalize_responses_input_to_messages(input_value)
+                )
+
+            responses_request = ResponsesRequest(**request_payload)
 
         # Prepare extra_body with response format
         extra_body = responses_request.extra_body or {}
@@ -1861,10 +2239,10 @@ class Translation(BaseTranslator):
             if choice.message:
                 # Try to parse the content as JSON for structured output
                 parsed_content = None
-                content = choice.message.content or ""
+                raw_content = choice.message.content or ""
 
                 # Clean up content for JSON parsing
-                cleaned_content = content.strip()
+                cleaned_content = raw_content.strip()
 
                 # Handle cases where the model might wrap JSON in markdown code blocks
                 if cleaned_content.startswith("```json") and cleaned_content.endswith(
@@ -1881,7 +2259,7 @@ class Translation(BaseTranslator):
                     try:
                         parsed_content = json.loads(cleaned_content)
                         # If parsing succeeded, use the cleaned content as the actual content
-                        content = cleaned_content
+                        raw_content = cleaned_content
                     except json.JSONDecodeError:
                         # Content is not valid JSON, leave parsed as None
                         # Try to extract JSON from the content if it contains other text
@@ -1896,18 +2274,51 @@ class Translation(BaseTranslator):
                             if json_match:
                                 potential_json = json_match.group(0)
                                 parsed_content = json.loads(potential_json)
-                                content = potential_json
+                                raw_content = potential_json
                         except (json.JSONDecodeError, AttributeError):
                             # Still not valid JSON, leave parsed as None
                             pass
 
+                message_payload: dict[str, Any] = {
+                    "role": choice.message.role,
+                    "content": raw_content or None,
+                    "parsed": parsed_content,
+                }
+
+                tool_calls_payload: list[dict[str, Any]] = []
+                if choice.message.tool_calls:
+                    for tool_call in choice.message.tool_calls:
+                        if hasattr(tool_call, "model_dump"):
+                            tool_data = tool_call.model_dump()
+                        elif isinstance(tool_call, dict):
+                            tool_data = dict(tool_call)
+                        else:
+                            function = getattr(tool_call, "function", None)
+                            tool_data = {
+                                "id": getattr(tool_call, "id", ""),
+                                "type": getattr(tool_call, "type", "function"),
+                                "function": {
+                                    "name": getattr(function, "name", ""),
+                                    "arguments": getattr(function, "arguments", "{}"),
+                                },
+                            }
+
+                        function_payload = tool_data.get("function")
+                        if isinstance(function_payload, dict):
+                            arguments = function_payload.get("arguments")
+                            if isinstance(arguments, dict | list):
+                                function_payload["arguments"] = json.dumps(arguments)
+                            elif arguments is None:
+                                function_payload["arguments"] = "{}"
+
+                        tool_calls_payload.append(tool_data)
+
+                if tool_calls_payload:
+                    message_payload["tool_calls"] = tool_calls_payload
+
                 response_choice = {
                     "index": choice.index,
-                    "message": {
-                        "role": choice.message.role,
-                        "content": content,
-                        "parsed": parsed_content,
-                    },
+                    "message": message_payload,
                     "finish_reason": choice.finish_reason or "stop",
                 }
                 choices.append(response_choice)
@@ -1944,29 +2355,37 @@ class Translation(BaseTranslator):
         # Start with basic OpenAI request format
         payload = Translation.from_domain_to_openai_request(request)
 
-        # Extract and restructure response_format from extra_body
-        if request.extra_body and "response_format" in request.extra_body:
-            response_format = request.extra_body["response_format"]
+        if request.extra_body:
+            extra_body_copy = dict(request.extra_body)
 
-            # Ensure the response_format is properly structured for Responses API
-            if isinstance(response_format, dict):
-                payload["response_format"] = response_format
-            else:
-                # Handle case where response_format might be a Pydantic model
-                if hasattr(response_format, "model_dump"):
+            # Extract and restructure response_format from extra_body
+            response_format = extra_body_copy.pop("response_format", None)
+            if response_format is not None:
+                # Ensure the response_format is properly structured for Responses API
+                if isinstance(response_format, dict):
+                    payload["response_format"] = response_format
+                elif hasattr(response_format, "model_dump"):
                     payload["response_format"] = response_format.model_dump()
                 else:
                     payload["response_format"] = response_format
 
-            # Remove response_format from extra_body to avoid duplication
-            extra_body_copy = dict(request.extra_body)
-            del extra_body_copy["response_format"]
-
-            # Add any remaining extra_body parameters
-            if extra_body_copy:
-                payload.update(extra_body_copy)
+            # Add any remaining extra_body parameters that are safe for Responses API
+            safe_extra_body = Translation._filter_responses_extra_body(extra_body_copy)
+            if safe_extra_body:
+                payload.update(safe_extra_body)
 
         return payload
+
+    @staticmethod
+    def _filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
+        """Filter extra_body entries to include only Responses API specific parameters."""
+
+        if not extra_body:
+            return {}
+
+        allowed_keys: set[str] = {"metadata"}
+
+        return {key: value for key, value in extra_body.items() if key in allowed_keys}
 
     @staticmethod
     def enhance_structured_output_response(

@@ -3,6 +3,7 @@ Unit tests for Anthropic front-end converters.
 Tests the conversion between Anthropic and OpenAI API formats.
 """
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -101,6 +102,43 @@ class TestAnthropicConverters:
         assert openai_req["stop"] == ["STOP", "END"]
         assert openai_req["stream"] is True
 
+    def test_anthropic_to_openai_request_converts_tools(self) -> None:
+        """Anthropic tool definitions should map to OpenAI-compatible tools."""
+
+        anthropic_tool = {
+            "type": "tool",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the weather for a city",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string"},
+                    },
+                    "required": ["city"],
+                },
+            },
+        }
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[AnthropicMessage(role="user", content="Weather please")],
+            tools=[anthropic_tool],
+            tool_choice="auto",
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        assert openai_req["tool_choice"] == "auto"
+        assert "tools" in openai_req
+        assert len(openai_req["tools"]) == 1
+        tool = openai_req["tools"][0]
+        assert tool["type"] == "function"
+        function_def = tool["function"]
+        assert function_def["name"] == "get_weather"
+        assert function_def["description"] == "Get the weather for a city"
+        assert function_def["parameters"]["required"] == ["city"]
+
     def test_anthropic_to_openai_request_with_max_output_tokens_alias(self) -> None:
         """Anthropic max_output_tokens should map to OpenAI max_tokens."""
         anthropic_req = AnthropicMessagesRequest.model_validate(
@@ -117,6 +155,84 @@ class TestAnthropicConverters:
 
         assert anthropic_req.max_tokens == 77
         assert openai_req["max_tokens"] == 77
+
+    def test_anthropic_to_openai_request_converts_tool_choice(self) -> None:
+        """Anthropic tool_choice should become OpenAI function tool_choice."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[AnthropicMessage(role="user", content="Hi")],
+            tool_choice={"type": "function", "name": "get_weather"},
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        assert openai_req["tool_choice"] == {
+            "type": "function",
+            "function": {"name": "get_weather"},
+        }
+
+    def test_anthropic_to_openai_request_converts_tool_calls(self) -> None:
+        """Anthropic tool_use blocks should become OpenAI tool_calls."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[
+                AnthropicMessage(
+                    role="assistant",
+                    content=[
+                        {"type": "text", "text": "Using tool"},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "search_docs",
+                            "input": {"query": "weather"},
+                        },
+                    ],
+                )
+            ],
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        msg = openai_req["messages"][0]
+        assert msg["content"] == "Using tool"
+        assert msg["tool_calls"] == [
+            {
+                "id": "toolu_1",
+                "type": "function",
+                "function": {
+                    "name": "search_docs",
+                    "arguments": '{"query": "weather"}',
+                },
+            }
+        ]
+
+    def test_anthropic_to_openai_request_converts_tool_result(self) -> None:
+        """Anthropic tool_result blocks should translate to OpenAI tool messages."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[
+                AnthropicMessage(
+                    role="assistant",
+                    content=[
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_1",
+                            "content": [{"type": "text", "text": "Result data"}],
+                        }
+                    ],
+                )
+            ],
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        msg = openai_req["messages"][0]
+        assert msg["role"] == "tool"
+        assert msg["tool_call_id"] == "toolu_1"
+        assert msg["content"] == "Result data"
 
     def test_openai_to_anthropic_response_basic(self) -> None:
         """Test basic OpenAI to Anthropic response conversion."""
@@ -175,6 +291,72 @@ class TestAnthropicConverters:
         anthropic_response = openai_to_anthropic_response(openai_response)
 
         assert anthropic_response["content"][0]["text"] == "Hello world"
+
+    def test_openai_to_anthropic_response_with_multiple_tool_calls(self) -> None:
+        """Ensure all OpenAI tool calls become Anthropic tool_use blocks with text preserved."""
+        openai_response = {
+            "id": "chatcmpl-tool",
+            "object": "chat.completion",
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Here are the tool results.",
+                        "tool_calls": [
+                            {
+                                "id": "call_weather",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"city": "Paris"}',
+                                },
+                            },
+                            {
+                                "id": "call_news",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_news",
+                                    "arguments": '{"topic": "technology"}',
+                                },
+                            },
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+            },
+        }
+
+        anthropic_response = openai_to_anthropic_response(openai_response)
+
+        content_blocks = anthropic_response["content"]
+        assert len(content_blocks) == 3
+        assert content_blocks[0] == {
+            "type": "text",
+            "text": "Here are the tool results.",
+        }
+
+        tool_blocks = [block for block in content_blocks if block["type"] == "tool_use"]
+        assert len(tool_blocks) == 2
+
+        first_tool = tool_blocks[0]
+        assert first_tool["id"] == "call_weather"
+        assert first_tool["name"] == "get_weather"
+        assert first_tool["input"] == {"city": "Paris"}
+
+        second_tool = tool_blocks[1]
+        assert second_tool["id"] == "call_news"
+        assert second_tool["name"] == "get_news"
+        assert second_tool["input"] == {"topic": "technology"}
+
+        assert anthropic_response["usage"]["input_tokens"] == 11
+        assert anthropic_response["usage"]["output_tokens"] == 7
 
     def test_openai_to_anthropic_response_model_with_empty_choices(self) -> None:
         """Model responses without choices should yield an empty Anthropic message."""
@@ -259,6 +441,22 @@ class TestAnthropicConverters:
 
         assert "content_block_delta" in anthropic_chunk
         assert "Hello" in anthropic_chunk
+
+    def test_openai_to_anthropic_stream_chunk_role_event(self) -> None:
+        """Role-only deltas should produce a message_start event."""
+        chunk = '{"id": "chatcmpl-123", "choices": [{"delta": {"role": "assistant"}}]}'
+
+        anthropic_chunk = openai_to_anthropic_stream_chunk(
+            chunk, "chatcmpl-123", "claude"
+        )
+
+        lines = [line for line in anthropic_chunk.splitlines() if line]
+        assert lines[0] == "event: message_start"
+
+        payload = json.loads(lines[1].split("data: ", 1)[1])
+        assert payload["message"]["role"] == "assistant"
+        assert payload["message"]["id"] == "chatcmpl-123"
+        assert payload["message"]["model"] == "claude"
 
     def test_map_finish_reason(self) -> None:
         """Test finish reason mapping."""

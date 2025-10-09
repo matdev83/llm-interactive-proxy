@@ -138,7 +138,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             data = content
         else:
             # Otherwise try to parse common JSON container types
-            if isinstance(content, str | bytes | bytearray):
+            if isinstance(content, (str, bytes, bytearray)):
                 try:
                     data = json.loads(content)
                 except (json.JSONDecodeError, TypeError, ValueError):
