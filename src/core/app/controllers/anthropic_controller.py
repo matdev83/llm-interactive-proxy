@@ -13,6 +13,7 @@ from fastapi import HTTPException, Request, Response
 
 from src.anthropic_converters import (
     anthropic_to_openai_request,
+    openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessagesRequest
@@ -235,24 +236,54 @@ class AnthropicController:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(f"Returning streaming response: {adapted_response}")
                 if isinstance(adapted_response, StreamingResponse):
-                    # Maintain legacy test expectations by reporting JSON content type
-                    adapted_response.media_type = "application/json"
-                    adapted_response.headers["content-type"] = "application/json"
-                    return adapted_response
-                else:
-                    # If somehow we got a non-streaming response but streaming was requested,
-                    # convert it to a simple streaming response
-                    async def simple_stream() -> AsyncIterator[bytes]:
-                        if hasattr(adapted_response, "body"):
-                            yield adapted_response.body
-                        else:
-                            yield b'data: {"error": "Unable to stream response"}\n\n'
+                    original_iterator = adapted_response.body_iterator
+
+                    async def anthropic_stream() -> AsyncIterator[bytes]:
+                        async for chunk in original_iterator:
+                            if isinstance(chunk, bytes):
+                                chunk_text = chunk.decode("utf-8")
+                            elif isinstance(chunk, str):
+                                chunk_text = chunk
+                            else:
+                                chunk_text = str(chunk)
+
+                            anthropic_chunk = openai_stream_to_anthropic_stream(
+                                chunk_text
+                            )
+                            if not anthropic_chunk:
+                                continue
+                            yield anthropic_chunk.encode("utf-8")
+
+                    raw_headers = dict(adapted_response.headers)
+                    for header in (
+                        "content-length",
+                        "content-encoding",
+                        "transfer-encoding",
+                    ):
+                        raw_headers.pop(header, None)
+                    raw_headers["content-type"] = "text/event-stream"
 
                     return StreamingResponse(
-                        simple_stream(),  # type: ignore[arg-type]
+                        anthropic_stream(),
+                        status_code=adapted_response.status_code,
                         media_type="text/event-stream",
-                        headers=getattr(adapted_response, "headers", {}),
+                        headers=raw_headers,
+                        background=adapted_response.background,
                     )
+
+                # If somehow we got a non-streaming response but streaming was requested,
+                # convert it to a simple streaming response
+                async def simple_stream() -> AsyncIterator[bytes]:
+                    if hasattr(adapted_response, "body"):
+                        yield adapted_response.body
+                    else:
+                        yield b'data: {"error": "Unable to stream response"}\n\n'
+
+                return StreamingResponse(
+                    simple_stream(),  # type: ignore[arg-type]
+                    media_type="text/event-stream",
+                    headers=getattr(adapted_response, "headers", {}),
+                )
             else:
                 # For non-streaming, return Anthropic-formatted JSON response
                 if logger.isEnabledFor(logging.INFO):

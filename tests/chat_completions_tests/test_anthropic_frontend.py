@@ -175,11 +175,12 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
         ) as res:
             # For streaming, we should get a 200 response
             assert res.status_code == 200
-            text = ""
-            for chunk in res.iter_text():
-                text += chunk
+            assert res.headers.get("content-type", "").startswith("text/event-stream")
+            text = "".join(res.iter_text())
             # Check that we get Anthropic streaming format
-            assert "content_block_delta" in text or "delta" in text
+            assert "message_start" in text
+            assert "content_block_delta" in text
+            assert "message_delta" in text
             mock_process.assert_awaited_once()
 
 
