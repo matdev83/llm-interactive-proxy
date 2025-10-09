@@ -2,6 +2,7 @@ import pytest
 from src.core.commands.parser import CommandParser
 from src.core.commands.service import NewCommandService
 from src.core.domain.chat import ChatMessage, MessageContentPartText
+from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
@@ -109,3 +110,24 @@ async def test_process_messages_processes_command_in_last_message_and_stops() ->
     assert len(processed_messages) == 2
     assert processed_messages[0].content.startswith("!/hello")
     assert processed_messages[1].content in ("", " ")
+
+
+@pytest.mark.asyncio
+async def test_process_messages_uses_runtime_command_prefix() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    app_state = ApplicationStateService()
+    app_state.set_command_prefix("$/")
+
+    service = NewCommandService(
+        session_service,
+        command_parser,
+        app_state=app_state,
+    )
+    processor = CoreCommandProcessor(service)
+
+    messages = [ChatMessage(role="user", content="$/hello")]
+    result = await processor.process_messages(messages, session_id="test-session")
+
+    assert result.command_executed is True
+    assert command_parser.command_prefix == "$/"

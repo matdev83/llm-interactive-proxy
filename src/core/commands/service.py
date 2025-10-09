@@ -11,6 +11,7 @@ from src.core.commands.registry import get_all_commands, get_command_handler
 from src.core.domain import chat as models
 from src.core.domain.chat import ChatMessage
 from src.core.domain.processed_result import ProcessedResult
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.session_service_interface import ISessionService
 
@@ -27,6 +28,7 @@ class NewCommandService(ICommandService):
         session_service: ISessionService,
         command_parser: CommandParser,
         strict_command_detection: bool = False,
+        app_state: IApplicationState | None = None,
     ):
         """
         Initializes the command service.
@@ -39,6 +41,40 @@ class NewCommandService(ICommandService):
         self.session_service = session_service
         self.command_parser = command_parser
         self.strict_command_detection = strict_command_detection
+        self._app_state = app_state
+
+    def _refresh_command_prefix(self) -> None:
+        """Synchronize the parser's prefix with the current application state."""
+        if self._app_state is None:
+            return
+
+        try:
+            prefix = self._app_state.get_command_prefix()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Unable to resolve command prefix from application state: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return
+
+        if not isinstance(prefix, str) or not prefix:
+            return
+
+        if prefix == self.command_parser.command_prefix:
+            return
+
+        try:
+            self.command_parser.set_command_prefix(prefix)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to update command parser prefix to '%s': %s",
+                    prefix,
+                    exc,
+                    exc_info=True,
+                )
 
     def _get_last_non_blank_line_content(self, text: str) -> str:
         """
@@ -73,6 +109,8 @@ class NewCommandService(ICommandService):
         Returns:
             A ProcessedResult object.
         """
+        self._refresh_command_prefix()
+
         if not messages:
             return ProcessedResult(
                 modified_messages=[], command_executed=False, command_results=[]

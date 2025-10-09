@@ -324,10 +324,12 @@ def register_core_services(
         session_service = provider.get_required_service(SessionService)
         command_parser = provider.get_required_service(CommandParser)
         config = provider.get_required_service(AppConfig)
+        app_state = provider.get_service(IApplicationState)
         return NewCommandService(
             session_service,
             command_parser,
             strict_command_detection=config.strict_command_detection,
+            app_state=app_state,
         )
 
     # Register CommandService and bind to interface
