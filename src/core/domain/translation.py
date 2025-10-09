@@ -362,15 +362,34 @@ class Translation(BaseTranslator):
         Translate an Anthropic request to a CanonicalChatRequest.
         """
         # Use the helper method to safely access request parameters
+        system_prompt = Translation._get_request_param(request, "system")
+        raw_messages = Translation._get_request_param(request, "messages", [])
+        normalized_messages: list[Any] = []
+
+        if system_prompt:
+            normalized_messages.append({"role": "system", "content": system_prompt})
+
+        if raw_messages:
+            for message in raw_messages:
+                normalized_messages.append(message)
+
+        stop_param = Translation._get_request_param(request, "stop")
+        stop_sequences = Translation._get_request_param(request, "stop_sequences")
+        normalized_stop = stop_param
+        if (
+            normalized_stop is None or normalized_stop == [] or normalized_stop == ""
+        ) and stop_sequences not in (None, [], ""):
+            normalized_stop = stop_sequences
+
         return CanonicalChatRequest(
             model=Translation._get_request_param(request, "model"),
-            messages=Translation._get_request_param(request, "messages", []),
+            messages=normalized_messages,
             temperature=Translation._get_request_param(request, "temperature"),
             top_p=Translation._get_request_param(request, "top_p"),
             top_k=Translation._get_request_param(request, "top_k"),
             n=Translation._get_request_param(request, "n"),
             stream=Translation._get_request_param(request, "stream"),
-            stop=Translation._get_request_param(request, "stop"),
+            stop=normalized_stop,
             max_tokens=Translation._get_request_param(request, "max_tokens"),
             presence_penalty=Translation._get_request_param(
                 request, "presence_penalty"
@@ -905,6 +924,147 @@ class Translation(BaseTranslator):
         # For simplicity, we'll return the chunk as a dictionary.
         # In a more complex scenario, you might map this to a Pydantic model.
         return dict(chunk)
+
+    @staticmethod
+    def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+        """Translate an OpenAI Responses streaming chunk to canonical format."""
+        import json
+        import time
+
+        if isinstance(chunk, bytes | bytearray):
+            try:
+                chunk = chunk.decode("utf-8")
+            except UnicodeDecodeError:
+                return {
+                    "error": "Invalid chunk format: unable to decode bytes",
+                }
+
+        if isinstance(chunk, str):
+            stripped_chunk = chunk.strip()
+
+            if not stripped_chunk:
+                return {"error": "Invalid chunk format: empty string"}
+
+            if stripped_chunk.startswith(":"):
+                return {
+                    "id": f"resp-{int(time.time())}",
+                    "object": "response.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": None},
+                    ],
+                }
+
+            if stripped_chunk.startswith("data:"):
+                stripped_chunk = stripped_chunk[5:].strip()
+
+            if stripped_chunk == "[DONE]":
+                return {
+                    "id": f"resp-{int(time.time())}",
+                    "object": "response.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "stop"},
+                    ],
+                }
+
+            try:
+                chunk = json.loads(stripped_chunk)
+            except json.JSONDecodeError as exc:
+                return {
+                    "error": "Invalid chunk format: expected JSON after 'data:' prefix",
+                    "details": {"message": str(exc)},
+                }
+
+        if not isinstance(chunk, dict):
+            return {"error": "Invalid chunk format: expected a dictionary"}
+
+        chunk_id = chunk.get("id", f"resp-{int(time.time())}")
+        created = chunk.get("created", int(time.time()))
+        model = chunk.get("model", "unknown")
+        object_type = chunk.get("object", "response.chunk")
+        choices = chunk.get("choices") or []
+
+        if not isinstance(choices, list) or not choices:
+            choices = [
+                {"index": 0, "delta": {}, "finish_reason": None},
+            ]
+
+        primary_choice = choices[0] or {}
+        finish_reason = primary_choice.get("finish_reason")
+        delta = primary_choice.get("delta") or {}
+
+        if not isinstance(delta, dict):
+            delta = {"content": str(delta)}
+
+        content_value = delta.get("content")
+        if isinstance(content_value, list):
+            text_parts: list[str] = []
+            for part in content_value:
+                if not isinstance(part, dict):
+                    continue
+                part_type = part.get("type")
+                if part_type in {"output_text", "text", "input_text"}:
+                    text_value = part.get("text") or part.get("value") or ""
+                    if text_value:
+                        text_parts.append(str(text_value))
+            delta["content"] = "".join(text_parts)
+        elif isinstance(content_value, dict):
+            delta["content"] = json.dumps(content_value)
+        elif content_value is None:
+            delta.pop("content", None)
+        else:
+            delta["content"] = str(content_value)
+
+        tool_calls = delta.get("tool_calls")
+        if isinstance(tool_calls, list):
+            normalized_tool_calls: list[dict[str, Any]] = []
+            for tool_call in tool_calls:
+                if isinstance(tool_call, dict):
+                    call_data = dict(tool_call)
+                else:
+                    function = getattr(tool_call, "function", None)
+                    call_data = {
+                        "id": getattr(tool_call, "id", ""),
+                        "type": getattr(tool_call, "type", "function"),
+                        "function": {
+                            "name": getattr(function, "name", ""),
+                            "arguments": getattr(function, "arguments", "{}"),
+                        },
+                    }
+
+                function_payload = call_data.get("function") or {}
+                if isinstance(function_payload, dict):
+                    arguments = function_payload.get("arguments")
+                    if isinstance(arguments, dict | list):
+                        function_payload["arguments"] = json.dumps(arguments)
+                    elif arguments is None:
+                        function_payload["arguments"] = "{}"
+                    else:
+                        function_payload["arguments"] = str(arguments)
+
+                normalized_tool_calls.append(call_data)
+
+            if normalized_tool_calls:
+                delta["tool_calls"] = normalized_tool_calls
+            else:
+                delta.pop("tool_calls", None)
+
+        return {
+            "id": chunk_id,
+            "object": object_type,
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": primary_choice.get("index", 0),
+                    "delta": delta,
+                    "finish_reason": finish_reason,
+                }
+            ],
+        }
 
     @staticmethod
     def openrouter_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -1861,10 +2021,10 @@ class Translation(BaseTranslator):
             if choice.message:
                 # Try to parse the content as JSON for structured output
                 parsed_content = None
-                content = choice.message.content or ""
+                raw_content = choice.message.content or ""
 
                 # Clean up content for JSON parsing
-                cleaned_content = content.strip()
+                cleaned_content = raw_content.strip()
 
                 # Handle cases where the model might wrap JSON in markdown code blocks
                 if cleaned_content.startswith("```json") and cleaned_content.endswith(
@@ -1881,7 +2041,7 @@ class Translation(BaseTranslator):
                     try:
                         parsed_content = json.loads(cleaned_content)
                         # If parsing succeeded, use the cleaned content as the actual content
-                        content = cleaned_content
+                        raw_content = cleaned_content
                     except json.JSONDecodeError:
                         # Content is not valid JSON, leave parsed as None
                         # Try to extract JSON from the content if it contains other text
@@ -1896,18 +2056,51 @@ class Translation(BaseTranslator):
                             if json_match:
                                 potential_json = json_match.group(0)
                                 parsed_content = json.loads(potential_json)
-                                content = potential_json
+                                raw_content = potential_json
                         except (json.JSONDecodeError, AttributeError):
                             # Still not valid JSON, leave parsed as None
                             pass
 
+                message_payload: dict[str, Any] = {
+                    "role": choice.message.role,
+                    "content": raw_content or None,
+                    "parsed": parsed_content,
+                }
+
+                tool_calls_payload: list[dict[str, Any]] = []
+                if choice.message.tool_calls:
+                    for tool_call in choice.message.tool_calls:
+                        if hasattr(tool_call, "model_dump"):
+                            tool_data = tool_call.model_dump()
+                        elif isinstance(tool_call, dict):
+                            tool_data = dict(tool_call)
+                        else:
+                            function = getattr(tool_call, "function", None)
+                            tool_data = {
+                                "id": getattr(tool_call, "id", ""),
+                                "type": getattr(tool_call, "type", "function"),
+                                "function": {
+                                    "name": getattr(function, "name", ""),
+                                    "arguments": getattr(function, "arguments", "{}"),
+                                },
+                            }
+
+                        function_payload = tool_data.get("function")
+                        if isinstance(function_payload, dict):
+                            arguments = function_payload.get("arguments")
+                            if isinstance(arguments, dict | list):
+                                function_payload["arguments"] = json.dumps(arguments)
+                            elif arguments is None:
+                                function_payload["arguments"] = "{}"
+
+                        tool_calls_payload.append(tool_data)
+
+                if tool_calls_payload:
+                    message_payload["tool_calls"] = tool_calls_payload
+
                 response_choice = {
                     "index": choice.index,
-                    "message": {
-                        "role": choice.message.role,
-                        "content": content,
-                        "parsed": parsed_content,
-                    },
+                    "message": message_payload,
                     "finish_reason": choice.finish_reason or "stop",
                 }
                 choices.append(response_choice)

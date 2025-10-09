@@ -116,6 +116,8 @@ class AnthropicController:
                 frequency_penalty=openai_request_data.get("frequency_penalty"),
                 presence_penalty=openai_request_data.get("presence_penalty"),
                 stop=openai_request_data.get("stop"),
+                tools=openai_request_data.get("tools"),
+                tool_choice=openai_request_data.get("tool_choice"),
             )
 
             # Process the request using the request processor

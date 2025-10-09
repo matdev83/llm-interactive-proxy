@@ -203,11 +203,18 @@ def test_proxy_exception_handler_logs_details_at_debug(
     assert any("Error details" in message for message in caplog.messages)
 
 
-def test_proxy_exception_handler_non_proxy_exception() -> None:
+def test_proxy_exception_handler_non_proxy_exception(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     request = make_request("/v1/completions")
     exc = RuntimeError("unexpected failure")
 
-    response = call_handler(proxy_exception_handler, request, exc)  # type: ignore[arg-type]
+    with caplog.at_level("WARNING", logger="src.core.app.error_handlers"):
+        response = call_handler(
+            proxy_exception_handler,
+            request,
+            exc,
+        )  # type: ignore[arg-type]
 
     assert response.status_code == 500
     payload = parse_json_response(response)
@@ -220,6 +227,38 @@ def test_proxy_exception_handler_non_proxy_exception() -> None:
             }
         }
     }
+    assert any("RuntimeError: unexpected failure" in message for message in caplog.messages)
+
+
+def test_proxy_exception_handler_non_proxy_exception_with_status(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class StatusError(Exception):
+        def __init__(self) -> None:
+            super().__init__("conflict detected")
+            self.status_code = 409
+
+    request = make_request("/v1/completions")
+
+    with caplog.at_level("WARNING", logger="src.core.app.error_handlers"):
+        response = call_handler(
+            proxy_exception_handler,
+            request,
+            StatusError(),
+        )  # type: ignore[arg-type]
+
+    assert response.status_code == 409
+    payload = parse_json_response(response)
+    assert payload == {
+        "detail": {
+            "error": {
+                "message": "conflict detected",
+                "type": "StatusError",
+                "status_code": 409,
+            }
+        }
+    }
+    assert any("StatusError (409): conflict detected" in message for message in caplog.messages)
 
 
 def test_general_exception_handler_chat_completions(
@@ -240,10 +279,17 @@ def test_general_exception_handler_chat_completions(
     }
 
 
-def test_general_exception_handler_standard_request() -> None:
+def test_general_exception_handler_standard_request(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     request = make_request("/v1/embeddings")
 
-    response = call_handler(general_exception_handler, request, RuntimeError("boom"))
+    with caplog.at_level("ERROR", logger="src.core.app.error_handlers"):
+        response = call_handler(
+            general_exception_handler,
+            request,
+            RuntimeError("boom"),
+        )
 
     assert response.status_code == 500
     payload = parse_json_response(response)
@@ -256,6 +302,7 @@ def test_general_exception_handler_standard_request() -> None:
             }
         }
     }
+    assert any(record.exc_info for record in caplog.records)
 
 
 def test_configure_exception_handlers_registers_handlers() -> None:

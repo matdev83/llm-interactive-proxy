@@ -237,7 +237,11 @@ class OpenAIConnector(LLMBackend):
             # Return a domain-level streaming envelope (raw bytes iterator)
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, headers, domain_request.session_id or ""
+                    url,
+                    payload,
+                    headers,
+                    domain_request.session_id or "",
+                    "openai",
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -420,6 +424,7 @@ class OpenAIConnector(LLMBackend):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        stream_format: str,
     ) -> AsyncIterator[ProcessedResponse]:
         """Return an AsyncIterator of ProcessedResponse objects (transport-agnostic)"""
 
@@ -431,7 +436,12 @@ class OpenAIConnector(LLMBackend):
         request = self.client.build_request(
             "POST", url, json=payload, headers=guarded_headers
         )
-        response = await self.client.send(request, stream=True)
+        try:
+            response = await self.client.send(request, stream=True)
+        except httpx.RequestError as exc:  # Normalize network failures
+            raise ServiceUnavailableError(
+                message=f"Could not connect to backend ({exc})"
+            ) from exc
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
@@ -459,7 +469,7 @@ class OpenAIConnector(LLMBackend):
             async def text_generator() -> AsyncGenerator[str, None]:
                 async for chunk in response.aiter_text():
                     yield self.translation_service.to_domain_stream_chunk(
-                        chunk, "openai"
+                        chunk, stream_format
                     )
 
             try:
@@ -576,7 +586,11 @@ class OpenAIConnector(LLMBackend):
             # Return a domain-level streaming envelope
             try:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, guarded_headers, domain_request.session_id or ""
+                    url,
+                    payload,
+                    guarded_headers,
+                    domain_request.session_id or "",
+                    "openai-responses",
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -625,7 +639,7 @@ class OpenAIConnector(LLMBackend):
         # Convert to domain response first, then back to ensure consistency
         # We'll treat the Responses API response as a special case of OpenAI response
         domain_response = self.translation_service.to_domain_response(
-            response_data, "openai"
+            response_data, "openai-responses"
         )
 
         # Convert back to Responses API format for the final response

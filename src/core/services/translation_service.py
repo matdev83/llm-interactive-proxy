@@ -244,8 +244,10 @@ class TranslationService:
         """
         if source_format == "gemini":
             return Translation.gemini_to_domain_stream_chunk(chunk)
-        elif source_format in {"openai", "openai-responses"}:
+        elif source_format == "openai":
             return Translation.openai_to_domain_stream_chunk(chunk)
+        elif source_format == "openai-responses":
+            return Translation.responses_to_domain_stream_chunk(chunk)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_stream_chunk(chunk)
         elif source_format == "code_assist":
