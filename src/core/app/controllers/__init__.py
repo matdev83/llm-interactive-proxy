@@ -664,11 +664,24 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                     continue
 
                                 if isinstance(chunk_payload, str):
-                                    canonical_chunk = {
-                                        "choices": [
-                                            {"delta": {"content": chunk_payload}}
-                                        ]
-                                    }
+                                    # Try to parse as JSON first
+                                    try:
+                                        parsed_json = json.loads(chunk_payload)
+                                        if isinstance(parsed_json, dict):
+                                            canonical_chunk = parsed_json
+                                        else:
+                                            canonical_chunk = {
+                                                "choices": [
+                                                    {"delta": {"content": chunk_payload}}
+                                                ]
+                                            }
+                                    except (json.JSONDecodeError, TypeError):
+                                        # Not valid JSON, treat as plain content
+                                        canonical_chunk = {
+                                            "choices": [
+                                                {"delta": {"content": chunk_payload}}
+                                            ]
+                                        }
                                 elif isinstance(chunk_payload, dict):
                                     canonical_chunk = chunk_payload
                                 else:

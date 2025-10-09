@@ -314,8 +314,8 @@ class TestGeminiStreamGenerateContent:
 
         async def mock_call_completion(*args, **kwargs):
             async def _chunk_generator():
-                yield b'data: {"choices": [{"index": 0, "delta": {"content": "Hello"}}]}\n\n'
-                yield b"data: [DONE]\n\n"
+                # Provide raw content bytes that should be wrapped in ProcessedResponse
+                yield '{"choices": [{"index": 0, "delta": {"content": "Hello"}}]}'
 
             return SimpleNamespace(content=_chunk_generator())
 
