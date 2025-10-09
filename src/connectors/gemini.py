@@ -429,12 +429,26 @@ class GeminiBackend(LLMBackend):
         if "generationConfig" in payload:
             generation_config = payload["generationConfig"]
             if isinstance(generation_config, dict):
-                self._apply_reasoning_effort_to_generation_config(
-                    generation_config,
-                    generation_config.get("thinkingConfig", {}).get(
-                        "reasoning_effort"
-                    ),
+                thinking_config = generation_config.get("thinkingConfig")
+                reasoning_effort = None
+
+                if isinstance(thinking_config, dict):
+                    reasoning_effort = thinking_config.get("reasoning_effort")
+
+                top_level_reasoning_effort = generation_config.get(
+                    "reasoning_effort"
                 )
+                if top_level_reasoning_effort is not None:
+                    reasoning_effort = top_level_reasoning_effort
+
+                if reasoning_effort is not None:
+                    self._apply_reasoning_effort_to_generation_config(
+                        generation_config, reasoning_effort
+                    )
+
+                if isinstance(thinking_config, dict):
+                    thinking_config.pop("reasoning_effort", None)
+
                 generation_config.pop("reasoning_effort", None)
         # Debug output
         if logger.isEnabledFor(logging.DEBUG):
@@ -500,7 +514,21 @@ class GeminiBackend(LLMBackend):
         if not reasoning_effort:
             return
 
-        thinking_config = generation_config.setdefault("thinkingConfig", {})
+        existing_thinking_config = generation_config.get("thinkingConfig")
+
+        if existing_thinking_config is None:
+            thinking_config: dict[str, Any] = {}
+            generation_config["thinkingConfig"] = thinking_config
+        elif isinstance(existing_thinking_config, dict):
+            thinking_config = existing_thinking_config
+        else:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping reasoning_effort translation because thinkingConfig is %s",
+                    type(existing_thinking_config).__name__,
+                )
+            return
+
         thinking_config.pop("reasoning_effort", None)
 
         if "thinkingBudget" not in thinking_config:
