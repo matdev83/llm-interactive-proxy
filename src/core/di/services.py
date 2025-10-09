@@ -142,10 +142,18 @@ def get_service_collection() -> ServiceCollection:
         # order-dependent failures. register_core_services is idempotent.
         try:
             register_core_services(_service_collection, None)
-        except Exception:
+        except Exception as exc:
             logging.getLogger(__name__).exception(
                 "Failed to register core services into global service collection"
             )
+            _service_collection = None
+            raise ServiceResolutionError(
+                "Failed to register core services",
+                details={
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            ) from exc
     return _service_collection
 
 

@@ -8,14 +8,19 @@ import pytest
 from src.core.domain.commands.loop_detection_commands.tool_loop_max_repeats_command import (
     ToolLoopMaxRepeatsCommand,
 )
-from src.core.domain.configuration.loop_detection_config import LoopDetectionConfiguration
+from src.core.domain.configuration.loop_detection_config import (
+    LoopDetectionConfiguration,
+)
 from src.core.domain.session import Session, SessionState, SessionStateAdapter
 
 
 @pytest.fixture()
 def session() -> Session:
     """Return a session with default loop detection configuration."""
-    return Session("session-id", state=SessionState(loop_config=LoopDetectionConfiguration()))
+    return Session(
+        "session-id", state=SessionState(loop_config=LoopDetectionConfiguration())
+    )
+
 
 def test_metadata_describes_command() -> None:
     """The command exposes metadata describing its usage."""
@@ -23,7 +28,10 @@ def test_metadata_describes_command() -> None:
 
     assert command.name == "tool-loop-max-repeats"
     assert command.format == "tool-loop-max-repeats(max_repeats=<number>)"
-    assert command.description == "Set the maximum number of repeats for tool loop detection"
+    assert (
+        command.description
+        == "Set the maximum number of repeats for tool loop detection"
+    )
     assert command.examples == ["!/tool-loop-max-repeats(max_repeats=5)"]
 
 
@@ -74,11 +82,15 @@ def test_execute_updates_loop_config_with_valid_value(session: Session) -> None:
     assert session.state.loop_config.tool_loop_max_repeats is None
 
 
-def test_execute_reports_errors_from_loop_config(monkeypatch: pytest.MonkeyPatch, session: Session) -> None:
+def test_execute_reports_errors_from_loop_config(
+    monkeypatch: pytest.MonkeyPatch, session: Session
+) -> None:
     """Exceptions while updating the configuration are surfaced to the caller."""
     command = ToolLoopMaxRepeatsCommand()
 
-    def raise_error(_: LoopDetectionConfiguration, __: int) -> LoopDetectionConfiguration:
+    def raise_error(
+        _: LoopDetectionConfiguration, __: int
+    ) -> LoopDetectionConfiguration:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(

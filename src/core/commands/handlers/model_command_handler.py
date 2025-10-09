@@ -45,15 +45,20 @@ class ModelCommandHandler(ICommandHandler):
     async def handle(self, command: Command, session: Session) -> CommandResult:
         args: Mapping[str, Any] = command.args
         result = await self._model_command.execute(args, session)
+
+        if result.new_state is not None:
+            session.state = result.new_state
+            result.new_state = session.state
+
         if not result.success:
             return result
 
         if self._command_service is not None:
             return CommandResult(
-                name=result.name,
-                success=True,
-                message="Model command executed",
-                data=getattr(result, "data", None),
-                new_state=getattr(result, "new_state", None),
+                name=result.name or self.command_name,
+                success=result.success,
+                message=result.message,
+                data=result.data,
+                new_state=result.new_state,
             )
         return result

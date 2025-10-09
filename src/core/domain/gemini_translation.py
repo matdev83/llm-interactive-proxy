@@ -67,7 +67,7 @@ def gemini_content_to_chat_messages(
             else:
                 content_text = str(response_payload)
 
-            tool_call_id = function_response.get("id") or function_response.get("name")
+            tool_call_id = function_response.get("toolCallId") or function_response.get("tool_call_id") or function_response.get("id") or function_response.get("name")
             tool_name = function_response.get("name")
 
             chat_messages.append(
@@ -92,8 +92,40 @@ def gemini_content_to_chat_messages(
         # Complex case: multiple parts or non-text parts
         content_parts: list[MessageContentPartText | MessageContentPartImage] = []
         tool_calls: list[ToolCall] = []
+        tool_responses: list[ChatMessage] = []
 
         for part in parts:
+            function_response = part.get("functionResponse") or part.get(
+                "function_response"
+            )
+            if function_response:
+                response_payload = function_response.get("response")
+                if isinstance(response_payload, str):
+                    response_content = response_payload
+                else:
+                    try:
+                        response_content = json.dumps(response_payload)
+                    except (TypeError, ValueError):
+                        response_content = str(response_payload)
+
+                tool_message_kwargs: dict[str, Any] = {
+                    "role": "tool",
+                    "content": response_content,
+                }
+
+                name = function_response.get("name")
+                if isinstance(name, str) and name:
+                    tool_message_kwargs["name"] = name
+
+                tool_call_id = function_response.get("toolCallId") or function_response.get(
+                    "tool_call_id"
+                )
+                if isinstance(tool_call_id, str) and tool_call_id:
+                    tool_message_kwargs["tool_call_id"] = tool_call_id
+
+                tool_responses.append(ChatMessage(**tool_message_kwargs))
+                continue
+
             if "text" in part:
                 content_parts.append(MessageContentPartText(text=part["text"]))
                 continue
@@ -128,21 +160,25 @@ def gemini_content_to_chat_messages(
                     )
                     content_parts.append(image_part)  # type: ignore[arg-type]
 
-        if not content_parts and not tool_calls:
+        if not content_parts and not tool_calls and not tool_responses:
             continue
 
-        message_content: (
-            str | list[MessageContentPartText | MessageContentPartImage] | None
-        )
-        message_content = content_parts if content_parts else None
-
-        chat_messages.append(
-            ChatMessage(
-                role=role,
-                content=message_content,
-                tool_calls=tool_calls or None,
+        if content_parts or tool_calls:
+            message_content: (
+                str | list[MessageContentPartText | MessageContentPartImage] | None
             )
-        )
+            message_content = content_parts if content_parts else None
+
+            chat_messages.append(
+                ChatMessage(
+                    role=role,
+                    content=message_content,
+                    tool_calls=tool_calls or None,
+                )
+            )
+
+        if tool_responses:
+            chat_messages.extend(tool_responses)
 
     return chat_messages
 

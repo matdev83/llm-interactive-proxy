@@ -88,15 +88,16 @@ class TestGeminiContentToMessages:
         assert json.loads(tool_call.function.arguments) == {"foo": "bar"}
 
     def test_function_response_content(self) -> None:
-        """Test conversion of Gemini functionResponse parts to tool messages."""
+        """Test conversion of Gemini function responses to tool messages."""
         contents = [
             {
                 "role": "user",
                 "parts": [
                     {
                         "functionResponse": {
-                            "name": "lookup_weather",
-                            "response": {"temperature": "72", "unit": "F"},
+                            "name": "get_weather",
+                            "toolCallId": "call_123",
+                            "response": {"weather": "sunny"},
                         }
                     }
                 ],
@@ -108,9 +109,9 @@ class TestGeminiContentToMessages:
         assert len(messages) == 1
         message = messages[0]
         assert message.role == "tool"
-        assert message.name == "lookup_weather"
-        assert message.tool_call_id == "lookup_weather"
-        assert message.content == json.dumps({"temperature": "72", "unit": "F"})
+        assert message.name == "get_weather"
+        assert message.tool_call_id == "call_123"
+        assert message.content == json.dumps({"weather": "sunny"})
 
 
 class TestGeminiRequestToCanonical:
