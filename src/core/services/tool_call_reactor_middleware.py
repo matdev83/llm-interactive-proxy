@@ -164,11 +164,13 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             else:
                 tool_arguments = tool_arguments_raw
 
+            full_response = getattr(response, "content", None)
+
             tool_context = ToolCallContext(
                 session_id=session_id,
                 backend_name=backend_name,
                 model_name=model_name,
-                full_response=response.content,
+                full_response=full_response,
                 tool_name=function_payload.get("name", "unknown"),
                 tool_arguments=tool_arguments,
                 calling_agent=calling_agent,
