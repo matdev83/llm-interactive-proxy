@@ -74,11 +74,21 @@ class OpenAIConnector(LLMBackend):
         self._health_check_enabled: bool = not disable_health_checks
 
     def get_headers(self) -> dict[str, str]:
-        if not self.api_key:
-            return ensure_loop_guard_header({})
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        """Return request headers including API key and per-request identity."""
+
+        headers: dict[str, str] = {}
+
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
         if self.identity:
-            headers.update(self.identity.get_resolved_headers(None))
+            try:
+                identity_headers = self.identity.get_resolved_headers(None)
+            except Exception:
+                identity_headers = {}
+            if identity_headers:
+                headers.update(identity_headers)
+
         return ensure_loop_guard_header(headers)
 
     async def initialize(self, **kwargs: Any) -> None:
