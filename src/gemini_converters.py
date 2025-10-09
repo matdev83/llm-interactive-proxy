@@ -77,16 +77,22 @@ def openai_to_gemini_contents(messages: list[ChatMessage]) -> list[Content]:
 
         # Determine role mapping
         role = "user"  # Default role
+        is_tool_message = False
         if message.role == "assistant":
             role = "model"
-        elif message.role == "function":
+        elif message.role in {"function", "tool"}:
             role = "function"
+            is_tool_message = True
         elif message.role == "user":
             role = "user"
 
         # Create content with text or parts
         if isinstance(message.content, str):
-            part = Part(text=message.content)  # type: ignore[call-arg]
+            if is_tool_message:
+                function_response = _tool_message_to_function_response(message)
+                part = Part(function_response=function_response)  # type: ignore[call-arg]
+            else:
+                part = Part(text=message.content)  # type: ignore[call-arg]
             content = Content(parts=[part], role=role)
             contents.append(content)
         elif isinstance(message.content, list):
@@ -436,6 +442,27 @@ def _tool_call_to_function_call(tool_call: dict[str, Any] | Any) -> Part:
         name = getattr(getattr(tool_call, "function", {}), "name", "function")
     fc = {"name": name, "args": args_obj}
     return Part(function_call=fc)  # type: ignore[call-arg]
+
+
+def _tool_message_to_function_response(message: ChatMessage) -> dict[str, Any]:
+    """Convert an OpenAI tool message to a Gemini functionResponse payload."""
+
+    name = message.name or message.tool_call_id or "function"
+
+    content = message.content
+    response_payload: Any
+    if isinstance(content, str):
+        try:
+            parsed_content = json.loads(content)
+        except json.JSONDecodeError:
+            parsed_content = {"result": content}
+        response_payload = parsed_content
+    elif content is None:
+        response_payload = {}
+    else:
+        response_payload = {"result": content}
+
+    return {"name": name, "response": response_payload}
 
 
 def _openai_delta_to_part(choice_fragment: dict[str, Any]) -> Part | None:

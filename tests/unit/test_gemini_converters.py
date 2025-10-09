@@ -86,6 +86,30 @@ class TestMessageConversion:
         assert contents[0].role == "model"
         assert contents[0].parts[0].text == "Hello there!"
 
+    def test_openai_tool_message_to_function_response(self) -> None:
+        """Tool role messages should convert to Gemini functionResponse parts."""
+
+        messages = [
+            ChatMessage(
+                role="tool",
+                content='{"result": "42"}',
+                name="compute_answer",
+                tool_call_id="call_compute_answer_1",
+            )
+        ]
+
+        contents = openai_to_gemini_contents(messages)
+
+        assert len(contents) == 1
+        tool_content = contents[0]
+        assert tool_content.role == "function"
+        assert len(tool_content.parts) == 1
+        function_response = tool_content.parts[0].function_response
+        assert function_response == {
+            "name": "compute_answer",
+            "response": {"result": "42"},
+        }
+
     def test_openai_to_gemini_system_role(self) -> None:
         """Test that system messages are filtered out."""
         messages = [
