@@ -8,6 +8,7 @@ including HTTP headers, cookies, and configuration settings.
 from __future__ import annotations
 
 import logging
+import uuid
 
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.configuration_interface import IConfig
@@ -48,6 +49,50 @@ class DefaultSessionResolver(ISessionResolver):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Could not read default session ID from config: {e}")
 
+    def _get_cached_generated_id(self, context: RequestContext) -> str | None:
+        """Retrieve a previously generated session identifier from context."""
+
+        # RequestContext is a mutable dataclass; tests and adapters may attach
+        # generated IDs directly for reuse within the same request lifecycle.
+        cached_attr = getattr(context, "_generated_session_id", None)
+        if isinstance(cached_attr, str) and cached_attr:
+            return cached_attr
+
+        state_obj = getattr(context, "state", None)
+        if isinstance(state_obj, dict):
+            cached_state = state_obj.get("_generated_session_id")
+            if isinstance(cached_state, str) and cached_state:
+                return cached_state
+
+        return None
+
+    def _store_generated_id(self, context: RequestContext, session_id: str) -> None:
+        """Persist the generated identifier on the context for reuse."""
+
+        try:
+            setattr(context, "_generated_session_id", session_id)
+        except Exception:
+            pass
+
+        state_obj = getattr(context, "state", None)
+        if isinstance(state_obj, dict):
+            state_obj["_generated_session_id"] = session_id
+        else:
+            try:
+                setattr(state_obj, "_generated_session_id", session_id)
+            except Exception:
+                pass
+
+    def _generate_session_id(self) -> str:
+        """Generate a unique fallback session identifier."""
+
+        base = self.default_session_id or "session"
+        base = base.strip() or "session"
+        unique_suffix = uuid.uuid4().hex
+        if base.endswith("-"):
+            return f"{base}{unique_suffix}"
+        return f"{base}-{unique_suffix}"
+
     async def resolve_session_id(self, context: RequestContext) -> str:
         """Resolve a session ID from a request context.
 
@@ -86,5 +131,18 @@ class DefaultSessionResolver(ISessionResolver):
         if cookie_value is not None and isinstance(cookie_value, str):
             return cookie_value
 
-        # Fall back to default session ID
-        return self.default_session_id
+        # Fall back to a generated session ID to avoid cross-session leakage.
+        cached = self._get_cached_generated_id(context)
+        if cached:
+            return cached
+
+        generated_id = self._generate_session_id()
+        self._store_generated_id(context, generated_id)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Generated new session_id '%s' because no identifier was provided",
+                generated_id,
+            )
+
+        return generated_id
