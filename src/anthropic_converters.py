@@ -37,6 +37,20 @@ def anthropic_to_openai_request(
         "stop": anthropic_request.stop_sequences,
         "stream": anthropic_request.stream or False,
     }
+
+    # Propagate user metadata when available so downstream services can
+    # maintain per-user accounting. Anthropic typically exposes the user
+    # identifier through the ``metadata`` payload.
+    metadata = anthropic_request.metadata
+    if isinstance(metadata, dict):
+        user_candidate = (
+            metadata.get("user_id")
+            or metadata.get("user")
+            or metadata.get("client_user_id")
+        )
+        if isinstance(user_candidate, str) and user_candidate.strip():
+            result["user"] = user_candidate.strip()
+
     return result
 
 

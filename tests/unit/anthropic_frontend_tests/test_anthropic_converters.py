@@ -99,6 +99,19 @@ class TestAnthropicConverters:
         assert openai_req["stop"] == ["STOP", "END"]
         assert openai_req["stream"] is True
 
+    def test_anthropic_to_openai_request_transfers_user_metadata(self) -> None:
+        """Ensure user metadata is propagated to the OpenAI request."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[AnthropicMessage(role="user", content="Hello")],
+            metadata={"user_id": "user-123", "extra": "value"},
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        assert openai_req["user"] == "user-123"
+
     def test_openai_to_anthropic_response_basic(self) -> None:
         """Test basic OpenAI to Anthropic response conversion."""
         openai_response = {

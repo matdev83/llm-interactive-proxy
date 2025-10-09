@@ -106,6 +106,21 @@ class AnthropicController:
                     for msg in openai_request_data.get("messages", [])
                 ]
 
+            user_value = openai_request_data.get("user")
+            if not isinstance(user_value, str) or not user_value.strip():
+                metadata = anthropic_request.metadata
+                user_value = None
+                if isinstance(metadata, dict):
+                    metadata_user = (
+                        metadata.get("user_id")
+                        or metadata.get("user")
+                        or metadata.get("client_user_id")
+                    )
+                    if isinstance(metadata_user, str) and metadata_user.strip():
+                        user_value = metadata_user.strip()
+            else:
+                user_value = user_value.strip()
+
             chat_request = ChatRequest(
                 messages=messages,
                 model=openai_request_data.get("model", ""),
@@ -116,6 +131,7 @@ class AnthropicController:
                 frequency_penalty=openai_request_data.get("frequency_penalty", 0.0),
                 presence_penalty=openai_request_data.get("presence_penalty", 0.0),
                 stop=openai_request_data.get("stop"),
+                user=user_value,
             )
 
             # Process the request using the request processor

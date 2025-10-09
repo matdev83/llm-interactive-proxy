@@ -4,6 +4,8 @@ Tests the FastAPI endpoints for /v1/messages and /v1/models.
 This test has been updated to use AnthropicController instead of the legacy anthropic_router.
 """
 
+import asyncio
+
 import pytest
 
 # Create a router for testing
@@ -124,10 +126,9 @@ class TestAnthropicRouter:
         assert "owned_by" in first_model
         assert first_model["owned_by"] == "anthropic"
 
-    @pytest.mark.asyncio
-    async def test_anthropic_models_function(self):
+    def test_anthropic_models_function(self):
         """Test the anthropic_models function directly."""
-        result = await anthropic_models()
+        result = asyncio.run(anthropic_models())
 
         assert result["object"] == "list"
         assert len(result["data"]) > 0
@@ -145,8 +146,7 @@ class TestAnthropicRouter:
         # Check that we get an error response (implementation may vary)
         assert response.status_code in [501, 404, 422]
 
-    @pytest.mark.asyncio
-    async def test_anthropic_messages_function_validation(self):
+    def test_anthropic_messages_function_validation(self):
         """Test the anthropic_messages function with valid input."""
         # Test the current implementation which returns a 501 Not Implemented response
         from unittest.mock import MagicMock
@@ -165,7 +165,7 @@ class TestAnthropicRouter:
         )
 
         # Call the function with proper arguments
-        response = await anthropic_messages(request_body, mock_request)
+        response = asyncio.run(anthropic_messages(request_body, mock_request))
 
         # Assert that we got a response (currently returns 501 Not Implemented)
         assert isinstance(response, Response)
