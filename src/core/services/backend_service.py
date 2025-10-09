@@ -139,9 +139,10 @@ class BackendService(IBackendService):
                 if not pattern or not replacement:
                     continue
 
-                if re.match(pattern, model):
-                    # Use re.sub for proper replacement with capture groups
-                    new_model = re.sub(pattern, replacement, model)
+                match = re.search(pattern, model)
+                if match:
+                    # Use match.expand to honor capture groups regardless of match span
+                    new_model = match.expand(replacement)
                     logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
                     return new_model
             except (re.error, AttributeError, TypeError) as e:

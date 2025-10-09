@@ -206,11 +206,34 @@ class TestModelNameRewrites:
         original_model = "gpt-4"
         expected_model = "openrouter:gpt-model"
 
-        result = backend_service._apply_model_aliases(original_model)
-        assert result == expected_model
+        with caplog.at_level("WARNING"):
+            result = backend_service._apply_model_aliases(original_model)
 
-        # Check that warning was logged for invalid regex
+        assert result == expected_model
         assert "Invalid regex pattern" in caplog.text
+
+    def test_apply_model_aliases_regex_substring_match(self):
+        """Test that regex rules can match anywhere in the model string."""
+        config = AppConfig(
+            backends={"default_backend": "openai"},
+            model_aliases=[
+                ModelAliasRule(pattern="turbo$", replacement="suffix:matched"),
+            ],
+        )
+
+        backend_service = BackendService(
+            factory=Mock(spec=BackendFactory),
+            rate_limiter=Mock(spec=IRateLimiter),
+            config=config,
+            session_service=Mock(spec=ISessionService),
+            app_state=Mock(spec=IApplicationState),
+        )
+
+        original_model = "gpt-4-turbo"
+
+        result = backend_service._apply_model_aliases(original_model)
+
+        assert result == "suffix:matched"
 
     @pytest.mark.asyncio
     async def test_resolve_backend_and_model_with_aliases(
