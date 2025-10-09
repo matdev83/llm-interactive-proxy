@@ -191,12 +191,10 @@ class OpenRouterBackend(OpenAIConnector):
             # Authorization header and URL used by tests are passed to the
             # parent's streaming/non-streaming implementation.
             headers_override: dict[str, str] | None = None
-            if self.key_name and self.api_key and self.headers_provider:
+            if self.headers_provider:
                 try:
-                    headers_override = dict(
-                        self.headers_provider(self.key_name, self.api_key)
-                    )
-                except Exception:
+                    headers_override = dict(self._resolve_headers_from_provider())
+                except AuthenticationError:
                     headers_override = None
 
             if headers_override is None:
