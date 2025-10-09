@@ -659,7 +659,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                 else:
                                     raw_chunk = (
                                         chunk.decode("utf-8", errors="ignore")
-                                        if isinstance(chunk, (bytes, bytearray))
+                                        if isinstance(chunk, bytes | bytearray)
                                         else str(chunk)
                                     )
 
