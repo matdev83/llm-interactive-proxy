@@ -177,8 +177,8 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--log-level",
         dest="log_level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-        help="Set the logging level (e.g., INFO, DEBUG)",
+        default=None,
+        help="Set the logging level (default: use config or INFO)",
     )
 
     # Feature flags
