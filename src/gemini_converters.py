@@ -408,22 +408,40 @@ def _parts_to_openai_content(
             continue
 
         if part.inline_data and part.inline_data.data:
-            has_non_text = True
             mime_type = part.inline_data.mime_type or "application/octet-stream"
-            data = part.inline_data.data
-            data_uri = data
-            if not data.startswith("data:"):
-                data_uri = f"data:{mime_type};base64,{data}"
-            ordered_parts.append(
-                MessageContentPartImage(image_url=ImageURL(url=data_uri))
-            )
+            if mime_type.lower().startswith("image/"):
+                has_non_text = True
+                data = part.inline_data.data
+                data_uri = data
+                if not data.startswith("data:"):
+                    data_uri = f"data:{mime_type};base64,{data}"
+                ordered_parts.append(
+                    MessageContentPartImage(image_url=ImageURL(url=data_uri))
+                )
+            else:
+                placeholder = f"[Attachment: inline data ({mime_type})]"
+                text_segments.append(placeholder)
+                ordered_parts.append(MessageContentPartText(text=placeholder))
             continue
 
         if part.file_data and part.file_data.file_uri:
-            has_non_text = True
-            ordered_parts.append(
-                MessageContentPartImage(image_url=ImageURL(url=part.file_data.file_uri))
-            )
+            mime_type = part.file_data.mime_type or "application/octet-stream"
+            if mime_type.lower().startswith("image/"):
+                has_non_text = True
+                ordered_parts.append(
+                    MessageContentPartImage(
+                        image_url=ImageURL(url=part.file_data.file_uri)
+                    )
+                )
+            else:
+                placeholder_uri = part.file_data.file_uri
+                placeholder = (
+                    f"[Attachment: {placeholder_uri} ({mime_type})]"
+                    if placeholder_uri
+                    else f"[Attachment: file data ({mime_type})]"
+                )
+                text_segments.append(placeholder)
+                ordered_parts.append(MessageContentPartText(text=placeholder))
             continue
 
     if not ordered_parts:

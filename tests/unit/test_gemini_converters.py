@@ -127,6 +127,50 @@ class TestMessageConversion:
         assert isinstance(file_part, MessageContentPartImage)
         assert file_part.image_url.url == "https://example.com/image.png"
 
+    def test_gemini_inline_data_non_image_placeholder(self) -> None:
+        """Non-image inline data should produce a textual placeholder."""
+        contents = [
+            Content(
+                parts=[
+                    Part(
+                        inline_data=Blob(
+                            mime_type="application/pdf", data="ZmFrZWJhc2U2NA=="
+                        )
+                    )
+                ],
+                role="user",
+            )
+        ]
+
+        messages = gemini_to_openai_messages(contents)
+
+        assert len(messages) == 1
+        assert messages[0].content == "[Attachment: inline data (application/pdf)]"
+
+    def test_gemini_file_data_non_image_placeholder(self) -> None:
+        """Non-image file data should produce a textual placeholder."""
+        contents = [
+            Content(
+                parts=[
+                    Part(
+                        file_data=FileData(
+                            mime_type="application/pdf",
+                            file_uri="https://example.com/document.pdf",
+                        )
+                    )
+                ],
+                role="user",
+            )
+        ]
+
+        messages = gemini_to_openai_messages(contents)
+
+        assert len(messages) == 1
+        assert (
+            messages[0].content
+            == "[Attachment: https://example.com/document.pdf (application/pdf)]"
+        )
+
     def test_openai_to_gemini_simple_message(self) -> None:
         """Test converting OpenAI message to Gemini content."""
         messages = [ChatMessage(role="user", content="Hello!")]
