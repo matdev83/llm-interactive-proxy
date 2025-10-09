@@ -5,7 +5,9 @@ This file contains tests for the Gemini API compatibility endpoints,
 refactored to use proper dependency injection instead of direct app.state access.
 """
 
-from unittest.mock import Mock
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -14,7 +16,9 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 from fastapi.testclient import TestClient
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.rate_limit import RateLimitRegistry
 
 from tests.utils.test_di_utils import (
@@ -241,45 +245,17 @@ class TestGeminiStreamGenerateContent:
             gemini_client.app, IBackendService
         )
 
-        # Set up mock async methods for streaming
-        async def mock_stream_completion(*args, **kwargs):
-            yield {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": "This"}],
-                            "role": "model",
-                        },
-                        "index": 0,
-                    }
-                ]
-            }
-            yield {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": " is"}],
-                            "role": "model",
-                        },
-                        "index": 0,
-                    }
-                ]
-            }
-            yield {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": " streaming"}],
-                            "role": "model",
-                        },
-                        "finishReason": "STOP",
-                        "index": 0,
-                    }
-                ]
-            }
+        async def streaming_iterator():
+            chunks = ["This", " is", " streaming"]
+            for index, text in enumerate(chunks):
+                payload = SimpleNamespace(content=text, model="gemini-pro")
+                if index == len(chunks) - 1:
+                    setattr(payload, "is_last", True)
+                yield ProcessedResponse(content=payload)
 
-        # Apply the mock async method
-        backend_service.stream_completion = Mock(side_effect=mock_stream_completion)
+        backend_service.call_completion = AsyncMock(
+            return_value=StreamingResponseEnvelope(content=streaming_iterator())
+        )
 
         # Make streaming request
         request_data = {
@@ -302,9 +278,24 @@ class TestGeminiStreamGenerateContent:
         ) as response:
             assert response.status_code == 200
 
-            # Check that we get streaming responses
-            chunks = list(response.iter_lines())
-            assert len(chunks) > 0
+            # Check that we get streaming responses with expected payload
+            raw_lines = [line for line in response.iter_lines() if line]
+            data_lines = [
+                line for line in raw_lines if line.startswith("data: ") and line != "data: [DONE]"
+            ]
+            assert raw_lines[-1] == "data: [DONE]"
+
+            payloads = [json.loads(line.removeprefix("data: ")) for line in data_lines]
+            texts = [
+                candidate["candidates"][0]["content"]["parts"][0]["text"]
+                for candidate in payloads
+            ]
+
+            assert texts == ["This", " is", " streaming"]
+
+        assert backend_service.call_completion.await_count == 1
+        awaited_args = backend_service.call_completion.await_args
+        assert awaited_args.kwargs.get("stream") is True
 
 
 class TestGeminiAuthentication:
