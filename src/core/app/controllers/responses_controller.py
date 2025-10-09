@@ -520,9 +520,9 @@ class ResponsesController:
         schema_type_raw = schema["type"]
         if isinstance(schema_type_raw, str):
             schema_types = [schema_type_raw]
-        elif isinstance(schema_type_raw, list | tuple | set):
+        elif isinstance(schema_type_raw, (list, tuple, set)):
             schema_types = [
-                str(t) for t in schema_type_raw if isinstance(t, str | bytes)
+                str(t) for t in schema_type_raw if isinstance(t, (str, bytes))
             ]
         else:
             schema_types = [str(schema_type_raw)]
@@ -591,7 +591,7 @@ class ResponsesController:
                 raise ValueError("Array schemas must have an 'items' field")
 
             items_schema = schema["items"]
-            if not isinstance(items_schema, dict | list | tuple | bool):
+            if not isinstance(items_schema, (dict, list, tuple, bool)):
                 raise ValueError("Items schema must be a dictionary, list, or boolean")
 
         primitive_types = {"string", "number", "integer", "boolean", "null"}
@@ -603,7 +603,7 @@ class ResponsesController:
         # Validate additional properties if present
         if "additionalProperties" in schema:
             additional_props = schema["additionalProperties"]
-            if not isinstance(additional_props, bool | dict):
+            if not isinstance(additional_props, (bool, dict)):
                 raise ValueError("additionalProperties must be a boolean or schema")
 
         # Validate required fields if present
