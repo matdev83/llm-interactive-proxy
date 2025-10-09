@@ -169,6 +169,80 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_request_rewriting_handles_multimodal_messages(self):
+        """Verify chat request rewriting works for list-style content blocks."""
+
+        os.makedirs(
+            os.path.join(self.test_config_dir, "prompts", "user", "001"), exist_ok=True
+        )
+        with open(
+            os.path.join(
+                self.test_config_dir, "prompts", "user", "001", "SEARCH.txt"
+            ),
+            "w",
+        ) as f:
+            f.write("original user text")
+        with open(
+            os.path.join(
+                self.test_config_dir, "prompts", "user", "001", "REPLACE.txt"
+            ),
+            "w",
+        ) as f:
+            f.write("rewritten user text")
+
+        rewriter = ContentRewriterService(config_path=self.test_config_dir)
+        middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+        request_payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "original user text"},
+                        {"type": "image_url", "image_url": {"url": "https://example.com"}},
+                    ],
+                }
+            ]
+        }
+
+        async def call_next(request):
+            data = await request.json()
+            content_blocks = data["messages"][0]["content"]
+            self.assertEqual(content_blocks[0]["text"], "rewritten user text")
+            return Response(content=json.dumps({"ok": True}), media_type="application/json")
+
+        async def receive():
+            return {
+                "type": "http.request",
+                "body": json.dumps(request_payload).encode("utf-8"),
+                "more_body": False,
+            }
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "headers": Headers({"content-type": "application/json"}).raw,
+                "http_version": "1.1",
+                "server": ("testserver", 80),
+                "client": ("testclient", 123),
+                "scheme": "http",
+                "root_path": "",
+                "path": "/test",
+                "raw_path": b"/test",
+                "query_string": b"",
+            },
+            receive=receive,
+        )
+
+        async def run_test():
+            response = await middleware.dispatch(request, call_next)
+            self.assertEqual(response.status_code, 200)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_outbound_prompt_rewriting(self):
         """Verify that outbound prompts are rewritten correctly."""
 
