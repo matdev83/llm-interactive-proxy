@@ -200,21 +200,28 @@ class ResponsesController:
 
                     response_id = f"resp_{int(time.time())}_{id(response)}"
                     created_timestamp = int(time.time())
+                    last_chunk_model = domain_request.model
 
                     async for chunk in response.content:
                         try:
                             chunk_content = ""
                             chunk_metadata: dict[str, Any] = {}
+                            chunk_payload: dict[str, Any] | None = None
 
                             if isinstance(chunk, ProcessedResponse):
                                 chunk_content = chunk.content or ""
                                 chunk_metadata = chunk.metadata or {}
+                                if isinstance(chunk.content, dict):
+                                    chunk_payload = chunk.content
                             elif isinstance(chunk, dict):
                                 chunk_content = str(chunk.get("content", ""))
                                 chunk_metadata = chunk.get("metadata", {}) or {}
+                                chunk_payload = chunk
                             elif hasattr(chunk, "content"):
                                 chunk_content = getattr(chunk, "content", "") or ""
                                 chunk_metadata = getattr(chunk, "metadata", {}) or {}
+                                if isinstance(chunk_content, dict):
+                                    chunk_payload = chunk_content
                             elif isinstance(chunk, str):
                                 chunk_content = chunk
                             else:
@@ -228,11 +235,41 @@ class ResponsesController:
                                 chunk_metadata.get("created") or created_timestamp
                             )
 
+                            finish_reason = chunk_metadata.get("finish_reason")
                             delta: dict[str, Any] = {}
-                            if chunk_content:
+
+                            if chunk_payload and isinstance(chunk_payload, dict):
+                                chunk_id = chunk_payload.get("id", chunk_id)
+                                chunk_model = chunk_payload.get("model", chunk_model)
+                                chunk_created = chunk_payload.get(
+                                    "created", chunk_created
+                                )
+
+                                choices = chunk_payload.get("choices")
+                                if isinstance(choices, list) and choices:
+                                    primary_choice = choices[0] or {}
+                                    delta_payload = primary_choice.get("delta") or {}
+                                    if isinstance(delta_payload, dict):
+                                        delta = dict(delta_payload)
+                                    finish_reason = (
+                                        primary_choice.get("finish_reason")
+                                        or finish_reason
+                                    )
+
+                            if not delta and chunk_content:
                                 delta["content"] = chunk_content
 
-                            tool_calls = chunk_metadata.get("tool_calls") or []
+                            # Normalize delta content to string when present
+                            content_value = delta.get("content")
+                            if content_value is not None and not isinstance(
+                                content_value, str
+                            ):
+                                delta["content"] = json.dumps(content_value)
+
+                            # Merge tool calls from delta or chunk metadata
+                            tool_calls = delta.get("tool_calls") or chunk_metadata.get(
+                                "tool_calls"
+                            )
                             if tool_calls:
                                 normalized_calls: list[dict[str, Any]] = []
                                 for tool_call in tool_calls:
@@ -272,8 +309,6 @@ class ResponsesController:
                             if not delta:
                                 delta["content"] = ""
 
-                            finish_reason = chunk_metadata.get("finish_reason")
-
                             choice_payload: dict[str, Any] = {
                                 "index": 0,
                                 "delta": delta,
@@ -288,6 +323,8 @@ class ResponsesController:
                                 "model": chunk_model,
                                 "choices": [choice_payload],
                             }
+
+                            last_chunk_model = chunk_model
 
                             # Format as Server-Sent Events
                             yield f"data: {json.dumps(streaming_chunk)}\n\n"
@@ -304,7 +341,7 @@ class ResponsesController:
                         "id": response_id,
                         "object": "response.chunk",
                         "created": created_timestamp,
-                        "model": domain_request.model,
+                        "model": last_chunk_model,
                         "choices": [{"index": 0, "finish_reason": "stop", "delta": {}}],
                     }
                     yield f"data: {json.dumps(final_chunk)}\n\n"

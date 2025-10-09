@@ -573,6 +573,76 @@ class TestResponsesAPIFrontendIntegration:
             assert tool_delta[0]["function"]["name"] == "fetch_data"
             assert tool_delta[0]["function"]["arguments"] == '{"query": "status"}'
 
+    def test_responses_api_streaming_normalizes_content(
+        self, client: TestClient
+    ) -> None:
+        """Streaming chunks with canonical payloads should render textual content."""
+        request_data = {
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Stream content"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "content_stream",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"message": {"type": "string"}},
+                        "required": ["message"],
+                    },
+                    "strict": True,
+                },
+            },
+            "stream": True,
+        }
+
+        with patch(
+            "src.core.services.request_processor_service.RequestProcessor.process_request"
+        ) as mock_process:
+
+            async def mock_stream():
+                chunk_payload = {
+                    "id": "resp-chunk-1",
+                    "object": "response.chunk",
+                    "created": 111,
+                    "model": "mock-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": "Hello world",
+                                "role": "assistant",
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                yield ProcessedResponse(
+                    content=chunk_payload,
+                    metadata={
+                        "model": "mock-model",
+                        "id": "resp-chunk-1",
+                        "created": 111,
+                    },
+                )
+
+            mock_response = StreamingResponseEnvelope(
+                content=mock_stream(), headers={}, media_type="text/event-stream"
+            )
+            mock_process.return_value = mock_response
+
+            response = client.post("/v1/responses", json=request_data)
+
+            assert response.status_code == 200
+            body = response.content.decode("utf-8")
+            data_lines = [
+                line for line in body.splitlines() if line.startswith("data:")
+            ]
+            assert data_lines, body
+            first_payload = json.loads(data_lines[0].split("data: ", 1)[1])
+            delta = first_payload["choices"][0]["delta"]
+            assert delta["content"] == "Hello world"
+            assert delta.get("role") == "assistant"
+
     def test_responses_api_non_streaming_functionality(
         self, client: TestClient
     ) -> None:

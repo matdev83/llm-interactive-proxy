@@ -177,6 +177,28 @@ class TestResponsesApiTranslation:
         assert domain_chunk["choices"][0]["finish_reason"] == "stop"
         assert domain_chunk["choices"][0]["delta"] == {}
 
+    def test_to_domain_stream_chunk_responses_normalizes_content(self):
+        """Responses stream chunks with content lists should flatten to strings."""
+
+        sse_chunk = (
+            'data: {"id": "resp-1", "object": "response.chunk", '
+            '"model": "gpt-4", "choices": [{"index": 0, "delta": '
+            '{"content": [{"type": "output_text", "text": "Hello"}, '
+            '{"type": "output_text", "text": " world"}], '
+            '"tool_calls": [{"id": "call_1", "type": "function", '
+            '"function": {"name": "foo", "arguments": {"value": 1}}}]}}]}\n\n'
+        )
+
+        domain_chunk = self.service.to_domain_stream_chunk(
+            sse_chunk, "openai-responses"
+        )
+
+        delta = domain_chunk["choices"][0]["delta"]
+        assert delta["content"] == "Hello world"
+        tool_calls = delta.get("tool_calls")
+        assert isinstance(tool_calls, list) and tool_calls
+        assert tool_calls[0]["function"]["arguments"] == '{"value": 1}'
+
     def test_from_domain_to_responses_response_basic(self):
         """Test converting a ChatResponse to Responses API response format."""
         # Create a sample ChatResponse

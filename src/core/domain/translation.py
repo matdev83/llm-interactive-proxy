@@ -926,6 +926,147 @@ class Translation(BaseTranslator):
         return dict(chunk)
 
     @staticmethod
+    def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+        """Translate an OpenAI Responses streaming chunk to canonical format."""
+        import json
+        import time
+
+        if isinstance(chunk, bytes | bytearray):
+            try:
+                chunk = chunk.decode("utf-8")
+            except UnicodeDecodeError:
+                return {
+                    "error": "Invalid chunk format: unable to decode bytes",
+                }
+
+        if isinstance(chunk, str):
+            stripped_chunk = chunk.strip()
+
+            if not stripped_chunk:
+                return {"error": "Invalid chunk format: empty string"}
+
+            if stripped_chunk.startswith(":"):
+                return {
+                    "id": f"resp-{int(time.time())}",
+                    "object": "response.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": None},
+                    ],
+                }
+
+            if stripped_chunk.startswith("data:"):
+                stripped_chunk = stripped_chunk[5:].strip()
+
+            if stripped_chunk == "[DONE]":
+                return {
+                    "id": f"resp-{int(time.time())}",
+                    "object": "response.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "stop"},
+                    ],
+                }
+
+            try:
+                chunk = json.loads(stripped_chunk)
+            except json.JSONDecodeError as exc:
+                return {
+                    "error": "Invalid chunk format: expected JSON after 'data:' prefix",
+                    "details": {"message": str(exc)},
+                }
+
+        if not isinstance(chunk, dict):
+            return {"error": "Invalid chunk format: expected a dictionary"}
+
+        chunk_id = chunk.get("id", f"resp-{int(time.time())}")
+        created = chunk.get("created", int(time.time()))
+        model = chunk.get("model", "unknown")
+        object_type = chunk.get("object", "response.chunk")
+        choices = chunk.get("choices") or []
+
+        if not isinstance(choices, list) or not choices:
+            choices = [
+                {"index": 0, "delta": {}, "finish_reason": None},
+            ]
+
+        primary_choice = choices[0] or {}
+        finish_reason = primary_choice.get("finish_reason")
+        delta = primary_choice.get("delta") or {}
+
+        if not isinstance(delta, dict):
+            delta = {"content": str(delta)}
+
+        content_value = delta.get("content")
+        if isinstance(content_value, list):
+            text_parts: list[str] = []
+            for part in content_value:
+                if not isinstance(part, dict):
+                    continue
+                part_type = part.get("type")
+                if part_type in {"output_text", "text", "input_text"}:
+                    text_value = part.get("text") or part.get("value") or ""
+                    if text_value:
+                        text_parts.append(str(text_value))
+            delta["content"] = "".join(text_parts)
+        elif isinstance(content_value, dict):
+            delta["content"] = json.dumps(content_value)
+        elif content_value is None:
+            delta.pop("content", None)
+        else:
+            delta["content"] = str(content_value)
+
+        tool_calls = delta.get("tool_calls")
+        if isinstance(tool_calls, list):
+            normalized_tool_calls: list[dict[str, Any]] = []
+            for tool_call in tool_calls:
+                if isinstance(tool_call, dict):
+                    call_data = dict(tool_call)
+                else:
+                    function = getattr(tool_call, "function", None)
+                    call_data = {
+                        "id": getattr(tool_call, "id", ""),
+                        "type": getattr(tool_call, "type", "function"),
+                        "function": {
+                            "name": getattr(function, "name", ""),
+                            "arguments": getattr(function, "arguments", "{}"),
+                        },
+                    }
+
+                function_payload = call_data.get("function") or {}
+                if isinstance(function_payload, dict):
+                    arguments = function_payload.get("arguments")
+                    if isinstance(arguments, dict | list):
+                        function_payload["arguments"] = json.dumps(arguments)
+                    elif arguments is None:
+                        function_payload["arguments"] = "{}"
+                    else:
+                        function_payload["arguments"] = str(arguments)
+
+                normalized_tool_calls.append(call_data)
+
+            if normalized_tool_calls:
+                delta["tool_calls"] = normalized_tool_calls
+            else:
+                delta.pop("tool_calls", None)
+
+        return {
+            "id": chunk_id,
+            "object": object_type,
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": primary_choice.get("index", 0),
+                    "delta": delta,
+                    "finish_reason": finish_reason,
+                }
+            ],
+        }
+
+    @staticmethod
     def openrouter_to_domain_request(request: Any) -> CanonicalChatRequest:
         """
         Translate an OpenRouter request to a CanonicalChatRequest.
