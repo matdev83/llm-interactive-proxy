@@ -111,18 +111,13 @@ class BackendProcessor(IBackendProcessor):
             if failover_routes:
                 extra_body_dict["failover_routes"] = failover_routes
 
-            # Call the backend
+            # Call the backend (preserve tools/tool_choice and other fields)
+            call_request = request.model_copy(update={"extra_body": extra_body_dict})
             backend_response = await self._backend_service.call_completion(
-                request=ChatRequest(
-                    model=request.model,
-                    messages=request.messages,
-                    temperature=request.temperature,
-                    top_p=request.top_p,
-                    max_tokens=request.max_tokens,
-                    stream=request.stream,
-                    extra_body=extra_body_dict,
+                request=call_request,
+                stream=(
+                    call_request.stream if call_request.stream is not None else False
                 ),
-                stream=request.stream if request.stream is not None else False,
                 context=context,
             )
 
@@ -135,9 +130,9 @@ class BackendProcessor(IBackendProcessor):
                     model=getattr(session.state.backend_config, "model", None),
                     project=getattr(session.state, "project", None),
                     parameters={
-                        "temperature": request.temperature,
-                        "top_p": request.top_p,
-                        "max_tokens": request.max_tokens,
+                        "temperature": call_request.temperature,
+                        "top_p": call_request.top_p,
+                        "max_tokens": call_request.max_tokens,
                     },
                 )
             )

@@ -1353,9 +1353,14 @@ class Translation(BaseTranslator):
             if not message.role:
                 raise ValueError("Message role is required")
 
-            # Validate content based on role
-            if message.role != "system" and not message.content:
-                raise ValueError(f"Content is required for {message.role} messages")
+            # Allow assistant messages that carry only tool_calls (no textual content)
+            if message.role != "system":
+                has_text = bool(message.content)
+                has_tool_calls = bool(getattr(message, "tool_calls", None))
+                if not has_text and not (
+                    message.role == "assistant" and has_tool_calls
+                ):
+                    raise ValueError(f"Content is required for {message.role} messages")
 
         # Validate tool parameters if present
         if request.tools:
@@ -1421,18 +1426,49 @@ class Translation(BaseTranslator):
 
         # Process messages with proper handling of multimodal content and tool calls
         contents: list[dict[str, Any]] = []
+        # Track tool_call id -> function name to map tool responses
+        tool_name_by_id: dict[str, str] = {}
 
         for message in request.messages:
             # Map assistant role to 'model' for Gemini compatibility; keep others as-is
-            gemini_role = "model" if message.role == "assistant" else message.role
-            msg_dict = {"role": gemini_role}
-            parts = []
+            if message.role == "assistant":
+                gemini_role = "model"
+            elif message.role == "tool":
+                # Gemini expects function responses from the "user" role
+                gemini_role = "user"
+            else:
+                gemini_role = message.role
+            msg_dict: dict[str, Any] = {"role": gemini_role}
+            parts: list[dict[str, Any]] = []
+
+            # Add assistant tool calls as functionCall parts
+            if message.role == "assistant" and getattr(message, "tool_calls", None):
+                try:
+                    for tc in message.tool_calls or []:
+                        tc_dict = tc if isinstance(tc, dict) else tc.model_dump()
+                        fn = (tc_dict.get("function") or {}).get("name", "")
+                        args_raw = (tc_dict.get("function") or {}).get("arguments", "")
+                        # Remember mapping for subsequent tool responses
+                        if "id" in tc_dict:
+                            tool_name_by_id[tc_dict["id"]] = fn
+                        # Parse arguments as JSON when possible
+                        import json as _json
+
+                        try:
+                            args_val = (
+                                _json.loads(args_raw)
+                                if isinstance(args_raw, str)
+                                else args_raw
+                            )
+                        except Exception:
+                            args_val = args_raw
+                        parts.append({"functionCall": {"name": fn, "args": args_val}})
+                except Exception:
+                    # Best-effort; continue even if a tool call cannot be parsed
+                    pass
 
             # Handle content which could be string, list of parts, or None
-            if message.content is None:
-                # Skip empty content
-                continue
-            elif isinstance(message.content, str):
+            if isinstance(message.content, str):
                 # Simple text content
                 parts.append({"text": message.content})
             elif isinstance(message.content, list):
@@ -1457,6 +1493,27 @@ class Translation(BaseTranslator):
                             if "text" in part_dict:
                                 parts.append({"text": part_dict["text"]})
 
+            # Map tool role messages to functionResponse parts
+            if message.role == "tool":
+                # Try to map tool_call_id back to the function name
+                name = tool_name_by_id.get(getattr(message, "tool_call_id", ""), "")
+                resp_obj: dict[str, Any]
+                val = message.content
+                # Try to parse JSON result if provided
+                if isinstance(val, str):
+                    import json as _json
+
+                    try:
+                        resp_obj = _json.loads(val)
+                    except Exception:
+                        resp_obj = {"text": val}
+                elif isinstance(val, dict):
+                    resp_obj = val
+                else:
+                    resp_obj = {"text": str(val)}
+
+                parts.append({"functionResponse": {"name": name, "response": resp_obj}})
+
             # Add parts to message
             msg_dict["parts"] = parts  # type: ignore
 
@@ -1468,38 +1525,41 @@ class Translation(BaseTranslator):
 
         # Add tools if present
         if request.tools:
-            # Convert OpenAI-style tools to Gemini format
-            gemini_tools = []
-            for tool in request.tools:
-                if isinstance(tool, dict) and "function" in tool:
-                    function = tool["function"]
-                    gemini_tool = {
-                        "function_declarations": [
-                            {
-                                "name": function.get("name", ""),
-                                "description": function.get("description", ""),
-                                "parameters": function.get("parameters", {}),
-                            }
-                        ]
-                    }
-                    gemini_tools.append(gemini_tool)
-                elif not isinstance(tool, dict):
-                    tool_dict = tool.model_dump()
-                    if "function" in tool_dict:
-                        function = tool_dict["function"]
-                        gemini_tool = {
-                            "function_declarations": [
-                                {
-                                    "name": function.get("name", ""),
-                                    "description": function.get("description", ""),
-                                    "parameters": function.get("parameters", {}),
-                                }
-                            ]
-                        }
-                        gemini_tools.append(gemini_tool)
+            # Gemini Code Assist only allows multiple tools when they are all
+            # search tools. For function calling, we must group ALL functions
+            # into a SINGLE tool entry with a combined function_declarations list.
+            function_declarations: list[dict[str, Any]] = []
 
-            if gemini_tools:
-                result["tools"] = gemini_tools
+            for tool in request.tools:
+                # Accept dict-like or model-like entries
+                tool_dict: dict[str, Any]
+                if isinstance(tool, dict):
+                    tool_dict = tool
+                else:
+                    try:
+                        tool_dict = tool.model_dump()  # type: ignore[attr-defined]
+                    except Exception:
+                        tool_dict = {}
+                function = (
+                    tool_dict.get("function") if isinstance(tool_dict, dict) else None
+                )
+                if not function:
+                    # Skip non-function tools for now (unsupported/mixed types)
+                    continue
+
+                params = Translation._sanitize_gemini_parameters(
+                    function.get("parameters", {})
+                )
+                function_declarations.append(
+                    {
+                        "name": function.get("name", ""),
+                        "description": function.get("description", ""),
+                        "parameters": params,
+                    }
+                )
+
+            if function_declarations:
+                result["tools"] = [{"function_declarations": function_declarations}]
 
         # Handle tool_choice for Gemini
         if request.tool_choice:
@@ -1578,6 +1638,47 @@ class Translation(BaseTranslator):
                         )
 
         return result
+
+    @staticmethod
+    def _sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize OpenAI tool JSON schema for Gemini Code Assist function_declarations.
+
+        The Code Assist API rejects certain JSON Schema keywords (e.g., "$schema",
+        and sometimes draft-specific fields like "exclusiveMinimum"). This method
+        removes unsupported keywords while preserving the core shape (type,
+        properties, required, items, enum, etc.).
+
+        Args:
+            schema: Original JSON schema dict from OpenAI tool definition
+
+        Returns:
+            A sanitized schema dict suitable for Gemini Code Assist.
+        """
+        if not isinstance(schema, dict):
+            return {}
+
+        blacklist = {
+            "$schema",
+            "$id",
+            "$comment",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+        }
+
+        def _clean(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                cleaned: dict[str, Any] = {}
+                for k, v in obj.items():
+                    if k in blacklist:
+                        continue
+                    cleaned[k] = _clean(v)
+                return cleaned
+            if isinstance(obj, list):
+                return [_clean(x) for x in obj]
+            return obj
+
+        cleaned = _clean(schema)
+        return cleaned if isinstance(cleaned, dict) else {}
 
     @staticmethod
     def from_domain_to_openai_request(request: CanonicalChatRequest) -> dict[str, Any]:
@@ -1985,6 +2086,7 @@ class Translation(BaseTranslator):
 
         content = ""
         finish_reason = None
+        tool_calls: list[dict[str, Any]] | None = None
 
         # Extract from Code Assist response wrapper
         response_wrapper = chunk.get("response", {})
@@ -1996,10 +2098,37 @@ class Translation(BaseTranslator):
             parts = content_obj.get("parts", [])
 
             if parts and len(parts) > 0:
-                content = parts[0].get("text", "")
+                # Collect text and function calls
+                text_parts: list[str] = []
+                for part in parts:
+                    if isinstance(part, dict) and "text" in part:
+                        text_parts.append(part.get("text", ""))
+                    elif isinstance(part, dict) and "functionCall" in part:
+                        try:
+                            if tool_calls is None:
+                                tool_calls = []
+                            tool_calls.append(
+                                Translation._process_gemini_function_call(
+                                    part["functionCall"]
+                                ).model_dump()
+                            )
+                        except Exception:
+                            # Ignore malformed functionCall parts
+                            continue
+                content = "".join(text_parts)
 
             if "finishReason" in candidate:
                 finish_reason = candidate["finishReason"]
+
+        delta: dict[str, Any] = {"role": "assistant"}
+        if tool_calls:
+            delta["tool_calls"] = tool_calls
+            # Enforce OpenAI semantics: when tool_calls are present, do not include content
+            delta.pop("content", None)
+            # Force finish_reason to tool_calls to signal clients to execute tools
+            finish_reason = "tool_calls"
+        elif content:
+            delta["content"] = content
 
         return {
             "id": response_id,
@@ -2009,7 +2138,7 @@ class Translation(BaseTranslator):
             "choices": [
                 {
                     "index": 0,
-                    "delta": {"role": "assistant", "content": content},
+                    "delta": delta,
                     "finish_reason": finish_reason,
                 }
             ],

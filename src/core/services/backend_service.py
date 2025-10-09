@@ -157,6 +157,37 @@ class BackendService(IBackendService):
 
         return model
 
+    @staticmethod
+    def _stream_as_sse_bytes(
+        it: Any,
+    ) -> Any:
+        """Adapt a stream of domain chunks into SSE-encoded bytes.
+
+        Accepts an async iterator that may yield ProcessedResponse, dict, str, or bytes
+        and produces an async iterator of bytes suitable for wire capture and direct
+        transport to clients.
+        """
+        import json
+
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        async def _adapter() -> Any:
+            async for chunk in it:  # type: ignore
+                content = (
+                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                )
+                if isinstance(content, dict):
+                    line = f"data: {json.dumps(content)}\n\n".encode()
+                    yield line
+                elif isinstance(content, str):
+                    yield content.encode("utf-8")
+                elif isinstance(content, bytes):
+                    yield content
+                else:
+                    yield str(content).encode("utf-8")
+
+        return _adapter()
+
     def _apply_reasoning_config(
         self, request: ChatRequest, session: Any
     ) -> ChatRequest:
@@ -567,16 +598,28 @@ class BackendService(IBackendService):
                         from src.core.domain.responses import StreamingResponseEnvelope
 
                         if isinstance(result, StreamingResponseEnvelope):
+                            # Adapt domain stream to bytes for capture and transport
+                            byte_stream = self._stream_as_sse_bytes(result.content)
                             wrapped_stream = self._wire_capture.wrap_inbound_stream(
                                 context=context,
                                 session_id=session_id,
                                 backend=backend_type,
                                 model=effective_model,
                                 key_name=key_name,
-                                stream=result.content,  # type: ignore
+                                stream=byte_stream,  # type: ignore
                             )
+
+                            # Convert back to ProcessedResponse stream for adapters
+                            async def _to_processed() -> Any:
+                                from src.core.interfaces.response_processor_interface import (
+                                    ProcessedResponse,
+                                )
+
+                                async for b in wrapped_stream:  # type: ignore
+                                    yield ProcessedResponse(content=b)
+
                             return StreamingResponseEnvelope(
-                                content=wrapped_stream,  # type: ignore
+                                content=_to_processed(),
                                 media_type=result.media_type,
                                 headers=result.headers,
                             )

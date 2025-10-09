@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import os
 import socket
+from collections.abc import Callable
 
 import pytest
-
 from src.core import cli_v2
 from src.core.cli_v2 import AppConfig, apply_cli_args, is_port_in_use, parse_cli_args
 from src.core.cli_v2 import main as cli_main
 from src.core.config.app_config import ModelAliasRule
-
 
 
 @pytest.fixture(autouse=True)
@@ -198,13 +195,15 @@ def test_is_port_in_use_delegates_to_canonical(monkeypatch: pytest.MonkeyPatch) 
 def test_main_passes_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     recorded: dict[str, object] = {}
 
-    def fake_main(argv: list[str] | None, build_app_fn: Callable[[AppConfig], object] | None) -> None:
+    def fake_main(
+        argv: list[str] | None, build_app_fn: Callable[[AppConfig], object] | None
+    ) -> None:
         recorded["argv"] = argv
         recorded["build_app_fn"] = build_app_fn
 
     monkeypatch.setattr(cli_v2._cli_module, "main", fake_main)
 
-    build_fn = lambda config: config  # noqa: E731
+    build_fn = lambda config: config
 
     cli_main(argv=["--help"], build_app_fn=build_fn)
 

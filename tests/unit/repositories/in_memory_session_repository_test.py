@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-
 from src.core.domain.session import Session
 from src.core.repositories.in_memory_session_repository import (
     InMemorySessionRepository,

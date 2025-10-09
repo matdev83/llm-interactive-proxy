@@ -3,7 +3,6 @@
 import asyncio
 
 from pytest import MonkeyPatch
-
 from src.core.domain.commands.loop_detection_commands.tool_loop_mode_command import (
     ToolLoopModeCommand,
 )

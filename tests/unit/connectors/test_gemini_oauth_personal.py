@@ -387,13 +387,15 @@ class TestGeminiOAuthPersonalConnector:
 
         with patch.object(connector, "client") as mock_client:
             mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.post = AsyncMock()
             mock_refresh.return_value = True
 
             # Test
             result = await connector._perform_health_check()
 
             assert result is True
-            mock_client.get.assert_called_once()
+            mock_client.get.assert_awaited_once()
+            mock_client.post.assert_not_called()
 
     @patch.object(
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
@@ -417,13 +419,15 @@ class TestGeminiOAuthPersonalConnector:
 
         with patch.object(connector, "client") as mock_client:
             mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.post = AsyncMock()
             mock_refresh.return_value = True
 
             # Test - Code Assist API should succeed with any valid response
             result = await connector._perform_health_check()
 
             assert result is True  # Empty response from Code Assist API is still valid
-            mock_client.get.assert_called_once()
+            mock_client.get.assert_awaited_once()
+            mock_client.post.assert_not_called()
 
     @patch.object(
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
@@ -447,13 +451,15 @@ class TestGeminiOAuthPersonalConnector:
 
         with patch.object(connector, "client") as mock_client:
             mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.post = AsyncMock(return_value=mock_response)
             mock_refresh.return_value = True
 
             # Test
             result = await connector._perform_health_check()
 
             assert result is False
-            mock_client.get.assert_called_once()
+            mock_client.get.assert_awaited_once()
+            mock_client.post.assert_awaited_once()
 
     @patch.object(
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
@@ -475,13 +481,15 @@ class TestGeminiOAuthPersonalConnector:
 
         with patch.object(connector, "client") as mock_client:
             mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.post = AsyncMock(return_value=mock_response)
             mock_refresh.return_value = True
 
             # Test
             result = await connector._perform_health_check()
 
             assert result is False
-            mock_client.get.assert_called_once()
+            mock_client.get.assert_awaited_once()
+            mock_client.post.assert_awaited_once()
 
     @patch.object(
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
@@ -494,13 +502,15 @@ class TestGeminiOAuthPersonalConnector:
 
         with patch.object(connector, "client") as mock_client:
             mock_client.get = AsyncMock(side_effect=Exception("Unexpected error"))
+            mock_client.post = AsyncMock()
             mock_refresh.return_value = True
 
             # Test
             result = await connector._perform_health_check()
 
             assert result is False
-            mock_client.get.assert_called_once()
+            mock_client.get.assert_awaited_once()
+            mock_client.post.assert_not_called()
 
     @patch.object(
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock

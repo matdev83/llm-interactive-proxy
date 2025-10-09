@@ -1037,21 +1037,26 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 logger.warning("Health check failed - no access token available")
                 return False
 
-            # Use the httpx client to make a simple API call (expected by tests)
             base_url = self.gemini_api_base_url or CODE_ASSIST_ENDPOINT
-            url = f"{base_url}/v1internal/models"  # Simple models endpoint
             headers = {
-                "Authorization": f"Bearer {self._oauth_credentials['access_token']}"
+                "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
+                "Content-Type": "application/json",
             }
 
+            # First try the legacy models endpoint (keeps existing tests/assertions working)
+            models_url = f"{base_url}/v1internal/models"
             try:
-                response = await self.client.get(url, headers=headers, timeout=10.0)
+                response = await self.client.get(
+                    models_url, headers=headers, timeout=10.0
+                )
             except httpx.TimeoutException as te:
-                logger.error(f"Health check timeout calling {url}: {te}", exc_info=True)
+                logger.error(
+                    f"Health check timeout calling {models_url}: {te}", exc_info=True
+                )
                 return False
             except httpx.RequestError as rexc:
                 logger.error(
-                    f"Health check connection error calling {url}: {rexc}",
+                    f"Health check connection error calling {models_url}: {rexc}",
                     exc_info=True,
                 )
                 return False
@@ -1060,11 +1065,40 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 logger.info("Health check passed - API connectivity verified")
                 self._health_checked = True
                 return True
-            else:
-                logger.warning(
-                    f"Health check failed - API returned status {response.status_code}"
+
+            # Fallback: use loadCodeAssist which is reliable on Code Assist API
+            load_url = f"{base_url}/v1internal:loadCodeAssist"
+            payload = {
+                "metadata": {
+                    "ideType": "IDE_UNSPECIFIED",
+                    "platform": "PLATFORM_UNSPECIFIED",
+                    "pluginType": "GEMINI",
+                }
+            }
+            try:
+                response = await self.client.post(
+                    load_url, headers=headers, json=payload, timeout=10.0
+                )
+            except httpx.TimeoutException as te:
+                logger.error(
+                    f"Health check timeout calling {load_url}: {te}", exc_info=True
                 )
                 return False
+            except httpx.RequestError as rexc:
+                logger.error(
+                    f"Health check connection error calling {load_url}: {rexc}",
+                    exc_info=True,
+                )
+                return False
+
+            if response.status_code == 200:
+                logger.info("Health check passed via loadCodeAssist")
+                self._health_checked = True
+                return True
+            logger.warning(
+                f"Health check failed - API returned status {response.status_code}"
+            )
+            return False
 
         except AuthenticationError as e:
             logger.error(

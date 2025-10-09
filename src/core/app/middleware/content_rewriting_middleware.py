@@ -241,7 +241,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                     new_length = str(len(body_bytes)).encode("latin-1")
 
                     header_found = False
-                    for index, (name, value) in enumerate(headers):
+                    for index, (name, _value) in enumerate(headers):
                         if name.lower() == b"content-length":
                             headers[index] = (name, new_length)
                             header_found = True

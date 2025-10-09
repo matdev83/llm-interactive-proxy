@@ -315,7 +315,7 @@ class OpenAIConnector(LLMBackend):
                     return getattr(message, key, None)
 
                 def _normalize_content(value: Any) -> Any:
-                    if isinstance(value, (list, tuple)):
+                    if isinstance(value, list | tuple):
                         normalized_parts: list[Any] = []
                         for part in value:
                             if hasattr(part, "model_dump") and callable(
