@@ -81,6 +81,12 @@ class LoopDetector(ILoopDetector):
         self.buffer.append(chunk)
         self.total_processed += chunk_len
 
+        # Ingest the chunk so the analyzer keeps its stream history up to date,
+        # even if we skip expensive analysis for this interval.
+        should_analyze = self.analyzer.ingest_chunk(chunk)
+        if not should_analyze:
+            return None
+
         # Respect the configured analysis interval to avoid redundant heavy checks.
         if self.config.analysis_interval > 0 and self._last_analysis_position >= 0:
             processed_since_last = self.total_processed - self._last_analysis_position
@@ -88,7 +94,7 @@ class LoopDetector(ILoopDetector):
                 return None
 
         # Analyze for loops using the new PatternAnalyzer
-        event = self.analyzer.analyze_chunk(chunk, self.buffer.get_content())
+        event = self.analyzer.analyze_pending_stream(self.buffer.get_content())
         self._last_analysis_position = self.total_processed
         if event is not None:
             # Update state to avoid retriggering immediately

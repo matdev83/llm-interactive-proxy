@@ -30,6 +30,19 @@ class PatternAnalyzer:
         self, new_content: str, full_buffer_content: str
     ) -> LoopDetectionEvent | None:
         """Process new content using the fast hash-chunk algorithm."""
+        if not self.ingest_chunk(new_content):
+            return None
+
+        return self.analyze_pending_stream(full_buffer_content)
+
+    def ingest_chunk(self, new_content: str) -> bool:
+        """Ingest new content while updating the analyzer state.
+
+        Returns True when the chunk should be considered for loop analysis.
+        Returns False when analysis should be skipped because the chunk either
+        enters/exits a code block or triggers a full reset via markdown
+        elements.
+        """
         num_fences = new_content.count("```")
         if num_fences > 0 and num_fences % 2 != 0:
             self._in_code_block = not self._in_code_block
@@ -38,7 +51,7 @@ class PatternAnalyzer:
         # reset history and skip analysis for this chunk.
         if self._in_code_block:
             self._reset_history()
-            return None
+            return False
 
         # Check for other markdown elements that should reset the state.
         has_table = bool(re.search(r"(^|\n)\s*(\|.*\||[|+-]{3,})", new_content))
@@ -51,11 +64,17 @@ class PatternAnalyzer:
 
         if has_table or has_list_item or has_heading or has_blockquote or is_divider:
             self.reset()  # Full reset for these elements
-            return None
+            return False
 
         self._stream_history += new_content
         self._truncate_and_update_indices()
 
+        return True
+
+    def analyze_pending_stream(
+        self, full_buffer_content: str
+    ) -> LoopDetectionEvent | None:
+        """Run loop analysis on the ingested stream history."""
         while self._has_more_chunks_to_process():
             current_chunk = self._stream_history[
                 self._last_chunk_index : self._last_chunk_index
