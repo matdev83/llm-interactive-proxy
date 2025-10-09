@@ -94,6 +94,23 @@ class TestResponsesControllerSchemaValidation:
         # Should not raise an exception when handling list-based union types
         ResponsesController._validate_json_schema(schema)
 
+    def test_validate_json_schema_accepts_union_type_and_items_list(self) -> None:
+        """Union-typed schemas with list-based items should validate successfully."""
+
+        schema = {
+            "type": ["object", "null"],
+            "properties": {
+                "values": {
+                    "type": ["array", "null"],
+                    "items": [{"type": "string"}],
+                }
+            },
+            "additionalProperties": False,
+        }
+
+        # Should not raise a TypeError or validation error
+        ResponsesController._validate_json_schema(schema)
+
 
 @pytest.mark.asyncio
 async def test_handle_responses_request_uses_injected_translation_service() -> None:
