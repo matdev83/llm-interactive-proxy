@@ -20,7 +20,7 @@ from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
         ("pytest tests/unit/test_example.py", False),
         ("pytest some/test/path", False),
         ("pytest some/test/path::TestSuite::test_case", False),
-        ("pytest .", False),
+        ("pytest .", True),
         ("pytest ./tests", False),
     ],
 )
@@ -110,6 +110,17 @@ async def test_handler_passes_through_targeted_pytest() -> None:
     assert await handler.can_handle(context) is False
     result = await handler.handle(context)
     assert result.should_swallow is False
+
+
+@pytest.mark.asyncio
+async def test_handler_flags_pytest_current_directory() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = _build_context("pytest .")
+
+    assert await handler.can_handle(context) is True
+    result = await handler.handle(context)
+
+    assert result.should_swallow is True
 
 
 @pytest.mark.asyncio

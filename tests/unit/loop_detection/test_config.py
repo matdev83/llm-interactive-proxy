@@ -107,3 +107,9 @@ class TestInternalLoopDetectionConfig:
         assert "content_chunk_size must be positive" in errors
         assert "content_loop_threshold must be positive" in errors
         assert "max_history_length must be positive" in errors
+
+    def test_from_dict_accepts_numeric_boolean_values(self) -> None:
+        """Boolean coercion should handle numeric inputs without raising errors."""
+        config = InternalLoopDetectionConfig.from_dict({"enabled": 0})
+
+        assert config.enabled is False

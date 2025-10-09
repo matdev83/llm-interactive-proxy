@@ -75,12 +75,6 @@ class StreamingContent:
 
         This method acts as a factory, attempting to parse various raw data formats
         into a standardized StreamingContent object.
-
-        Args:
-            raw_data: The raw data received from the streaming source.
-
-        Returns:
-            A StreamingContent object.
         """
         content = ""
         is_done = False

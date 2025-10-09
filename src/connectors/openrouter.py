@@ -215,7 +215,11 @@ class OpenRouterBackend(OpenAIConnector):
 
             if domain_request.stream:
                 content_iterator = await self._handle_streaming_response(
-                    url, payload, headers_override, domain_request.session_id or ""
+                    url,
+                    payload,
+                    headers_override,
+                    domain_request.session_id or "",
+                    "openai",
                 )
                 return StreamingResponseEnvelope(
                     content=content_iterator,

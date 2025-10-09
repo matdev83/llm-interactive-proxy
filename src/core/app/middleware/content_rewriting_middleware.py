@@ -177,6 +177,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         request_for_next_call = request
         if request.method == "POST":
             body_bytes = await request.body()
+            scope_for_next_call = request.scope
 
             try:
                 data = json.loads(body_bytes)
@@ -190,6 +191,21 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
 
                 if is_rewritten:
                     body_bytes = json.dumps(data).encode("utf-8")
+                    scope_for_next_call = dict(request.scope)
+                    headers = list(scope_for_next_call.get("headers", []))
+                    new_length = str(len(body_bytes)).encode("latin-1")
+
+                    header_found = False
+                    for index, (name, value) in enumerate(headers):
+                        if name.lower() == b"content-length":
+                            headers[index] = (name, new_length)
+                            header_found = True
+                            break
+
+                    if not header_found:
+                        headers.append((b"content-length", new_length))
+
+                    scope_for_next_call["headers"] = headers
 
             except json.JSONDecodeError:
                 # Not a JSON request, do nothing to the body
@@ -199,7 +215,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             async def receive():
                 return {"type": "http.request", "body": body_bytes, "more_body": False}
 
-            request_for_next_call = Request(request.scope, receive)
+            request_for_next_call = Request(scope_for_next_call, receive)
 
         # Step 2: Call the next middleware/app
         response = await call_next(request_for_next_call)
