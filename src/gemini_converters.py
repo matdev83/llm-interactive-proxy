@@ -13,9 +13,12 @@ from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    FunctionCall,
     MessageContentPartImage,
     MessageContentPartText,
+    ToolCall,
 )
+from src.core.domain.translation import Translation
 from src.gemini_models import (
     Blob,
     Candidate,
@@ -47,6 +50,7 @@ def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
 
         # If the client sends a functionResponse part (tool result), translate to OpenAI 'tool' message
         has_tool_response = False
+        tool_calls: list[ToolCall] = []
         for part in content.parts:
             if getattr(part, "function_response", None):
                 has_tool_response = True
@@ -55,12 +59,44 @@ def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
                 except (TypeError, ValueError):
                     payload = str(part.function_response)
                 messages.append(ChatMessage(role="tool", content=payload))
+            elif getattr(part, "function_call", None):
+                try:
+                    tool_calls.append(
+                        Translation._process_gemini_function_call(part.function_call)
+                    )
+                except Exception:
+                    name = str(
+                        getattr(part.function_call, "get", lambda key, default=None: default)(
+                            "name", "function"
+                        )
+                    )
+                    raw_args = getattr(
+                        part.function_call, "get", lambda key, default=None: default
+                    )("args", {})
+                    try:
+                        arguments = json.dumps(raw_args)
+                    except (TypeError, ValueError):
+                        arguments = str(raw_args)
+                    tool_calls.append(
+                        ToolCall(
+                            id="call_fallback",
+                            type="function",
+                            function=FunctionCall(name=name, arguments=arguments),
+                        )
+                    )
         if has_tool_response:
             continue
 
         message_content = _parts_to_text(content.parts)
-        if message_content:
-            messages.append(ChatMessage(role=role, content=message_content))
+        normalized_content = message_content or None
+        if tool_calls or normalized_content:
+            messages.append(
+                ChatMessage(
+                    role=role,
+                    content=normalized_content,
+                    tool_calls=tool_calls or None,
+                )
+            )
 
     return messages
 
