@@ -33,3 +33,20 @@ async def test_long_pattern_details_report_actual_length() -> None:
         result.details["total_repeated_chars"]
         == result.repetitions * result.details["pattern_length"]
     )
+    assert result.details["detection_method"] == "long_pattern"
+
+
+@pytest.mark.asyncio
+async def test_short_pattern_reports_short_detection_method() -> None:
+    """Ensure short pattern detection reports the proper detection method."""
+    detector = HybridLoopDetector()
+
+    chunk = "A" * detector.short_detector.content_chunk_size
+    repetitions = detector.short_detector.content_loop_threshold + 2
+    content = chunk * repetitions
+
+    result = await detector.check_for_loops(content)
+
+    assert result.has_loop is True
+    assert result.details is not None
+    assert result.details["detection_method"] == "short_pattern"
