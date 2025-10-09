@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 
 from src.core.domain.session import Session
 from src.core.interfaces.repositories_interface import ISessionRepository
@@ -115,20 +116,34 @@ class InMemorySessionRepository(ISessionRepository):
         Returns:
             The number of sessions deleted
         """
-        from datetime import datetime, timezone
-
         now = datetime.now(timezone.utc)
+        now_timestamp = time.time()
         expired_ids = []
 
         for session_id, session in self._sessions.items():
             # Use session's last_active_at if available, otherwise fall back to _last_accessed
             if hasattr(session, "last_active_at") and session.last_active_at:
                 last_active = session.last_active_at
-                age = (now - last_active).total_seconds()
+
+                if isinstance(last_active, datetime):
+                    if last_active.tzinfo is None or last_active.tzinfo.utcoffset(last_active) is None:
+                        last_active = last_active.replace(tzinfo=timezone.utc)
+                    else:
+                        last_active = last_active.astimezone(timezone.utc)
+
+                    age = (now - last_active).total_seconds()
+                else:
+                    logger.debug(
+                        "Session %s has non-datetime last_active_at (%s); falling back to access timestamp",
+                        session_id,
+                        type(last_active).__name__,
+                    )
+                    last_access_timestamp = self._last_accessed.get(session_id, now_timestamp)
+                    age = now_timestamp - last_access_timestamp
             else:
                 # Fall back to internal tracking
-                last_access_timestamp = self._last_accessed.get(session_id, time.time())
-                age = time.time() - last_access_timestamp
+                last_access_timestamp = self._last_accessed.get(session_id, now_timestamp)
+                age = now_timestamp - last_access_timestamp
 
             if age > max_age_seconds:
                 expired_ids.append(session_id)
