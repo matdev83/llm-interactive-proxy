@@ -362,15 +362,34 @@ class Translation(BaseTranslator):
         Translate an Anthropic request to a CanonicalChatRequest.
         """
         # Use the helper method to safely access request parameters
+        system_prompt = Translation._get_request_param(request, "system")
+        raw_messages = Translation._get_request_param(request, "messages", [])
+        normalized_messages: list[Any] = []
+
+        if system_prompt:
+            normalized_messages.append({"role": "system", "content": system_prompt})
+
+        if raw_messages:
+            for message in raw_messages:
+                normalized_messages.append(message)
+
+        stop_param = Translation._get_request_param(request, "stop")
+        stop_sequences = Translation._get_request_param(request, "stop_sequences")
+        normalized_stop = stop_param
+        if (
+            normalized_stop is None or normalized_stop == [] or normalized_stop == ""
+        ) and stop_sequences not in (None, [], ""):
+            normalized_stop = stop_sequences
+
         return CanonicalChatRequest(
             model=Translation._get_request_param(request, "model"),
-            messages=Translation._get_request_param(request, "messages", []),
+            messages=normalized_messages,
             temperature=Translation._get_request_param(request, "temperature"),
             top_p=Translation._get_request_param(request, "top_p"),
             top_k=Translation._get_request_param(request, "top_k"),
             n=Translation._get_request_param(request, "n"),
             stream=Translation._get_request_param(request, "stream"),
-            stop=Translation._get_request_param(request, "stop"),
+            stop=normalized_stop,
             max_tokens=Translation._get_request_param(request, "max_tokens"),
             presence_penalty=Translation._get_request_param(
                 request, "presence_penalty"
