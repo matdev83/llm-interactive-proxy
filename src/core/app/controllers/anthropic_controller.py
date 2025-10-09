@@ -14,6 +14,7 @@ from fastapi import HTTPException, Request, Response
 from src.anthropic_converters import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
+    _map_finish_reason,
 )
 from src.anthropic_models import AnthropicMessagesRequest
 from src.core.common.exceptions import InitializationError, LLMProxyError
@@ -186,13 +187,18 @@ class AnthropicController:
                         first = cr.choices[0] if cr.choices else None
                         text = first.message.content if first and first.message else ""
                         usage = cr.usage or {}
+                        stop_reason = (
+                            _map_finish_reason(first.finish_reason)
+                            if first and first.finish_reason is not None
+                            else None
+                        )
                         anthropic_response_data = {
                             "id": cr.id,
                             "type": "message",
                             "role": "assistant",
                             "content": [{"type": "text", "text": text or ""}],
                             "model": cr.model,
-                            "stop_reason": first.finish_reason if first else "stop",
+                            "stop_reason": stop_reason,
                             "stop_sequence": None,
                             "usage": {
                                 "input_tokens": usage.get("prompt_tokens", 0),

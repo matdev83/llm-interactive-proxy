@@ -16,6 +16,11 @@ from src.core.config.app_config import (
     LoggingConfig,
     SessionConfig,
 )
+from src.core.domain.chat import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatResponse as ChatCompletionResponse,
+)
 
 
 @pytest.fixture()
@@ -116,6 +121,58 @@ def test_anthropic_messages_non_streaming_frontend(anthropic_client):
         assert body["role"] == "assistant"
         assert body["content"][0]["type"] == "text"
         assert body["content"][0]["text"] == "Mock response from test backend"
+        mock_process.assert_awaited_once()
+
+
+def test_anthropic_messages_maps_finish_reason_from_domain_response(
+    anthropic_client,
+):
+    with patch(
+        "src.core.services.request_processor_service.RequestProcessor.process_request",
+        new_callable=AsyncMock,
+    ) as mock_process:
+        from src.core.domain.responses import ResponseEnvelope
+
+        domain_response = ChatCompletionResponse(
+            id="chatcmpl-456",
+            object="chat.completion",
+            created=1677652288,
+            model="claude-3-haiku-20240229",
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant", content="Tool was invoked"
+                    ),
+                    finish_reason="tool_calls",
+                )
+            ],
+            usage={
+                "prompt_tokens": 9,
+                "completion_tokens": 3,
+                "total_tokens": 12,
+            },
+        )
+
+        mock_process.return_value = ResponseEnvelope(
+            content=domain_response,
+            headers={"content-type": "application/json"},
+            status_code=200,
+        )
+
+        res = anthropic_client.post(
+            "/anthropic/v1/messages",
+            headers={"Authorization": "Bearer test-proxy-key"},
+            json={
+                "model": "claude-3-haiku-20240229",
+                "max_tokens": 64,
+                "messages": [{"role": "user", "content": "Call the tool"}],
+            },
+        )
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["stop_reason"] == "tool_use"
         mock_process.assert_awaited_once()
 
 
