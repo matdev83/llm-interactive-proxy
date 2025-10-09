@@ -421,6 +421,21 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         choice: dict[str, Any] = openai_chunk.get("choices", [{}])[0]
         delta: dict[str, Any] = choice.get("delta", {})
 
+        # Role delta (message start)
+        role = delta.get("role")
+        if role:
+            payload = {
+                "type": "message_start",
+                "index": 0,
+                "message": {
+                    "id": id,
+                    "type": "message",
+                    "role": role,
+                    "model": model,
+                },
+            }
+            return f"event: message_start\ndata: {json.dumps(payload)}\n\n"
+
         # Content delta
         if delta.get("content"):
             content = _normalize_text_content(delta["content"])

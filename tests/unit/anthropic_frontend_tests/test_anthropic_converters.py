@@ -441,6 +441,18 @@ class TestAnthropicConverters:
         assert "content_block_delta" in anthropic_chunk
         assert "Hello" in anthropic_chunk
 
+    def test_openai_to_anthropic_stream_chunk_with_role_delta(self) -> None:
+        """Role deltas should emit Anthropic message_start events."""
+        chunk = '{"id": "chatcmpl-123", "choices": [{"delta": {"role": "assistant"}}]}'
+
+        anthropic_chunk = openai_to_anthropic_stream_chunk(
+            chunk, "msg_123", "claude-3-haiku-20240307"
+        )
+
+        assert anthropic_chunk.startswith("event: message_start")
+        assert '"role": "assistant"' in anthropic_chunk
+        assert '"model": "claude-3-haiku-20240307"' in anthropic_chunk
+
     def test_map_finish_reason(self) -> None:
         """Test finish reason mapping."""
         assert _map_finish_reason("stop") == "end_turn"
