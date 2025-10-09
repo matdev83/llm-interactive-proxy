@@ -199,7 +199,9 @@ class Translation(BaseTranslator):
             }
 
     @staticmethod
-    def _normalize_responses_input_to_messages(input_payload: Any) -> list[dict[str, Any]]:
+    def _normalize_responses_input_to_messages(
+        input_payload: Any,
+    ) -> list[dict[str, Any]]:
         """Coerce OpenAI Responses API input payloads into chat messages."""
 
         def _normalize_message_entry(entry: Any) -> dict[str, Any] | None:
@@ -234,10 +236,10 @@ class Translation(BaseTranslator):
         if input_payload is None:
             return []
 
-        if isinstance(input_payload, (str, bytes)):
+        if isinstance(input_payload, str | bytes):
             text_value = (
                 input_payload.decode("utf-8", "ignore")
-                if isinstance(input_payload, (bytes, bytearray))
+                if isinstance(input_payload, bytes | bytearray)
                 else input_payload
             )
             return [{"role": "user", "content": text_value}]
@@ -264,7 +266,7 @@ class Translation(BaseTranslator):
         def _coerce_text_value(value: Any) -> str:
             if isinstance(value, str):
                 return value
-            if isinstance(value, (bytes, bytearray)):
+            if isinstance(value, bytes | bytearray):
                 return value.decode("utf-8", "ignore")
             if isinstance(value, list):
                 segments: list[str] = []
@@ -281,7 +283,7 @@ class Translation(BaseTranslator):
         if content is None:
             return None
 
-        if isinstance(content, (str, bytes, bytearray)):
+        if isinstance(content, str | bytes | bytearray):
             return _coerce_text_value(content)
 
         if isinstance(content, dict):
@@ -299,7 +301,7 @@ class Translation(BaseTranslator):
                     collected_parts.extend(
                         Translation._normalize_responses_content_part(part)
                     )
-                elif isinstance(part, (str, bytes, bytearray)):
+                elif isinstance(part, str | bytes | bytearray):
                     collected_parts.append(
                         {"type": "text", "text": _coerce_text_value(part)}
                     )
@@ -335,7 +337,9 @@ class Translation(BaseTranslator):
             if isinstance(image_payload, str):
                 image_payload = {"url": image_payload}
             if isinstance(image_payload, dict) and image_payload.get("url"):
-                normalized_parts.append({"type": "image_url", "image_url": image_payload})
+                normalized_parts.append(
+                    {"type": "image_url", "image_url": image_payload}
+                )
         elif part_type == "tool_call":
             # Tool call parts are handled elsewhere in the pipeline; ignore here.
             return []
@@ -351,7 +355,7 @@ class Translation(BaseTranslator):
             return ""
         if isinstance(value, str):
             return value
-        if isinstance(value, (bytes, bytearray)):
+        if isinstance(value, bytes | bytearray):
             return value.decode("utf-8", "ignore")
         return str(value)
 
@@ -995,25 +999,26 @@ class Translation(BaseTranslator):
             # the structured output array is empty. This happens when the
             # backend only returns plain text without additional metadata.
             output_text = response.get("output_text")
-            text_segments: list[str] = []
+            fallback_text_segments: list[str] = []
             if isinstance(output_text, list):
-                text_segments = [str(segment) for segment in output_text if segment]
-            elif isinstance(output_text, str):
-                if output_text:
-                    text_segments = [output_text]
+                fallback_text_segments = [
+                    str(segment) for segment in output_text if segment
+                ]
+            elif isinstance(output_text, str) and output_text:
+                fallback_text_segments = [output_text]
 
-            if text_segments:
-                aggregated_text = "".join(text_segments)
+            if fallback_text_segments:
+                aggregated_text = "".join(fallback_text_segments)
                 status = response.get("status")
-                finish_reason: str | None
+                fallback_finish_reason: str | None
                 if status == "completed":
-                    finish_reason = "stop"
+                    fallback_finish_reason = "stop"
                 elif status == "incomplete":
-                    finish_reason = "length"
+                    fallback_finish_reason = "length"
                 elif status in {"in_progress", "generating"}:
-                    finish_reason = None
+                    fallback_finish_reason = None
                 else:
-                    finish_reason = "stop" if aggregated_text else None
+                    fallback_finish_reason = "stop" if aggregated_text else None
 
                 message = ChatCompletionChoiceMessage(
                     role="assistant",
@@ -1025,7 +1030,7 @@ class Translation(BaseTranslator):
                     ChatCompletionChoice(
                         index=0,
                         message=message,
-                        finish_reason=finish_reason,
+                        finish_reason=fallback_finish_reason,
                     )
                 )
 
@@ -2380,11 +2385,7 @@ class Translation(BaseTranslator):
 
         allowed_keys: set[str] = {"metadata"}
 
-        return {
-            key: value
-            for key, value in extra_body.items()
-            if key in allowed_keys
-        }
+        return {key: value for key, value in extra_body.items() if key in allowed_keys}
 
     @staticmethod
     def enhance_structured_output_response(

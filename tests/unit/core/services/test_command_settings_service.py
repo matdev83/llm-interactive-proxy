@@ -42,4 +42,3 @@ class TestCommandSettingsService:
         assert service.get_command_prefix() == "!/"
         assert service.get_api_key_redaction_enabled() is True
         assert service.get_disable_interactive_commands() is False
-

@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import pytest
-
 from src.core.services.structured_output_middleware import StructuredOutputMiddleware
 
 
 class DummyJsonRepairService:
     """A dummy repair service that raises an unexpected error."""
 
-    def process_structured_response(self, **_: object) -> tuple[str, dict[str, object] | None]:
+    def process_structured_response(
+        self, **_: object
+    ) -> tuple[str, dict[str, object] | None]:
         raise RuntimeError("boom")
 
 
@@ -37,4 +38,3 @@ async def test_unexpected_error_raises_when_strict_validation_enabled() -> None:
             session_id="session-123",
             context=context,
         )
-

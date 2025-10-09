@@ -95,7 +95,10 @@ class CommandParser:
 
             name_end = cursor
             whitespace_cursor = cursor
-            while whitespace_cursor < len(content) and content[whitespace_cursor].isspace():
+            while (
+                whitespace_cursor < len(content)
+                and content[whitespace_cursor].isspace()
+            ):
                 whitespace_cursor += 1
 
             matched_end = name_end
@@ -152,7 +155,7 @@ class CommandParser:
 
             opening = "({["
             closing = ")}]"
-            matching = {')': '(', '}': '{', ']': '['}
+            matching = {")": "(", "}": "{", "]": "["}
 
             for char in raw:
                 if escape_next:

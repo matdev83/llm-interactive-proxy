@@ -1,7 +1,6 @@
 """Tests for the command parser argument handling."""
 
 import pytest
-
 from src.core.commands.parser import CommandParser
 
 
@@ -23,7 +22,9 @@ from src.core.commands.parser import CommandParser
         ),
     ],
 )
-def test_parser_handles_complex_arguments(content: str, expected_args: dict[str, str]) -> None:
+def test_parser_handles_complex_arguments(
+    content: str, expected_args: dict[str, str]
+) -> None:
     """Ensure the parser keeps argument values intact when they contain commas."""
 
     parser = CommandParser()

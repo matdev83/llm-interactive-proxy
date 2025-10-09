@@ -3,10 +3,9 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from src.core.di.container import ServiceCollection
 from src.core.common.exceptions import ServiceResolutionError
+from src.core.di.container import ServiceCollection
 from src.core.di.services import (
-    get_service_collection,
     get_service_provider,
     register_core_services,
     set_service_provider,
