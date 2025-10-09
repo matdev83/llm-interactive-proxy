@@ -225,6 +225,66 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_outbound_prompt_rewriting_updates_content_length_header(self):
+        """Ensure rewritten requests expose the correct Content-Length."""
+
+        async def run_test():
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            payload = {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "This is an original system prompt.",
+                    },
+                ]
+            }
+
+            original_body = json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers(
+                        {
+                            "content-type": "application/json",
+                            "content-length": str(len(original_body)),
+                        }
+                    ).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = original_body
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            forwarded_request = call_next.call_args[0][0]
+
+            forwarded_body = await forwarded_request.body()
+            self.assertNotEqual(len(forwarded_body), len(original_body))
+
+            self.assertEqual(
+                forwarded_request.headers["content-length"],
+                str(len(forwarded_body)),
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_outbound_responses_input_rewriting(self):
         """Verify that Responses API input payloads are rewritten."""
 
