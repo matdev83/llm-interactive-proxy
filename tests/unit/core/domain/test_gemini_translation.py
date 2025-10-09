@@ -89,7 +89,6 @@ class TestGeminiContentToMessages:
 
     def test_function_response_content(self) -> None:
         """Test conversion of Gemini function responses to tool messages."""
-
         contents = [
             {
                 "role": "user",
