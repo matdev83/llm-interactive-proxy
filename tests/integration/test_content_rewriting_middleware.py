@@ -778,6 +778,81 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_inbound_responses_output_prepend_rules_apply_once(self):
+        """Ensure PREPEND rules are not applied twice to output text."""
+
+        async def run_test():
+            os.makedirs(
+                os.path.join(self.test_config_dir, "replies", "005"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(self.test_config_dir, "replies", "005", "SEARCH.txt"),
+                "w",
+            ) as f:
+                f.write("Original snippet")
+            with open(
+                os.path.join(self.test_config_dir, "replies", "005", "PREPEND.txt"),
+                "w",
+            ) as f:
+                f.write("Prefix: ")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            response_payload = {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Original snippet",
+                            }
+                        ]
+                    }
+                ],
+                "output_text": ["Original snippet"],
+            }
+
+            async def call_next(request):
+                return Response(
+                    content=json.dumps(response_payload),
+                    media_type="application/json",
+                )
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                },
+                receive=receive,
+            )
+
+            response = await middleware.dispatch(request, call_next)
+            body = json.loads(response.body)
+
+            self.assertEqual(
+                body["output"][0]["content"][0]["text"],
+                "Prefix: Original snippet",
+            )
+            self.assertEqual(body["output_text"][0], "Prefix: Original snippet")
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_streaming_reply_rewriting_preserves_background(self):
         """Ensure background tasks attached to streaming responses are preserved."""
 

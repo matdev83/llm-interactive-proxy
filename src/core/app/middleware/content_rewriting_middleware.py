@@ -145,9 +145,12 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         is_rewritten = False
 
         outputs = payload.get("output")
+        aggregated_texts: list[str | None] = []
+
         if isinstance(outputs, list):
             for item in outputs:
                 if not isinstance(item, dict):
+                    aggregated_texts.append(None)
                     continue
 
                 content = item.get("content")
@@ -156,11 +159,14 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                     if rewritten != content:
                         item["content"] = rewritten
                         is_rewritten = True
+                    aggregated_texts.append(rewritten)
                     continue
 
                 if not isinstance(content, list):
+                    aggregated_texts.append(None)
                     continue
 
+                aggregated_parts: list[str] = []
                 for block in content:
                     if not isinstance(block, dict):
                         continue
@@ -173,17 +179,39 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                     if rewritten_text != text_value:
                         block["text"] = rewritten_text
                         is_rewritten = True
+                    aggregated_parts.append(rewritten_text)
+
+                aggregated_texts.append(
+                    "".join(aggregated_parts) if aggregated_parts else None
+                )
 
         output_text = payload.get("output_text")
         if isinstance(output_text, list):
-            for index, text_value in enumerate(output_text):
-                if not isinstance(text_value, str):
-                    continue
+            if aggregated_texts and len(aggregated_texts) == len(output_text):
+                for index, text_value in enumerate(output_text):
+                    if not isinstance(text_value, str):
+                        continue
 
-                rewritten_text = self.rewriter.rewrite_reply(text_value)
-                if rewritten_text != text_value:
-                    payload["output_text"][index] = rewritten_text
-                    is_rewritten = True
+                    aggregated_text = aggregated_texts[index]
+                    if aggregated_text is None:
+                        rewritten_text = self.rewriter.rewrite_reply(text_value)
+                        if rewritten_text != text_value:
+                            payload["output_text"][index] = rewritten_text
+                            is_rewritten = True
+                        continue
+
+                    if aggregated_text != text_value:
+                        payload["output_text"][index] = aggregated_text
+                        is_rewritten = True
+            else:
+                for index, text_value in enumerate(output_text):
+                    if not isinstance(text_value, str):
+                        continue
+
+                    rewritten_text = self.rewriter.rewrite_reply(text_value)
+                    if rewritten_text != text_value:
+                        payload["output_text"][index] = rewritten_text
+                        is_rewritten = True
 
         return is_rewritten
 
