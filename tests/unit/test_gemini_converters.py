@@ -5,7 +5,11 @@ Tests the conversion logic between Gemini and OpenAI formats.
 
 import json
 
-from src.core.domain.chat import ChatMessage
+from src.core.domain.chat import (
+    ChatMessage,
+    MessageContentPartImage,
+    MessageContentPartText,
+)
 from src.gemini_converters import (
     gemini_to_openai_messages,
     openai_to_gemini_contents,
@@ -14,6 +18,7 @@ from src.gemini_converters import (
 from src.gemini_models import (
     Blob,
     Content,
+    FileData,
     Part,
 )
 
@@ -60,10 +65,67 @@ class TestMessageConversion:
 
         assert len(messages) == 1
         assert messages[0].role == "user"
-        expected_content = (
-            "Look at this: \n[Attachment: image/png]\n What do you think?"
+        assert isinstance(messages[0].content, list)
+        parts = messages[0].content
+        assert len(parts) == 3
+        assert isinstance(parts[0], MessageContentPartText)
+        assert parts[0].text == "Look at this: "
+        assert isinstance(parts[1], MessageContentPartImage)
+        assert (
+            parts[1].image_url.url
+            == "data:image/png;base64,base64data"
         )
-        assert messages[0].content == expected_content
+        assert isinstance(parts[2], MessageContentPartText)
+        assert parts[2].text == " What do you think?"
+
+    def test_gemini_inline_data_only(self) -> None:
+        """Ensure inline_data content is preserved as data URI."""
+        contents = [
+            Content(
+                parts=[
+                    Part(
+                        inline_data=Blob(
+                            mime_type="image/jpeg", data="abcd1234"
+                        )
+                    )
+                ],
+                role="user",
+            )
+        ]
+
+        messages = gemini_to_openai_messages(contents)
+
+        assert len(messages) == 1
+        assert isinstance(messages[0].content, list)
+        image_part = messages[0].content[0]
+        assert isinstance(image_part, MessageContentPartImage)
+        assert (
+            image_part.image_url.url == "data:image/jpeg;base64,abcd1234"
+        )
+
+    def test_gemini_file_data_preserves_uri(self) -> None:
+        """Ensure file-based parts are converted to image URL parts."""
+        contents = [
+            Content(
+                parts=[
+                    Part(
+                        file_data=FileData(
+                            mime_type="image/png",
+                            file_uri="https://example.com/image.png",
+                        )
+                    )
+                ],
+                role="user",
+            )
+        ]
+
+        messages = gemini_to_openai_messages(contents)
+
+        assert len(messages) == 1
+        assert isinstance(messages[0].content, list)
+        file_part = messages[0].content[0]
+        assert isinstance(file_part, MessageContentPartImage)
+        assert file_part.image_url.url == "https://example.com/image.png"
 
     def test_openai_to_gemini_simple_message(self) -> None:
         """Test converting OpenAI message to Gemini content."""

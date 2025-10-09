@@ -12,6 +12,7 @@ from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    ImageURL,
     MessageContentPartImage,
     MessageContentPartText,
 )
@@ -57,7 +58,7 @@ def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
         if has_tool_response:
             continue
 
-        message_content = _parts_to_text(content.parts)
+        message_content = _parts_to_openai_content(content.parts)
         if message_content:
             messages.append(ChatMessage(role=role, content=message_content))
 
@@ -393,16 +394,45 @@ def is_streaming_request(path: str) -> bool:
     return ":streamGenerateContent" in path
 
 
-def _parts_to_text(parts: list[Part]) -> str:
-    lines: list[str] = []
+def _parts_to_openai_content(
+    parts: list[Part],
+) -> str | list[MessageContentPartText | MessageContentPartImage] | None:
+    text_segments: list[str] = []
+    ordered_parts: list[MessageContentPartText | MessageContentPartImage] = []
+    has_non_text = False
+
     for part in parts:
         if part.text:
-            lines.append(part.text)
-        elif part.inline_data:
-            lines.append(f"[Attachment: {part.inline_data.mime_type}]")
-        elif part.file_data:
-            lines.append(f"[File: {part.file_data.file_uri}]")
-    return "\n".join(lines) if lines else ""
+            text_segments.append(part.text)
+            ordered_parts.append(MessageContentPartText(text=part.text))
+            continue
+
+        if part.inline_data and part.inline_data.data:
+            has_non_text = True
+            mime_type = part.inline_data.mime_type or "application/octet-stream"
+            data = part.inline_data.data
+            data_uri = data
+            if not data.startswith("data:"):
+                data_uri = f"data:{mime_type};base64,{data}"
+            ordered_parts.append(
+                MessageContentPartImage(image_url=ImageURL(url=data_uri))
+            )
+            continue
+
+        if part.file_data and part.file_data.file_uri:
+            has_non_text = True
+            ordered_parts.append(
+                MessageContentPartImage(image_url=ImageURL(url=part.file_data.file_uri))
+            )
+            continue
+
+    if not ordered_parts:
+        return None
+
+    if not has_non_text and len(ordered_parts) == len(text_segments):
+        return "\n".join(text_segments)
+
+    return ordered_parts
 
 
 def _openai_part_to_gemini_part(
