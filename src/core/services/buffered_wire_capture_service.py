@@ -98,22 +98,7 @@ class BufferedWireCapture(IWireCapture):
 
     def __del__(self) -> None:
         """Cleanup resources when the instance is destroyed."""
-        # Disable the service first to stop the background loop
-        self._enabled = False
-
-        # Cancel the background task if it exists and is pending
-        if self._flush_task and not self._flush_task.done():
-            # Try to cancel the task, but be defensive about event loop state
-            try:
-                # Try to get the event loop that owns this task
-                task_loop = self._flush_task.get_loop()
-                if task_loop and not task_loop.is_closed():
-                    # Cancel the task in the loop it belongs to
-                    self._flush_task.cancel()
-            except (RuntimeError, AttributeError):
-                # Event loop is closed or unavailable
-                # Nothing we can do, task will be garbage collected
-                pass
+        self.force_shutdown_sync()
 
     def _initialize(self) -> None:
         """Initialize the wire capture system."""
@@ -568,16 +553,39 @@ class BufferedWireCapture(IWireCapture):
                 await self._flush_buffer()
 
     def force_shutdown_sync(self) -> None:
-        """Synchronous method to force shutdown when async context is not available."""
-        import contextlib
+        """Synchronous best-effort shutdown when async context is not available."""
+        # Mark as disabled first so the background loop exits promptly
+        self._enabled = False
 
-        # Cancel the task if it exists
-        if self._flush_task:
-            with contextlib.suppress(RuntimeError):  # suppress event loop closed errors
-                loop = asyncio.get_running_loop()
-                if not loop.is_closed():
-                    loop.call_soon_threadsafe(self._flush_task.cancel)
+        task = self._flush_task
+        if task is not None:
+            try:
+                task_loop = (
+                    task.get_loop()
+                )  # Works even if loop is not currently running
+            except RuntimeError:
+                task_loop = None
+
+            if task_loop is not None and not task_loop.is_closed():
+
+                def _cancel_task() -> None:
+                    if not task.done():
+                        task.cancel()
+
+                task_loop.call_soon_threadsafe(_cancel_task)
+            else:
+                if not task.done():
+                    task.cancel()
+
             self._flush_task = None
 
-        # Mark as disabled
-        self._enabled = False
+        # Attempt a final synchronous flush if the buffer is idle
+        try:
+            if self._buffer and not self._buffer_lock.locked():
+                entries_to_write = self._buffer.copy()
+                self._buffer.clear()
+                self._last_flush_time = time.time()
+                self._write_entries_sync(entries_to_write)
+        except Exception:
+            # Best-effort only; never raise during shutdown
+            pass

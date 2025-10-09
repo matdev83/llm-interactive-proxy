@@ -90,22 +90,26 @@ class OpenAIConnector(LLMBackend):
         if "api_base_url" in kwargs:
             self.api_base_url = kwargs["api_base_url"]
 
-        # Proceed to fetch models; failures are non-fatal
-
-        # Fetch available models
-        try:
-            headers = self.get_headers()
-            response = await self.client.get(
-                f"{self.api_base_url}/models", headers=headers
-            )
-            # For mock responses in tests, status_code might not be accessible
-            # or might not be 200, so we just try to access the data directly
-            data = response.json()
-            self.available_models = [model["id"] for model in data.get("data", [])]
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to fetch models: %s", e, exc_info=True)
-            # Log the error but don't fail initialization
+        # Proceed to fetch models only when we have credentials; failures are non-fatal
+        if not self.api_key:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping OpenAI model listing during init; no API key configured"
+                )
+        else:
+            try:
+                headers = self.get_headers()
+                response = await self.client.get(
+                    f"{self.api_base_url}/models", headers=headers
+                )
+                # For mock responses in tests, status_code might not be accessible
+                # or might not be 200, so we just try to access the data directly
+                data = response.json()
+                self.available_models = [model["id"] for model in data.get("data", [])]
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to fetch models: %s", e, exc_info=True)
+                # Log the error but don't fail initialization
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity.
