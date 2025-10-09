@@ -8,6 +8,7 @@ including HTTP headers, cookies, and configuration settings.
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.configuration_interface import IConfig
@@ -32,7 +33,7 @@ class DefaultSessionResolver(ISessionResolver):
             config: Optional configuration object
         """
         self.config = config
-        self.default_session_id = "default"
+        self._configured_default_session_id: str | None = None
 
         # Try to get a configured default session ID if available
         if config is not None:
@@ -42,8 +43,8 @@ class DefaultSessionResolver(ISessionResolver):
                     config.session, "default_session_id"
                 ):
                     configured_default: str | None = config.session.default_session_id
-                    if configured_default:
-                        self.default_session_id = configured_default
+                    if configured_default and configured_default.strip():
+                        self._configured_default_session_id = configured_default
             except (AttributeError, TypeError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Could not read default session ID from config: {e}")
@@ -57,6 +58,11 @@ class DefaultSessionResolver(ISessionResolver):
         Returns:
             The resolved session ID
         """
+        # Try to get session ID explicitly attached to the context first
+        context_session_id = getattr(context, "session_id", None)
+        if isinstance(context_session_id, str) and context_session_id:
+            return context_session_id
+
         # Try to get session ID from domain request attached to context if available
         if hasattr(context, "domain_request"):
             from src.core.domain.chat import ChatRequest
@@ -86,5 +92,10 @@ class DefaultSessionResolver(ISessionResolver):
         if cookie_value is not None and isinstance(cookie_value, str):
             return cookie_value
 
-        # Fall back to default session ID
-        return self.default_session_id
+        # Fall back to configured default session ID, if provided. Otherwise
+        # generate an isolated session identifier so state cannot leak across
+        # independent callers that omit session metadata.
+        if self._configured_default_session_id:
+            return self._configured_default_session_id
+
+        return str(uuid4())
