@@ -8,7 +8,9 @@ including HTTP headers, cookies, and configuration settings.
 from __future__ import annotations
 
 import logging
-import uuid
+from collections.abc import Callable
+from typing import Final
+from uuid import uuid4
 
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.configuration_interface import IConfig
@@ -26,14 +28,21 @@ class DefaultSessionResolver(ISessionResolver):
     3. A fallback default value (configurable)
     """
 
-    def __init__(self, config: IConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: IConfig | None = None,
+        default_id_factory: Callable[[], str] | None = None,
+    ) -> None:
         """Initialize the session resolver.
 
         Args:
             config: Optional configuration object
         """
         self.config = config
-        self._configured_default_session_id: str | None = None
+        self._configured_default_id: str | None = None
+        self._default_id_factory: Final[Callable[[], str]] = (
+            default_id_factory if default_id_factory is not None else lambda: str(uuid4())
+        )
 
         # Try to get a configured default session ID if available
         if config is not None:
@@ -41,19 +50,20 @@ class DefaultSessionResolver(ISessionResolver):
                 if hasattr(config, "session") and hasattr(
                     config.session, "default_session_id"
                 ):
-                    configured_default: str | None = config.session.default_session_id
-                    if configured_default and configured_default.strip():
-                        self._configured_default_session_id = configured_default
+                    configured_default = getattr(
+                        config.session, "default_session_id", None
+                    )
+                    if isinstance(configured_default, str):
+                        sanitized_default = configured_default.strip()
+                        if sanitized_default:
+                            self._configured_default_id = sanitized_default
             except (AttributeError, TypeError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Could not read default session ID from config: {e}")
+                    logger.debug(
+                        f"Could not read default session ID from config: {e}"
+                    )
 
-    @staticmethod
-    def _generate_session_id() -> str:
-        """Generate a new random session ID for anonymous requests."""
-
-        return str(uuid.uuid4())
-
+    
     async def resolve_session_id(self, context: RequestContext) -> str:
         """Resolve a session ID from a request context.
 
@@ -63,7 +73,6 @@ class DefaultSessionResolver(ISessionResolver):
         Returns:
             The resolved session ID
         """
-        # Try to get session ID explicitly attached to the context first
         context_session_id = getattr(context, "session_id", None)
         if isinstance(context_session_id, str) and context_session_id:
             return context_session_id
@@ -100,29 +109,17 @@ class DefaultSessionResolver(ISessionResolver):
             if isinstance(header_value, str) and header_value:
                 session_id = header_value
 
-        if not session_id:
-            # Try to get session ID from cookies
-            cookie_value = context.cookies.get("session_id")
-            if isinstance(cookie_value, str) and cookie_value:
-                session_id = cookie_value
+        # Try to get session ID from cookies
+        cookie_value = context.cookies.get("session_id")
+        if isinstance(cookie_value, str) and cookie_value:
+            session_id = cookie_value
 
-        if not session_id:
-            # Fall back to configured default or generate a new session ID per request
-            session_id = self._configured_default_session_id or self._generate_session_id()
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Generated new session_id '%s' due to missing identifiers", session_id
-                )
+        # Fall back to configured default session ID if available
+        if self._configured_default_id:
+            context.session_id = self._configured_default_id
+            return self._configured_default_id
 
-        self._set_context_session_id(context, session_id)
-        return session_id
-
-    @staticmethod
-    def _set_context_session_id(context: RequestContext, session_id: str) -> None:
-        """Attach the resolved session ID back to the request context if possible."""
-
-        try:
-            context.session_id = session_id
-        except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Unable to set session_id on context", exc_info=True)
+        # Generate a fresh session ID for this request to avoid cross-session leakage
+        generated_session_id = self._default_id_factory()
+        context.session_id = generated_session_id
+        return generated_session_id
