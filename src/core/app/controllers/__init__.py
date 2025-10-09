@@ -605,7 +605,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
 
             from fastapi.responses import StreamingResponse
 
+            from src.core.domain.gemini_translation import (
+                canonical_response_to_gemini_response,
+            )
             from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.interfaces.response_processor_interface import ProcessedResponse
             from src.core.services.translation_service import TranslationService
 
             # Add model to request data if not present
@@ -633,7 +637,6 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             backend_service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
 
             async def generate_stream() -> AsyncGenerator[bytes, None]:
-                from src.gemini_converters import openai_to_gemini_stream_chunk
 
                 try:
                     # Call the backend service
@@ -645,38 +648,59 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                         # Process streaming response
                         async for chunk in result.content:
                             try:
-                                # Convert OpenAI streaming format to Gemini streaming format
-                                if isinstance(chunk, dict):
-                                    chunk_payload = json.dumps(chunk)
-                                    gemini_sse = openai_to_gemini_stream_chunk(
-                                        f"data: {chunk_payload}"
-                                    )
-
-                                    if not gemini_sse.endswith("\n\n"):
-                                        gemini_sse = f"{gemini_sse}\n\n"
-
-                                    yield gemini_sse.encode()
+                                processed_chunk: ProcessedResponse
+                                if isinstance(chunk, ProcessedResponse):
+                                    processed_chunk = chunk
                                 else:
-                                    raw_chunk = (
-                                        chunk.decode("utf-8", errors="ignore")
-                                        if isinstance(chunk, bytes | bytearray)
-                                        else str(chunk)
+                                    processed_chunk = ProcessedResponse(content=chunk)
+
+                                chunk_payload = processed_chunk.content
+                                if isinstance(chunk_payload, (bytes, bytearray)):
+                                    chunk_payload = chunk_payload.decode(
+                                        "utf-8", errors="ignore"
                                     )
 
-                                    if not raw_chunk.strip():
-                                        continue
+                                if chunk_payload is None:
+                                    continue
 
-                                    if not raw_chunk.startswith("data:"):
-                                        raw_chunk = f"data: {raw_chunk}"
+                                if isinstance(chunk_payload, str):
+                                    # Try to parse as JSON first
+                                    try:
+                                        parsed_json = json.loads(chunk_payload)
+                                        if isinstance(parsed_json, dict):
+                                            canonical_chunk = parsed_json
+                                        else:
+                                            canonical_chunk = {
+                                                "choices": [
+                                                    {"delta": {"content": chunk_payload}}
+                                                ]
+                                            }
+                                    except (json.JSONDecodeError, TypeError):
+                                        # Not valid JSON, treat as plain content
+                                        canonical_chunk = {
+                                            "choices": [
+                                                {"delta": {"content": chunk_payload}}
+                                            ]
+                                        }
+                                elif isinstance(chunk_payload, dict):
+                                    canonical_chunk = chunk_payload
+                                else:
+                                    canonical_chunk = {
+                                        "choices": [
+                                            {
+                                                "delta": {
+                                                    "content": str(chunk_payload)
+                                                }
+                                            }
+                                        ]
+                                    }
 
-                                    gemini_sse = openai_to_gemini_stream_chunk(
-                                        raw_chunk
-                                    )
+                                gemini_format = canonical_response_to_gemini_response(
+                                    canonical_chunk, is_streaming=True
+                                )
 
-                                    if not gemini_sse.endswith("\n\n"):
-                                        gemini_sse = f"{gemini_sse}\n\n"
-
-                                    yield gemini_sse.encode()
+                                if gemini_format:
+                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
                             except Exception as chunk_error:
                                 logger.error(f"Error processing chunk: {chunk_error}")
                                 # Send error message as a chunk
