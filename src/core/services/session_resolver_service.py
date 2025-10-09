@@ -41,7 +41,9 @@ class DefaultSessionResolver(ISessionResolver):
         self.config = config
         self._configured_default_id: str | None = None
         self._default_id_factory: Final[Callable[[], str]] = (
-            default_id_factory if default_id_factory is not None else lambda: str(uuid4())
+            default_id_factory
+            if default_id_factory is not None
+            else lambda: str(uuid4())
         )
 
         # Try to get a configured default session ID if available
@@ -59,9 +61,7 @@ class DefaultSessionResolver(ISessionResolver):
                             self._configured_default_id = sanitized_default
             except (AttributeError, TypeError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Could not read default session ID from config: {e}"
-                    )
+                    logger.debug(f"Could not read default session ID from config: {e}")
 
     
     async def resolve_session_id(self, context: RequestContext) -> str:

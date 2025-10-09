@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from src.core.domain.request_context import RequestContext
 from src.core.services.session_resolver_service import DefaultSessionResolver
 
@@ -57,7 +56,9 @@ async def test_resolver_generates_unique_session_ids_when_missing() -> None:
 async def test_resolver_uses_configured_default_when_available() -> None:
     class ConfigWithSession:
         def __init__(self) -> None:
-            self.session = type("SessionConfig", (), {"default_session_id": "   pre-set  "})()
+            self.session = type(
+                "SessionConfig", (), {"default_session_id": "   pre-set  "}
+            )()
 
     resolver = DefaultSessionResolver(ConfigWithSession())
 
