@@ -84,3 +84,28 @@ def test_get_failover_attempts_invalid_element() -> None:
     # Verify the invalid attempt gets parsed with empty backend
     assert attempts[1].backend == ""
     assert attempts[1].model == "invalid-element"
+
+
+def test_get_failover_attempts_default_route_fallback() -> None:
+    """Default failover route should be used when a model-specific route is missing."""
+
+    backend_config = Mock()
+    backend_config.failover_routes = {
+        "default": {
+            "policy": "k",
+            "elements": [
+                "openrouter:anthropic/claude-3-sonnet",
+                "gemini:gemini-1.5-flash",
+            ],
+        }
+    }
+
+    service = FailoverService({})
+
+    attempts = service.get_failover_attempts(backend_config, "missing-model", "openai")
+
+    assert len(attempts) == 2
+    assert attempts[0].backend == "openrouter"
+    assert attempts[0].model == "anthropic/claude-3-sonnet"
+    assert attempts[1].backend == "gemini"
+    assert attempts[1].model == "gemini-1.5-flash"
