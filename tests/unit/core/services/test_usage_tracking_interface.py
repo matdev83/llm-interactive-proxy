@@ -5,6 +5,7 @@ This module tests the usage tracking interface definitions and contract complian
 """
 
 from abc import ABC
+import inspect
 
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 
@@ -65,9 +66,12 @@ class TestUsageTrackingInterfaceCompliance:
         """Test that track_request method has asynccontextmanager decorator."""
         track_request_method = IUsageTrackingService.track_request
 
-        # The method should be decorated with @asynccontextmanager
-        # This is typically indicated by the presence of the decorator
-        assert hasattr(track_request_method, "__annotations__")
+        # @asynccontextmanager wraps the original async generator function and
+        # stores it on the __wrapped__ attribute. If the decorator were removed,
+        # this attribute would no longer be present and the wrapped object would
+        # cease to be an async generator.
+        assert hasattr(track_request_method, "__wrapped__")
+        assert inspect.isasyncgenfunction(track_request_method.__wrapped__)
 
     def test_track_request_return_type_annotation(self) -> None:
         """Test that track_request has proper return type annotation."""
