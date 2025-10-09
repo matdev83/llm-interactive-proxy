@@ -147,6 +147,30 @@ class TestMessageConversion:
             "response": {"result": "Sunny"},
         }
 
+    def test_openai_to_gemini_tool_response_preserves_name(self) -> None:
+        """Reuse existing name/response payload when present in tool message."""
+        serialized_response = json.dumps(
+            {"name": "lookup_weather", "response": {"result": "Cloudy"}}
+        )
+        messages = [
+            ChatMessage(
+                role="tool",
+                tool_call_id="call_1",
+                content=serialized_response,
+            )
+        ]
+
+        contents = openai_to_gemini_contents(messages)
+
+        assert len(contents) == 1
+        response_content = contents[0]
+        assert response_content.role == "function"
+        assert len(response_content.parts) == 1
+        assert response_content.parts[0].function_response == {
+            "name": "lookup_weather",
+            "response": {"result": "Cloudy"},
+        }
+
     def test_openai_stream_chunk_with_structured_content(self) -> None:
         """Ensure streaming conversion handles list-based delta content."""
         chunk = (

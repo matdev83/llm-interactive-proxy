@@ -146,6 +146,16 @@ def openai_to_gemini_contents(messages: list[ChatMessage]) -> list[Content]:
             else:
                 response_payload = message.content
 
+            if (
+                isinstance(response_payload, dict)
+                and "name" in response_payload
+                and "response" in response_payload
+            ):
+                existing_name = response_payload.get("name")
+                if isinstance(existing_name, str) and existing_name:
+                    response_name = existing_name
+                response_payload = response_payload.get("response")
+
             part = Part(
                 function_response={
                     "name": response_name,
