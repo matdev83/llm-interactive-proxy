@@ -7,6 +7,7 @@ refactored to use proper dependency injection instead of direct app.state access
 
 from unittest.mock import Mock
 
+import json
 import pytest
 
 # Suppress Windows ProactorEventLoop warnings for this module
@@ -14,7 +15,9 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 from fastapi.testclient import TestClient
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.rate_limit import RateLimitRegistry
 
 from tests.utils.test_di_utils import (
@@ -241,45 +244,19 @@ class TestGeminiStreamGenerateContent:
             gemini_client.app, IBackendService
         )
 
-        # Set up mock async methods for streaming
-        async def mock_stream_completion(*args, **kwargs):
-            yield {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": "This"}],
-                            "role": "model",
-                        },
-                        "index": 0,
-                    }
-                ]
-            }
-            yield {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": " is"}],
-                            "role": "model",
-                        },
-                        "index": 0,
-                    }
-                ]
-            }
-            yield {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": " streaming"}],
-                            "role": "model",
-                        },
-                        "finishReason": "STOP",
-                        "index": 0,
-                    }
-                ]
-            }
+        # Set up mock streaming response envelope returned by the backend
+        async def mock_call_completion(*args, **kwargs):
+            async def async_generator():
+                yield ProcessedResponse(content="This")
+                yield ProcessedResponse(content=" is")
+                final_chunk = ProcessedResponse(content=" streaming")
+                setattr(final_chunk, "is_last", True)
+                yield final_chunk
+
+            return StreamingResponseEnvelope(content=async_generator())
 
         # Apply the mock async method
-        backend_service.stream_completion = Mock(side_effect=mock_stream_completion)
+        backend_service.call_completion = Mock(side_effect=mock_call_completion)
 
         # Make streaming request
         request_data = {
@@ -302,9 +279,36 @@ class TestGeminiStreamGenerateContent:
         ) as response:
             assert response.status_code == 200
 
-            # Check that we get streaming responses
-            chunks = list(response.iter_lines())
-            assert len(chunks) > 0
+            # Check that we get streaming responses with Gemini-formatted chunks
+            chunks = [
+                line.decode() if isinstance(line, bytes) else line
+                for line in response.iter_lines()
+                if line is not None
+            ]
+            assert chunks, "Expected streaming chunks from Gemini endpoint"
+
+            data_lines = [line for line in chunks if line.startswith("data:")]
+            assert data_lines, "Expected SSE data lines in streaming response"
+            assert data_lines[-1] == "data: [DONE]"
+
+            payloads = [
+                json.loads(line[len("data: ") :])
+                for line in data_lines
+                if line != "data: [DONE]"
+            ]
+
+            texts: list[str] = []
+            for payload in payloads:
+                candidates = payload.get("candidates", [])
+                candidate_text = "".join(
+                    part.get("text", "")
+                    for candidate in candidates
+                    for part in candidate.get("content", {}).get("parts", [])
+                    if isinstance(part, dict)
+                )
+                texts.append(candidate_text)
+
+            assert texts == ["This", " is", " streaming"]
 
 
 class TestGeminiAuthentication:

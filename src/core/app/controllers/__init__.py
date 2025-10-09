@@ -652,54 +652,15 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                         # Process streaming response
                         async for chunk in result.content:
                             try:
-                                # Convert OpenAI streaming format to Gemini streaming format
-                                if isinstance(chunk, dict):
-                                    # Use the translation function to convert the chunk
-                                    from src.core.domain.translation import Translation
-
-                                    gemini_chunk = (
-                                        Translation.gemini_to_domain_stream_chunk(chunk)
+                                # Convert backend streaming chunks to Gemini streaming format
+                                gemini_format = (
+                                    translation_service.from_domain_to_gemini_stream_chunk(
+                                        chunk
                                     )
+                                )
 
-                                    # Extract content from the converted chunk
-                                    content = ""
-                                    if (
-                                        gemini_chunk.get("choices")
-                                        and "delta" in gemini_chunk["choices"][0]
-                                    ):
-                                        content = gemini_chunk["choices"][0][
-                                            "delta"
-                                        ].get("content", "")
-
-                                    # Create Gemini format chunk
-                                    gemini_format = {
-                                        "candidates": [
-                                            {
-                                                "content": {
-                                                    "parts": [{"text": content}],
-                                                    "role": "model",
-                                                },
-                                                "index": 0,
-                                            }
-                                        ]
-                                    }
-
-                                    # Format as SSE
-                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
-                                else:
-                                    # Handle string chunks
-                                    gemini_format = {
-                                        "candidates": [
-                                            {
-                                                "content": {
-                                                    "parts": [{"text": str(chunk)}],
-                                                    "role": "model",
-                                                },
-                                                "index": 0,
-                                            }
-                                        ]
-                                    }
-                                    yield f"data: {json.dumps(gemini_format)}\n\n".encode()
+                                # Format as SSE
+                                yield f"data: {json.dumps(gemini_format)}\n\n".encode()
                             except Exception as chunk_error:
                                 logger.error(f"Error processing chunk: {chunk_error}")
                                 # Send error message as a chunk
