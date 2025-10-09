@@ -109,6 +109,18 @@ def anthropic_to_openai_request(
         "stop": anthropic_request.stop_sequences,
         "stream": anthropic_request.stream or False,
     }
+    if anthropic_request.metadata:
+        try:
+            metadata_dict = (
+                anthropic_request.metadata
+                if isinstance(anthropic_request.metadata, dict)
+                else dict(anthropic_request.metadata)
+            )
+        except Exception:
+            metadata_dict = {}
+        user_id = metadata_dict.get("user_id") or metadata_dict.get("user")
+        if user_id is not None:
+            result["user"] = str(user_id)
     if anthropic_request.tools:
         converted_tools = [
             tool_def
