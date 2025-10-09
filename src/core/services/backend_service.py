@@ -139,7 +139,11 @@ class BackendService(IBackendService):
                 if not pattern or not replacement:
                     continue
 
-                match = re.search(pattern, model)
+                # Anchor patterns to the start of the string by default to
+                # preserve the historical behaviour of ``re.match`` while
+                # still honoring any explicit anchors provided in the
+                # configuration.
+                match = re.match(pattern, model)
                 if match:
                     # Use match.expand to honor capture groups regardless of match span
                     new_model = match.expand(replacement)

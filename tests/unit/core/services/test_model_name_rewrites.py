@@ -217,7 +217,7 @@ class TestModelNameRewrites:
         config = AppConfig(
             backends={"default_backend": "openai"},
             model_aliases=[
-                ModelAliasRule(pattern="turbo$", replacement="suffix:matched"),
+                ModelAliasRule(pattern=".*turbo$", replacement="suffix:matched"),
             ],
         )
 
