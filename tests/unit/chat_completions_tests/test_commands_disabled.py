@@ -60,5 +60,7 @@ async def test_commands_ignored(commands_disabled_client: TestClient) -> None:
             ISessionService
         )
     )
-    session = await session_service.get_session("default")
+    sessions = await session_service.get_all_sessions()
+    assert sessions, "Expected a session to be created for the request"
+    session = sessions[0]
     assert session.state.backend_config.model is None

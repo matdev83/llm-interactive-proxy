@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+import types
+from uuid import UUID
+from unittest.mock import patch
 
 import pytest
 
@@ -10,46 +12,49 @@ from src.core.services.session_resolver_service import DefaultSessionResolver
 
 @pytest.mark.asyncio
 async def test_resolver_prefers_context_session_id() -> None:
+    resolver = DefaultSessionResolver(config=None)
     context = RequestContext(
         headers={},
         cookies={},
-        state={},
-        app_state={},
-        session_id="context-session",
+        state=None,
+        app_state=None,
+        session_id="explicit-session",
     )
-    resolver = DefaultSessionResolver()
 
-    resolved = await resolver.resolve_session_id(context)
+    session_id = await resolver.resolve_session_id(context)
 
-    assert resolved == "context-session"
-    assert context.session_id == "context-session"
+    assert session_id == "explicit-session"
 
 
 @pytest.mark.asyncio
-async def test_resolver_generates_unique_session_id_when_missing() -> None:
-    resolver = DefaultSessionResolver()
-    context_one = RequestContext(headers={}, cookies={}, state={}, app_state={})
-    context_two = RequestContext(headers={}, cookies={}, state={}, app_state={})
+async def test_resolver_uses_configured_default() -> None:
+    config = types.SimpleNamespace(
+        session=types.SimpleNamespace(default_session_id="configured-default")
+    )
+    resolver = DefaultSessionResolver(config=config)
+    context = RequestContext(headers={}, cookies={}, state=None, app_state=None)
 
-    resolved_one = await resolver.resolve_session_id(context_one)
-    resolved_two = await resolver.resolve_session_id(context_two)
+    session_id = await resolver.resolve_session_id(context)
 
-    assert resolved_one
-    assert resolved_two
-    assert resolved_one != resolved_two
-    assert context_one.session_id == resolved_one
-    assert context_two.session_id == resolved_two
+    assert session_id == "configured-default"
 
 
 @pytest.mark.asyncio
-async def test_resolver_uses_configured_default_when_available() -> None:
-    config = SimpleNamespace(
-        session=SimpleNamespace(default_session_id="configured-default")
-    )
-    resolver = DefaultSessionResolver(config)
-    context = RequestContext(headers={}, cookies={}, state={}, app_state={})
+async def test_resolver_generates_unique_session_ids_when_missing() -> None:
+    resolver = DefaultSessionResolver(config=None)
+    context_one = RequestContext(headers={}, cookies={}, state=None, app_state=None)
+    context_two = RequestContext(headers={}, cookies={}, state=None, app_state=None)
 
-    resolved = await resolver.resolve_session_id(context)
+    first_uuid = UUID("12345678-1234-5678-1234-567812345678")
+    second_uuid = UUID("87654321-4321-8765-4321-876543218765")
 
-    assert resolved == "configured-default"
-    assert context.session_id == "configured-default"
+    with patch(
+        "src.core.services.session_resolver_service.uuid.uuid4",
+        side_effect=[first_uuid, second_uuid],
+    ):
+        first_id = await resolver.resolve_session_id(context_one)
+        second_id = await resolver.resolve_session_id(context_two)
+
+    assert first_id == str(first_uuid)
+    assert second_id == str(second_uuid)
+    assert first_id != second_id

@@ -42,7 +42,7 @@ class DefaultSessionResolver(ISessionResolver):
                     config.session, "default_session_id"
                 ):
                     configured_default: str | None = config.session.default_session_id
-                    if configured_default:
+                    if configured_default and configured_default.strip():
                         self._configured_default_session_id = configured_default
             except (AttributeError, TypeError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
@@ -63,6 +63,11 @@ class DefaultSessionResolver(ISessionResolver):
         Returns:
             The resolved session ID
         """
+        # Try to get session ID explicitly attached to the context first
+        context_session_id = getattr(context, "session_id", None)
+        if isinstance(context_session_id, str) and context_session_id:
+            return context_session_id
+
         session_id: str | None = None
 
         # Try to get session ID from domain request attached to context if available
