@@ -12,7 +12,6 @@ This module provides a wire capture service that:
 from __future__ import annotations
 
 import asyncio
-import atexit
 import json
 import os
 import time
@@ -96,25 +95,25 @@ class BufferedWireCapture(IWireCapture):
         # Initialize if configured
         if self._file_path:
             self._initialize()
-            # Ensure cleanup at interpreter exit to avoid pending tasks warnings
-            atexit.register(self._atexit_cleanup)
 
-    def _atexit_cleanup(self) -> None:
-        """Best-effort cleanup for background task and buffered entries at process exit."""
-        try:
-            self._enabled = False
-            if self._flush_task:
-                self._flush_task.cancel()
-        except Exception:
-            pass
-        # Attempt to write any remaining buffered entries synchronously
-        try:
-            if self._buffer and self._file_path:
-                entries = list(self._buffer)
-                self._buffer.clear()
-                self._write_entries_sync(entries)
-        except Exception:
-            pass
+    def __del__(self) -> None:
+        """Cleanup resources when the instance is destroyed."""
+        # Disable the service first to stop the background loop
+        self._enabled = False
+
+        # Cancel the background task if it exists and is pending
+        if self._flush_task and not self._flush_task.done():
+            # Try to cancel the task, but be defensive about event loop state
+            try:
+                # Try to get the event loop that owns this task
+                task_loop = self._flush_task.get_loop()
+                if task_loop and not task_loop.is_closed():
+                    # Cancel the task in the loop it belongs to
+                    self._flush_task.cancel()
+            except (RuntimeError, AttributeError):
+                # Event loop is closed or unavailable
+                # Nothing we can do, task will be garbage collected
+                pass
 
     def _initialize(self) -> None:
         """Initialize the wire capture system."""
@@ -517,30 +516,68 @@ class BufferedWireCapture(IWireCapture):
 
     async def _background_flush_loop(self) -> None:
         """Background task to periodically flush buffer."""
-        while self._enabled:
-            try:
-                await asyncio.sleep(self._flush_interval)
-                async with self._buffer_lock:
-                    if self._buffer:
-                        await self._flush_buffer()
-            except asyncio.CancelledError:
-                break
-            except Exception:
-                # Don't use logger
-                continue
+        try:
+            while self._enabled:
+                try:
+                    await asyncio.sleep(self._flush_interval)
+                    # Check again after sleep in case we were disabled during sleep
+                    if not self._enabled:
+                        break
+                    async with self._buffer_lock:
+                        if self._buffer:
+                            await self._flush_buffer()
+                except asyncio.CancelledError:
+                    # Task was cancelled, exit cleanly
+                    break
+                except Exception:
+                    # Don't use logger, but continue processing
+                    continue
+        finally:
+            # Final flush attempt on exit if still enabled
+            if self._enabled and self._buffer:
+                try:
+                    async with self._buffer_lock:
+                        if self._buffer:
+                            await self._flush_buffer()
+                except Exception:
+                    # Best effort flush on exit
+                    pass
 
     async def shutdown(self) -> None:
         """Shutdown wire capture and flush remaining data."""
-        if self._flush_task:
+        # Disable first to signal the background task to stop
+        self._enabled = False
+
+        # Cancel and wait for the background task to complete
+        if self._flush_task and not self._flush_task.done():
             self._flush_task.cancel()
             import contextlib
 
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._flush_task
+            # Wait for the task to complete with a timeout
+            with contextlib.suppress(
+                asyncio.CancelledError, asyncio.TimeoutError, RuntimeError
+            ):
+                await asyncio.wait_for(self._flush_task, timeout=2.0)
+
+            # Ensure task reference is cleared
+            self._flush_task = None
 
         # Final flush
         async with self._buffer_lock:
             if self._buffer:
                 await self._flush_buffer()
 
+    def force_shutdown_sync(self) -> None:
+        """Synchronous method to force shutdown when async context is not available."""
+        import contextlib
+
+        # Cancel the task if it exists
+        if self._flush_task:
+            with contextlib.suppress(RuntimeError):  # suppress event loop closed errors
+                loop = asyncio.get_running_loop()
+                if not loop.is_closed():
+                    loop.call_soon_threadsafe(self._flush_task.cancel)
+            self._flush_task = None
+
+        # Mark as disabled
         self._enabled = False
