@@ -475,6 +475,23 @@ class BackendSettings(DomainModel):
         """Allow dictionary-style setting of backend configs."""
         self.__dict__[key] = value
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Allow attribute-style assignment for backend configs."""
+        if (
+            name in {"default_backend"}
+            or name.startswith("_")
+            or name in self.model_fields
+        ):
+            super().__setattr__(name, value)
+            return
+        if isinstance(value, BackendConfig):
+            config = value
+        elif isinstance(value, dict):
+            config = BackendConfig(**value)
+        else:
+            config = BackendConfig()
+        self.__dict__[name] = config
+
     def get(self, key: str, default: Any = None) -> Any:
         """Dictionary-style get with default."""
         return cast(BackendConfig | None, self.__dict__.get(key, default))

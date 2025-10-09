@@ -69,27 +69,147 @@ class CommandParser:
         Returns:
             A tuple containing the Command object and the matched string, or None.
         """
-        match = self.pattern.search(content)
-        if not match:
-            return None
+        prefix = self.command_prefix
+        search_index = 0
+        while True:
+            start = content.find(prefix, search_index)
+            if start == -1:
+                return None
 
-        name = match.group("name")
-        args_str = match.group("args")
-        args = self._parse_args(args_str) if args_str else {}
+            cursor = start + len(prefix)
+            if cursor >= len(content):
+                return None
 
-        return Command(name=name, args=args), match.group(0)
+            name_chars: list[str] = []
+            while cursor < len(content) and (
+                content[cursor].isalnum() or content[cursor] in "-_"
+            ):
+                name_chars.append(content[cursor])
+                cursor += 1
+
+            if not name_chars:
+                search_index = start + len(prefix)
+                continue
+
+            name = "".join(name_chars)
+
+            name_end = cursor
+            whitespace_cursor = cursor
+            while (
+                whitespace_cursor < len(content)
+                and content[whitespace_cursor].isspace()
+            ):
+                whitespace_cursor += 1
+
+            matched_end = name_end
+            args: dict[str, Any] = {}
+            if whitespace_cursor < len(content) and content[whitespace_cursor] == "(":
+                cursor = whitespace_cursor + 1
+                args_start = cursor
+                depth = 1
+                quote_char: str | None = None
+                escape_next = False
+
+                while cursor < len(content):
+                    char = content[cursor]
+                    if escape_next:
+                        escape_next = False
+                    elif quote_char is not None:
+                        if char == "\\":
+                            escape_next = True
+                        elif char == quote_char:
+                            quote_char = None
+                    else:
+                        if char in ('"', "'"):
+                            quote_char = char
+                        elif char == "(":
+                            depth += 1
+                        elif char == ")":
+                            depth -= 1
+                            if depth == 0:
+                                break
+                    cursor += 1
+
+                if depth != 0:
+                    # Unbalanced parentheses - skip this occurrence and keep searching
+                    search_index = start + len(prefix)
+                    continue
+
+                args_str = content[args_start:cursor]
+                matched_end = cursor + 1
+                args = self._parse_args(args_str)
+            else:
+                cursor = name_end
+            matched_text = content[start:matched_end]
+            return Command(name=name, args=args), matched_text
 
     def _parse_args(self, args_str: str) -> dict[str, Any]:
-        """
-        Parses the arguments string into a dictionary.
-        """
-        # This is a simplified parser. A more robust implementation could
-        # handle quoted strings, different data types, etc.
-        args = {}
-        for part in args_str.split(","):
-            part = part.strip()
-            if not part:
-                continue
+        """Parse the arguments string into a dictionary."""
+
+        def _split_args(raw: str) -> list[str]:
+            parts: list[str] = []
+            current: list[str] = []
+            depth = 0
+            quote_char: str | None = None
+            escape_next = False
+
+            opening = "({["
+            closing = ")}]"
+            matching = {")": "(", "}": "{", "]": "["}
+
+            for char in raw:
+                if escape_next:
+                    current.append(char)
+                    escape_next = False
+                    continue
+
+                if quote_char is not None:
+                    if char == "\\":
+                        current.append(char)
+                        escape_next = True
+                        continue
+                    current.append(char)
+                    if char == quote_char:
+                        quote_char = None
+                    continue
+
+                if char in ('"', "'"):
+                    quote_char = char
+                    current.append(char)
+                    continue
+
+                if char in opening:
+                    depth += 1
+                    current.append(char)
+                    continue
+
+                if char in closing:
+                    if depth > 0 and matching.get(char) is not None:
+                        depth -= 1
+                    current.append(char)
+                    continue
+
+                if char == "," and depth == 0:
+                    part = "".join(current).strip()
+                    if part:
+                        parts.append(part)
+                    current = []
+                    continue
+
+                if char == "\\":
+                    current.append(char)
+                    escape_next = True
+                    continue
+
+                current.append(char)
+
+            final_part = "".join(current).strip()
+            if final_part:
+                parts.append(final_part)
+            return parts
+
+        args: dict[str, Any] = {}
+        for part in _split_args(args_str):
             if "=" in part:
                 key, value = part.split("=", 1)
                 args[key.strip()] = value.strip()

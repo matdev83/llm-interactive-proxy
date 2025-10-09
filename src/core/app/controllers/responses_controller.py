@@ -13,6 +13,9 @@ from src.core.domain.responses_api import ResponsesRequest
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.translation_service_interface import (
+    ITranslationService,
+)
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -27,13 +30,23 @@ logger = logging.getLogger(__name__)
 class ResponsesController:
     """Controller for Responses API endpoints."""
 
-    def __init__(self, request_processor: IRequestProcessor) -> None:
+    def __init__(
+        self,
+        request_processor: IRequestProcessor,
+        translation_service: ITranslationService | None = None,
+    ) -> None:
         """Initialize the controller.
 
         Args:
             request_processor: The request processor service
         """
         self._processor = request_processor
+        if translation_service is None:
+            from src.core.services.translation_service import TranslationService
+
+            translation_service = TranslationService()
+
+        self._translation_service = translation_service
 
     async def handle_responses_request(
         self,
@@ -99,9 +112,7 @@ class ResponsesController:
 
         try:
             # Convert ResponsesRequest to internal ChatRequest format using TranslationService
-            from src.core.services.translation_service import TranslationService
-
-            translation_service = TranslationService()
+            translation_service = self._translation_service
 
             # Log schema validation attempt if schema is present
             if has_schema:
@@ -622,9 +633,9 @@ class ResponsesController:
         schema_type_raw = schema["type"]
         if isinstance(schema_type_raw, str):
             schema_types = [schema_type_raw]
-        elif isinstance(schema_type_raw, list | tuple | set):
+        elif isinstance(schema_type_raw, (list, tuple, set)):
             schema_types = [
-                str(t) for t in schema_type_raw if isinstance(t, str | bytes)
+                str(t) for t in schema_type_raw if isinstance(t, (str, bytes))
             ]
         else:
             schema_types = [str(schema_type_raw)]
@@ -693,7 +704,7 @@ class ResponsesController:
                 raise ValueError("Array schemas must have an 'items' field")
 
             items_schema = schema["items"]
-            if not isinstance(items_schema, dict | list | tuple | bool):
+            if not isinstance(items_schema, (dict, list, tuple, bool)):
                 raise ValueError("Items schema must be a dictionary, list, or boolean")
 
         primitive_types = {"string", "number", "integer", "boolean", "null"}
@@ -705,7 +716,7 @@ class ResponsesController:
         # Validate additional properties if present
         if "additionalProperties" in schema:
             additional_props = schema["additionalProperties"]
-            if not isinstance(additional_props, bool | dict):
+            if not isinstance(additional_props, (bool, dict)):
                 raise ValueError("additionalProperties must be a boolean or schema")
 
         # Validate required fields if present
@@ -982,6 +993,19 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
         if request_processor is None:
             raise InitializationError("Could not find or create RequestProcessor")
 
-        return ResponsesController(request_processor)
+        translation_service = service_provider.get_service(  # type: ignore[type-abstract]
+            ITranslationService
+        )
+        if translation_service is None:
+            from src.core.services.translation_service import TranslationService
+
+            translation_service = service_provider.get_service(TranslationService)
+            if translation_service is None:
+                translation_service = TranslationService()
+
+        return ResponsesController(
+            request_processor,
+            translation_service=translation_service,
+        )
     except Exception as e:
         raise InitializationError(f"Failed to create ResponsesController: {e}") from e
