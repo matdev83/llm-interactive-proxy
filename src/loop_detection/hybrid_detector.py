@@ -222,6 +222,7 @@ class HybridLoopDetector(ILoopDetector):
         # State tracking
         self._is_enabled = True
         self._loop_events: list[LoopDetectionEvent] = []
+        self._last_detection_method: str | None = None
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
@@ -241,11 +242,13 @@ class HybridLoopDetector(ILoopDetector):
             LoopDetectionEvent if a loop is detected, None otherwise
         """
         if not self._is_enabled or not chunk:
+            self._last_detection_method = None
             return None
 
         # Check short patterns first (faster, more common)
         short_event = self.short_detector.process_chunk(chunk)
         if short_event:
+            self._last_detection_method = "short_pattern"
             self._loop_events.append(short_event)
             return short_event
 
@@ -265,6 +268,7 @@ class HybridLoopDetector(ILoopDetector):
                 buffer_content=self.long_detector.content[-200:],  # Last 200 chars
                 timestamp=time.time(),
             )
+            self._last_detection_method = "long_pattern"
             self._loop_events.append(event)
 
             if logger.isEnabledFor(logging.WARNING):
@@ -276,6 +280,7 @@ class HybridLoopDetector(ILoopDetector):
 
             return event
 
+        self._last_detection_method = None
         return None
 
     # ILoopDetector interface implementation
@@ -310,6 +315,8 @@ class HybridLoopDetector(ILoopDetector):
             else:
                 pattern_length = len(event.pattern)
 
+            detection_method = self._last_detection_method or "unknown"
+
             return LoopDetectionResult(
                 has_loop=True,
                 pattern=event.pattern,
@@ -317,9 +324,7 @@ class HybridLoopDetector(ILoopDetector):
                 details={
                     "pattern_length": pattern_length,
                     "total_repeated_chars": event.total_length,
-                    "detection_method": (
-                        "short_pattern" if event.total_length < 500 else "long_pattern"
-                    ),
+                    "detection_method": detection_method,
                 },
             )
         finally:
@@ -349,6 +354,7 @@ class HybridLoopDetector(ILoopDetector):
         self.short_detector.reset()
         self.long_detector.reset()
         self._loop_events.clear()
+        self._last_detection_method = None
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Hybrid loop detector state reset")
 
@@ -417,6 +423,7 @@ class HybridLoopDetector(ILoopDetector):
             "short_detector_state": self.short_detector._save_state(),
             "long_detector_content": self.long_detector.content,
             "loop_events": self._loop_events.copy(),
+            "last_detection_method": self._last_detection_method,
         }
 
     def _restore_state(self, state: dict[str, Any]) -> None:
@@ -424,3 +431,4 @@ class HybridLoopDetector(ILoopDetector):
         self.short_detector._restore_state(state["short_detector_state"])
         self.long_detector.content = state["long_detector_content"]
         self._loop_events = state["loop_events"]
+        self._last_detection_method = state.get("last_detection_method")

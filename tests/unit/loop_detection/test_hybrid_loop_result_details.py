@@ -25,6 +25,7 @@ async def test_long_pattern_details_report_actual_length() -> None:
 
     assert result.has_loop is True
     assert result.details is not None
+    assert result.details["detection_method"] == "long_pattern"
     # The detector finds overlapping patterns in this specific pattern
     # The important thing is that pattern_length calculation is correct
     assert result.details["pattern_length"] == len(pattern)
