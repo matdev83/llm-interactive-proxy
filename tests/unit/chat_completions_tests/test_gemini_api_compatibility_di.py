@@ -14,6 +14,7 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 from fastapi.testclient import TestClient
+from src.core.domain.chat import MessageContentPartImage
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.rate_limit import RateLimitRegistry
 
@@ -389,3 +390,46 @@ class TestGeminiRequestConversion:
 
         # Verify response
         assert response.status_code == 200
+
+    def test_inline_data_is_translated_to_image_part(self, gemini_client):
+        """Inline data in Gemini format should produce image content parts."""
+
+        from src.core.services.translation_service import TranslationService
+
+        translation_service = gemini_client.app.state.service_provider.get_required_service(
+            TranslationService
+        )
+
+        request_data = {
+            "model": "models/gemini-pro",
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": "Describe this image"},
+                        {
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": "data:image/png;base64,aGVsbG8=",
+                            }
+                        },
+                    ],
+                }
+            ],
+        }
+
+        domain_request = translation_service.to_domain_request(
+            request_data, source_format="gemini"
+        )
+
+        assert domain_request.messages, "Expected at least one translated message"
+        user_message = domain_request.messages[0]
+        assert isinstance(user_message.content, list), "Expected multimodal message content"
+
+        image_parts = [
+            part for part in user_message.content if isinstance(part, MessageContentPartImage)
+        ]
+        assert image_parts, "Inline data should be converted into image content parts"
+        assert (
+            image_parts[0].image_url.url == "data:image/png;base64,aGVsbG8="
+        ), "Image data should be preserved in the ImageURL"

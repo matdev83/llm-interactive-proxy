@@ -47,18 +47,35 @@ def gemini_content_to_chat_messages(
         for part in parts:
             if "text" in part:
                 content_parts.append(MessageContentPartText(text=part["text"]))
-            elif "inline_data" in part:
-                # Get image data from inline_data
-                data = part["inline_data"].get("data", "")
+                continue
+
+            # Gemini payloads might provide camelCase keys straight from the
+            # public API (inlineData/fileData) or snake_case keys if they were
+            # already parsed into our pydantic models. Support both to ensure
+            # request translation works regardless of how the payload was
+            # produced.
+            inline_data = part.get("inline_data") or part.get("inlineData")
+            if inline_data:
+                data = inline_data.get("data", "")
 
                 from src.core.domain.chat import ImageURL
 
-                # Create image content part
                 image_part = MessageContentPartImage(
                     image_url=ImageURL(url=data, detail=None)
                 )
                 content_parts.append(image_part)  # type: ignore
+                continue
 
+            file_data = part.get("file_data") or part.get("fileData")
+            if file_data:
+                file_uri = file_data.get("file_uri") or file_data.get("fileUri") or ""
+
+                from src.core.domain.chat import ImageURL
+
+                image_part = MessageContentPartImage(
+                    image_url=ImageURL(url=file_uri, detail=None)
+                )
+                content_parts.append(image_part)  # type: ignore
         if content_parts:
             chat_messages.append(ChatMessage(role=role, content=content_parts))
 
