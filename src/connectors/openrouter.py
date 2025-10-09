@@ -161,6 +161,18 @@ class OpenRouterBackend(OpenAIConnector):
                 if "Authorization" not in headers_override and self.api_key:
                     headers_override["Authorization"] = f"Bearer {self.api_key}"
 
+            if self.identity:
+                try:
+                    identity_headers = self.identity.get_resolved_headers(None)
+                except Exception:
+                    logger.warning(
+                        "Failed to resolve identity headers for OpenRouter request.",
+                        exc_info=True,
+                    )
+                    identity_headers = {}
+                if identity_headers:
+                    headers_override = {**headers_override, **identity_headers}
+
             # Determine the exact URL to call so tests that mock it see the
             # same value. The parent expects `openai_url` kwarg for URL
             # override; for OpenRouter we set it to our `api_base_url`.

@@ -4,6 +4,8 @@ import pytest_asyncio
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.configuration.app_identity_config import AppIdentityConfig
+from src.core.domain.configuration.header_config import HeaderConfig, HeaderOverrideMode
 
 
 def mock_headers_provider(_: str, api_key: str) -> dict[str, str]:
@@ -56,3 +58,63 @@ async def test_headers_plumbing(
     req = httpx_mock.get_request()
     assert req is not None
     assert req.headers.get("Authorization") == "Bearer TEST-HEADER"
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("openrouter_backend")
+@pytest.mark.httpx_mock()
+async def test_identity_headers_are_merged(
+    openrouter_backend: OpenRouterBackend, httpx_mock: HTTPXMock
+):
+    identity = AppIdentityConfig(
+        title=HeaderConfig(
+            mode=HeaderOverrideMode.OVERRIDE,
+            override_value="Proxy Title",
+            default_value="ignored",
+            passthrough_name="x-title",
+        ),
+        url=HeaderConfig(
+            mode=HeaderOverrideMode.OVERRIDE,
+            override_value="https://proxy.test",
+            default_value="ignored",
+            passthrough_name="http-referer",
+        ),
+        user_agent=HeaderConfig(
+            mode=HeaderOverrideMode.OVERRIDE,
+            override_value="proxy-user-agent",
+            default_value="ignored",
+            passthrough_name="user-agent",
+        ),
+    )
+
+    request_data = ChatRequest(
+        model="openai/gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    httpx_mock.add_response(json={"id": "ok"}, status_code=200)
+
+    def provider(_: str, key: str) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {key}",
+            "User-Agent": "provider-agent",
+            "X-Title": "provider-title",
+        }
+
+    await openrouter_backend.chat_completions(
+        request_data=request_data,
+        processed_messages=[ChatMessage(role="user", content="Hello")],
+        effective_model="openai/gpt-4",
+        identity=identity,
+        openrouter_headers_provider=provider,
+        api_key="OVERRIDDEN-KEY",
+        key_name="test",
+    )
+
+    req = httpx_mock.get_request()
+    assert req is not None
+    assert req.headers.get("Authorization") == "Bearer OVERRIDDEN-KEY"
+    assert req.headers.get("X-Title") == "Proxy Title"
+    assert req.headers.get("HTTP-Referer") == "https://proxy.test"
+    assert req.headers.get("User-Agent") == "proxy-user-agent"
