@@ -68,6 +68,7 @@ def openai_to_gemini_contents(messages: list[ChatMessage]) -> list[Content]:
     """Convert OpenAI messages to Gemini contents format."""
     contents = []
     system_messages = []
+    tool_call_names: dict[str, str] = {}
 
     for message in messages:
         # Collect system messages separately (we'll handle them later)
@@ -79,10 +80,80 @@ def openai_to_gemini_contents(messages: list[ChatMessage]) -> list[Content]:
         role = "user"  # Default role
         if message.role == "assistant":
             role = "model"
+        elif message.role == "tool":
+            role = "function"
         elif message.role == "function":
             role = "function"
         elif message.role == "user":
             role = "user"
+
+        # Convert OpenAI tool calls to Gemini functionCall parts
+        if message.tool_calls:
+            parts: list[Part] = []
+            if isinstance(message.content, str) and message.content:
+                parts.append(Part(text=message.content))  # type: ignore[call-arg]
+            elif isinstance(message.content, list):
+                content_parts = [
+                    _openai_part_to_gemini_part(p)
+                    for p in message.content
+                ]
+                parts.extend([p for p in content_parts if p is not None])
+
+            for tool_call in message.tool_calls:
+                tool_name = tool_call.function.name
+                tool_call_names[tool_call.id] = tool_name
+                args_raw = tool_call.function.arguments
+                try:
+                    args_value = json.loads(args_raw)
+                except (TypeError, ValueError):
+                    args_value = args_raw
+                parts.append(
+                    Part(
+                        function_call={
+                            "name": tool_name,
+                            "args": args_value,
+                        }
+                    )
+                )
+
+            if parts:
+                contents.append(Content(parts=parts, role=role))
+            continue
+
+        if message.role == "tool":
+            response_name = (
+                message.name
+                or (message.tool_call_id and tool_call_names.get(message.tool_call_id))
+                or message.tool_call_id
+                or "tool"
+            )
+
+            response_payload: Any
+            if isinstance(message.content, str):
+                try:
+                    response_payload = json.loads(message.content)
+                except (TypeError, ValueError):
+                    response_payload = {"text": message.content}
+            elif isinstance(message.content, list):
+                text_segments = []
+                for part_item in message.content:
+                    if isinstance(part_item, MessageContentPartText):
+                        text_segments.append(part_item.text)
+                if text_segments:
+                    response_payload = {"text": "".join(text_segments)}
+                else:
+                    response_payload = message.content
+            else:
+                response_payload = message.content
+
+            part = Part(
+                function_response={
+                    "name": response_name,
+                    "response": response_payload,
+                }
+            )
+            contents.append(Content(parts=[part], role=role))
+            continue
 
         # Create content with text or parts
         if isinstance(message.content, str):

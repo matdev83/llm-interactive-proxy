@@ -5,7 +5,7 @@ Tests the conversion logic between Gemini and OpenAI formats.
 
 import json
 
-from src.core.domain.chat import ChatMessage
+from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
 from src.gemini_converters import (
     gemini_to_openai_messages,
     openai_to_gemini_contents,
@@ -99,6 +99,53 @@ class TestMessageConversion:
         assert len(contents) == 1
         assert contents[0].role == "user"
         assert contents[0].parts[0].text == "Hello!"
+
+    def test_openai_to_gemini_tool_call(self) -> None:
+        """Ensure assistant tool calls translate to Gemini functionCall parts."""
+        tool_call = ToolCall(
+            id="call_1",
+            function=FunctionCall(name="lookup_weather", arguments='{"city": "Paris"}'),
+        )
+        messages = [
+            ChatMessage(role="assistant", content=None, tool_calls=[tool_call])
+        ]
+
+        contents = openai_to_gemini_contents(messages)
+
+        assert len(contents) == 1
+        content = contents[0]
+        assert content.role == "model"
+        assert len(content.parts) == 1
+        assert content.parts[0].function_call == {
+            "name": "lookup_weather",
+            "args": {"city": "Paris"},
+        }
+
+    def test_openai_to_gemini_tool_response(self) -> None:
+        """Ensure tool responses become Gemini functionResponse parts."""
+        tool_call = ToolCall(
+            id="call_1",
+            function=FunctionCall(name="lookup_weather", arguments="{}"),
+        )
+        messages = [
+            ChatMessage(role="assistant", content=None, tool_calls=[tool_call]),
+            ChatMessage(
+                role="tool",
+                tool_call_id="call_1",
+                content='{"result": "Sunny"}',
+            ),
+        ]
+
+        contents = openai_to_gemini_contents(messages)
+
+        assert len(contents) == 2
+        response_content = contents[1]
+        assert response_content.role == "function"
+        assert len(response_content.parts) == 1
+        assert response_content.parts[0].function_response == {
+            "name": "lookup_weather",
+            "response": {"result": "Sunny"},
+        }
 
     def test_openai_stream_chunk_with_structured_content(self) -> None:
         """Ensure streaming conversion handles list-based delta content."""
