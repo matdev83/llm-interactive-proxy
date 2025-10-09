@@ -99,6 +99,73 @@ class TestAnthropicConverters:
         assert openai_req["stop"] == ["STOP", "END"]
         assert openai_req["stream"] is True
 
+    def test_anthropic_to_openai_request_tool_use_conversion(self) -> None:
+        """Anthropic tool_use blocks should become OpenAI tool_calls."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[
+                AnthropicMessage(
+                    role="assistant",
+                    content=[
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "get_weather",
+                            "input": {"location": "Paris"},
+                        }
+                    ],
+                )
+            ],
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        assert len(openai_req["messages"]) == 1
+        message = openai_req["messages"][0]
+        assert message["role"] == "assistant"
+        assert message["content"] == ""
+        assert "tool_calls" in message
+        assert message["tool_calls"][0]["id"] == "toolu_1"
+        assert message["tool_calls"][0]["function"]["name"] == "get_weather"
+        assert (
+            message["tool_calls"][0]["function"]["arguments"]
+            == '{"location": "Paris"}'
+        )
+
+    def test_anthropic_to_openai_request_tool_result_conversion(self) -> None:
+        """Anthropic tool_result blocks should emit OpenAI tool messages."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[
+                AnthropicMessage(
+                    role="user",
+                    content=[
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_1",
+                            "content": "It is sunny.",
+                        },
+                        {"type": "text", "text": "Thanks!"},
+                    ],
+                )
+            ],
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        assert len(openai_req["messages"]) == 2
+        tool_message = openai_req["messages"][0]
+        user_message = openai_req["messages"][1]
+
+        assert tool_message["role"] == "tool"
+        assert tool_message["tool_call_id"] == "toolu_1"
+        assert tool_message["content"] == "It is sunny."
+
+        assert user_message["role"] == "user"
+        assert user_message["content"] == "Thanks!"
+
     def test_openai_to_anthropic_response_basic(self) -> None:
         """Test basic OpenAI to Anthropic response conversion."""
         openai_response = {

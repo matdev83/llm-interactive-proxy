@@ -25,7 +25,7 @@ def anthropic_to_openai_request(
 
     # Conversation messages
     for msg in anthropic_request.messages:
-        messages.append({"role": msg.role, "content": msg.content})
+        messages.extend(_convert_anthropic_message_to_openai(msg))
 
     result: dict[str, Any] = {
         "model": anthropic_request.model,
@@ -38,6 +38,116 @@ def anthropic_to_openai_request(
         "stream": anthropic_request.stream or False,
     }
     return result
+
+
+def _convert_anthropic_message_to_openai(
+    message: AnthropicMessage,
+) -> list[dict[str, Any]]:
+    """Convert a single Anthropic message into OpenAI-compatible messages."""
+
+    if not isinstance(message.content, list):
+        return [{"role": message.role, "content": message.content}]
+
+    converted: list[dict[str, Any]] = []
+    pending_text: list[str] = []
+    pending_tool_calls: list[dict[str, Any]] = []
+
+    def flush_text() -> None:
+        if pending_text:
+            converted.append({"role": message.role, "content": "".join(pending_text)})
+            pending_text.clear()
+
+    def flush_tool_calls() -> None:
+        if pending_tool_calls:
+            converted.append(
+                {
+                    "role": message.role,
+                    "content": "",
+                    "tool_calls": [dict(call) for call in pending_tool_calls],
+                }
+            )
+            pending_tool_calls.clear()
+
+    for block in message.content:
+        block_type = block.get("type") if isinstance(block, dict) else None
+
+        if block_type == "text":
+            if pending_tool_calls:
+                flush_tool_calls()
+            pending_text.append(str(block.get("text", "")))
+            continue
+
+        if block_type == "tool_use":
+            flush_text()
+            tool_call = _convert_tool_use_block(block)
+            if tool_call is not None:
+                pending_tool_calls.append(tool_call)
+            continue
+
+        if block_type == "tool_result":
+            flush_text()
+            flush_tool_calls()
+            converted.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": str(block.get("tool_use_id", "")),
+                    "content": _format_tool_result_content(block.get("content")),
+                }
+            )
+            continue
+
+        if pending_tool_calls:
+            flush_tool_calls()
+        pending_text.append(json.dumps(block))
+
+    flush_text()
+    flush_tool_calls()
+
+    if not converted:
+        return [{"role": message.role, "content": ""}]
+
+    return converted
+
+
+def _convert_tool_use_block(block: dict[str, Any]) -> dict[str, Any] | None:
+    name = str(block.get("name", ""))
+    if not name:
+        return None
+
+    arguments = block.get("input", {})
+    if isinstance(arguments, str):
+        arguments_str = arguments
+    else:
+        try:
+            arguments_str = json.dumps(arguments)
+        except TypeError:
+            arguments_str = json.dumps({"_raw": arguments})
+
+    tool_id = str(block.get("id") or block.get("tool_use_id") or name)
+    return {
+        "id": tool_id,
+        "type": "function",
+        "function": {"name": name, "arguments": arguments_str},
+    }
+
+
+def _format_tool_result_content(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text", "")))
+            else:
+                parts.append(json.dumps(item))
+        return "".join(parts)
+    try:
+        return json.dumps(content)
+    except TypeError:
+        return str(content)
 
 
 def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
