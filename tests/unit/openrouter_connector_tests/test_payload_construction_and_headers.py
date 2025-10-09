@@ -3,12 +3,14 @@ import json
 import httpx
 import pytest
 import pytest_asyncio
+from typing import Any
 
 # from fastapi import HTTPException # F401: Removed
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 
 # from starlette.responses import StreamingResponse # F401: Removed
+
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
@@ -23,17 +25,17 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
-    # Create a mock config dictionary for testing
-    mock_config = {
-        "app_site_url": "http://localhost:test",
-        "app_x_title": "TestProxy",
-    }
+def mock_get_openrouter_headers(
+    config_payload: dict[str, Any], api_key: str
+) -> dict[str, str]:
+    # Ensure the backend passes resolved identity information to the provider
+    assert config_payload["app_site_url"] == "https://github.com/matdev83/llm-interactive-proxy"
+    assert config_payload["app_x_title"] == "llm-interactive-proxy"
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": mock_config["app_site_url"],
-        "X-Title": mock_config["app_x_title"],
+        "HTTP-Referer": config_payload["app_site_url"],
+        "X-Title": config_payload["app_x_title"],
     }
 
 
@@ -130,8 +132,11 @@ async def test_openrouter_headers_are_correct(api_request_and_data: dict):
     request = api_request_and_data["sent_request"]
     assert request.headers["Authorization"] == "Bearer FAKE_KEY"
     assert request.headers["Content-Type"] == "application/json"
-    assert request.headers["HTTP-Referer"] == "http://localhost:test"
-    assert request.headers["X-Title"] == "TestProxy"
+    assert (
+        request.headers["HTTP-Referer"]
+        == "https://github.com/matdev83/llm-interactive-proxy"
+    )
+    assert request.headers["X-Title"] == "llm-interactive-proxy"
 
 
 @pytest.mark.asyncio

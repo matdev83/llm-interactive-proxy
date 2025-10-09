@@ -92,7 +92,7 @@ class TestCustomModelParameters:
         backend = backend_factory.create_backend("openrouter", mock_app_config)
         await backend.initialize(
             api_key="test-key",
-            openrouter_headers_provider=lambda key, name: {
+            openrouter_headers_provider=lambda cfg, key: {
                 "Authorization": f"Bearer {key}"
             },
             key_name="openrouter",
@@ -178,7 +178,7 @@ class TestCustomModelParameters:
         backend = backend_factory.create_backend("openrouter", mock_app_config)
         await backend.initialize(
             api_key="test-key",
-            openrouter_headers_provider=lambda key, name: {
+            openrouter_headers_provider=lambda cfg, key: {
                 "Authorization": f"Bearer {key}"
             },
             key_name="openrouter",
@@ -273,7 +273,7 @@ class TestCustomModelParameters:
         backend = backend_factory.create_backend("openrouter", mock_app_config)
         await backend.initialize(
             api_key="test-key",
-            openrouter_headers_provider=lambda key, name: {
+            openrouter_headers_provider=lambda cfg, key: {
                 "Authorization": f"Bearer {key}"
             },
             key_name="openrouter",
@@ -305,7 +305,7 @@ class TestCustomModelParameters:
         backend = backend_factory.create_backend("openrouter", mock_app_config)
         await backend.initialize(
             api_key="test-key",
-            openrouter_headers_provider=lambda key, name: {
+            openrouter_headers_provider=lambda cfg, key: {
                 "Authorization": f"Bearer {key}"
             },
             key_name="openrouter",

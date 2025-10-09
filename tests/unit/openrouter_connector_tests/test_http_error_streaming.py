@@ -1,8 +1,11 @@
 # import json # F401: Removed
 
+from typing import Any
+
 import httpx
 import pytest
 import pytest_asyncio
+
 from src.connectors.openrouter import OpenRouterBackend
 
 # from pytest_httpx import HTTPXMock # F401: Removed
@@ -14,17 +17,14 @@ TEST_OPENROUTER_API_BASE_URL = (
 )
 
 
-def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
-    # Create a mock config dictionary for testing
-    mock_config = {
-        "app_site_url": "http://localhost:test",
-        "app_x_title": "TestProxy",
-    }
+def mock_get_openrouter_headers(
+    config_payload: dict[str, Any], api_key: str
+) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": mock_config["app_site_url"],
-        "X-Title": mock_config["app_x_title"],
+        "HTTP-Referer": config_payload["app_site_url"],
+        "X-Title": config_payload["app_x_title"],
     }
 
 

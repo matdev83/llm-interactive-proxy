@@ -1,12 +1,19 @@
 import httpx
 import pytest
 import pytest_asyncio
+from typing import Any
+
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 
-def mock_headers_provider(_: str, api_key: str) -> dict[str, str]:
+def mock_headers_provider(
+    config_payload: dict[str, Any], api_key: str
+) -> dict[str, str]:
+    assert "app_site_url" in config_payload
+    assert "app_x_title" in config_payload
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 
@@ -56,3 +63,33 @@ async def test_headers_plumbing(
     req = httpx_mock.get_request()
     assert req is not None
     assert req.headers.get("Authorization") == "Bearer TEST-HEADER"
+
+
+def failing_headers_provider(_: dict[str, Any], __: str) -> dict[str, str]:
+    raise ValueError("boom")
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("openrouter_backend")
+@pytest.mark.httpx_mock()
+async def test_headers_provider_failure_raises_backend_error(
+    openrouter_backend: OpenRouterBackend, httpx_mock: HTTPXMock
+) -> None:
+    request_data = ChatRequest(
+        model="openai/gpt-3.5-turbo",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    httpx_mock.add_response(json={"id": "ok"}, status_code=200)
+
+    with pytest.raises(BackendError):
+        await openrouter_backend.chat_completions(
+            request_data=request_data,
+            processed_messages=[ChatMessage(role="user", content="Hello")],
+            effective_model="openai/gpt-3.5-turbo",
+            openrouter_api_base_url="https://openrouter.ai/api/v1",
+            openrouter_headers_provider=failing_headers_provider,
+            key_name="test",
+            api_key="TEST-HEADER",
+        )

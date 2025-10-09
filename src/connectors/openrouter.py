@@ -35,9 +35,65 @@ class OpenRouterBackend(OpenAIConnector):
     ) -> None:  # Modified
         super().__init__(client, config, translation_service=translation_service)
         self.api_base_url = "https://openrouter.ai/api/v1"
-        self.headers_provider: Callable[[str, str], dict[str, str]] | None = None
+        self.headers_provider: Callable[[dict[str, Any], str], dict[str, str]] | None = None
         self.key_name: str | None = None
         self.api_keys: list[str] = []
+
+    def _build_headers_provider_config(self) -> dict[str, Any]:
+        """Build a configuration payload for the OpenRouter headers provider."""
+
+        config_payload: dict[str, Any] = {}
+
+        # Start with a best-effort dump of the application config so custom
+        # values surfaced through configuration files remain available to the
+        # provider. Pydantic's ``model_dump`` returns a detached dictionary, so
+        # mutating the result is safe.
+        if hasattr(self.config, "model_dump"):
+            try:
+                config_payload = cast(dict[str, Any], self.config.model_dump())
+            except Exception:  # pragma: no cover - defensive guard
+                config_payload = {}
+
+        # Merge backend-specific extras when they are available. Tests frequently
+        # attach OpenRouter-specific metadata (e.g., Referer overrides) through
+        # the backend configuration ``extra`` dictionary.
+        backend_config = None
+        if self.key_name and hasattr(self.config, "backends"):
+            backend_config = getattr(self.config.backends, self.key_name, None)
+        extra: dict[str, Any] = {}
+        if backend_config is not None:
+            extra = cast(dict[str, Any], getattr(backend_config, "extra", {}) or {})
+        if extra:
+            config_payload.update(extra)
+
+        # Provide stable fallbacks for headers expected by OpenRouter when the
+        # configuration does not supply explicit values. We derive them from the
+        # application's identity settings so that custom titles/URLs are honoured
+        # automatically.
+        default_referer = "http://localhost:8000"
+        default_title = "InterceptorProxy"
+
+        identity_config = getattr(self.config, "identity", None)
+        if identity_config is not None and hasattr(identity_config, "get_resolved_headers"):
+            resolved_identity = identity_config.get_resolved_headers(None)
+            referer = resolved_identity.get("HTTP-Referer") or getattr(
+                getattr(identity_config, "url", None),
+                "default_value",
+                default_referer,
+            )
+            title = resolved_identity.get("X-Title") or getattr(
+                getattr(identity_config, "title", None),
+                "default_value",
+                default_title,
+            )
+        else:  # pragma: no cover - identity is always present but guard defensively
+            referer = default_referer
+            title = default_title
+
+        config_payload.setdefault("app_site_url", referer)
+        config_payload.setdefault("app_x_title", title)
+
+        return config_payload
 
     def get_headers(self) -> dict[str, str]:
         if not self.headers_provider or not self.key_name or not self.api_key:
@@ -45,7 +101,15 @@ class OpenRouterBackend(OpenAIConnector):
                 message="OpenRouter headers provider, key name, or API key not set.",
                 code="missing_credentials",
             )
-        headers = self.headers_provider(self.key_name, self.api_key)
+        try:
+            headers = self.headers_provider(
+                self._build_headers_provider_config(), self.api_key
+            )
+        except Exception as exc:  # pragma: no cover - exercised via dedicated test
+            raise BackendError(
+                message="Failed to build OpenRouter headers from configuration.",
+                code="openrouter_header_error",
+            ) from exc
         if self.identity:
             headers.update(self.identity.get_resolved_headers(None))
         logger.info(
@@ -61,7 +125,7 @@ class OpenRouterBackend(OpenAIConnector):
 
         # Accept and set optional init kwargs for headers provider and base URL
         openrouter_headers_provider = cast(
-            Callable[[str, str], dict[str, str]],
+            Callable[[dict[str, Any], str], dict[str, str]],
             kwargs.get("openrouter_headers_provider"),
         )
         key_name = cast(str, kwargs.get("key_name"))
@@ -133,7 +197,7 @@ class OpenRouterBackend(OpenAIConnector):
         try:
             if headers_provider is not None:
                 self.headers_provider = cast(
-                    Callable[[str, str], dict[str, str]], headers_provider
+                    Callable[[dict[str, Any], str], dict[str, str]], headers_provider
                 )
             if key_name is not None:
                 self.key_name = cast(str, key_name)
@@ -149,7 +213,7 @@ class OpenRouterBackend(OpenAIConnector):
             if self.key_name and self.api_key and self.headers_provider:
                 try:
                     headers_override = self.headers_provider(
-                        self.key_name, self.api_key
+                        self._build_headers_provider_config(), self.api_key
                     )
                 except Exception:
                     headers_override = None
