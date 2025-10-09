@@ -3,6 +3,7 @@ Unit tests for Anthropic front-end converters.
 Tests the conversion between Anthropic and OpenAI API formats.
 """
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -100,6 +101,42 @@ class TestAnthropicConverters:
         assert "top_k" not in openai_req  # Should be dropped
         assert openai_req["stop"] == ["STOP", "END"]
         assert openai_req["stream"] is True
+
+    def test_anthropic_to_openai_request_preserves_metadata_user(self) -> None:
+        """Metadata user_id should map to the OpenAI user field."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-opus-20240229",
+            messages=[AnthropicMessage(role="user", content="Test")],
+            metadata={"user_id": "agent-007"},
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        assert openai_req["user"] == "agent-007"
+
+    def test_anthropic_to_openai_request_serializes_passthrough_blocks(self) -> None:
+        """Unknown content blocks should be serialized safely."""
+
+        anthropic_req = AnthropicMessagesRequest(
+            model="claude-3-sonnet-20240229",
+            messages=[
+                AnthropicMessage(
+                    role="assistant",
+                    content=[{"type": "custom", "payload": {"foo": "bar"}}],
+                )
+            ],
+            max_tokens=42,
+        )
+
+        openai_req = anthropic_to_openai_request(anthropic_req)
+
+        assert openai_req["model"] == "claude-3-sonnet-20240229"
+        message = openai_req["messages"][0]
+        assert message["role"] == "assistant"
+
+        payload = json.loads(message["content"])
+        assert payload == [{"type": "custom", "payload": {"foo": "bar"}}]
 
     def test_anthropic_to_openai_request_converts_tools(self) -> None:
         """Anthropic tool definitions should map to OpenAI-compatible tools."""
