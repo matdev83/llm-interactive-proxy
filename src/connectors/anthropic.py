@@ -163,11 +163,16 @@ class AnthropicBackend(LLMBackend):
             project=project,
         )
 
-        request_headers = headers or {
+        request_headers = {
             self.auth_header_name: effective_api_key,
             "anthropic-version": ANTHROPIC_VERSION_HEADER,
             "content-type": "application/json",
         }
+        if headers:
+            # Merge any caller-supplied headers without losing mandatory
+            # authentication defaults.  Copy the mapping to avoid mutating the
+            # caller-owned dictionary.
+            request_headers.update(headers)
         if identity:
             request_headers.update(identity.get_resolved_headers(None))
 
