@@ -5,6 +5,7 @@ Unit tests for Tool Call Reactor Middleware.
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -618,6 +619,40 @@ class TestToolCallReactorMiddleware:
         )
 
         mock_reactor.process_tool_call.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_metadata_tool_calls_domain_model(
+        self, middleware, mock_reactor
+    ):
+        """Metadata tool_calls provided as models should be normalized."""
+
+        class DummyToolCall:
+            def __init__(self, payload: dict[str, Any]) -> None:
+                self._payload = payload
+
+            def model_dump(self) -> dict[str, Any]:
+                return self._payload
+
+        tool_call = DummyToolCall(
+            {
+                "id": "call_meta",
+                "type": "function",
+                "function": {"name": "meta_tool", "arguments": "{}"},
+            }
+        )
+
+        response = ProcessedResponse(content="", metadata={"tool_calls": [tool_call]})
+        mock_reactor.process_tool_call.return_value = None
+
+        await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        mock_reactor.process_tool_call.assert_called_once()
+        call_args = mock_reactor.process_tool_call.call_args[0][0]
+        assert call_args.tool_name == "meta_tool"
 
     def test_get_registered_handlers(self, middleware, mock_reactor):
         """Test getting registered handlers."""

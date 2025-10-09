@@ -25,7 +25,79 @@ def anthropic_to_openai_request(
 
     # Conversation messages
     for msg in anthropic_request.messages:
-        messages.append({"role": msg.role, "content": msg.content})
+        openai_msg: dict[str, Any] = {"role": msg.role}
+
+        tool_calls: list[dict[str, Any]] = []
+        tool_result_block: dict[str, Any] | None = None
+        text_parts: list[str] = []
+        passthrough_parts: list[dict[str, Any]] = []
+
+        content = msg.content
+        if isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "text":
+                    text_value = block.get("text")
+                    if isinstance(text_value, str) and text_value:
+                        text_parts.append(text_value)
+                elif btype == "tool_use":
+                    tool_calls.append(_convert_tool_use_block(block))
+                elif btype == "tool_result":
+                    tool_result_block = block
+                else:
+                    passthrough_parts.append(block)
+        elif isinstance(content, str):
+            text_parts.append(content)
+        elif content is not None:
+            # Unknown structured content - best effort pass-through
+            passthrough_parts.append({"type": "unknown", "value": content})
+
+        if tool_result_block is not None:
+            openai_msg["role"] = "tool"
+            openai_msg["tool_call_id"] = (
+                tool_result_block.get("tool_use_id")
+                or tool_result_block.get("id")
+                or "toolu_0"
+            )
+            openai_msg["content"] = _flatten_tool_result_content(
+                tool_result_block.get("content")
+            )
+        else:
+            if passthrough_parts and not text_parts:
+                try:
+                    openai_msg["content"] = json.dumps(passthrough_parts)
+                except Exception:
+                    openai_msg["content"] = str(passthrough_parts)
+            else:
+                combined_text = "".join(text_parts)
+                openai_msg["content"] = combined_text
+
+            if tool_calls:
+                openai_msg["tool_calls"] = tool_calls
+                if "content" not in openai_msg or openai_msg["content"] is None:
+                    openai_msg["content"] = ""
+
+        msg_tool_calls = getattr(msg, "tool_calls", None)
+        if msg_tool_calls and not tool_calls:
+            try:
+                openai_msg["tool_calls"] = [
+                    tc if isinstance(tc, dict) else tc.model_dump()
+                    for tc in msg_tool_calls
+                ]
+            except Exception:
+                openai_msg["tool_calls"] = list(msg_tool_calls or [])
+
+        msg_tool_call_id = getattr(msg, "tool_call_id", None)
+        if msg_tool_call_id and openai_msg.get("role") != "tool":
+            openai_msg["tool_call_id"] = msg_tool_call_id
+
+        msg_name = getattr(msg, "name", None)
+        if msg_name:
+            openai_msg["name"] = msg_name
+
+        messages.append(openai_msg)
 
     result: dict[str, Any] = {
         "model": anthropic_request.model,
@@ -37,6 +109,22 @@ def anthropic_to_openai_request(
         "stop": anthropic_request.stop_sequences,
         "stream": anthropic_request.stream or False,
     }
+    if anthropic_request.tools:
+        converted_tools = [
+            tool_def
+            for tool_def in (
+                _convert_anthropic_tool_definition(tool)
+                for tool in anthropic_request.tools
+                if tool is not None
+            )
+            if tool_def
+        ]
+        if converted_tools:
+            result["tools"] = converted_tools
+    if anthropic_request.tool_choice is not None:
+        result["tool_choice"] = _convert_anthropic_tool_choice(
+            anthropic_request.tool_choice
+        )
     return result
 
 
@@ -163,10 +251,17 @@ def _build_content_blocks(
     choice: dict[str, Any], message: dict[str, Any]
 ) -> list[dict[str, Any]]:
     content_blocks: list[dict[str, Any]] = []
-    tool_calls = _extract_tool_calls(choice, message)
-    if tool_calls:
-        tc = tool_calls[0]
-        fn = tc.get("function", {})
+    tool_calls = _extract_tool_calls(choice, message) or []
+
+    if message.get("content") is not None:
+        normalized_text = _normalize_text_content(message["content"])
+        if normalized_text:
+            content_blocks.append({"type": "text", "text": normalized_text})
+
+    for idx, raw_tool_call in enumerate(tool_calls):
+        if not isinstance(raw_tool_call, dict):
+            continue
+        fn = raw_tool_call.get("function", {}) or {}
         name = fn.get("name", "tool")
         args_raw = fn.get("arguments", "{}")
         try:
@@ -176,15 +271,10 @@ def _build_content_blocks(
         content_blocks.append(
             {
                 "type": "tool_use",
-                "id": tc.get("id") or "toolu_0",
+                "id": raw_tool_call.get("id") or f"toolu_{idx}",
                 "name": name,
                 "input": args,
             }
-        )
-        return content_blocks
-    if message.get("content") is not None:
-        content_blocks.append(
-            {"type": "text", "text": _normalize_text_content(message["content"])}
         )
     return content_blocks
 
@@ -197,6 +287,123 @@ def _extract_tool_calls(
     if isinstance(choice, dict) and choice.get("tool_calls"):
         return choice.get("tool_calls")
     return None
+
+
+def _convert_anthropic_tool_definition(tool: Any) -> dict[str, Any]:
+    """Convert an Anthropic tool definition to an OpenAI-style tool entry."""
+
+    if tool is None:
+        return {}
+
+    tool_dict: dict[str, Any]
+    if isinstance(tool, dict):
+        tool_dict = dict(tool)
+    else:
+        try:
+            tool_dict = dict(tool)  # type: ignore[arg-type]
+        except Exception:
+            return {"type": "function", "function": {}}
+
+    fn_section = tool_dict.get("function")
+    if isinstance(fn_section, dict):
+        fn_dict = dict(fn_section)
+    else:
+        fn_dict = {}
+
+    # Anthropic commonly uses "input_schema" whereas OpenAI expects "parameters".
+    parameters = fn_dict.get("parameters")
+    if parameters is None and isinstance(fn_dict.get("input_schema"), dict):
+        parameters = fn_dict.get("input_schema")
+
+    converted_function: dict[str, Any] = {}
+    if "name" in fn_dict:
+        converted_function["name"] = fn_dict["name"]
+    if "description" in fn_dict:
+        converted_function["description"] = fn_dict["description"]
+    if parameters is not None:
+        converted_function["parameters"] = parameters
+    if "strict" in fn_dict:
+        converted_function["strict"] = fn_dict["strict"]
+
+    # Preserve any remaining keys that are already OpenAI compatible.
+    for key in ("parse", "examples"):
+        if key in fn_dict and key not in converted_function:
+            converted_function[key] = fn_dict[key]
+
+    tool_type = tool_dict.get("type", "function")
+    if tool_type not in {"function", "tool"}:
+        tool_type = "function"
+
+    # If Anthropic used "tool" as the type, normalize to "function" for OpenAI compatibility.
+    if tool_type == "tool":
+        tool_type = "function"
+
+    return {
+        "type": tool_type,
+        "function": converted_function,
+    }
+
+
+def _convert_anthropic_tool_choice(tool_choice: Any) -> Any:
+    if isinstance(tool_choice, dict):
+        tc_dict = dict(tool_choice)
+        choice_type = tc_dict.get("type")
+        function_details = tc_dict.get("function")
+        if function_details is None and "name" in tc_dict:
+            function_details = {"name": tc_dict["name"]}
+
+        if choice_type in {"tool", "function"}:
+            converted: dict[str, Any] = {"type": "function"}
+            if isinstance(function_details, dict):
+                converted["function"] = function_details
+            else:
+                converted["function"] = {}
+            return converted
+
+        return tc_dict
+
+    return tool_choice
+
+
+def _convert_tool_use_block(block: dict[str, Any]) -> dict[str, Any]:
+    function_dict = block.get("name") or block.get("function", {})
+    if isinstance(function_dict, dict):
+        function_name = function_dict.get("name")
+    else:
+        function_name = block.get("name")
+
+    arguments_obj = block.get("input")
+    try:
+        arguments_str = (
+            json.dumps(arguments_obj)
+            if arguments_obj is not None and not isinstance(arguments_obj, str)
+            else arguments_obj or "{}"
+        )
+    except Exception:
+        arguments_str = json.dumps({"_raw": arguments_obj})
+
+    return {
+        "id": block.get("id") or "toolu_0",
+        "type": "function",
+        "function": {
+            "name": function_name or "tool",
+            "arguments": arguments_str,
+        },
+    }
+
+
+def _flatten_tool_result_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict):
+                text_val = part.get("text")
+                if isinstance(text_val, str):
+                    text_parts.append(text_val)
+        return "".join(text_parts)
+    return "" if content is None else str(content)
 
 
 def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> str:
@@ -213,6 +420,27 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         openai_chunk: dict[str, Any] = json.loads(chunk_data)
         choice: dict[str, Any] = openai_chunk.get("choices", [{}])[0]
         delta: dict[str, Any] = choice.get("delta", {})
+
+        # Role delta -> emit message_start event so Anthropic clients receive
+        # the metadata that frames the rest of the stream.  Without this the
+        # very first OpenAI chunk (which only contains the assistant role)
+        # would be silently dropped, leaving Anthropic front-ends without a
+        # message header and breaking downstream parsing.
+        if delta.get("role"):
+            payload = {
+                "type": "message_start",
+                "index": 0,
+                "message": {
+                    "id": id,
+                    "type": "message",
+                    "role": delta["role"],
+                    "model": model,
+                },
+            }
+            return (
+                "event: message_start\n"
+                f"data: {json.dumps(payload)}\n\n"
+            )
 
         # Content delta
         if delta.get("content"):

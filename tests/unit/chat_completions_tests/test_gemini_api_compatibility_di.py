@@ -5,7 +5,9 @@ This file contains tests for the Gemini API compatibility endpoints,
 refactored to use proper dependency injection instead of direct app.state access.
 """
 
-from unittest.mock import Mock
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -305,6 +307,57 @@ class TestGeminiStreamGenerateContent:
             # Check that we get streaming responses
             chunks = list(response.iter_lines())
             assert len(chunks) > 0
+
+    def test_stream_generate_content_handles_bytes_chunks(self, gemini_client):
+        """Ensure byte-oriented streaming chunks are converted correctly."""
+
+        backend_service = get_required_service_from_app(
+            gemini_client.app, IBackendService
+        )
+
+        async def mock_call_completion(*args, **kwargs):
+            async def _chunk_generator():
+                yield b'data: {"choices": [{"index": 0, "delta": {"content": "Hello"}}]}\n\n'
+                yield b"data: [DONE]\n\n"
+
+            return SimpleNamespace(content=_chunk_generator())
+
+        backend_service.call_completion = AsyncMock(side_effect=mock_call_completion)
+
+        request_data = {
+            "contents": [
+                {
+                    "parts": [{"text": "Stream some text"}],
+                    "role": "user",
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.2,
+                "topP": 0.9,
+                "maxOutputTokens": 32,
+            },
+            "stream": True,
+        }
+
+        with gemini_client.stream(
+            "POST",
+            "/v1beta/models/gemini-pro:streamGenerateContent",
+            json=request_data,
+        ) as response:
+            assert response.status_code == 200
+
+            chunks = [line for line in response.iter_lines() if line]
+
+            assert "data: [DONE]" in chunks
+
+            payload_lines = [line for line in chunks if line.startswith("data: {")]
+            assert payload_lines
+
+            payload = payload_lines[0][len("data: ") :]
+            data = json.loads(payload)
+            assert data["candidates"]
+            first_part = data["candidates"][0]["content"]["parts"][0]
+            assert first_part["text"] == "Hello"
 
 
 class TestGeminiAuthentication:

@@ -13,9 +13,11 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
+from src.core.common.exceptions import ServiceUnavailableError
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -505,6 +507,35 @@ async def test_streaming_response_error(
     # Verify the exception
     assert excinfo.value.status_code == 400
     assert "Bad request" in str(excinfo.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_streaming_response_request_error(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Test that connection failures surface as ServiceUnavailableError."""
+
+    error = httpx.RequestError(
+        "connection boom", request=httpx.Request("POST", "https://example.com")
+    )
+    mocker.patch.object(connector.client, "send", AsyncMock(side_effect=error))
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
+    )
+
+    with pytest.raises(ServiceUnavailableError) as excinfo:
+        await connector.chat_completions(
+            request_data,
+            [{"role": "user", "content": "test"}],
+            "test-model",
+        )
+
+    assert "connection boom" in str(excinfo.value)
 
 
 @pytest.mark.asyncio

@@ -46,6 +46,41 @@ async def test_openai_payload_contains_temperature_and_top_p(
 
 
 @pytest.mark.asyncio
+async def test_openai_payload_uses_processed_messages_with_list_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = AppConfig()
+    client = httpx.AsyncClient()
+    connector = OpenAIConnector(client, cfg, translation_service=TranslationService())
+    connector.api_key = "test-api-key"
+    req = ChatRequest(model="gpt-4", messages=_messages())
+
+    processed_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Hello"},
+                {"type": "text", "text": "World"},
+            ],
+        }
+    ]
+
+    captured_payload: dict[str, Any] = {}
+
+    async def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
+        captured_payload.update(json)
+        return httpx.Response(
+            200, json={"id": "1", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    monkeypatch.setattr(client, "post", fake_post)
+
+    await connector.chat_completions(req, processed_messages, req.model)
+
+    assert captured_payload.get("messages") == processed_messages
+
+
+@pytest.mark.asyncio
 async def test_openrouter_payload_contains_temperature_and_top_p(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

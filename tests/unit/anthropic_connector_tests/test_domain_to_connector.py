@@ -5,6 +5,7 @@ This module tests that the Anthropic connector correctly processes domain models
 """
 
 import json
+from collections.abc import AsyncGenerator
 
 import httpx
 import pytest
@@ -26,7 +27,7 @@ TEST_ANTHROPIC_API_BASE_URL = ANTHROPIC_DEFAULT_BASE_URL
 
 
 @pytest_asyncio.fixture(name="anthropic_backend")
-async def anthropic_backend_fixture() -> AnthropicBackend:
+async def anthropic_backend_fixture() -> AsyncGenerator[AnthropicBackend, None]:
     """Create an Anthropic backend instance with a mock client."""
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
@@ -160,6 +161,48 @@ async def test_chat_completions_with_system_message(
 
 
 @pytest.mark.asyncio
+async def test_chat_completions_merges_custom_headers(
+    anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
+) -> None:
+    """Caller-provided headers should supplement, not replace, defaults."""
+
+    httpx_mock.add_response(
+        url=f"{TEST_ANTHROPIC_API_BASE_URL}/messages",
+        method="POST",
+        json={
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hello"}],
+            "model": "claude-3-haiku-20240307",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 2},
+        },
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
+
+    request = ChatRequest(
+        model="anthropic:claude-3-haiku-20240307",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    await anthropic_backend.chat_completions(
+        request_data=request,
+        processed_messages=[ChatMessage(role="user", content="Hello")],
+        effective_model="claude-3-haiku-20240307",
+        headers={"x-custom": "value"},
+    )
+
+    sent_request = httpx_mock.get_request()
+    assert sent_request is not None
+    assert sent_request.headers["x-api-key"] == "test_key"
+    assert sent_request.headers["anthropic-version"] == ANTHROPIC_VERSION_HEADER
+    assert sent_request.headers["x-custom"] == "value"
+
+
+@pytest.mark.asyncio
 async def test_chat_completions_merges_metadata(
     anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
 ) -> None:
@@ -285,6 +328,98 @@ async def test_chat_completions_with_tools(
 
     # Anthropic doesn't have a direct tool_choice parameter like OpenAI
     assert "tool_choice" not in sent_payload
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stop_string_normalized(
+    anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
+) -> None:
+    """Ensure string stop values are converted to Anthropic stop_sequences lists."""
+
+    httpx_mock.add_response(
+        url=f"{TEST_ANTHROPIC_API_BASE_URL}/messages",
+        method="POST",
+        json={
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Done."}],
+            "model": "claude-3-haiku-20240307",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 3},
+        },
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
+
+    request = ChatRequest(
+        model="anthropic:claude-3-haiku-20240307",
+        messages=[ChatMessage(role="user", content="Say done when finished.")],
+        max_tokens=100,
+        stop="DONE",
+    )
+
+    processed_messages = [
+        ChatMessage(role="user", content="Say done when finished."),
+    ]
+
+    await anthropic_backend.chat_completions(
+        request_data=request,
+        processed_messages=processed_messages,
+        effective_model="claude-3-haiku-20240307",
+    )
+
+    sent_request = httpx_mock.get_request()
+    assert sent_request is not None
+    sent_payload = json.loads(sent_request.content)
+
+    assert sent_payload["stop_sequences"] == ["DONE"]
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stop_list_normalized(
+    anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
+) -> None:
+    """Ensure list stop values are converted to Anthropic stop_sequences lists."""
+
+    httpx_mock.add_response(
+        url=f"{TEST_ANTHROPIC_API_BASE_URL}/messages",
+        method="POST",
+        json={
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Done."}],
+            "model": "claude-3-haiku-20240307",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 5, "output_tokens": 3},
+        },
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
+
+    request = ChatRequest(
+        model="anthropic:claude-3-haiku-20240307",
+        messages=[ChatMessage(role="user", content="Say done when finished.")],
+        max_tokens=100,
+        stop=["DONE", "FINISHED"],
+    )
+
+    processed_messages = [
+        ChatMessage(role="user", content="Say done when finished."),
+    ]
+
+    await anthropic_backend.chat_completions(
+        request_data=request,
+        processed_messages=processed_messages,
+        effective_model="claude-3-haiku-20240307",
+    )
+
+    sent_request = httpx_mock.get_request()
+    assert sent_request is not None
+    sent_payload = json.loads(sent_request.content)
+
+    assert sent_payload["stop_sequences"] == ["DONE", "FINISHED"]
 
 
 @pytest.mark.asyncio

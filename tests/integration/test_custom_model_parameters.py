@@ -229,10 +229,10 @@ class TestCustomModelParameters:
         payload = json.loads(sent_request.content)
         assert "generationConfig" in payload
         assert "thinkingConfig" in payload["generationConfig"]
-        assert "reasoning_effort" in payload["generationConfig"]["thinkingConfig"]
-        assert (
-            payload["generationConfig"]["thinkingConfig"]["reasoning_effort"] == "high"
-        )
+        thinking_config = payload["generationConfig"]["thinkingConfig"]
+        assert "thinkingBudget" in thinking_config
+        assert thinking_config["thinkingBudget"] == -1
+        assert thinking_config.get("includeThoughts") is True
 
     @pytest.mark.asyncio
     async def test_anthropic_reasoning_effort_parameter(

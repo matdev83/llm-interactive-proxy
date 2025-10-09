@@ -55,5 +55,12 @@ class IBackendService(ABC):
 
     @abstractmethod
     async def chat_completions(
-        self, request: ChatRequest, **kwargs: Any
-    ) -> ResponseEnvelope | StreamingResponseEnvelope: ...
+        self,
+        request: ChatRequest,
+        *,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: RequestContext | None = None,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Alias for :meth:`call_completion` used by legacy callers."""
