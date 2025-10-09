@@ -10,6 +10,7 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.commands import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
+from src.core.domain.session import Session
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.domain_entities_interface import ISessionState
@@ -144,6 +145,163 @@ async def test_process_request_basic(session_service: MockSessionService) -> Non
     session_manager.get_session.assert_called_once_with("test-session")
     session_manager.update_session_agent.assert_called_once()
     session_manager.update_session_history.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_request_processor_skips_redaction_when_session_disables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session = Session(session_id="test-session")
+    session.state = session.state.with_api_key_redaction_enabled(False)
+
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+    session_manager.update_session_agent.return_value = session
+    session_manager.update_session_history.return_value = None
+
+    request_data = create_mock_request()
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("Hello there!")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig()
+    app_config.auth.redact_api_keys_in_prompts = True
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.return_value = app_config
+    mock_app_state.get_disable_commands.return_value = False
+
+    instantiation_count = 0
+
+    class TrackingRedactionMiddleware:
+        def __init__(self, *args, **kwargs) -> None:
+            nonlocal instantiation_count
+            instantiation_count += 1
+
+        async def process(
+            self, request: ChatRequest, context: dict[str, Any] | None = None
+        ) -> ChatRequest:
+            return request
+
+    monkeypatch.setattr(
+        "src.core.services.redaction_middleware.RedactionMiddleware",
+        TrackingRedactionMiddleware,
+    )
+    monkeypatch.setattr(
+        "src.core.common.logging_utils.discover_api_keys_from_config_and_env",
+        lambda _cfg: [],
+    )
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    await processor.process_request(MockRequestContext(), request_data)
+
+    assert instantiation_count == 0
+
+
+@pytest.mark.asyncio
+async def test_request_processor_applies_redaction_when_session_enables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session = Session(session_id="test-session")
+    session.state = session.state.with_api_key_redaction_enabled(True)
+
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+    session_manager.update_session_agent.return_value = session
+    session_manager.update_session_history.return_value = None
+
+    request_data = create_mock_request()
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("Hello there!")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig()
+    app_config.auth.redact_api_keys_in_prompts = False
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.return_value = app_config
+    mock_app_state.get_disable_commands.return_value = False
+
+    instantiation_count = 0
+    processed_requests: list[ChatRequest] = []
+
+    class TrackingRedactionMiddleware:
+        def __init__(self, *args, **kwargs) -> None:
+            nonlocal instantiation_count
+            instantiation_count += 1
+
+        async def process(
+            self, request: ChatRequest, context: dict[str, Any] | None = None
+        ) -> ChatRequest:
+            processed_requests.append(request)
+            return request
+
+    monkeypatch.setattr(
+        "src.core.services.redaction_middleware.RedactionMiddleware",
+        TrackingRedactionMiddleware,
+    )
+    monkeypatch.setattr(
+        "src.core.common.logging_utils.discover_api_keys_from_config_and_env",
+        lambda _cfg: [],
+    )
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    await processor.process_request(MockRequestContext(), request_data)
+
+    assert instantiation_count == 1
+    assert processed_requests
 
 
 @pytest.mark.asyncio

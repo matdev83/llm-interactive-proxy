@@ -354,8 +354,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 state,
             )
 
-        # Update state through secure DI interface
-        self.update_state_setting("api_key_redaction_enabled", bool(enabled))
+        updated_state = state.with_api_key_redaction_enabled(bool(enabled))
 
         return (
             CommandResult(
@@ -363,7 +362,7 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 message=f"API key redaction in prompts {'enabled' if enabled else 'disabled'}",
                 data={"redact-api-keys-in-prompts": enabled},
             ),
-            state,
+            updated_state,
         )
 
     def _is_static_routing_enabled(self) -> bool:

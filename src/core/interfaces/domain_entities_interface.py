@@ -251,6 +251,17 @@ class ISessionState(IValueObject, ISessionStateMutator):
     def with_pytest_compression_min_lines(self, min_lines: int) -> ISessionState:
         """Create a new state with updated pytest_compression_min_lines value."""
 
+    @property
+    @abstractmethod
+    def api_key_redaction_enabled(self) -> bool | None:
+        """Get the session-specific API key redaction override."""
+
+    @abstractmethod
+    def with_api_key_redaction_enabled(
+        self, enabled: bool | None
+    ) -> ISessionState:
+        """Create a new state with updated API key redaction flag."""
+
     @abstractmethod
     def with_planning_phase_config(self, config: IPlanningPhaseConfig) -> ISessionState:
         """Create a new state with updated planning phase configuration."""
