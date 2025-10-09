@@ -171,6 +171,87 @@ async def test_process_tool_calls_from_bytes(
 
 
 @pytest.mark.asyncio
+async def test_streaming_tool_calls_detected_via_delta(
+    middleware: ToolCallLoopDetectionMiddleware,
+) -> None:
+    """Ensure streaming delta payloads trigger loop detection."""
+
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=2,
+        tool_loop_ttl_seconds=60,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+    ctx = {"config": config}
+    session_id = "stream-session"
+
+    first_chunk = json.dumps(
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_abc123",
+                                "type": "function",
+                                "function": {"name": "search_web"},
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    )
+    second_chunk = json.dumps(
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "function": {
+                                    "arguments": json.dumps({"query": "python"})
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+    )
+
+    await middleware.process(
+        ProcessedResponse(content=first_chunk),
+        session_id,
+        ctx,
+        is_streaming=True,
+    )
+    await middleware.process(
+        ProcessedResponse(content=second_chunk),
+        session_id,
+        ctx,
+        is_streaming=True,
+    )
+
+    await middleware.process(
+        ProcessedResponse(content=first_chunk),
+        session_id,
+        ctx,
+        is_streaming=True,
+    )
+    with pytest.raises(ToolCallLoopError):
+        await middleware.process(
+            ProcessedResponse(content=second_chunk),
+            session_id,
+            ctx,
+            is_streaming=True,
+        )
+
+
+@pytest.mark.asyncio
 async def test_reset_session(middleware, loop_config, tool_call_response) -> None:
     """Test that resetting a session clears its tracking state."""
     # First call should pass through

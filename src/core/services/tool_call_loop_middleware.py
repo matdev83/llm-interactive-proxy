@@ -35,6 +35,10 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
     def __init__(self) -> None:
         """Initialize the middleware."""
         self._session_trackers: dict[str, ToolCallTracker] = {}
+        # Maintain partial streaming tool call state per session so we can
+        # reconstruct complete tool call payloads when providers send them
+        # across multiple streaming chunks.
+        self._streaming_tool_state: dict[str, dict[int, dict[str, Any]]] = {}
 
     async def process(
         self,
@@ -71,7 +75,9 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             return response
 
         # Extract tool calls from response content
-        tool_calls = self._extract_tool_calls(response.content)
+        tool_calls = self._extract_tool_calls(
+            response.content, session_id, is_streaming
+        )
         if not tool_calls:
             return response
 
@@ -124,28 +130,28 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if session_id in self._session_trackers:
             del self._session_trackers[session_id]
 
-    def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
+    def _extract_tool_calls(
+        self, content: Any, session_id: str, is_streaming: bool
+    ) -> list[dict[str, Any]]:
         """Extract tool calls from response content.
 
         Args:
             content: The response content (can be a string or a dict)
+            session_id: The active session identifier
+            is_streaming: Whether the payload is part of a streaming response
 
         Returns:
             List of tool call dictionaries
         """
-        # If content is already a dict, use it directly
         if isinstance(content, dict):
             data = content
         else:
-            # Otherwise try to parse common JSON container types
             if isinstance(content, str | bytes | bytearray):
                 try:
                     data = json.loads(content)
                 except (json.JSONDecodeError, TypeError, ValueError):
-                    # Not JSON or doesn't have the expected structure
                     return []
             else:
-                # Unsupported content type (e.g., streaming iterators)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Unsupported response content type for tool call extraction: %s",
@@ -153,7 +159,6 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                     )
                 return []
 
-        # Check for OpenAI format
         if isinstance(data, dict):
             choices = data.get("choices", [])
             for choice in choices:
@@ -164,14 +169,85 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                     and isinstance(tool_calls, list)
                     and all(isinstance(item, dict) for item in tool_calls)
                 ):
-                    # Create a new list with explicit typing
                     result: list[dict[str, Any]] = []
                     for item in tool_calls:
                         if isinstance(item, dict):
                             result.append(item)
+                    self._streaming_tool_state.pop(session_id, None)
                     return result
 
-        # Check for direct tool calls array
+            if is_streaming:
+                pending = self._streaming_tool_state.setdefault(session_id, {})
+                completed_indices: set[int] = set()
+
+                for choice in choices:
+                    delta = choice.get("delta", {})
+                    if not isinstance(delta, dict):
+                        continue
+
+                    delta_tool_calls = delta.get("tool_calls")
+                    if not delta_tool_calls or not isinstance(delta_tool_calls, list):
+                        continue
+
+                    for item in delta_tool_calls:
+                        if not isinstance(item, dict):
+                            continue
+
+                        index = item.get("index", 0)
+                        state = pending.setdefault(index, {"index": index})
+
+                        for key, value in item.items():
+                            if key == "function" and isinstance(value, dict):
+                                function_state = state.setdefault("function", {})
+                                for func_key, func_value in value.items():
+                                    if func_value is not None:
+                                        function_state[func_key] = func_value
+                            elif key != "index" and value is not None:
+                                state[key] = value
+
+                        function_data = state.get("function", {})
+                        if (
+                            isinstance(function_data, dict)
+                            and "arguments" in function_data
+                        ):
+                            completed_indices.add(index)
+
+                    if choice.get("finish_reason") == "tool_calls":
+                        completed_indices.update(pending.keys())
+
+                completed_calls: list[dict[str, Any]] = []
+                for index in sorted(completed_indices):
+                    state = pending.get(index)
+                    if not state:
+                        continue
+
+                    function_state = state.get("function", {})
+                    if not isinstance(function_state, dict):
+                        continue
+                    if "arguments" not in function_state:
+                        continue
+
+                    call: dict[str, Any] = {
+                        key: (dict(value) if isinstance(value, dict) else value)
+                        for key, value in state.items()
+                        if key != "index"
+                    }
+                    function_copy = call.get("function", {})
+                    if isinstance(function_copy, dict) and "name" not in function_copy:
+                        function_copy["name"] = "unknown"
+                    call["function"] = function_copy
+                    call["index"] = index
+                    completed_calls.append(call)
+
+                for index in completed_indices:
+                    pending.pop(index, None)
+
+                if not pending:
+                    self._streaming_tool_state.pop(session_id, None)
+
+                if completed_calls:
+                    return completed_calls
+
         if isinstance(data, list) and all(  # type: ignore[unreachable]
             isinstance(item, dict) and "function" in item for item in data
         ):  # type: ignore[unreachable]
