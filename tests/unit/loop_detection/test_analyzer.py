@@ -116,6 +116,22 @@ def test_pattern_analyzer_loop_detection_with_noise(analyzer: PatternAnalyzer) -
     assert event.repetition_count == 3
     assert event.confidence == 1.0
 
+def test_pattern_analyzer_total_length_excludes_prior_noise(
+    analyzer: PatternAnalyzer,
+) -> None:
+    """Ensure reported total length only counts repeated pattern content."""
+
+    # Introduce non-repeating text before the actual looped pattern
+    analyzer.analyze_chunk("noise", "noise")
+
+    event = None
+    for i in range(3):
+        buffer = "noise" + "abc" * (i + 1)
+        event = analyzer.analyze_chunk("abc", buffer)
+
+    assert event is not None
+    assert event.total_length == len("abc") * 3
+
 
 def test_pattern_analyzer_reset(analyzer: PatternAnalyzer) -> None:
     analyzer.analyze_chunk("some content", "some content")
