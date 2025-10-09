@@ -84,3 +84,14 @@ def test_unset_project(command: UnsetCommand, initial_state: SessionState):
     assert result.success is True
     assert result.message == "Project reset to default"
     assert new_state.project is None
+
+
+def test_unset_redact_api_keys_updates_session_state(
+    command: UnsetCommand, initial_state: SessionState
+) -> None:
+    starting_state = initial_state.with_redact_api_keys_in_prompts(False)
+
+    result, new_state = command._unset_redact_api_keys(starting_state, {})
+
+    assert result.success is True
+    assert new_state.redact_api_keys_in_prompts is True

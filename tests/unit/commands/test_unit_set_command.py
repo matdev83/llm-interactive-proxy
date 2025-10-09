@@ -24,6 +24,17 @@ def command() -> SetCommand:
 
 
 @pytest.fixture
+def command_with_state() -> tuple[SetCommand, "ApplicationStateService"]:
+    """Provide a SetCommand along with its underlying application state."""
+    from src.core.services.application_state_service import ApplicationStateService
+    from src.core.services.secure_state_service import SecureStateService
+
+    app_state = ApplicationStateService()
+    secure_state = SecureStateService(app_state)
+    return SetCommand(state_reader=secure_state, state_modifier=secure_state), app_state
+
+
+@pytest.fixture
 def mock_session() -> Mock:
     """Creates a mock session object with a default state.
 
@@ -255,3 +266,20 @@ async def test_handle_temperature_with_safe_session(
 
     # This test demonstrates using the standard mock_session fixture
     # which provides consistent behavior without coroutine warnings
+
+
+@pytest.mark.asyncio
+async def test_handle_redact_api_keys_updates_session_only(
+    command_with_state: tuple[SetCommand, "ApplicationStateService"],
+    mock_session: Mock,
+) -> None:
+    command, app_state = command_with_state
+    app_state.set_api_key_redaction_enabled(True)
+
+    result, new_state = await command._handle_redact_api_keys_in_prompts(
+        "false", mock_session.state, {}
+    )
+
+    assert result.success is True
+    assert new_state.redact_api_keys_in_prompts is False
+    assert app_state.get_api_key_redaction_enabled() is True

@@ -120,6 +120,10 @@ class ISessionStateMutator(ABC):
     def with_is_cline_agent(self, is_cline: bool) -> ISessionState:
         """Create a new state with updated is_cline_agent flag."""
 
+    @abstractmethod
+    def with_redact_api_keys_in_prompts(self, enabled: bool) -> ISessionState:
+        """Create a new state with updated API key redaction flag."""
+
 
 class ISessionState(IValueObject, ISessionStateMutator):
     """Interface for session state value objects."""
@@ -236,6 +240,11 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def pytest_compression_min_lines(self) -> int:
         """Get minimum line threshold for pytest compression."""
+
+    @property
+    @abstractmethod
+    def redact_api_keys_in_prompts(self) -> bool:
+        """Get whether API keys should be redacted for this session."""
 
     @abstractmethod
     def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:

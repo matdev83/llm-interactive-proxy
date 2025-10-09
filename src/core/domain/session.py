@@ -74,6 +74,7 @@ class SessionState(ValueObject):
     pytest_compression_enabled: bool = True
     compress_next_tool_call_reply: bool = False
     pytest_compression_min_lines: int = 0
+    redact_api_keys_in_prompts: bool = True
     planning_phase_turn_count: int = 0
     planning_phase_file_write_count: int = 0
 
@@ -138,6 +139,10 @@ class SessionState(ValueObject):
     def with_planning_phase_file_write_count(self, count: int) -> SessionState:
         """Create a new session state with updated planning phase file write count."""
         return self.model_copy(update={"planning_phase_file_write_count": count})
+
+    def with_redact_api_keys_in_prompts(self, enabled: bool) -> SessionState:
+        """Create a new session state with updated API key redaction flag."""
+        return self.model_copy(update={"redact_api_keys_in_prompts": enabled})
 
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
@@ -239,6 +244,12 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def pytest_compression_min_lines(self) -> int:
         """Minimum line threshold for pytest compression."""
         return self._state.pytest_compression_min_lines
+
+    @property
+    def redact_api_keys_in_prompts(self) -> bool:
+        """Whether API keys should be redacted for this session."""
+        value = getattr(self._state, "redact_api_keys_in_prompts", True)
+        return value if isinstance(value, bool) else bool(value)
 
     @property
     def planning_phase_turn_count(self) -> int:
@@ -346,6 +357,13 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         """Create a new session state with updated pytest_compression_min_lines value."""
         new_state = cast(SessionState, self._state).with_pytest_compression_min_lines(
             min_lines
+        )
+        return SessionStateAdapter(new_state)
+
+    def with_redact_api_keys_in_prompts(self, enabled: bool) -> ISessionState:
+        """Create a new session state with updated API key redaction flag."""
+        new_state = cast(SessionState, self._state).with_redact_api_keys_in_prompts(
+            enabled
         )
         return SessionStateAdapter(new_state)
 

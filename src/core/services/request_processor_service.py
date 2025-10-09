@@ -356,6 +356,20 @@ class RequestProcessor(IRequestProcessor):
                     should_redact = True
 
                 if should_redact:
+                    try:
+                        session_redaction_enabled = bool(
+                            getattr(
+                                getattr(session, "state", None),
+                                "redact_api_keys_in_prompts",
+                                True,
+                            )
+                        )
+                    except Exception:
+                        session_redaction_enabled = True
+                    if not session_redaction_enabled:
+                        should_redact = False
+
+                if should_redact:
                     api_keys = discover_api_keys_from_config_and_env(app_config)
                     # Command prefix can be None; RedactionMiddleware has a default
                     command_prefix = None

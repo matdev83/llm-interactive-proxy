@@ -167,15 +167,14 @@ class UnsetCommand(StatefulCommandBase, BaseCommand):
     def _unset_redact_api_keys(
         self, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
-        # Update state through secure DI interface
-        self.update_state_setting("api_key_redaction_enabled", True)
+        updated_state = state.with_redact_api_keys_in_prompts(True)
 
         result = CommandResult(
             success=True,
             message="API key redaction reset to default (enabled)",
             data={"redact-api-keys-in-prompts": True},
         )
-        return result, state  # No state change in session
+        return result, updated_state
 
     def _unset_command_prefix(
         self, state: ISessionState, context: Any
