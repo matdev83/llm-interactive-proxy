@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.app.test_builder import build_test_app as app_main_build_app
 from src.core.cli import apply_cli_args, main, parse_cli_args
-from src.core.config.app_config import AppConfig, load_config
+from src.core.config.app_config import AppConfig, LogLevel, load_config
 from src.core.interfaces.session_service_interface import ISessionService
 
 from tests.utils.test_di_utils import get_required_service_from_app
@@ -163,6 +163,17 @@ def test_apply_cli_args_preserves_config_log_file(tmp_path: Path) -> None:
         applied = apply_cli_args(args)
 
     assert applied.logging.log_file == str(existing_log)
+
+
+def test_apply_cli_args_respects_existing_log_level() -> None:
+    config = AppConfig()
+    config.logging.level = LogLevel.DEBUG
+
+    with patch("src.core.cli.load_config", return_value=config):
+        args = parse_cli_args([])
+        applied = apply_cli_args(args)
+
+    assert applied.logging.level is LogLevel.DEBUG
 
 
 def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
