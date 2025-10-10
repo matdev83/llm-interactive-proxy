@@ -77,7 +77,13 @@ class ControllerStage(InitializationStage):
             request_processor: IRequestProcessor = provider.get_required_service(
                 cast(type, IRequestProcessor)
             )
-            return ChatController(request_processor)
+            translation_service = ChatController._resolve_translation_service_from_provider(
+                provider
+            )
+            return ChatController(
+                request_processor,
+                translation_service=translation_service,
+            )
 
         # Register as singleton
         services.add_singleton(
