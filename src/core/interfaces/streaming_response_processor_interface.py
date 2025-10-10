@@ -25,3 +25,7 @@ class IStreamNormalizer(ABC):
         Returns:
             An async iterator of the processed stream in the requested format
         """
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset any processor state before handling a new stream."""

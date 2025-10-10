@@ -30,6 +30,12 @@ class ContentAccumulationProcessor(IStreamProcessor):
         self._max_buffer_bytes = max_buffer_bytes
         self._truncation_logged = False
 
+    def reset(self) -> None:
+        """Reset the internal buffer so stale content does not leak between streams."""
+        self._buffer.clear()
+        self._buffer_byte_length = 0
+        self._truncation_logged = False
+
     async def process(self, content: StreamingContent) -> StreamingContent:
         if content.is_empty and not content.is_done:
             # Preserve metadata/usage even when the chunk has no text so downstream
@@ -62,12 +68,10 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 removed_chunk = self._buffer.popleft()
                 self._buffer_byte_length -= len(removed_chunk.encode("utf-8"))
 
-        if content.is_done:
+        if content.is_done or content.is_cancellation:
             # Join all buffer chunks into final content
             final_content = "".join(self._buffer)
-            self._buffer.clear()
-            self._buffer_byte_length = 0
-            self._truncation_logged = False  # Reset for next stream
+            self.reset()
             return StreamingContent(
                 content=final_content,
                 is_done=True,

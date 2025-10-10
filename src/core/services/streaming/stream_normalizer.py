@@ -24,6 +24,21 @@ class StreamNormalizer(IStreamNormalizer):
         """
         self._processors = list(processors) if processors is not None else []
 
+    def reset(self) -> None:
+        """Reset any stateful processors prior to processing a new stream."""
+        for processor in self._processors:
+            reset_method = getattr(processor, "reset", None)
+            if callable(reset_method):
+                try:
+                    reset_method()
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    logger.debug(
+                        "Failed to reset stream processor %s: %s",
+                        type(processor).__name__,
+                        exc,
+                        exc_info=True,
+                    )
+
     async def process_stream(
         self, stream: AsyncIterator[Any], output_format: str = "bytes"
     ) -> AsyncGenerator[StreamingContent | bytes, None]:
