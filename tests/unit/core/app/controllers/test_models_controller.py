@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import sys
 from typing import Any
 from unittest.mock import Mock
 
 import httpx
 import pytest
+from types import SimpleNamespace
 from src.core.app.controllers.models_controller import get_backend_factory_service
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.config.app_config import AppConfig
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import BackendRegistry, backend_registry
@@ -63,3 +66,27 @@ async def test_backend_factory_fallback_uses_di_translation_service(
     assert factory._client is http_client
     converter = factory._translation_service._to_domain_response_converters["sentinel"]
     assert converter(None) is sentinel
+
+
+def test_get_config_service_handles_service_resolution_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.core.app.controllers import models_controller
+
+    class FailingProvider:
+        def get_required_service(self, service_type: Any) -> Any:
+            raise ServiceResolutionError(
+                "No service registered", service_name=str(service_type)
+            )
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider",
+        lambda: FailingProvider(),
+    )
+
+    fake_context = SimpleNamespace(
+        _request_context=SimpleNamespace(exists=lambda: False)
+    )
+    monkeypatch.setitem(sys.modules, "starlette.context", fake_context)
+
+    config = models_controller.get_config_service()
+
+    assert isinstance(config, AppConfig)

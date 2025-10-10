@@ -114,7 +114,7 @@ def get_config_service() -> IConfig:
 
         service_provider = get_service_provider()
         return service_provider.get_required_service(IConfig)  # type: ignore[type-abstract,no-any-return]
-    except KeyError as e:
+    except (KeyError, ServiceResolutionError) as e:
         logger.debug(
             "IConfig not registered in global provider: %s; trying request context",
             e,
