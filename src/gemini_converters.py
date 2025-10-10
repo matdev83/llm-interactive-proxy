@@ -377,13 +377,20 @@ def _gemini_candidate_to_openai_chunk(candidate: dict[str, Any]) -> str | None:
 
         # Extract finish reason
         if "finishReason" in candidate:
-            finish_reason = candidate["finishReason"].lower()
-            if finish_reason == "stop":
-                choice["finish_reason"] = "stop"
-            elif finish_reason == "max_tokens":
-                choice["finish_reason"] = "length"
-            elif finish_reason == "tool_calls":
-                choice["finish_reason"] = "tool_calls"
+            finish_reason_value = candidate["finishReason"]
+            if isinstance(finish_reason_value, str):
+                finish_reason = finish_reason_value.lower()
+                finish_reason_map = {
+                    "stop": "stop",
+                    "max_tokens": "length",
+                    "tool_calls": "tool_calls",
+                    "function_call": "function_call",
+                    "safety": "content_filter",
+                    "recitation": "content_filter",
+                }
+                mapped_reason = finish_reason_map.get(finish_reason)
+                if mapped_reason is not None:
+                    choice["finish_reason"] = mapped_reason
 
         openai_chunk["choices"].append(choice)
         return f"data: {json.dumps(openai_chunk)}\n\n"
