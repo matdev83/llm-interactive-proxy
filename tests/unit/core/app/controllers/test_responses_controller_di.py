@@ -5,16 +5,15 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-
 from src.core.app.controllers.responses_controller import (
     ResponsesController,
     get_responses_controller,
 )
 from src.core.common.exceptions import InitializationError
 from src.core.di.container import ServiceCollection
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.domain.request_context import RequestContext
 
 
 class StubRequestProcessor(IRequestProcessor):
@@ -84,9 +83,9 @@ def test_get_responses_controller_uses_di_instances(
     controller = get_responses_controller(provider_with_processor)
 
     assert isinstance(controller, ResponsesController)
-    assert getattr(controller, "_processor") is processor
+    assert controller._processor is processor
     assert (
-        getattr(controller, "_translation_service")
+        controller._translation_service
         is provider_with_processor.get_required_service(TranslationService)
     )
 
