@@ -52,6 +52,19 @@ class TestGeminiOAuthPersonalQuotaDetection:
 
     def test_quota_exceeded_detection_condition_matches(self) -> None:
         """Test that the quota exceeded detection condition correctly identifies quota errors."""
+        def condition_matches(status_code: int, error_detail: dict) -> bool:
+            message = error_detail.get("error", {}).get("message", "")
+            message_lower = message.lower()
+            return (
+                status_code == 429
+                and isinstance(error_detail, dict)
+                and (
+                    "quota exceeded" in message_lower
+                    or "resource exhausted" in message_lower
+                    or "allowance" in message_lower
+                )
+            )
+
         # Test case 1: Exact quota exceeded error (should match)
         error_detail_1 = {
             "error": {
@@ -61,19 +74,21 @@ class TestGeminiOAuthPersonalQuotaDetection:
             }
         }
 
-        status_code_1 = 429
-        message_1 = error_detail_1.get("error", {}).get("message", "")
+        assert condition_matches(429, error_detail_1) is True
 
-        condition_matches_1 = (
-            status_code_1 == 429
-            and isinstance(error_detail_1, dict)
-            and "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests'" in message_1
-        )
-
-        assert condition_matches_1 is True
-
-        # Test case 2: Different 429 error (should not match)
+        # Test case 2: Resource exhausted message (should match)
         error_detail_2 = {
+            "error": {
+                "code": 429,
+                "message": "Resource exhausted. Please try again later.",
+                "status": "RESOURCE_EXHAUSTED",
+            }
+        }
+
+        assert condition_matches(429, error_detail_2) is True
+
+        # Test case 3: Different 429 error (should not match)
+        error_detail_3 = {
             "error": {
                 "code": 429,
                 "message": "Rate limit exceeded. Try again in 60 seconds.",
@@ -81,19 +96,10 @@ class TestGeminiOAuthPersonalQuotaDetection:
             }
         }
 
-        status_code_2 = 429
-        message_2 = error_detail_2.get("error", {}).get("message", "")
+        assert condition_matches(429, error_detail_3) is False
 
-        condition_matches_2 = (
-            status_code_2 == 429
-            and isinstance(error_detail_2, dict)
-            and "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests'" in message_2
-        )
-
-        assert condition_matches_2 is False
-
-        # Test case 3: Different status code (should not match)
-        error_detail_3 = {
+        # Test case 4: Different status code (should not match)
+        error_detail_4 = {
             "error": {
                 "code": 500,
                 "message": "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests' and limit 'Gemini 2.5 Pro Requests per day per user per tier' of service 'cloudcode-pa.googleapis.com' for consumer 'project_number:681255809395'.",
@@ -101,16 +107,7 @@ class TestGeminiOAuthPersonalQuotaDetection:
             }
         }
 
-        status_code_3 = 500
-        message_3 = error_detail_3.get("error", {}).get("message", "")
-
-        condition_matches_3 = (
-            status_code_3 == 429
-            and isinstance(error_detail_3, dict)
-            and "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests'" in message_3
-        )
-
-        assert condition_matches_3 is False
+        assert condition_matches(500, error_detail_4) is False
 
     def test_quota_exceeded_error_marks_backend_unusable(
         self, connector: GeminiOAuthPersonalConnector
@@ -170,6 +167,29 @@ class TestGeminiOAuthPersonalQuotaDetection:
         # Verify the exception details
         assert exc_info.value.code == "code_assist_error"
         assert "quota exceeded" not in str(exc_info.value).lower()
+
+    def test_resource_exhausted_error_marks_backend_unusable(
+        self, connector: GeminiOAuthPersonalConnector
+    ) -> None:
+        """Test that resource exhausted errors are treated as quota exhaustion."""
+
+        mock_response = Mock()
+        mock_response.status_code = 429
+        mock_response.json.return_value = {
+            "error": {
+                "code": 429,
+                "message": "Resource exhausted. Please try again later.",
+                "status": "RESOURCE_EXHAUSTED",
+            }
+        }
+
+        with pytest.raises(BackendError) as exc_info:
+            connector._handle_streaming_error(mock_response)
+
+        assert not connector.is_functional
+        assert connector._quota_exceeded
+        assert exc_info.value.code == "quota_exceeded"
+        assert "quota exhausted" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_streaming_quota_error_propagates_backend_error(
