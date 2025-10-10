@@ -296,3 +296,22 @@ async def test_different_tool_calls(middleware, loop_config) -> None:
         await middleware.process(
             tool_call_2, "session123", context={"config": loop_config}
         )
+
+
+@pytest.mark.asyncio
+async def test_tracker_cache_eviction(loop_config, tool_call_response) -> None:
+    """Ensure old session trackers are evicted to prevent unbounded growth."""
+
+    middleware = ConcreteToolCallLoopDetectionMiddleware(max_cached_sessions=2)
+
+    # Populate three different sessions which should exceed the cache size
+    for index in range(3):
+        session_id = f"session-{index}"
+        await middleware.process(
+            tool_call_response, session_id, context={"config": loop_config}
+        )
+
+    # Only the two most recent sessions should remain cached
+    remaining_sessions = list(middleware._session_trackers.keys())  # noqa: SLF001
+    assert len(remaining_sessions) == 2
+    assert "session-0" not in remaining_sessions

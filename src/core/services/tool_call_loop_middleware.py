@@ -10,6 +10,7 @@ from __future__ import annotations
 # type: ignore[unreachable]
 import json
 import logging
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from src.core.common.exceptions import ToolCallLoopError
@@ -32,9 +33,13 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
     that may indicate a model is stuck in a loop.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_cached_sessions: int = 256) -> None:
         """Initialize the middleware."""
-        self._session_trackers: dict[str, ToolCallTracker] = {}
+        if max_cached_sessions <= 0:
+            raise ValueError("max_cached_sessions must be positive")
+
+        self._session_trackers: "OrderedDict[str, ToolCallTracker]" = OrderedDict()
+        self._max_cached_sessions = max_cached_sessions
 
     async def process(
         self,
@@ -81,8 +86,11 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if tracker is None:
             tracker = ToolCallTracker(config=tracker_config)
             self._session_trackers[session_id] = tracker
-        elif tracker.config != tracker_config:
-            tracker.config = tracker_config
+            self._enforce_cache_limit()
+        else:
+            self._session_trackers.move_to_end(session_id)
+            if tracker.config != tracker_config:
+                tracker.config = tracker_config
 
         # Process each tool call
         for tool_call in tool_calls:
@@ -178,6 +186,16 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             return data  # type: ignore[unreachable]
 
         return []
+
+    def _enforce_cache_limit(self) -> None:
+        """Ensure the session tracker cache does not grow without bound."""
+        while len(self._session_trackers) > self._max_cached_sessions:
+            evicted_session_id, _ = self._session_trackers.popitem(last=False)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted tool call tracker for session %s due to cache limit",
+                    evicted_session_id,
+                )
 
     def _build_tracker_config(
         self, config: LoopDetectionConfiguration
