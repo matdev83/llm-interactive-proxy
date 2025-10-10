@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 from typing import Any
 
@@ -15,6 +16,8 @@ from src.core.domain.chat import (
     FunctionCall,
     ToolCall,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Translation(BaseTranslator):
@@ -2680,33 +2683,77 @@ class Translation(BaseTranslator):
             return None
 
     @staticmethod
-    def _extract_and_repair_json(content: str, schema: dict[str, Any]) -> str | None:
-        """
-        Extract JSON from content and attempt repair.
-        """
-        try:
-            import re
+    def _iter_json_candidates(
+        content: str,
+        *,
+        max_candidates: int = 20,
+        max_object_size: int = 512 * 1024,
+    ) -> list[str]:
+        """Find potential JSON object substrings using a linear-time scan."""
 
-            # Try to find JSON-like patterns
-            json_patterns = [
-                r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}",  # Simple nested objects
-                r"\{.*\}",  # Any content between braces
-            ]
+        candidates: list[str] = []
+        depth = 0
+        start_index: int | None = None
+        escape_next = False
+        string_delimiter: str | None = None
 
-            for pattern in json_patterns:
-                matches = re.findall(pattern, content, re.DOTALL)
-                for match in matches:
-                    try:
-                        parsed = json.loads(match)
-                        if isinstance(parsed, dict):
-                            # Try to repair this JSON
-                            repaired = Translation._attempt_json_repair(
-                                parsed, schema, None
+        for index, char in enumerate(content):
+            if string_delimiter is not None:
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == "\\":
+                    escape_next = True
+                    continue
+                if char == string_delimiter:
+                    string_delimiter = None
+                continue
+
+            if char in ('"', "'"):
+                string_delimiter = char
+                continue
+
+            if char == "{":
+                if depth == 0:
+                    start_index = index
+                depth += 1
+            elif char == "}":
+                if depth == 0:
+                    continue
+                depth -= 1
+                if depth == 0 and start_index is not None:
+                    candidate = content[start_index : index + 1]
+                    start_index = None
+                    if len(candidate) > max_object_size:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Skipping oversized JSON candidate (%d bytes)",
+                                len(candidate),
                             )
-                            if repaired is not None:
-                                return json.dumps(repaired, indent=2)
-                    except json.JSONDecodeError:
                         continue
+                    candidates.append(candidate)
+                    if len(candidates) >= max_candidates:
+                        break
+
+        return candidates
+
+    @staticmethod
+    def _extract_and_repair_json(content: str, schema: dict[str, Any]) -> str | None:
+        """Extract JSON from content and attempt repair."""
+
+        try:
+            for candidate in Translation._iter_json_candidates(content):
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+
+                if not isinstance(parsed, dict):
+                    continue
+
+                repaired = Translation._attempt_json_repair(parsed, schema, None)
+                if repaired is not None:
+                    return json.dumps(repaired, indent=2)
 
             return None
         except Exception:
