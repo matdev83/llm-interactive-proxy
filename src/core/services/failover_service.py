@@ -110,7 +110,9 @@ class FailoverService:
         for element in elements:
             try:
                 # Parse the element into backend and model
-                elem_backend, elem_model = parse_model_backend(element)
+                elem_backend, elem_model = parse_model_backend(
+                    element, default_backend=backend_type
+                )
                 attempts.append(FailoverAttempt(backend=elem_backend, model=elem_model))
             except ValueError:
                 logger.warning(

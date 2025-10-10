@@ -81,8 +81,8 @@ def test_get_failover_attempts_invalid_element() -> None:
     assert attempts[0].backend == "openai"
     assert attempts[0].model == "gpt-4"
 
-    # Verify the invalid attempt gets parsed with empty backend
-    assert attempts[1].backend == ""
+    # Invalid attempt falls back to provided backend type
+    assert attempts[1].backend == "openai"
     assert attempts[1].model == "invalid-element"
 
 
