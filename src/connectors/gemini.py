@@ -238,76 +238,79 @@ class GeminiBackend(LLMBackend):
     ) -> StreamingResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:streamGenerateContent"
+        request = self.client.build_request(
+            "POST", url, json=payload, headers=headers
+        )
         try:
-            # Use simple POST call to ease testing with mocked clients
-            response = await self.client.post(url, json=payload, headers=headers)
-            if response.status_code >= 400:
-                try:
-                    # Attempt to read body text for logging if available
-                    if hasattr(response, "aread"):
-                        body_bytes = await response.aread()  # type: ignore[no-untyped-call]
-                    else:
-                        body_bytes = b""
-                    body_text = body_bytes.decode("utf-8", errors="ignore")
-                except Exception:
-                    body_text = ""
-                finally:
-                    # Close response if supported
-                    if hasattr(response, "aclose"):
-                        await response.aclose()
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        "HTTP error during Gemini stream: %s - %s",
-                        response.status_code,
-                        body_text,
-                    )
-                raise BackendError(
-                    message=f"Gemini stream error: {response.status_code} - {body_text}",
-                    code="gemini_error",
-                    status_code=response.status_code,
-                )
-
-            async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
-                processed_stream = response.aiter_text()
-
-                try:
-                    async for raw_chunk in processed_stream:
-                        parsed_chunk = self._coerce_stream_chunk(raw_chunk)
-                        if parsed_chunk is None:
-                            continue
-
-                        yield ProcessedResponse(
-                            content=self.translation_service.to_domain_stream_chunk(
-                                parsed_chunk, source_format="gemini"
-                            )
-                        )
-
-                    done_chunk = {
-                        "candidates": [
-                            {
-                                "content": {"parts": []},
-                                "finishReason": "STOP",
-                            }
-                        ]
-                    }
-                    yield ProcessedResponse(
-                        content=self.translation_service.to_domain_stream_chunk(
-                            done_chunk, source_format="gemini"
-                        )
-                    )
-                finally:
-                    if hasattr(response, "aclose"):
-                        await response.aclose()
-
-            return StreamingResponseEnvelope(
-                content=stream_generator(),
-                media_type="text/event-stream",
-                headers=dict(response.headers),
-            )
+            response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+
+        if response.status_code >= 400:
+            try:
+                # Attempt to read body text for logging if available
+                if hasattr(response, "aread"):
+                    body_bytes = await response.aread()  # type: ignore[no-untyped-call]
+                else:
+                    body_bytes = b""
+                body_text = body_bytes.decode("utf-8", errors="ignore")
+            except Exception:
+                body_text = ""
+            finally:
+                # Close response if supported
+                if hasattr(response, "aclose"):
+                    await response.aclose()
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "HTTP error during Gemini stream: %s - %s",
+                    response.status_code,
+                    body_text,
+                )
+            raise BackendError(
+                message=f"Gemini stream error: {response.status_code} - {body_text}",
+                code="gemini_error",
+                status_code=response.status_code,
+            )
+
+        async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
+            processed_stream = response.aiter_text()
+
+            try:
+                async for raw_chunk in processed_stream:
+                    parsed_chunk = self._coerce_stream_chunk(raw_chunk)
+                    if parsed_chunk is None:
+                        continue
+
+                    yield ProcessedResponse(
+                        content=self.translation_service.to_domain_stream_chunk(
+                            parsed_chunk, source_format="gemini"
+                        )
+                    )
+
+                done_chunk = {
+                    "candidates": [
+                        {
+                            "content": {"parts": []},
+                            "finishReason": "STOP",
+                        }
+                    ]
+                }
+                yield ProcessedResponse(
+                    content=self.translation_service.to_domain_stream_chunk(
+                        done_chunk, source_format="gemini"
+                    )
+                )
+            finally:
+                if hasattr(response, "aclose"):
+                    await response.aclose()
+
+        return StreamingResponseEnvelope(
+            content=stream_generator(),
+            media_type="text/event-stream",
+            headers=dict(response.headers),
+        )
 
     async def chat_completions(  # type: ignore[override]
         self,
