@@ -100,7 +100,12 @@ class ChatController:
                 if resolved is not None:
                     return resolved
 
-        return TranslationService()
+        message = "TranslationService is not registered in the service provider"
+        logger.error(message)
+        raise InitializationError(
+            message,
+            details={"service": "TranslationService"},
+        )
 
     async def handle_chat_completion(
         self,
