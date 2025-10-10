@@ -121,10 +121,45 @@ def test_provider_specific_reasoning(mock_post):
 
 
 @pytest.mark.integration
-@patch("requests.post")
-def test_in_chat_reasoning_commands(mock_post):
-    """Test in-chat reasoning commands functionality."""
-    # This test can be expanded based on specific command validation needs
+@pytest.mark.asyncio
+async def test_in_chat_reasoning_commands() -> None:
+    """Exercise in-chat reasoning commands through the command processor."""
+
+    from src.core.commands.parser import CommandParser
+    from src.core.domain.chat import ChatMessage
+    from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
+    from src.core.domain.session import Session, SessionState
+    from src.core.services.command_processor import CommandProcessor as CoreCommandProcessor
+    from src.core.commands.service import NewCommandService
+    from tests.unit.core.test_doubles import MockSessionService
+
+    session_state = SessionState(reasoning_config=ReasoningConfiguration())
+    session = Session(session_id="session-1", state=session_state)
+    session_service = MockSessionService(session=session)
+    command_parser = CommandParser()
+    command_service = NewCommandService(session_service, command_parser)
+    processor = CoreCommandProcessor(command_service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content="!/set(reasoning-effort=high, thinking-budget=1024) Continue working.",
+        )
+    ]
+
+    result = await processor.process_messages(
+        messages, session_id=session.session_id
+    )
+
+    assert result.command_executed is True
+    assert result.command_results, "Expected at least one command result"
+    assert result.command_results[0].message == "Settings updated"
+
+    reasoning_config = session.state.reasoning_config
+    assert getattr(reasoning_config, "reasoning_effort") == "high"
+    assert getattr(reasoning_config, "thinking_budget") == 1024
+
+    assert result.modified_messages[0].content == "Continue working."
 
 
 if __name__ == "__main__":
