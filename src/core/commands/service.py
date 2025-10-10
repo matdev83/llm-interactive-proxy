@@ -123,81 +123,104 @@ class NewCommandService(ICommandService):
                 modified_messages=messages, command_executed=False, command_results=[]
             )
 
-        modified_messages = messages.copy()
-        command_results: list[Any] = []
-        command_executed = False
+        base_prefix = self.command_parser.command_prefix
+        prefix_changed = False
+        try:
+            session_prefix: str | None = None
+            try:
+                session_prefix = getattr(session.state, "command_prefix", None)
+            except Exception:
+                session_prefix = None
 
-        executed_command_name: str | None = None
-        for message in reversed(modified_messages):
-            if message.role != "user":
-                continue
+            if isinstance(session_prefix, str) and session_prefix:
+                if session_prefix != base_prefix:
+                    try:
+                        self.command_parser.set_command_prefix(session_prefix)
+                        prefix_changed = True
+                    except Exception as exc:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to apply session-specific command prefix '%s': %s",
+                                session_prefix,
+                                exc,
+                                exc_info=True,
+                            )
 
-            content_str = ""
-            if isinstance(message.content, str):
-                content_str = message.content
-            elif isinstance(message.content, list):
-                # For now, we only look for commands in the first text part.
-                content_str = next(
-                    (
-                        part.text
-                        for part in message.content
-                        if isinstance(part, models.MessageContentPartText)
-                    ),
-                    "",
-                )
+            modified_messages = messages.copy()
+            command_results: list[Any] = []
+            command_executed = False
 
-            # The command service should only ever parse the last line for commands.
-            content_str = self._get_last_non_blank_line_content(content_str)
+            executed_command_name: str | None = None
+            for message in reversed(modified_messages):
+                if message.role != "user":
+                    continue
 
-            parse_result = self.command_parser.parse(content_str)
-            if not parse_result:
-                continue
+                content_str = ""
+                if isinstance(message.content, str):
+                    content_str = message.content
+                elif isinstance(message.content, list):
+                    # For now, we only look for commands in the first text part.
+                    content_str = next(
+                        (
+                            part.text
+                            for part in message.content
+                            if isinstance(part, models.MessageContentPartText)
+                        ),
+                        "",
+                    )
 
-            command, matched_text = parse_result
+                # The command service should only ever parse the last line for commands.
+                content_str = self._get_last_non_blank_line_content(content_str)
 
-            # Only execute commands that appear at the END of the message (after trimming)
-            trimmed_content = content_str.rstrip()
-            if not trimmed_content.endswith(matched_text):
-                # Command is not at the end, skip it
-                continue
+                parse_result = self.command_parser.parse(content_str)
+                if not parse_result:
+                    continue
 
-            # Remove the command from the message content.
-            if isinstance(message.content, str):
-                # Find and remove the command from the full message content
-                original_content = message.content
-                idx = original_content.rfind(matched_text)
-                if idx != -1:
-                    before = original_content[:idx]
-                    after = original_content[idx + len(matched_text) :]
-                    if command.name == "hello":
-                        # For 'hello': preserve structure without stripping
-                        message.content = before + after
-                    else:
-                        # Default: strip trailing whitespace
-                        message.content = (before + after).rstrip()
-            elif isinstance(message.content, list):
-                for i, part in enumerate(message.content):
-                    if (
-                        isinstance(part, models.MessageContentPartText)
-                        and matched_text in part.text
-                    ):
-                        part.text = part.text.replace(matched_text, "").strip()
-                        if not part.text:
-                            message.content.pop(i)
+                command, matched_text = parse_result
+
+                # Only execute commands that appear at the END of the message (after trimming)
+                trimmed_content = content_str.rstrip()
+                if not trimmed_content.endswith(matched_text):
+                    # Command is not at the end, skip it
+                    continue
+
+                # Remove the command from the message content.
+                if isinstance(message.content, str):
+                    # Find and remove the command from the full message content
+                    original_content = message.content
+                    idx = original_content.rfind(matched_text)
+                    if idx != -1:
+                        before = original_content[:idx]
+                        after = original_content[idx + len(matched_text) :]
+                        if command.name == "hello":
+                            # For 'hello': preserve structure without stripping
+                            message.content = before + after
+                        else:
+                            # Default: strip trailing whitespace
+                            message.content = (before + after).rstrip()
+                elif isinstance(message.content, list):
+                    for i, part in enumerate(message.content):
+                        if (
+                            isinstance(part, models.MessageContentPartText)
+                            and matched_text in part.text
+                        ):
+                            part.text = part.text.replace(matched_text, "").strip()
+                            if not part.text:
+                                message.content.pop(i)
+                            break
+
+                handler_class = get_command_handler(command.name)
+                if not handler_class:
+                    logger.warning(f"Command '{command.name}' not found.")
+                    # Unknown command: if there are earlier messages, stop; otherwise continue
+                    if len(modified_messages) > 1:
+                        command_executed = True
                         break
+                    continue
 
-            handler_class = get_command_handler(command.name)
-            if not handler_class:
-                logger.warning(f"Command '{command.name}' not found.")
-                # Unknown command: if there are earlier messages, stop; otherwise continue
-                if len(modified_messages) > 1:
-                    command_executed = True
-                    break
-                continue
-
-            handler: ICommandHandler
-            if handler_class is FailoverCommandHandler:
-                app_state_adapter = SessionStateApplicationStateAdapter(session)
+                handler: ICommandHandler
+                if handler_class is FailoverCommandHandler:
+                    app_state_adapter = SessionStateApplicationStateAdapter(session)
                 handler = handler_class(
                     self,
                     secure_state_access=app_state_adapter,
@@ -262,6 +285,18 @@ class NewCommandService(ICommandService):
             command_executed=command_executed,
             command_results=command_results,
         )
+        finally:
+            if prefix_changed:
+                try:
+                    self.command_parser.set_command_prefix(base_prefix)
+                except Exception as exc:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to restore command prefix '%s' after session processing: %s",
+                            base_prefix,
+                            exc,
+                            exc_info=True,
+                        )
 
     async def get_command_handler(
         self, name: str

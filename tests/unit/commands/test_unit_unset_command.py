@@ -93,3 +93,12 @@ def test_unset_redact_api_keys(command: UnsetCommand, initial_state: SessionStat
 
     assert result.success is True
     assert new_state.api_key_redaction_enabled is None
+
+
+def test_unset_command_prefix(command: UnsetCommand, initial_state: SessionState):
+    state_with_prefix = initial_state.with_command_prefix("$/")
+
+    result, new_state = command._unset_command_prefix(state_with_prefix, {})
+
+    assert result.success is True
+    assert new_state.command_prefix is None

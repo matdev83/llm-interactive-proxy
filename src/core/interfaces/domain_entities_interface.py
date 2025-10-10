@@ -120,6 +120,12 @@ class ISessionStateMutator(ABC):
     def with_is_cline_agent(self, is_cline: bool) -> ISessionState:
         """Create a new state with updated is_cline_agent flag."""
 
+    @abstractmethod
+    def with_command_prefix(
+        self, command_prefix: str | None
+    ) -> ISessionState:
+        """Create a new state with updated command prefix."""
+
 
 class ISessionState(IValueObject, ISessionStateMutator):
     """Interface for session state value objects."""
@@ -197,6 +203,11 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def hello_requested(self) -> bool:
         """Get whether hello was requested in this session."""
+
+    @property
+    @abstractmethod
+    def command_prefix(self) -> str | None:
+        """Get the session-specific command prefix override."""
 
     @hello_requested.setter
     @abstractmethod

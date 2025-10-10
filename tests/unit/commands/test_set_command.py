@@ -184,3 +184,20 @@ async def test_handle_redact_api_keys_enables_state(
 
     assert result.success is True
     assert new_state.api_key_redaction_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_handle_command_prefix_updates_session_state_only() -> None:
+    from src.core.services.application_state_service import ApplicationStateService
+    from src.core.services.secure_state_service import SecureStateService
+
+    app_state = ApplicationStateService()
+    secure_state = SecureStateService(app_state)
+    command = SetCommand(state_reader=secure_state, state_modifier=secure_state)
+
+    state = SessionState()
+    result, new_state = await command._handle_command_prefix("$/", state, {})
+
+    assert result.success is True
+    assert new_state.command_prefix == "$/"
+    assert app_state.get_command_prefix() is None

@@ -78,6 +78,7 @@ class SessionState(ValueObject):
     planning_phase_turn_count: int = 0
     planning_phase_file_write_count: int = 0
     api_key_redaction_enabled: bool | None = None
+    command_prefix: str | None = None
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -148,6 +149,10 @@ class SessionState(ValueObject):
     def with_api_key_redaction_enabled(self, enabled: bool | None) -> SessionState:
         """Create a new session state with updated API key redaction flag."""
         return self.model_copy(update={"api_key_redaction_enabled": enabled})
+
+    def with_command_prefix(self, command_prefix: str | None) -> SessionState:
+        """Create a new session state with updated command prefix."""
+        return self.model_copy(update={"command_prefix": command_prefix})
 
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
@@ -252,6 +257,17 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         with contextlib.suppress(Exception):
             self._state = self._state.with_api_key_redaction_enabled(value)
 
+    @property
+    def command_prefix(self) -> str | None:
+        """Get the command prefix override for this session."""
+        return getattr(self._state, "command_prefix", None)
+
+    @command_prefix.setter
+    def command_prefix(self, value: str | None) -> None:
+        """Set the command prefix override on the underlying state."""
+        with contextlib.suppress(Exception):
+            self._state = self._state.with_command_prefix(value)
+
     def with_api_key_redaction_enabled(self, enabled: bool | None) -> ISessionState:
         """Create a new session state with updated API key redaction flag."""
         base_state: SessionState
@@ -261,6 +277,19 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
             base_state = SessionState.from_dict(self._state.to_dict())
 
         new_state = base_state.with_api_key_redaction_enabled(enabled)
+        return SessionStateAdapter(new_state)
+
+    def with_command_prefix(
+        self, command_prefix: str | None
+    ) -> ISessionState:
+        """Create a new session state with updated command prefix."""
+        base_state: SessionState
+        if isinstance(self._state, SessionState):
+            base_state = self._state
+        else:
+            base_state = SessionState.from_dict(self._state.to_dict())
+
+        new_state = base_state.with_command_prefix(command_prefix)
         return SessionStateAdapter(new_state)
 
     @property

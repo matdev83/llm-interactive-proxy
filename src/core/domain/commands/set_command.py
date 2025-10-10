@@ -272,16 +272,16 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 state,
             )
 
-        # Update state through secure DI interface
-        self.update_state_setting("command_prefix", value)
+        updated_state = state.with_command_prefix(value)
 
         return (
             CommandResult(
                 success=True,
                 message=f"Command prefix changed to {value}",
                 data={"command-prefix": value},
+                new_state=updated_state,
             ),
-            state,
+            updated_state,
         )
 
     async def _handle_interactive_mode(
