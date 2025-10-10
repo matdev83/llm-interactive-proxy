@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
@@ -753,275 +753,30 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
         Exception: If the request processor could not be found or created
     """
     try:
-        # Try to get the existing request processor from the service provider
-        request_processor = service_provider.get_service(IRequestProcessor)  # type: ignore[type-abstract]
-        if request_processor is None:
-            # Try to get the concrete implementation
-            from src.core.services.request_processor_service import RequestProcessor
+        from src.core.services.request_processor_service import RequestProcessor
+        from src.core.services.translation_service import TranslationService
 
+        # Resolve request processor strictly through the DI container.
+        request_processor = service_provider.get_service(
+            cast(type, IRequestProcessor)
+        )  # type: ignore[type-abstract]
+        if request_processor is None:
             request_processor = service_provider.get_service(RequestProcessor)
 
         if request_processor is None:
-            # If still not found, try to create one on the fly
-            from typing import cast
-
-            from src.core.interfaces.backend_processor_interface import (
-                IBackendProcessor,
+            raise InitializationError(
+                "RequestProcessor is not registered in the service provider",
             )
-            from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.interfaces.command_processor_interface import (
-                ICommandProcessor,
-            )
-            from src.core.interfaces.command_service_interface import ICommandService
-            from src.core.interfaces.response_processor_interface import (
-                IResponseProcessor,
-            )
-            from src.core.interfaces.session_service_interface import ISessionService
 
-            cmd = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
-            backend = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]
-            session = service_provider.get_service(ISessionService)  # type: ignore[type-abstract]
-            response_proc = service_provider.get_service(IResponseProcessor)  # type: ignore[type-abstract]
-
-            if cmd and backend and session and response_proc:
-                from src.core.services.request_processor_service import RequestProcessor
-
-                # Cast the abstract interface types to concrete implementations
-                # The service provider is guaranteed to return concrete implementations
-                concrete_cmd = cast(ICommandService, cmd)
-                concrete_backend = cast(IBackendService, backend)
-                concrete_session = cast(ISessionService, session)
-                concrete_response_proc = cast(IResponseProcessor, response_proc)
-                # Prefer DI-provided processors if available
-                di_cmd_proc = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
-                # Get the new decomposed services
-                from src.core.interfaces.backend_request_manager_interface import (
-                    IBackendRequestManager,
-                )
-                from src.core.interfaces.response_manager_interface import (
-                    IResponseManager,
-                )
-                from src.core.interfaces.session_manager_interface import (
-                    ISessionManager,
-                )
-
-                di_session_manager = service_provider.get_service(ISessionManager)  # type: ignore[type-abstract]
-                di_backend_request_manager = service_provider.get_service(IBackendRequestManager)  # type: ignore[type-abstract]
-                di_response_manager = service_provider.get_service(IResponseManager)  # type: ignore[type-abstract]
-
-                if (
-                    di_cmd_proc
-                    and di_session_manager
-                    and di_backend_request_manager
-                    and di_response_manager
-                ):
-                    # Resolve optional app state for RequestProcessor
-                    from src.core.interfaces.application_state_interface import (
-                        IApplicationState as _IAppState,
-                    )
-
-                    app_state = service_provider.get_required_service(_IAppState)  # type: ignore[type-abstract]
-                    request_processor = RequestProcessor(
-                        cast(ICommandProcessor, di_cmd_proc),
-                        cast(ISessionManager, di_session_manager),
-                        cast(IBackendRequestManager, di_backend_request_manager),
-                        cast(IResponseManager, di_response_manager),
-                        app_state=app_state,
-                    )
-                else:
-                    # Fallback to constructing processors; inject app state where appropriate
-                    from src.core.interfaces.application_state_interface import (
-                        IApplicationState as _IAppState2,
-                    )
-
-                    app_state = service_provider.get_required_service(_IAppState2)  # type: ignore[type-abstract]
-                    # Instead of directly instantiating CommandProcessor and BackendProcessor,
-                    # we should try to get them from the service provider or register factories
-                    # for them in the service collection.
-                    # First, try to get them from the service provider
-                    command_processor = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
-                    backend_processor = service_provider.get_service(IBackendProcessor)  # type: ignore[type-abstract]
-
-                    # If they are not available, we need to register factories for them
-                    if command_processor is None or backend_processor is None:
-                        from src.core.di.container import ServiceProvider
-
-                        if isinstance(service_provider, ServiceProvider):
-                            try:
-                                from src.core.di.services import get_service_collection
-                                from src.core.services.backend_processor import (
-                                    BackendProcessor,
-                                )
-                                from src.core.services.command_processor import (
-                                    CommandProcessor,
-                                )
-
-                                services = get_service_collection()
-
-                                # Register CommandProcessor factory if not already registered
-                                if command_processor is None:
-
-                                    def command_processor_factory(
-                                        provider: IServiceProvider,
-                                    ) -> CommandProcessor:
-                                        return CommandProcessor(concrete_cmd)
-
-                                    services.add_singleton(
-                                        ICommandProcessor,  # type: ignore[type-abstract]
-                                        implementation_factory=command_processor_factory,
-                                    )
-                                    command_processor = command_processor_factory(
-                                        service_provider
-                                    )
-
-                                # Register BackendProcessor factory if not already registered
-                                if backend_processor is None:
-
-                                    def backend_processor_factory(
-                                        provider: IServiceProvider,
-                                    ) -> BackendProcessor:
-                                        return BackendProcessor(
-                                            concrete_backend,
-                                            concrete_session,
-                                            app_state,
-                                        )
-
-                                    services.add_singleton(
-                                        IBackendProcessor,  # type: ignore[type-abstract]
-                                        implementation_factory=backend_processor_factory,
-                                    )
-                                    backend_processor = backend_processor_factory(
-                                        service_provider
-                                    )
-                            except Exception:
-                                # If we can't register factories, fall back to direct instantiation
-                                from src.core.services.backend_processor import (
-                                    BackendProcessor,
-                                )
-                                from src.core.services.command_processor import (
-                                    CommandProcessor,
-                                )
-
-                                command_processor = CommandProcessor(concrete_cmd)
-                                backend_processor = BackendProcessor(
-                                    concrete_backend, concrete_session, app_state
-                                )
-                    # Ensure we have instances
-                    if command_processor is None:
-                        from src.core.services.command_processor import CommandProcessor
-
-                        command_processor = CommandProcessor(concrete_cmd)
-                    if backend_processor is None:
-                        from src.core.services.backend_processor import BackendProcessor
-
-                        backend_processor = BackendProcessor(
-                            concrete_backend, concrete_session, app_state
-                        )
-
-                    # Get the new decomposed services
-                    # Get session resolver from service provider
-                    from src.core.interfaces.session_resolver_interface import (
-                        ISessionResolver,
-                    )
-                    from src.core.services.backend_request_manager_service import (
-                        BackendRequestManager,
-                    )
-                    from src.core.services.response_manager_service import (
-                        ResponseManager,
-                    )
-                    from src.core.services.session_manager_service import SessionManager
-
-                    session_resolver = service_provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
-                    if session_resolver is None:
-                        from src.core.services.session_resolver_service import (
-                            DefaultSessionResolver,
-                        )
-
-                        session_resolver = service_provider.get_service(
-                            DefaultSessionResolver
-                        )
-                        if session_resolver is None:
-                            from src.core.config.app_config import AppConfig
-
-                            config = service_provider.get_service(AppConfig)
-                            session_resolver = DefaultSessionResolver(config)
-                            try:
-                                from src.core.di.services import get_service_collection
-
-                                services = get_service_collection()
-                                services.add_instance(
-                                    DefaultSessionResolver, session_resolver
-                                )
-                                services.add_instance(
-                                    ISessionResolver, session_resolver  # type: ignore[type-abstract]
-                                )
-                            except Exception:
-                                pass
-
-                    # Get agent response formatter for ResponseManager
-                    from src.core.interfaces.agent_response_formatter_interface import (
-                        IAgentResponseFormatter,
-                    )
-
-                    agent_response_formatter = service_provider.get_service(IAgentResponseFormatter)  # type: ignore[type-abstract]
-                    if agent_response_formatter is None:
-                        from src.core.services.response_manager_service import (
-                            AgentResponseFormatter,
-                        )
-
-                        agent_response_formatter = AgentResponseFormatter()
-
-                    session_manager = SessionManager(concrete_session, session_resolver)
-                    backend_request_manager = BackendRequestManager(
-                        backend_processor, concrete_response_proc
-                    )
-                    response_manager = ResponseManager(agent_response_formatter)
-
-                    request_processor = RequestProcessor(
-                        command_processor,
-                        session_manager,
-                        backend_request_manager,
-                        response_manager,
-                        app_state=app_state,
-                    )
-
-                # Register it for future use
-                # Only try to register if the service provider is a ServiceProvider instance
-                # that has the _singleton_instances attribute
-                from src.core.di.container import ServiceProvider
-
-                if isinstance(service_provider, ServiceProvider):
-                    # Instead of mutating internal provider state, prefer registering
-                    # the instance on the ServiceCollection so a rebuild would include it.
-                    try:
-                        from src.core.di.services import get_service_collection
-
-                        services = get_service_collection()
-                        # Register existing instance explicitly to ensure future resolutions
-                        services.add_instance(IRequestProcessor, request_processor)  # type: ignore[type-abstract]
-                        services.add_instance(RequestProcessor, request_processor)  # type: ignore[type-abstract]
-                    except Exception:
-                        # As a last resort, fall back to internal cache mutation
-                        singleton_instances = getattr(
-                            service_provider, "_singleton_instances", None
-                        )
-                        if singleton_instances is not None:
-                            singleton_instances[IRequestProcessor] = request_processor
-                            singleton_instances[RequestProcessor] = request_processor
-
-        if request_processor is None:
-            raise InitializationError("Could not find or create RequestProcessor")
-
-        translation_service = service_provider.get_service(  # type: ignore[type-abstract]
-            ITranslationService
-        )
+        # Resolve optional translation service from DI (may be None).
+        translation_service = service_provider.get_service(
+            cast(type, ITranslationService)
+        )  # type: ignore[type-abstract]
         if translation_service is None:
-            from src.core.services.translation_service import TranslationService
-
             translation_service = service_provider.get_service(TranslationService)
         if translation_service is None:
             raise InitializationError(
-                "TranslationService is not registered in the service provider"
+                "TranslationService is not registered in the service provider",
             )
 
         return ResponsesController(
