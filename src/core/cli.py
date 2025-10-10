@@ -32,8 +32,34 @@ logger = logging.getLogger(__name__)
 
 def is_port_in_use(host: str, port: int) -> bool:
     """Check if a port is in use on a given host."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex((host, port)) == 0
+
+    try:
+        addr_infos = socket.getaddrinfo(
+            host,
+            port,
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        logger.debug("Failed to resolve host %s:%s: %s", host, port, exc)
+        return False
+
+    for family, socktype, proto, _, sockaddr in addr_infos:
+        try:
+            with socket.socket(family, socktype, proto) as sock:
+                sock.settimeout(0.1)
+                if sock.connect_ex(sockaddr) == 0:
+                    return True
+        except OSError as exc:
+            logger.debug(
+                "Port probe failed for %s:%s using family %s: %s",
+                host,
+                port,
+                family,
+                exc,
+            )
+            continue
+
+    return False
 
 
 def _normalize_api_key_value(value: str | Sequence[str]) -> list[str]:
