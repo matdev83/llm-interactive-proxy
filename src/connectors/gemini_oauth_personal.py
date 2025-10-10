@@ -408,14 +408,25 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             except Exception:
                 error_detail = response.text
 
-            if (
+            error_message = ""
+            if isinstance(error_detail, dict):
+                error_message = error_detail.get("error", {}).get("message", "")
+
+            message_lower = error_message.lower()
+            is_quota_error = (
                 response.status_code == 429
                 and isinstance(error_detail, dict)
-                and "Quota exceeded" in error_detail.get("error", {}).get("message", "")
-            ):
+                and (
+                    "quota exceeded" in message_lower
+                    or "resource exhausted" in message_lower
+                    or "allowance" in message_lower
+                )
+            )
+
+            if is_quota_error:
                 self._mark_backend_unusable()
                 raise BackendError(
-                    message=f"Gemini CLI OAuth quota exceeded: {error_detail}",
+                    message=f"Gemini CLI OAuth quota exhausted: {error_detail}",
                     code="quota_exceeded",
                     status_code=response.status_code,
                 )
@@ -1763,8 +1774,11 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             )
             raise
         except BackendError as e:
-            # For quota exceeded errors, don't log full stack trace to avoid console spam
-            if "quota exceeded" in str(e).lower():
+            # For quota exceeded errors or rate limits, avoid logging full stack traces
+            if (
+                getattr(e, "status_code", None) == 429
+                or "quota exceeded" in str(e).lower()
+            ):
                 logger.error(f"Backend error during streaming API call: {e}")
             else:
                 logger.error(
