@@ -53,7 +53,6 @@ class IBackendService(ABC):
             A tuple of (is_valid, error_message)
         """
 
-    @abstractmethod
     async def chat_completions(
         self,
         request: ChatRequest,
@@ -63,4 +62,19 @@ class IBackendService(ABC):
         context: RequestContext | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Alias for :meth:`call_completion` used by legacy callers."""
+        """Alias for :meth:`call_completion` used by legacy callers.
+
+        Implementers may override this method, but by default it simply
+        delegates to :meth:`call_completion` to avoid forcing duplicate
+        implementations when only the primary entry point is customised.
+        Additional keyword arguments are accepted for backward
+        compatibility, though they are ignored by the default
+        implementation.
+        """
+
+        return await self.call_completion(
+            request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
