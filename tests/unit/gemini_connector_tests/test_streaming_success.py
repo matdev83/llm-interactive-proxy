@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 from typing import Any
 
 import httpx
 import pytest
 import pytest_asyncio
-from pytest_httpx import HTTPXMock
+
+try:  # pragma: no cover - optional test dependency
+    from pytest_httpx import HTTPXMock
+except ModuleNotFoundError:  # pragma: no cover - optional test dependency
+    HTTPXMock = None  # type: ignore[assignment]
 from src.connectors.gemini import GeminiBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 
@@ -35,6 +41,7 @@ def sample_processed_messages() -> list[ChatMessage]:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(HTTPXMock is None, reason="pytest_httpx not installed")
 async def test_chat_completions_streaming_success(
     gemini_backend: GeminiBackend,
     httpx_mock: HTTPXMock,
@@ -89,3 +96,94 @@ async def test_chat_completions_streaming_success(
     assert first_chunk is not None, "Expected at least one streamed chunk with content"
     first_delta = first_chunk["choices"][0]["delta"]
     assert first_delta.get("content", "").startswith("Hello")
+
+
+class _StubStreamResponse:
+    def __init__(self) -> None:
+        self.status_code = 200
+        self.headers: dict[str, str] = {"content-type": "text/event-stream"}
+        self.closed = False
+
+    def aiter_text(self) -> Any:
+        async def _gen() -> Any:
+            yield (
+                "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": "
+                "\"Hello chunk\"}]}}]}\n\n"
+            )
+
+        return _gen()
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+    async def aread(self) -> bytes:
+        return b""
+
+
+class _StubAsyncClient:
+    def __init__(self) -> None:
+        self.last_stream_flag: bool | None = None
+        self.last_request: dict[str, Any] | None = None
+        self.last_response: _StubStreamResponse | None = None
+
+    def build_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: Any | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        self.last_request = {
+            "method": method,
+            "url": url,
+            "json": json,
+            "headers": headers or {},
+        }
+        return self.last_request
+
+    async def send(self, request: dict[str, Any], stream: bool = False) -> _StubStreamResponse:
+        self.last_stream_flag = stream
+        response = _StubStreamResponse()
+        self.last_response = response
+        return response
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_streaming_uses_httpx_stream_send() -> None:
+    from src.core.config.app_config import AppConfig
+    from src.core.domain.responses import StreamingResponseEnvelope
+    from src.core.services.translation_service import TranslationService
+
+    client = _StubAsyncClient()
+    backend = GeminiBackend(
+        client=client, config=AppConfig(), translation_service=TranslationService()
+    )
+
+    request = ChatRequest(
+        model="gemini-pro",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=True,
+    )
+
+    envelope = await backend.chat_completions(
+        request_data=request,
+        processed_messages=list(request.messages),
+        effective_model="gemini/gemini-pro",
+        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
+        api_key="DUMMY",
+    )
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
+    assert client.last_stream_flag is True
+    assert client.last_request is not None
+    assert client.last_request["method"] == "POST"
+    assert client.last_request["url"].endswith(":streamGenerateContent")
+
+    chunks: list[Any] = []
+    async for chunk in envelope.content:  # type: ignore[union-attr]
+        chunks.append(chunk)
+
+    assert chunks, "Expected at least one streamed chunk"
+    assert client.last_response is not None
+    assert client.last_response.closed is True
