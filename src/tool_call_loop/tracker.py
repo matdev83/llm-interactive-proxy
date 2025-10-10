@@ -88,17 +88,20 @@ class ToolCallSignature(InternalDTO):
         if isinstance(arguments, str):
             try:
                 repaired_arguments = repair_json(arguments)
-            except TypeError:
+            except (RecursionError, TypeError):
                 return arguments
 
             try:
                 parsed_arguments = json.loads(repaired_arguments)
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, RecursionError, TypeError):
                 return arguments
 
-            return json.dumps(
-                parsed_arguments, sort_keys=True, ensure_ascii=False, default=str
-            )
+            try:
+                return json.dumps(
+                    parsed_arguments, sort_keys=True, ensure_ascii=False, default=str
+                )
+            except (RecursionError, TypeError):
+                return arguments
 
         if isinstance(arguments, Mapping) or (
             isinstance(arguments, Sequence)
@@ -111,7 +114,7 @@ class ToolCallSignature(InternalDTO):
                     ensure_ascii=False,
                     default=str,
                 )
-            except TypeError:
+            except (RecursionError, TypeError):
                 return str(arguments)
 
         return str(arguments)

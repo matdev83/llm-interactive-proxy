@@ -36,6 +36,19 @@ class TestToolCallSignature:
         # Invalid JSON should be used as-is
         assert signature.arguments_signature == arguments
 
+    def test_from_tool_call_with_deeply_nested_json(self) -> None:
+        """Deeply nested JSON should not raise recursion errors during canonicalization."""
+
+        tool_name = "test_tool"
+        depth = 1100
+        arguments = "[" * depth + "0" + "]" * depth
+
+        signature = ToolCallSignature.from_tool_call(tool_name, arguments)
+
+        assert signature.tool_name == tool_name
+        # Canonicalization should fall back to the original string when recursion limits are hit
+        assert signature.arguments_signature == arguments
+
     def test_from_tool_call_with_mapping_arguments(self):
         """Tool calls with dict arguments should be canonicalized."""
 
