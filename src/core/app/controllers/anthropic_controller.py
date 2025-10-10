@@ -13,6 +13,7 @@ from fastapi import HTTPException, Request, Response
 
 from src.anthropic_converters import (
     anthropic_to_openai_request,
+    openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
     _map_finish_reason,
 )
@@ -258,15 +259,43 @@ class AnthropicController:
                 if isinstance(adapted_response, StreamingResponse):
                     # Ensure Anthropic streaming endpoints advertise proper SSE headers
                     sse_content_type = "text/event-stream; charset=utf-8"
-                    adapted_response.media_type = sse_content_type
 
-                    # `StreamingResponse.headers` returns a MutableHeaders mapping
-                    # which may already include values from upstream responses.
-                    # Update in-place so existing references stay in sync.
-                    adapted_response.headers["content-type"] = sse_content_type
-                    adapted_response.headers.setdefault("cache-control", "no-cache")
-                    adapted_response.headers.setdefault("connection", "keep-alive")
-                    return adapted_response
+                    original_iterator = adapted_response.body_iterator
+
+                    def _convert_chunk(chunk: bytes | str) -> bytes:
+                        text_chunk = (
+                            chunk.decode("utf-8", errors="ignore")
+                            if isinstance(chunk, (bytes, bytearray, memoryview))
+                            else str(chunk)
+                        )
+                        converted = openai_stream_to_anthropic_stream(text_chunk)
+                        if isinstance(converted, bytes):
+                            return converted
+                        return str(converted).encode("utf-8")
+
+                    async def _anthropic_stream() -> AsyncIterator[bytes]:
+                        """Convert OpenAI-formatted SSE chunks to Anthropic format."""
+
+                        iterator = original_iterator
+                        if hasattr(iterator, "__aiter__"):
+                            async for chunk in iterator:  # type: ignore[assignment]
+                                yield _convert_chunk(chunk)
+                        else:
+                            for chunk in iterator:  # type: ignore[assignment]
+                                yield _convert_chunk(chunk)
+
+                    headers = dict(adapted_response.headers)
+                    headers["content-type"] = sse_content_type
+                    headers.setdefault("cache-control", "no-cache")
+                    headers.setdefault("connection", "keep-alive")
+
+                    return StreamingResponse(
+                        _anthropic_stream(),
+                        media_type=sse_content_type,
+                        status_code=getattr(adapted_response, "status_code", 200),
+                        headers=headers,
+                        background=adapted_response.background,
+                    )
                 else:
                     # If somehow we got a non-streaming response but streaming was requested,
                     # convert it to a simple streaming response
