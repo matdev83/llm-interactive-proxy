@@ -10,6 +10,7 @@ from src.core.domain.streaming_response_processor import (
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
+from src.core.services.streaming.stream_utils import get_stream_id
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
     def __init__(self, tool_call_repair_service: IToolCallRepairService) -> None:
         self.tool_call_repair_service = tool_call_repair_service
-        self._buffer = ""  # Internal buffer for accumulating chunks
+        self._buffers: dict[str, str] = {}
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """
@@ -31,10 +32,13 @@ class ToolCallRepairProcessor(IStreamProcessor):
         if content.is_empty and not content.is_done:
             return content  # Nothing to process
 
-        self._buffer += content.content
+        stream_id = get_stream_id(content)
+        buffer = self._buffers.get(stream_id, "")
+
+        buffer += content.content or ""
 
         repaired_content_parts: list[str] = []
-        remaining_buffer = self._buffer
+        remaining_buffer = buffer
 
         while True:
             # Attempt to repair tool calls from the current buffer
@@ -61,9 +65,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 # For now, let's just emit the repaired JSON and clear the buffer
                 # until a more precise span extraction is available.
                 repaired_content_parts.append(json.dumps(repaired_json))
-                remaining_buffer = (
-                    ""  # Assuming the whole buffer was processed for this tool call
-                )
+                remaining_buffer = ""
                 break  # Process one tool call at a time per chunk, or until buffer is empty
             else:
                 # No tool call found in the current buffer
@@ -75,7 +77,13 @@ class ToolCallRepairProcessor(IStreamProcessor):
             repaired_content_parts.append(remaining_buffer)
             remaining_buffer = ""  # All processed
 
-        self._buffer = remaining_buffer  # Update buffer for next chunk
+        if remaining_buffer:
+            self._buffers[stream_id] = remaining_buffer
+        else:
+            self._buffers.pop(stream_id, None)
+
+        if content.is_done or content.is_cancellation:
+            self._buffers.pop(stream_id, None)
 
         # Combine repaired parts and create a new StreamingContent
         new_content_str = "".join(repaired_content_parts)
