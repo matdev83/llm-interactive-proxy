@@ -113,8 +113,17 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         try:
             if hasattr(response, "metadata") and isinstance(response.metadata, dict):
                 response.metadata.setdefault("tool_calls", [])
-                # Only extend if not already present to avoid duplication
-                if response.metadata["tool_calls"] == []:
+                existing_calls = response.metadata.get("tool_calls")
+
+                replace_metadata_calls = False
+                if not isinstance(existing_calls, list):
+                    replace_metadata_calls = True
+                elif not existing_calls:
+                    replace_metadata_calls = True
+                elif not all(isinstance(item, dict) for item in existing_calls):
+                    replace_metadata_calls = True
+
+                if replace_metadata_calls:
                     response.metadata["tool_calls"] = list(tool_calls)
             # Also pass via context so processors can use them even if metadata is overwritten later
             if isinstance(context, dict):
