@@ -14,6 +14,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException
 
 # Import HTTP status constants
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.constants import HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
@@ -150,67 +151,66 @@ def get_backend_factory_service() -> BackendFactory:
     Returns:
         The backend factory service
     """
-    # First, try to get from global service provider
-    try:
-        from src.core.di.services import get_service_provider
-        from src.core.services.backend_factory import BackendFactory
+    from src.core.di.services import get_or_build_service_provider
 
-        service_provider = get_service_provider()
-        return service_provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
-    except (KeyError, Exception) as e:
+    # First, try to resolve the BackendFactory directly from the DI container.
+    try:
+        provider = get_or_build_service_provider()
+        return _resolve_backend_factory_from_provider(provider)
+    except Exception as exc:
         logger.debug(
-            "BackendFactory not available via DI: %s; falling back to explicit construction",
-            e,
+            "Global BackendFactory resolution failed: %s", exc, exc_info=True
+        )
+
+    # Try to get from current request context (for FastAPI dependency injection)
+    try:
+        from starlette.context import _request_context  # type: ignore[import]
+
+        if _request_context.exists():
+            connection = _request_context.get()
+            if hasattr(connection, "app") and hasattr(
+                connection.app.state, "service_provider"
+            ):
+                return _resolve_backend_factory_from_provider(
+                    connection.app.state.service_provider
+                )
+    except Exception as ctx_err:
+        logger.debug(
+            "Request-context BackendFactory lookup failed: %s",
+            ctx_err,
             exc_info=True,
         )
-        # Try to get from current request context (for FastAPI dependency injection)
-        try:
-            from starlette.context import _request_context  # type: ignore[import]
 
-            if _request_context.exists():
-                connection = _request_context.get()
-                if hasattr(connection, "app") and hasattr(
-                    connection.app.state, "service_provider"
-                ):
-                    return connection.app.state.service_provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
-        except Exception as ctx_err:
-            logger.debug(
-                "Request-context BackendFactory lookup failed: %s",
-                ctx_err,
-                exc_info=True,
-            )
+    # If neither the global provider nor the request context could supply the
+    # factory, surface an HTTP 503 so callers know the dependency graph is
+    # misconfigured rather than silently constructing partial instances.
+    raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
 
-        # Final fallback: create factory using the same pattern as BackendService
-        # This ensures consistency with the DI container's factory methods
-        import httpx
 
-        from src.core.config.app_config import AppConfig
-        from src.core.services.backend_factory import BackendFactory
-        from src.core.services.backend_registry import backend_registry
-        from src.core.services.translation_service import TranslationService
+def _resolve_backend_factory_from_provider(provider: Any) -> BackendFactory:
+    """Resolve a BackendFactory using dependencies from the provider."""
 
-        try:
-            httpx_client = httpx.AsyncClient(
-                http2=True,
-                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
-                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-                trust_env=False,
-            )
-        except ImportError:
-            httpx_client = httpx.AsyncClient(
-                http2=False,
-                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
-                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-                trust_env=False,
-            )
-        config = AppConfig()  # Use default config as fallback
-        # Get translation service from DI container if available, otherwise create new instance
-        # Note: This function is used as a FastAPI dependency, so we create a new instance
-        # for simplicity. In production, this should ideally use DI.
-        translation_service = TranslationService()
-        return BackendFactory(
-            httpx_client, backend_registry, config, translation_service
+    from src.core.config.app_config import AppConfig
+    from src.core.services.backend_registry import BackendRegistry
+    from src.core.services.translation_service import TranslationService
+
+    import httpx
+
+    try:
+        return provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
+    except (KeyError, ServiceResolutionError):
+        logger.debug(
+            "BackendFactory not registered; constructing from provider dependencies"
         )
+
+    httpx_client = provider.get_required_service(httpx.AsyncClient)
+    backend_registry_instance = provider.get_required_service(BackendRegistry)
+    app_config = provider.get_required_service(AppConfig)
+    translation_service = provider.get_required_service(TranslationService)
+
+    return BackendFactory(
+        httpx_client, backend_registry_instance, app_config, translation_service
+    )
 
 
 async def _list_models_impl(
