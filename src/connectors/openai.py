@@ -497,10 +497,15 @@ class OpenAIConnector(LLMBackend):
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
             # Forward raw text stream; central pipeline will handle normalization/repairs
             async def text_generator() -> AsyncGenerator[str, None]:
-                async for chunk in response.aiter_text():
-                    yield self.translation_service.to_domain_stream_chunk(
-                        chunk, stream_format
-                    )
+                try:
+                    async for chunk in response.aiter_text():
+                        yield self.translation_service.to_domain_stream_chunk(
+                            chunk, stream_format
+                        )
+                except httpx.RequestError as exc:
+                    raise ServiceUnavailableError(
+                        message=f"Streaming connection to backend failed ({exc})"
+                    ) from exc
 
             try:
                 async for chunk in text_generator():

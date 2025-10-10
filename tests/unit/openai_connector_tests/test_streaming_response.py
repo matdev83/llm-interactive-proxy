@@ -539,6 +539,56 @@ async def test_streaming_response_request_error(
 
 
 @pytest.mark.asyncio
+async def test_streaming_response_midstream_request_error(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Test that mid-stream network failures surface as ServiceUnavailableError."""
+
+    # Create a mock streaming response that fails after yielding one chunk
+    mock_response = MockResponse(status_code=200)
+
+    async def failing_text_stream() -> Any:
+        yield "data: {\"id\": \"chunk-1\"}\n\n"
+        raise httpx.ReadError(
+            "stream interrupted",
+            request=httpx.Request("POST", "https://example.com"),
+        )
+
+    mock_response.aiter_text = MagicMock(return_value=failing_text_stream())
+    mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+    mocker.patch.object(
+        connector.translation_service,
+        "to_domain_stream_chunk",
+        side_effect=lambda chunk, fmt: chunk,
+    )
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
+    )
+
+    streaming_envelope = await connector.chat_completions(
+        request_data,
+        [{"role": "user", "content": "test"}],
+        "test-model",
+    )
+
+    # Consume the first chunk successfully
+    stream_iter = streaming_envelope.content
+    first_chunk = await stream_iter.__anext__()
+    assert first_chunk.content == "data: {\"id\": \"chunk-1\"}\n\n"
+
+    # The next chunk should raise a ServiceUnavailableError due to the network failure
+    with pytest.raises(ServiceUnavailableError) as excinfo:
+        await stream_iter.__anext__()
+
+    assert "stream interrupted" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
 async def test_streaming_response_no_auth(connector: OpenAIConnector) -> None:
     """Test handling a streaming response with no auth."""
     # Create a mock ChatRequest with streaming enabled
