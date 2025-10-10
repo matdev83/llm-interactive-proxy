@@ -12,13 +12,13 @@ import pytest
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.domain.backend_type import BackendType
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import (
     HeaderConfig,
     HeaderOverrideMode,
 )
-from src.core.domain.backend_type import BackendType
-from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState

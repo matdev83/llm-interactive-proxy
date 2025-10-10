@@ -539,6 +539,65 @@ async def test_streaming_response_request_error(
 
 
 @pytest.mark.asyncio
+async def test_streaming_response_midstream_request_error(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Test that mid-stream network failures raise ServiceUnavailableError."""
+
+    read_error = httpx.ReadTimeout(
+        "stream timed out", request=httpx.Request("POST", "https://example.com")
+    )
+
+    mock_response = MockResponse(headers={"Content-Type": "text/event-stream"})
+
+    def failing_stream_factory():
+        async def _iterator():
+            yield b"data: {\"choices\": []}\\n\\n"
+            raise read_error
+
+        return _iterator()
+
+    mock_response.aiter_bytes = failing_stream_factory
+
+    mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+    mocker.patch.object(
+        connector.translation_service,
+        "to_domain_stream_chunk",
+        side_effect=lambda chunk, _: chunk,
+    )
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
+    )
+
+    result = await connector.chat_completions(
+        request_data,
+        [{"role": "user", "content": "test"}],
+        "test-model",
+    )
+
+    from src.core.domain.responses import StreamingResponseEnvelope
+
+    assert isinstance(result, StreamingResponseEnvelope)
+
+    stream_iterator = result.content.__aiter__()
+
+    # First chunk should be delivered successfully
+    first_chunk = await stream_iterator.__anext__()
+    assert first_chunk.content == "data: {\"choices\": []}\\n\\n"
+
+    # Subsequent iteration should surface the timeout as ServiceUnavailableError
+    with pytest.raises(ServiceUnavailableError) as excinfo:
+        await stream_iterator.__anext__()
+
+    assert "stream timed out" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
 async def test_streaming_response_no_auth(connector: OpenAIConnector) -> None:
     """Test handling a streaming response with no auth."""
     # Create a mock ChatRequest with streaming enabled

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
 import httpx
 import pytest
-from types import SimpleNamespace
 from src.core.app.controllers.models_controller import get_backend_factory_service
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.config.app_config import AppConfig

@@ -306,15 +306,31 @@ class GeminiBackend(LLMBackend):
     ) -> StreamingResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:streamGenerateContent"
-        request = self.client.build_request(
-            "POST", url, json=payload, headers=headers
-        )
         try:
-            response = await self.client.send(request, stream=True)
+            response = await self.client.post(
+                url,
+                json=payload,
+                headers=headers,
+                stream=True,
+            )
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+        except (AttributeError, TypeError):
+            request = self.client.build_request(
+                "POST", url, json=payload, headers=headers
+            )
+            try:
+                response = await self.client.send(request, stream=True)
+            except httpx.RequestError as e:
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Request error connecting to Gemini: %s", e, exc_info=True
+                    )
+                raise ServiceUnavailableError(
+                    message=f"Could not connect to Gemini ({e})"
+                )
 
         if response.status_code >= 400:
             try:

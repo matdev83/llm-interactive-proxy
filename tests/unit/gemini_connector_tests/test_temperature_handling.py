@@ -385,6 +385,8 @@ class TestGeminiTemperatureHandling:
         call_args = gemini_backend.client.post.call_args
         payload = call_args[1]["json"]
 
+        assert call_args[1]["stream"] is True
+
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]
         assert payload["generationConfig"]["temperature"] == 0.9
