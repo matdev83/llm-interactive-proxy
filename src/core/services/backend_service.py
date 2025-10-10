@@ -809,6 +809,7 @@ class BackendService(IBackendService):
             _max_writes = 0
 
         if (turn_count >= _max_turns) or (file_write_count >= _max_writes):
+            await self._restore_planning_phase_route(session)
             return
 
         from src.core.domain.configuration.backend_config import BackendConfiguration
@@ -827,6 +828,26 @@ class BackendService(IBackendService):
 
         if current_full_model == strong_full_model:
             return
+
+        # Persist the original route so we can restore it when planning phase ends
+        try:
+            has_original_backend = bool(
+                getattr(session.state, "planning_phase_original_backend", None)
+            )
+            has_original_model = bool(
+                getattr(session.state, "planning_phase_original_model", None)
+            )
+        except Exception:
+            has_original_backend = False
+            has_original_model = False
+
+        if not (has_original_backend or has_original_model):
+            new_state = session.state.with_planning_phase_original_route(
+                requested_backend,
+                requested_model,
+            )
+            session.update_state(new_state)
+            await self._session_service.update_session(session)
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
@@ -871,6 +892,7 @@ class BackendService(IBackendService):
                 turn_count >= planning_config.max_turns
                 or file_write_count >= planning_config.max_file_writes
             ):
+                await self._restore_planning_phase_route(session)
                 return
 
             new_turn_count = turn_count + 1
@@ -891,11 +913,70 @@ class BackendService(IBackendService):
                         f"Updated planning phase counters: turns={new_turn_count}/{planning_config.max_turns}, "
                         f"file_writes={new_file_write_count}/{planning_config.max_file_writes}"
                     )
+
+                if (
+                    new_turn_count >= planning_config.max_turns
+                    or new_file_write_count >= planning_config.max_file_writes
+                ):
+                    await self._restore_planning_phase_route(session)
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     f"Failed to update planning phase counters: {e}", exc_info=True
                 )
+
+    async def _restore_planning_phase_route(self, session: Any) -> None:
+        """Restore the original backend/model after planning phase concludes."""
+
+        if not session or not session.state:
+            return
+
+        try:
+            original_backend = getattr(
+                session.state, "planning_phase_original_backend", None
+            )
+            original_model = getattr(
+                session.state, "planning_phase_original_model", None
+            )
+        except Exception:
+            return
+
+        if original_backend is None and original_model is None:
+            return
+
+        from src.core.domain.configuration.backend_config import BackendConfiguration
+        from src.core.interfaces.configuration_interface import IBackendConfig
+
+        current_config = session.state.backend_config
+        target_backend = original_backend or current_config.backend_type
+        target_model = (
+            original_model
+            if original_model is not None
+            else current_config.model
+        )
+
+        restored_config = BackendConfiguration(
+            backend_type=target_backend,
+            model=target_model,
+            interactive_mode=current_config.interactive_mode,
+        )
+
+        new_state = (
+            session.state.with_backend_config(
+                cast(IBackendConfig, restored_config)
+            ).with_planning_phase_original_route(None, None)
+        )
+
+        session.update_state(new_state)
+        await self._session_service.update_session(session)
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Planning phase complete; restored session %s to backend=%s model=%s",
+                getattr(session, "id", None),
+                target_backend,
+                target_model,
+            )
 
     def _count_file_writes_in_response(self, response: Any) -> int:
         """Count file write tool calls in a response.

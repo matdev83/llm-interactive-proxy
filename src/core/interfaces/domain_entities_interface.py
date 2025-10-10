@@ -271,3 +271,19 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def with_planning_phase_file_write_count(self, count: int) -> ISessionState:
         """Create a new state with updated planning phase file write count."""
+
+    @property
+    @abstractmethod
+    def planning_phase_original_backend(self) -> str | None:
+        """Get the stored original backend for planning phase restoration."""
+
+    @property
+    @abstractmethod
+    def planning_phase_original_model(self) -> str | None:
+        """Get the stored original model for planning phase restoration."""
+
+    @abstractmethod
+    def with_planning_phase_original_route(
+        self, backend: str | None, model: str | None
+    ) -> ISessionState:
+        """Create a new state with updated stored planning-phase backend/model."""
