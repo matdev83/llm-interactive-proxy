@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI, Request, Response
-
 from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
 from src.core.app.controllers.anthropic_controller import AnthropicController
 

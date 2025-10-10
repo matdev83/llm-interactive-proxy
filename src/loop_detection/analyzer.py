@@ -80,18 +80,20 @@ class PatternAnalyzer:
                 self._last_chunk_index : self._last_chunk_index
                 + self.config.content_chunk_size
             ]
+
+            # Skip whitelisted patterns entirely to prevent them from polluting history
+            if self._is_whitelisted_pattern(current_chunk):
+                self._last_chunk_index += 1
+                continue
+
+            if len(current_chunk) < self.config.content_chunk_size:
+                self._last_chunk_index += 1
+                continue
+
             chunk_hash = self.hasher.hash(current_chunk)
 
             if self._is_loop_detected_for_chunk(current_chunk, chunk_hash):
-                if self._is_whitelisted_pattern(current_chunk):
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Skipping loop detection for whitelisted pattern: %r",
-                            current_chunk,
-                        )
-                    self._last_chunk_index += 1
-                    continue
-                repetition_count = len(self._content_stats[chunk_hash])
+                repetition_count = len(self._content_stats.get(chunk_hash, []))
                 total_repeated_chars = len(current_chunk) * repetition_count
                 event = self._create_detection_event_from_chunk(
                     pattern=current_chunk,

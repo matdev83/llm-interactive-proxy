@@ -101,10 +101,7 @@ async def test_chat_completions_uses_identity_without_api_key(
 
     assert observed_headers
     assert observed_headers[0] is not None
-    assert (
-        observed_headers[0].get("Authorization")
-        == "Bearer identity-token"
-    )
+    assert observed_headers[0].get("Authorization") == "Bearer identity-token"
 
 
 @pytest.mark.asyncio

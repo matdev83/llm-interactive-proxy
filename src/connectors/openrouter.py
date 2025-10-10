@@ -47,8 +47,14 @@ class OpenRouterBackend(OpenAIConnector):
 
         identity = getattr(self.config, "identity", None)
         if identity is not None:
-            referer = getattr(getattr(identity, "url", None), "default_value", referer) or referer
-            title = getattr(getattr(identity, "title", None), "default_value", title) or title
+            referer = (
+                getattr(getattr(identity, "url", None), "default_value", referer)
+                or referer
+            )
+            title = (
+                getattr(getattr(identity, "title", None), "default_value", title)
+                or title
+            )
 
         return {"app_site_url": referer, "app_x_title": title}
 
@@ -75,7 +81,9 @@ class OpenRouterBackend(OpenAIConnector):
         except Exception as exc:  # pragma: no cover - should not happen in normal flow
             if errors:
                 logger.debug(
-                    "Headers provider rejected key_name input: %s", errors[-1], exc_info=True
+                    "Headers provider rejected key_name input: %s",
+                    errors[-1],
+                    exc_info=True,
                 )
             raise AuthenticationError(
                 message="OpenRouter headers provider failed to produce headers.",

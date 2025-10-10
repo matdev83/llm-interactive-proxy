@@ -150,6 +150,7 @@ class ChatController:
                     from src.core.app.controllers.anthropic_controller import (
                         get_anthropic_controller,
                     )
+
                     # Normalize message content to str for AnthropicMessage
                     anth_messages = []
                     for m in domain_request.messages:
@@ -209,7 +210,11 @@ class ChatController:
 
                     # Convert Anthropic JSON to domain then to OpenAI shape
                     # Use DI-resolved translation service to ensure proper dependency injection
-                    translation_service = self._resolve_translation_service_from_provider(service_provider)
+                    translation_service = (
+                        self._resolve_translation_service_from_provider(
+                            service_provider
+                        )
+                    )
                     domain_resp = translation_service.to_domain_response(
                         anth_json, "anthropic"
                     )

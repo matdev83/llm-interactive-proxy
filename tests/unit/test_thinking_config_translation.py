@@ -6,7 +6,6 @@ Based on gemini-cli reference: dev/thrdparty/gemini-cli-new/packages/core/src/co
 """
 
 import pytest
-
 from src.core.domain.chat import ChatRequest
 from src.core.services.translation_service import TranslationService
 

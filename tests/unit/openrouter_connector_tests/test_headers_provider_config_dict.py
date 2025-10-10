@@ -5,7 +5,6 @@ import asyncio
 import httpx
 import pytest
 from pytest_httpx import HTTPXMock
-
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.config.app_config import AppConfig
 from src.core.config.config_loader import get_openrouter_headers

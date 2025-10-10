@@ -158,9 +158,7 @@ def get_backend_factory_service() -> BackendFactory:
         provider = get_or_build_service_provider()
         return _resolve_backend_factory_from_provider(provider)
     except Exception as exc:
-        logger.debug(
-            "Global BackendFactory resolution failed: %s", exc, exc_info=True
-        )
+        logger.debug("Global BackendFactory resolution failed: %s", exc, exc_info=True)
 
     # Try to get from current request context (for FastAPI dependency injection)
     try:
@@ -190,11 +188,11 @@ def get_backend_factory_service() -> BackendFactory:
 def _resolve_backend_factory_from_provider(provider: Any) -> BackendFactory:
     """Resolve a BackendFactory using dependencies from the provider."""
 
+    import httpx
+
     from src.core.config.app_config import AppConfig
     from src.core.services.backend_registry import BackendRegistry
     from src.core.services.translation_service import TranslationService
-
-    import httpx
 
     try:
         return provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]

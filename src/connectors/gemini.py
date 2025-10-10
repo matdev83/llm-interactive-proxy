@@ -396,10 +396,7 @@ class GeminiBackend(LLMBackend):
                     if key == "reasoning_effort":
                         extra_reasoning_effort = value
                         continue
-                    if (
-                        key == "maxOutputTokens"
-                        and "maxOutputTokens" not in merged
-                    ):
+                    if key == "maxOutputTokens" and "maxOutputTokens" not in merged:
                         merged["maxOutputTokens"] = value
                         continue
                     merged[key] = value
@@ -439,9 +436,7 @@ class GeminiBackend(LLMBackend):
                 if isinstance(thinking_config, dict):
                     reasoning_effort = thinking_config.get("reasoning_effort")
 
-                top_level_reasoning_effort = generation_config.get(
-                    "reasoning_effort"
-                )
+                top_level_reasoning_effort = generation_config.get("reasoning_effort")
                 if top_level_reasoning_effort is not None:
                     reasoning_effort = top_level_reasoning_effort
 

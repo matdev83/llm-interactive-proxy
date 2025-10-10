@@ -70,7 +70,7 @@ async def test_chat_completions_model_prefix_handled(
         effective_model=effective_model,
         openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
         openrouter_headers_provider=None,
-        key_name="GEMINI_API_KEY_1",
+        key_name="x-goog-api-key",
         api_key="FAKE_KEY",
     )
     # The response is now a ResponseEnvelope

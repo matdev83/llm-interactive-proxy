@@ -54,6 +54,7 @@
 --planning-phase-thinking-budget
 --planning-phase-top-p
 --port
+--project-dir-resolution-model
 --static-route
 --strict-command-detection
 --thinking-budget

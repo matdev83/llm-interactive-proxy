@@ -18,7 +18,9 @@ def test_session_initializes_state_and_timestamps() -> None:
 
     timestamp = datetime.now(timezone.utc)
 
-    session = Session(session_id="session-1", created_at=timestamp, last_active_at=timestamp)
+    session = Session(
+        session_id="session-1", created_at=timestamp, last_active_at=timestamp
+    )
 
     assert isinstance(session.state, SessionStateAdapter)
     assert session.created_at is timestamp

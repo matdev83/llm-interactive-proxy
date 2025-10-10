@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from src.core.domain.chat import ImageURL, MessageContentPartImage
 from src.core.domain.translation import Translation
 
@@ -32,12 +31,14 @@ class TestTranslationEdgeCases:
 
         input_payload = [{"content": [{"type": "text", "text": "hello"}]}]
 
-        normalized = Translation._normalize_responses_input_to_messages(
-            input_payload
-        )
+        normalized = Translation._normalize_responses_input_to_messages(input_payload)
 
         assert normalized == [
-            {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "hello"}],
+                "content_parts": [{"type": "text", "text": "hello"}],
+            }
         ]
 
     def test_streaming_error_conditions(self):

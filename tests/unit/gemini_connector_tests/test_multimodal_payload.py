@@ -76,7 +76,7 @@ async def test_multimodal_data_url_converts_to_inline_data(
         processed_messages=request_data.messages,
         effective_model="gemini:models/gemini-pro",
         openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        key_name="GEMINI_API_KEY_1",
+        key_name="x-goog-api-key",
         api_key="FAKE_KEY",
     )
 
@@ -139,7 +139,7 @@ async def test_multimodal_http_url_converts_to_file_data(
         processed_messages=request_data.messages,
         effective_model="gemini:gemini-pro",
         openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        key_name="GEMINI_API_KEY_1",
+        key_name="x-goog-api-key",
         api_key="FAKE_KEY",
     )
 

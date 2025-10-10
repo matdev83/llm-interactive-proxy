@@ -212,12 +212,21 @@ class Translation(BaseTranslator):
                 return {"role": "user", "content": entry}
 
             if isinstance(entry, dict):
-                role = str(entry.get("role") or "user")
+                raw_role = entry.get("role")
+                if raw_role is None:
+                    raw_role = "user"
+                role = str(raw_role)
                 message: dict[str, Any] = {"role": role}
 
                 content = Translation._normalize_responses_content(entry.get("content"))
                 if content is not None:
-                    message["content"] = content
+                    if isinstance(content, list):
+                        message["content_parts"] = content
+                        message["content"] = content
+                    else:
+                        parts = [{"type": "text", "text": content}]
+                        message["content_parts"] = parts
+                        message["content"] = parts
 
                 if "name" in entry and entry.get("name") is not None:
                     message["name"] = entry["name"]

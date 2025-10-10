@@ -63,7 +63,6 @@ class DefaultSessionResolver(ISessionResolver):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Could not read default session ID from config: {e}")
 
-    
     async def resolve_session_id(self, context: RequestContext) -> str:
         """Resolve a session ID from a request context.
 

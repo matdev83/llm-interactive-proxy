@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session
@@ -85,4 +85,3 @@ async def test_backend_processor_falls_back_to_app_state_routes() -> None:
             "elements": ["openai:other"],
         }
     ]
-

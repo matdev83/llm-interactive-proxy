@@ -609,7 +609,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                 canonical_response_to_gemini_response,
             )
             from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.interfaces.response_processor_interface import ProcessedResponse
+            from src.core.interfaces.response_processor_interface import (
+                ProcessedResponse,
+            )
             from src.core.services.translation_service import TranslationService
 
             # Add model to request data if not present
@@ -672,7 +674,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                         else:
                                             canonical_chunk = {
                                                 "choices": [
-                                                    {"delta": {"content": chunk_payload}}
+                                                    {
+                                                        "delta": {
+                                                            "content": chunk_payload
+                                                        }
+                                                    }
                                                 ]
                                             }
                                     except (json.JSONDecodeError, TypeError):
@@ -687,11 +693,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                 else:
                                     canonical_chunk = {
                                         "choices": [
-                                            {
-                                                "delta": {
-                                                    "content": str(chunk_payload)
-                                                }
-                                            }
+                                            {"delta": {"content": str(chunk_payload)}}
                                         ]
                                     }
 

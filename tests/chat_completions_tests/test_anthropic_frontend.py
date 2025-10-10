@@ -19,6 +19,8 @@ from src.core.config.app_config import (
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
+)
+from src.core.domain.chat import (
     ChatResponse as ChatCompletionResponse,
 )
 

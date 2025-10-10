@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import Mock
 
 import httpx
 import pytest
-from unittest.mock import Mock
-
 from src.core.app.controllers.models_controller import get_backend_factory_service
 from src.core.config.app_config import AppConfig
 from src.core.services.backend_factory import BackendFactory
@@ -19,7 +18,9 @@ class _DummyProvider:
     def __init__(self, services: dict[Any, Any]) -> None:
         self._services = services
 
-    def get_required_service(self, service_type: Any) -> Any:  # pragma: no cover - thin wrapper
+    def get_required_service(
+        self, service_type: Any
+    ) -> Any:  # pragma: no cover - thin wrapper
         if service_type is BackendFactory:
             raise KeyError("BackendFactory not registered")
         try:
@@ -29,7 +30,9 @@ class _DummyProvider:
 
 
 @pytest.mark.asyncio
-async def test_backend_factory_fallback_uses_di_translation_service(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_backend_factory_fallback_uses_di_translation_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Ensure the fallback path reuses DI-managed services instead of new instances."""
 
     translation_service = TranslationService()

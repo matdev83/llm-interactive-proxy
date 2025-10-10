@@ -1,6 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
@@ -49,7 +49,11 @@ async def test_resolves_directory_and_updates_session(app_config: AppConfig) -> 
     session = Session(session_id="session-123")
     request = ChatRequest(
         model="unused",
-        messages=[ChatMessage(role="user", content="Project lives at /workspace/project-alpha")],
+        messages=[
+            ChatMessage(
+                role="user", content="Project lives at /workspace/project-alpha"
+            )
+        ],
     )
 
     await service.maybe_resolve_project_directory(session, request)
@@ -90,7 +94,9 @@ async def test_handles_invalid_directory_response(app_config: AppConfig) -> None
     session = Session(session_id="session-456")
     request = ChatRequest(
         model="unused",
-        messages=[ChatMessage(role="user", content="Some context without absolute dir")],
+        messages=[
+            ChatMessage(role="user", content="Some context without absolute dir")
+        ],
     )
 
     await service.maybe_resolve_project_directory(session, request)
@@ -110,9 +116,7 @@ async def test_no_call_when_feature_disabled() -> None:
     session_service = MagicMock()
     session_service.update_session = AsyncMock()
 
-    service = ProjectDirectoryResolutionService(
-        cfg, backend_service, session_service
-    )
+    service = ProjectDirectoryResolutionService(cfg, backend_service, session_service)
 
     session = Session(session_id="session-789")
     request = ChatRequest(

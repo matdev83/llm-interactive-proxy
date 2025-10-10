@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
-
 from src.anthropic_converters import AnthropicMessage, AnthropicMessagesRequest
 from src.core.app.controllers.anthropic_controller import AnthropicController
 from src.core.domain.responses import StreamingResponseEnvelope
@@ -35,7 +34,7 @@ class _StreamingProcessor(IRequestProcessor):
             yield ProcessedResponse(
                 content='data: {"choices": [{"finish_reason": "stop"}]}\n\n'
             )
-            yield ProcessedResponse(content='data: [DONE]\n\n')
+            yield ProcessedResponse(content="data: [DONE]\n\n")
 
         return StreamingResponseEnvelope(content=_stream())
 

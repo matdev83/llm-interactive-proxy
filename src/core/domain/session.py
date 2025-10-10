@@ -101,13 +101,9 @@ class SessionState(ValueObject):
         """Create a new session state with updated project directory."""
         return self.model_copy(update={"project_dir": project_dir})
 
-    def with_project_dir_resolution_attempted(
-        self, attempted: bool
-    ) -> SessionState:
+    def with_project_dir_resolution_attempted(self, attempted: bool) -> SessionState:
         """Create a new session state with updated resolution attempt flag."""
-        return self.model_copy(
-            update={"project_dir_resolution_attempted": attempted}
-        )
+        return self.model_copy(update={"project_dir_resolution_attempted": attempted})
 
     def with_hello_requested(self, hello_requested: bool) -> SessionState:
         """Create a new session state with updated hello_requested flag."""
@@ -149,9 +145,7 @@ class SessionState(ValueObject):
         """Create a new session state with updated planning phase file write count."""
         return self.model_copy(update={"planning_phase_file_write_count": count})
 
-    def with_api_key_redaction_enabled(
-        self, enabled: bool | None
-    ) -> SessionState:
+    def with_api_key_redaction_enabled(self, enabled: bool | None) -> SessionState:
         """Create a new session state with updated API key redaction flag."""
         return self.model_copy(update={"api_key_redaction_enabled": enabled})
 
@@ -258,9 +252,7 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         with contextlib.suppress(Exception):
             self._state = self._state.with_api_key_redaction_enabled(value)
 
-    def with_api_key_redaction_enabled(
-        self, enabled: bool | None
-    ) -> ISessionState:
+    def with_api_key_redaction_enabled(self, enabled: bool | None) -> ISessionState:
         """Create a new session state with updated API key redaction flag."""
         base_state: SessionState
         if isinstance(self._state, SessionState):

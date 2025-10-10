@@ -10,8 +10,8 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.commands import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
-from src.core.domain.session import Session
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.session import Session
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.domain_entities_interface import ISessionState
 from src.core.interfaces.session_resolver_interface import ISessionResolver

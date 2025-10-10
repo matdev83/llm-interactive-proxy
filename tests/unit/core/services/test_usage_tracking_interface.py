@@ -1,7 +1,7 @@
 """Tests for the usage tracking interface definitions and contract compliance."""
 
-from abc import ABC
 import inspect
+from abc import ABC
 
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 

@@ -449,10 +449,7 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
                     "model": model,
                 },
             }
-            return (
-                "event: message_start\n"
-                f"data: {json.dumps(payload)}\n\n"
-            )
+            return "event: message_start\n" f"data: {json.dumps(payload)}\n\n"
 
         # Content delta
         if delta.get("content"):

@@ -22,7 +22,6 @@ class TestLoopDetector:
             enabled=True,
             buffer_size=1024,
             max_pattern_length=512,
-            analysis_interval=32,
         )
 
     @pytest.fixture
@@ -180,7 +179,6 @@ class TestLoopDetector:
     ) -> None:
         """Ensure expensive analysis is skipped until enough new data arrives."""
 
-        detector.config.analysis_interval = 10
         mock_ingest = Mock(return_value=True)
         mock_analyze = Mock(return_value=None)
         detector.analyzer.ingest_chunk = mock_ingest  # type: ignore[assignment]
@@ -201,8 +199,10 @@ class TestLoopDetector:
 
         mock_ingest.reset_mock()
         mock_analyze.reset_mock()
-        detector.process_chunk("z" * 7)
-        mock_ingest.assert_called_once_with("z" * 7)
+        detector.process_chunk("z" * (detector.config.analysis_interval + 1))
+        mock_ingest.assert_called_once_with(
+            "z" * (detector.config.analysis_interval + 1)
+        )
         mock_analyze.assert_called_once()
         assert detector._last_analysis_position == detector.total_processed
 

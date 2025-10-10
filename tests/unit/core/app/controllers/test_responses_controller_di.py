@@ -88,4 +88,3 @@ def test_get_responses_controller_uses_di_instances(
         controller._translation_service
         is provider_with_processor.get_required_service(TranslationService)
     )
-

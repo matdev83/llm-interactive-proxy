@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import Request
-
 from src.core.app.controllers.responses_controller import ResponsesController
 from src.core.domain.chat import (
     ChatCompletionChoice,
@@ -29,7 +28,9 @@ class StubTranslationService:
         self.request_used = True
         return self._domain_request
 
-    def from_domain_to_responses_response(self, response: ChatResponse) -> dict[str, object]:
+    def from_domain_to_responses_response(
+        self, response: ChatResponse
+    ) -> dict[str, object]:
         self.response_used = True
         return {
             "id": response.id,

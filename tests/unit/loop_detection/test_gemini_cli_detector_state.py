@@ -21,7 +21,8 @@ class TestGeminiCliLoopDetectorState:
 
         saved_state = detector._save_state()
         original_stats = {
-            hash_hex: indices.copy() for hash_hex, indices in saved_state["content_stats"].items()
+            hash_hex: indices.copy()
+            for hash_hex, indices in saved_state["content_stats"].items()
         }
         assert original_stats  # Sanity check: ensure we actually captured history.
 

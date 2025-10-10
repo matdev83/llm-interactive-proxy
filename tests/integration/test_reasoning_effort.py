@@ -126,11 +126,14 @@ async def test_in_chat_reasoning_commands() -> None:
     """Exercise in-chat reasoning commands through the command processor."""
 
     from src.core.commands.parser import CommandParser
+    from src.core.commands.service import NewCommandService
     from src.core.domain.chat import ChatMessage
     from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
     from src.core.domain.session import Session, SessionState
-    from src.core.services.command_processor import CommandProcessor as CoreCommandProcessor
-    from src.core.commands.service import NewCommandService
+    from src.core.services.command_processor import (
+        CommandProcessor as CoreCommandProcessor,
+    )
+
     from tests.unit.core.test_doubles import MockSessionService
 
     session_state = SessionState(reasoning_config=ReasoningConfiguration())
@@ -147,17 +150,15 @@ async def test_in_chat_reasoning_commands() -> None:
         )
     ]
 
-    result = await processor.process_messages(
-        messages, session_id=session.session_id
-    )
+    result = await processor.process_messages(messages, session_id=session.session_id)
 
     assert result.command_executed is True
     assert result.command_results, "Expected at least one command result"
     assert result.command_results[0].message == "Settings updated"
 
     reasoning_config = session.state.reasoning_config
-    assert getattr(reasoning_config, "reasoning_effort") == "high"
-    assert getattr(reasoning_config, "thinking_budget") == 1024
+    assert reasoning_config.reasoning_effort == "high"
+    assert reasoning_config.thinking_budget == 1024
 
     assert result.modified_messages[0].content == "Continue working."
 

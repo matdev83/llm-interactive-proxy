@@ -12,10 +12,10 @@ from typing import Any
 from fastapi import HTTPException, Request, Response
 
 from src.anthropic_converters import (
+    _map_finish_reason,
     anthropic_to_openai_request,
     openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
-    _map_finish_reason,
 )
 from src.anthropic_models import AnthropicMessagesRequest
 from src.core.common.exceptions import InitializationError, LLMProxyError
@@ -262,10 +262,13 @@ class AnthropicController:
 
                     original_iterator = adapted_response.body_iterator
 
-                    def _convert_chunk(chunk: bytes | str) -> bytes:
+                    def _convert_chunk(chunk: bytes | str | memoryview) -> bytes:
+                        if isinstance(chunk, memoryview):
+                            chunk = chunk.tobytes()
+
                         text_chunk = (
                             chunk.decode("utf-8", errors="ignore")
-                            if isinstance(chunk, (bytes, bytearray, memoryview))
+                            if isinstance(chunk, bytes | bytearray)
                             else str(chunk)
                         )
                         converted = openai_stream_to_anthropic_stream(text_chunk)
@@ -277,12 +280,8 @@ class AnthropicController:
                         """Convert OpenAI-formatted SSE chunks to Anthropic format."""
 
                         iterator = original_iterator
-                        if hasattr(iterator, "__aiter__"):
-                            async for chunk in iterator:  # type: ignore[assignment]
-                                yield _convert_chunk(chunk)
-                        else:
-                            for chunk in iterator:  # type: ignore[assignment]
-                                yield _convert_chunk(chunk)
+                        async for chunk in iterator:
+                            yield _convert_chunk(chunk)
 
                     headers = dict(adapted_response.headers)
                     headers["content-type"] = sse_content_type

@@ -257,9 +257,7 @@ class ISessionState(IValueObject, ISessionStateMutator):
         """Get the session-specific API key redaction override."""
 
     @abstractmethod
-    def with_api_key_redaction_enabled(
-        self, enabled: bool | None
-    ) -> ISessionState:
+    def with_api_key_redaction_enabled(self, enabled: bool | None) -> ISessionState:
         """Create a new state with updated API key redaction flag."""
 
     @abstractmethod

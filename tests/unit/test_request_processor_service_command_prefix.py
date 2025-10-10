@@ -1,7 +1,7 @@
-import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -81,7 +81,7 @@ async def test_request_processor_uses_app_state_command_prefix(monkeypatch) -> N
     )
     monkeypatch.setattr(
         "src.core.config.edit_precision_temperatures.load_edit_precision_temperatures_config",
-        lambda: {},
+        dict,
     )
 
     class DummyEditPrecision:

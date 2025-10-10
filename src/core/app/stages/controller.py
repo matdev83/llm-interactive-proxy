@@ -77,8 +77,8 @@ class ControllerStage(InitializationStage):
             request_processor: IRequestProcessor = provider.get_required_service(
                 cast(type, IRequestProcessor)
             )
-            translation_service = ChatController._resolve_translation_service_from_provider(
-                provider
+            translation_service = (
+                ChatController._resolve_translation_service_from_provider(provider)
             )
             return ChatController(
                 request_processor,
@@ -181,9 +181,7 @@ class ControllerStage(InitializationStage):
             request_processor: IRequestProcessor = provider.get_required_service(
                 cast(type, IRequestProcessor)
             )
-            translation_service = provider.get_service(
-                cast(type, ITranslationService)
-            )
+            translation_service = provider.get_service(cast(type, ITranslationService))
             if translation_service is None:
                 translation_service = provider.get_service(TranslationService)
             if translation_service is None:

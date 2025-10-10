@@ -152,9 +152,15 @@ def test_responses_to_domain_request_with_input_field():
     assert domain_request.model == "gpt-4o-mini"
     assert len(domain_request.messages) == 2
     assert domain_request.messages[0].role == "system"
-    assert domain_request.messages[0].content == "You are helpful."
+    system_content = domain_request.messages[0].content
+    assert isinstance(system_content, list)
+    assert len(system_content) == 1
+    assert getattr(system_content[0], "text", None) == "You are helpful."
     assert domain_request.messages[1].role == "user"
-    assert domain_request.messages[1].content == "Hello there"
+    user_content = domain_request.messages[1].content
+    assert isinstance(user_content, list)
+    assert len(user_content) == 1
+    assert getattr(user_content[0], "text", None) == "Hello there"
     assert domain_request.extra_body is not None
     assert domain_request.extra_body["response_format"]["json_schema"]["name"] == (
         "test_schema"

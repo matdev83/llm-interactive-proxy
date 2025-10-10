@@ -17,6 +17,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from src.command_prefix import validate_command_prefix
+from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.app.application_builder import ApplicationBuilder, build_app
 from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG
 from src.core.config.app_config import AppConfig, LogLevel, load_config
@@ -25,6 +26,8 @@ from src.core.config.parameter_resolution import ParameterResolution, ParameterS
 # Import backend connectors to ensure they register themselves
 from src.core.services import backend_imports  # noqa: F401
 from src.core.services.backend_registry import backend_registry
+
+logger = logging.getLogger(__name__)
 
 
 def is_port_in_use(host: str, port: int) -> bool:
@@ -40,11 +43,7 @@ def _normalize_api_key_value(value: str | Sequence[str]) -> list[str]:
         cleaned = value.strip()
         return [cleaned] if cleaned else []
 
-    return [
-        item
-        for item in value
-        if isinstance(item, str) and item.strip()
-    ]
+    return [item for item in value if isinstance(item, str) and item.strip()]
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
@@ -646,9 +645,7 @@ def apply_cli_args(
             "--openrouter-api-base-url",
         )
     if args.gemini_api_key is not None:
-        cfg.backends["gemini"].api_key = _normalize_api_key_value(
-            args.gemini_api_key
-        )
+        cfg.backends["gemini"].api_key = _normalize_api_key_value(args.gemini_api_key)
         if cfg.backends["gemini"].api_key:
             os.environ["GEMINI_API_KEY"] = cfg.backends["gemini"].api_key[0]
         else:
@@ -697,9 +694,7 @@ def apply_cli_args(
             "session.force_set_project", args.force_set_project, "--force-set-project"
         )
     if getattr(args, "project_dir_resolution_model", None) is not None:
-        cfg.session.project_dir_resolution_model = (
-            args.project_dir_resolution_model
-        )
+        cfg.session.project_dir_resolution_model = args.project_dir_resolution_model
         record_cli(
             "session.project_dir_resolution_model",
             args.project_dir_resolution_model,
@@ -941,8 +936,11 @@ def apply_cli_args(
 def _validate_and_apply_prefix(cfg: AppConfig) -> None:
     """Validate and apply command prefix configuration."""
     if cfg.command_prefix is None:
+        cfg.command_prefix = DEFAULT_COMMAND_PREFIX
         return
-    err = validate_command_prefix(str(cfg.command_prefix))
+
+    prefix = str(cfg.command_prefix)
+    err = validate_command_prefix(prefix)
     if err:
         raise ValueError(f"Invalid command prefix: {err}")
 

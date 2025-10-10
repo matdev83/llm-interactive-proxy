@@ -66,9 +66,9 @@ def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
                     )
                 except Exception:
                     name = str(
-                        getattr(part.function_call, "get", lambda key, default=None: default)(
-                            "name", "function"
-                        )
+                        getattr(
+                            part.function_call, "get", lambda key, default=None: default
+                        )("name", "function")
                     )
                     raw_args = getattr(
                         part.function_call, "get", lambda key, default=None: default

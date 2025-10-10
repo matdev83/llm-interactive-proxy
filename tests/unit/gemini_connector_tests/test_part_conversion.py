@@ -54,7 +54,7 @@ async def test_text_part_type_removed(
         effective_model="test-model",
         openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
         openrouter_headers_provider=None,
-        key_name="GEMINI_API_KEY_1",
+        key_name="x-goog-api-key",
         api_key="FAKE_KEY",
     )
 
@@ -96,7 +96,7 @@ async def test_system_message_filtered(
         effective_model="test-model",
         openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
         openrouter_headers_provider=None,
-        key_name="GEMINI_API_KEY_1",
+        key_name="x-goog-api-key",
         api_key="FAKE_KEY",
     )
 

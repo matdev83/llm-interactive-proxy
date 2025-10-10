@@ -90,7 +90,8 @@ class LoopDetector(ILoopDetector):
         # Respect the configured analysis interval to avoid redundant heavy checks.
         if self.config.analysis_interval > 0 and self._last_analysis_position >= 0:
             processed_since_last = self.total_processed - self._last_analysis_position
-            if processed_since_last < self.config.analysis_interval:
+            effective_interval = max(1, self.config.analysis_interval)
+            if processed_since_last < effective_interval:
                 return None
 
         # Analyze for loops using the new PatternAnalyzer

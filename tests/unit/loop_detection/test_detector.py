@@ -34,6 +34,7 @@ class TestLoopDetector:
             buffer_size=1024,
             content_chunk_size=10,
             content_loop_threshold=3,
+            analysis_interval=0,
         )
         events = []
 
@@ -70,6 +71,7 @@ class TestLoopDetector:
             content_chunk_size=3,
             content_loop_threshold=3,
             whitelist=["---"],
+            analysis_interval=0,
         )
         detector = LoopDetector(config=config)
 

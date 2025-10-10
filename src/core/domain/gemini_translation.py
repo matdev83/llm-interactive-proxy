@@ -67,7 +67,12 @@ def gemini_content_to_chat_messages(
             else:
                 content_text = str(response_payload)
 
-            tool_call_id = function_response.get("toolCallId") or function_response.get("tool_call_id") or function_response.get("id") or function_response.get("name")
+            tool_call_id = (
+                function_response.get("toolCallId")
+                or function_response.get("tool_call_id")
+                or function_response.get("id")
+                or function_response.get("name")
+            )
             tool_name = function_response.get("name")
 
             chat_messages.append(
@@ -75,7 +80,9 @@ def gemini_content_to_chat_messages(
                     role="tool",
                     content=content_text,
                     name=tool_name,
-                    tool_call_id=tool_call_id if isinstance(tool_call_id, str) else None,
+                    tool_call_id=(
+                        tool_call_id if isinstance(tool_call_id, str) else None
+                    ),
                 )
             )
 
@@ -117,9 +124,9 @@ def gemini_content_to_chat_messages(
                 if isinstance(name, str) and name:
                     tool_message_kwargs["name"] = name
 
-                tool_call_id = function_response.get("toolCallId") or function_response.get(
-                    "tool_call_id"
-                )
+                tool_call_id = function_response.get(
+                    "toolCallId"
+                ) or function_response.get("tool_call_id")
                 if isinstance(tool_call_id, str) and tool_call_id:
                     tool_message_kwargs["tool_call_id"] = tool_call_id
 

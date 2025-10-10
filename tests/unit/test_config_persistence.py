@@ -64,6 +64,7 @@ def test_save_and_load_persistent_config(
 
     # Clear the environment variable that was set earlier to test config file loading
     monkeypatch.delenv("DEFAULT_BACKEND", raising=False)
+    monkeypatch.delenv("LLM_BACKEND", raising=False)
 
     from unittest.mock import patch
 
@@ -121,24 +122,26 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch, functional_backend: st
     monkeypatch.setenv(
         "OPENROUTER_API_KEY_1", "K_temp"
     )  # Ensure some backend could be functional
+    monkeypatch.setenv("DEFAULT_BACKEND", "non_existent_backend")
+    monkeypatch.setenv("LLM_BACKEND", "non_existent_backend")
 
     # In the new architecture, invalid backends are not validated at config load time
     # They are simply loaded as-is, and the application will use a fallback if needed
     app_config = load_config(str(cfg_path))
+    assert app_config.backends.default_backend == "non_existent_backend"
+
     app = build_app(config=app_config)
 
     # The app should build successfully even with an invalid default backend
     with TestClient(app) as client:
-        # The invalid backend should be loaded but won't be functional
         assert (
             client.app.state.app_config.backends.default_backend  # type: ignore
             == "non_existent_backend"
         )
-        # In the new architecture, functional_backends is determined at runtime
-        # and not stored directly on the config, so we'll just verify the app loaded
-        assert client.app.state.app_config is not None
 
     monkeypatch.delenv("OPENROUTER_API_KEY_1", raising=False)  # Clean up
+    monkeypatch.delenv("DEFAULT_BACKEND", raising=False)
+    monkeypatch.delenv("LLM_BACKEND", raising=False)
 
 
 pytestmark = pytest.mark.filterwarnings(

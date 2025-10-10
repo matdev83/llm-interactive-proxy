@@ -124,7 +124,9 @@ class ProjectDirectoryResolutionService:
         except Exception as exc:  # pragma: no cover - defensive logging
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Project directory auto-detection call failed: %s", exc, exc_info=True
+                    "Project directory auto-detection call failed: %s",
+                    exc,
+                    exc_info=True,
                 )
             await self._persist_state(
                 session,
@@ -200,7 +202,9 @@ class ProjectDirectoryResolutionService:
                 ChatMessage(role="system", content=self._system_prompt),
                 ChatMessage(role="user", content=prompt_text),
             ],
-            extra_body={"backend_type": self._backend_type} if self._backend_type else None,
+            extra_body=(
+                {"backend_type": self._backend_type} if self._backend_type else None
+            ),
         )
         context = RequestContext(
             headers={},
@@ -217,7 +221,9 @@ class ProjectDirectoryResolutionService:
             context=context,
         )
         if isinstance(response, StreamingResponseEnvelope):
-            raise TypeError("Streaming response returned for project directory resolution")
+            raise TypeError(
+                "Streaming response returned for project directory resolution"
+            )
         return response
 
     def _extract_user_prompt(self, request: ChatRequest) -> str | None:
@@ -237,7 +243,7 @@ class ProjectDirectoryResolutionService:
             for part in content:
                 text: Any | None = None
                 if hasattr(part, "text"):
-                    text = getattr(part, "text")
+                    text = part.text
                 elif isinstance(part, dict):
                     text = part.get("text") or part.get("content")
                 else:

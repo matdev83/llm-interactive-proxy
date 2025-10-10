@@ -176,16 +176,12 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             os.path.join(self.test_config_dir, "prompts", "user", "001"), exist_ok=True
         )
         with open(
-            os.path.join(
-                self.test_config_dir, "prompts", "user", "001", "SEARCH.txt"
-            ),
+            os.path.join(self.test_config_dir, "prompts", "user", "001", "SEARCH.txt"),
             "w",
         ) as f:
             f.write("original user text")
         with open(
-            os.path.join(
-                self.test_config_dir, "prompts", "user", "001", "REPLACE.txt"
-            ),
+            os.path.join(self.test_config_dir, "prompts", "user", "001", "REPLACE.txt"),
             "w",
         ) as f:
             f.write("rewritten user text")
@@ -199,7 +195,10 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "original user text"},
-                        {"type": "image_url", "image_url": {"url": "https://example.com"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.com"},
+                        },
                     ],
                 }
             ]
@@ -209,7 +208,9 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             data = await request.json()
             content_blocks = data["messages"][0]["content"]
             self.assertEqual(content_blocks[0]["text"], "rewritten user text")
-            return Response(content=json.dumps({"ok": True}), media_type="application/json")
+            return Response(
+                content=json.dumps({"ok": True}), media_type="application/json"
+            )
 
         async def receive():
             return {

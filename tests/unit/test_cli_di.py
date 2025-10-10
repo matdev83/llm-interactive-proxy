@@ -137,6 +137,7 @@ def test_cli_normalizes_backend_api_keys(monkeypatch: pytest.MonkeyPatch) -> Non
     assert cfg.backends.openrouter.api_key == ["openrouter-key"]
     assert cfg.backends.zai.api_key == ["zai-key"]
 
+
 def test_cli_disable_interactive_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
