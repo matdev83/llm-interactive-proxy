@@ -86,6 +86,9 @@ class ChatController:
                     from src.core.app.controllers.anthropic_controller import (
                         get_anthropic_controller,
                     )
+                    from src.core.interfaces.translation_service_interface import (
+                        ITranslationService,
+                    )
                     from src.core.services.translation_service import (
                         TranslationService,
                     )
@@ -115,9 +118,22 @@ class ChatController:
                     from src.core.interfaces.di_interface import IServiceProvider
 
                     sp = await _gspd(request)
-                    anth_controller = get_anthropic_controller(
-                        _cast(IServiceProvider, sp)
+                    service_provider = _cast(IServiceProvider, sp)
+
+                    translation_service = service_provider.get_service(
+                        _cast(type, ITranslationService)
                     )
+                    if translation_service is None:
+                        translation_service = service_provider.get_service(
+                            TranslationService
+                        )
+
+                    if translation_service is None:
+                        raise InitializationError(
+                            "Translation service is not registered in the DI container"
+                        )
+
+                    anth_controller = get_anthropic_controller(service_provider)
 
                     anth_response = await anth_controller.handle_anthropic_messages(
                         request, anth_req
@@ -135,9 +151,12 @@ class ChatController:
                         return anth_response  # type: ignore[return-value]
 
                     # Convert Anthropic JSON to domain then to OpenAI shape
-                    ts = TranslationService()
-                    domain_resp = ts.to_domain_response(anth_json, "anthropic")
-                    openai_json = ts.from_domain_to_openai_response(domain_resp)
+                    domain_resp = translation_service.to_domain_response(
+                        anth_json, "anthropic"
+                    )
+                    openai_json = translation_service.from_domain_to_openai_response(
+                        domain_resp
+                    )
 
                     from fastapi import Response as _Response
 
