@@ -326,7 +326,11 @@ class GeminiBackend(LLMBackend):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Resolve base configuration
         base_api_url, headers = await self._resolve_gemini_api_config(
-            gemini_api_base_url, openrouter_api_base_url, api_key, **kwargs
+            gemini_api_base_url,
+            openrouter_api_base_url,
+            api_key,
+            key_name=key_name,
+            **kwargs,
         )
         if identity:
             headers.update(identity.get_resolved_headers(None))
@@ -475,6 +479,8 @@ class GeminiBackend(LLMBackend):
         gemini_api_base_url: str | None,
         openrouter_api_base_url: str | None,
         api_key: str | None,
+        *,
+        key_name: str | None = None,
         **kwargs: Any,
     ) -> tuple[str, dict[str, str]]:
         # Prefer explicit params, then kwargs, then instance attributes set during initialize
@@ -485,12 +491,20 @@ class GeminiBackend(LLMBackend):
             or getattr(self, "gemini_api_base_url", None)
         )
         key = api_key or kwargs.get("api_key") or getattr(self, "api_key", None)
+        header_name = (
+            key_name
+            or kwargs.get("key_name")
+            or getattr(self, "key_name", None)
+            or "x-goog-api-key"
+        )
         if not base or not key:
             raise HTTPException(
                 status_code=500,
                 detail="Gemini API base URL and API key must be provided.",
             )
-        return base.rstrip("/"), ensure_loop_guard_header({"x-goog-api-key": key})
+        normalized_header = str(header_name)
+        headers = ensure_loop_guard_header({normalized_header: key})
+        return base.rstrip("/"), headers
 
     @staticmethod
     def _map_reasoning_effort_to_budget(reasoning_effort: Any) -> int:
@@ -657,7 +671,10 @@ class GeminiBackend(LLMBackend):
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
     ) -> dict[str, Any]:
-        headers = ensure_loop_guard_header({"x-goog-api-key": api_key})
+        if not key_name:
+            raise ValueError("key_name must be provided when listing Gemini models")
+        normalized_header = str(key_name)
+        headers = ensure_loop_guard_header({normalized_header: api_key})
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models"
         try:
             response = await self.client.get(url, headers=headers)
