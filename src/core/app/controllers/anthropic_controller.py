@@ -18,7 +18,11 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessagesRequest
-from src.core.common.exceptions import InitializationError, LLMProxyError
+from src.core.common.exceptions import (
+    InitializationError,
+    LLMProxyError,
+    ServiceResolutionError,
+)
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.session_resolver_interface import ISessionResolver
@@ -441,7 +445,14 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                         ApplicationStateService,
                     )
 
-                    app_state = ApplicationStateService()
+                    try:
+                        app_state = service_provider.get_required_service(
+                            ApplicationStateService
+                        )
+                    except ServiceResolutionError as exc:
+                        raise InitializationError(
+                            "ApplicationStateService is not registered in the DI container"
+                        ) from exc
                 backend_processor: BackendProcessor = BackendProcessor(
                     backend, session, app_state
                 )
