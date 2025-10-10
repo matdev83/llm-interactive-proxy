@@ -36,17 +36,59 @@ class OpenRouterBackend(OpenAIConnector):
     ) -> None:  # Modified
         super().__init__(client, config, translation_service=translation_service)
         self.api_base_url = "https://openrouter.ai/api/v1"
-        self.headers_provider: Callable[[str, str], dict[str, str]] | None = None
+        self.headers_provider: Callable[[Any, str], dict[str, str]] | None = None
         self.key_name: str | None = None
         self.api_keys: list[str] = []
 
-    def get_headers(self) -> dict[str, str]:
-        if not self.headers_provider or not self.key_name or not self.api_key:
+    def _build_openrouter_header_context(self) -> dict[str, str]:
+        """Create a minimal context dictionary for header providers expecting config."""
+        referer = "http://localhost:8000"
+        title = "InterceptorProxy"
+
+        identity = getattr(self.config, "identity", None)
+        if identity is not None:
+            referer = getattr(getattr(identity, "url", None), "default_value", referer) or referer
+            title = getattr(getattr(identity, "title", None), "default_value", title) or title
+
+        return {"app_site_url": referer, "app_x_title": title}
+
+    def _resolve_headers_from_provider(self) -> dict[str, str]:
+        """Call the configured headers provider with appropriate arguments."""
+        if not self.headers_provider or not self.api_key:
             raise AuthenticationError(
-                message="OpenRouter headers provider, key name, or API key not set.",
+                message="OpenRouter headers provider or API key not set.",
                 code="missing_credentials",
             )
-        headers = self.headers_provider(self.key_name, self.api_key)
+
+        provider = self.headers_provider
+        errors: list[Exception] = []
+
+        if self.key_name is not None:
+            try:
+                return provider(self.key_name, self.api_key)
+            except (AttributeError, TypeError) as exc:
+                errors.append(exc)
+
+        context = self._build_openrouter_header_context()
+        try:
+            return provider(context, self.api_key)
+        except Exception as exc:  # pragma: no cover - should not happen in normal flow
+            if errors:
+                logger.debug(
+                    "Headers provider rejected key_name input: %s", errors[-1], exc_info=True
+                )
+            raise AuthenticationError(
+                message="OpenRouter headers provider failed to produce headers.",
+                code="missing_credentials",
+            ) from exc
+
+    def get_headers(self) -> dict[str, str]:
+        if not self.headers_provider or not self.api_key:
+            raise AuthenticationError(
+                message="OpenRouter headers provider or API key not set.",
+                code="missing_credentials",
+            )
+        headers = self._resolve_headers_from_provider()
         if self.identity:
             headers.update(self.identity.get_resolved_headers(None))
         logger.info(
@@ -66,7 +108,9 @@ class OpenRouterBackend(OpenAIConnector):
             kwargs.get("openrouter_headers_provider"),
         )
         key_name = cast(str, kwargs.get("key_name"))
-        api_base_url = kwargs.get("openrouter_api_base_url")
+        api_base_url = kwargs.get("openrouter_api_base_url") or kwargs.get(
+            "api_base_url"
+        )
 
         if openrouter_headers_provider is not None and not callable(
             openrouter_headers_provider
@@ -134,7 +178,7 @@ class OpenRouterBackend(OpenAIConnector):
         try:
             if headers_provider is not None:
                 self.headers_provider = cast(
-                    Callable[[str, str], dict[str, str]], headers_provider
+                    Callable[[Any, str], dict[str, str]], headers_provider
                 )
             if key_name is not None:
                 self.key_name = cast(str, key_name)
@@ -147,12 +191,10 @@ class OpenRouterBackend(OpenAIConnector):
             # Authorization header and URL used by tests are passed to the
             # parent's streaming/non-streaming implementation.
             headers_override: dict[str, str] | None = None
-            if self.key_name and self.api_key and self.headers_provider:
+            if self.headers_provider:
                 try:
-                    headers_override = dict(
-                        self.headers_provider(self.key_name, self.api_key)
-                    )
-                except Exception:
+                    headers_override = dict(self._resolve_headers_from_provider())
+                except AuthenticationError:
                     headers_override = None
 
             if headers_override is None:

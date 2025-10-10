@@ -13,7 +13,9 @@ from fastapi import HTTPException, Request, Response
 
 from src.anthropic_converters import (
     anthropic_to_openai_request,
+    openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
+    _map_finish_reason,
 )
 from src.anthropic_models import AnthropicMessagesRequest
 from src.core.common.exceptions import InitializationError, LLMProxyError
@@ -97,14 +99,27 @@ class AnthropicController:
             # Convert the dict to a ChatRequest object
             from src.core.domain.chat import ChatMessage, ChatRequest
 
-            messages = []
-            if "messages" in openai_request_data:
-                messages = [
-                    ChatMessage(
-                        role=msg.get("role", "user"), content=msg.get("content", "")
-                    )
-                    for msg in openai_request_data.get("messages", [])
-                ]
+            messages: list[ChatMessage] = []
+            for msg in openai_request_data.get("messages", []):
+                content_value = msg.get("content", "")
+                message_kwargs: dict[str, Any] = {
+                    "role": msg.get("role", "user"),
+                    "content": content_value,
+                }
+
+                name_value = msg.get("name")
+                if name_value is not None:
+                    message_kwargs["name"] = name_value
+
+                tool_calls_value = msg.get("tool_calls")
+                if tool_calls_value:
+                    message_kwargs["tool_calls"] = tool_calls_value
+
+                tool_call_id_value = msg.get("tool_call_id")
+                if tool_call_id_value:
+                    message_kwargs["tool_call_id"] = tool_call_id_value
+
+                messages.append(ChatMessage(**message_kwargs))
 
             chat_request = ChatRequest(
                 messages=messages,
@@ -173,13 +188,18 @@ class AnthropicController:
                         first = cr.choices[0] if cr.choices else None
                         text = first.message.content if first and first.message else ""
                         usage = cr.usage or {}
+                        stop_reason = (
+                            _map_finish_reason(first.finish_reason)
+                            if first and first.finish_reason is not None
+                            else None
+                        )
                         anthropic_response_data = {
                             "id": cr.id,
                             "type": "message",
                             "role": "assistant",
                             "content": [{"type": "text", "text": text or ""}],
                             "model": cr.model,
-                            "stop_reason": first.finish_reason if first else "stop",
+                            "stop_reason": stop_reason,
                             "stop_sequence": None,
                             "usage": {
                                 "input_tokens": usage.get("prompt_tokens", 0),
@@ -239,15 +259,43 @@ class AnthropicController:
                 if isinstance(adapted_response, StreamingResponse):
                     # Ensure Anthropic streaming endpoints advertise proper SSE headers
                     sse_content_type = "text/event-stream; charset=utf-8"
-                    adapted_response.media_type = sse_content_type
 
-                    # `StreamingResponse.headers` returns a MutableHeaders mapping
-                    # which may already include values from upstream responses.
-                    # Update in-place so existing references stay in sync.
-                    adapted_response.headers["content-type"] = sse_content_type
-                    adapted_response.headers.setdefault("cache-control", "no-cache")
-                    adapted_response.headers.setdefault("connection", "keep-alive")
-                    return adapted_response
+                    original_iterator = adapted_response.body_iterator
+
+                    def _convert_chunk(chunk: bytes | str) -> bytes:
+                        text_chunk = (
+                            chunk.decode("utf-8", errors="ignore")
+                            if isinstance(chunk, (bytes, bytearray, memoryview))
+                            else str(chunk)
+                        )
+                        converted = openai_stream_to_anthropic_stream(text_chunk)
+                        if isinstance(converted, bytes):
+                            return converted
+                        return str(converted).encode("utf-8")
+
+                    async def _anthropic_stream() -> AsyncIterator[bytes]:
+                        """Convert OpenAI-formatted SSE chunks to Anthropic format."""
+
+                        iterator = original_iterator
+                        if hasattr(iterator, "__aiter__"):
+                            async for chunk in iterator:  # type: ignore[assignment]
+                                yield _convert_chunk(chunk)
+                        else:
+                            for chunk in iterator:  # type: ignore[assignment]
+                                yield _convert_chunk(chunk)
+
+                    headers = dict(adapted_response.headers)
+                    headers["content-type"] = sse_content_type
+                    headers.setdefault("cache-control", "no-cache")
+                    headers.setdefault("connection", "keep-alive")
+
+                    return StreamingResponse(
+                        _anthropic_stream(),
+                        media_type=sse_content_type,
+                        status_code=getattr(adapted_response, "status_code", 200),
+                        headers=headers,
+                        background=adapted_response.background,
+                    )
                 else:
                     # If somehow we got a non-streaming response but streaming was requested,
                     # convert it to a simple streaming response

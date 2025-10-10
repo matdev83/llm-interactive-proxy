@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import socket
+from collections.abc import Callable
 
 import pytest
+from src.core import cli_v2
 from src.core.cli_v2 import AppConfig, apply_cli_args, is_port_in_use, parse_cli_args
 from src.core.cli_v2 import main as cli_main
 from src.core.config.app_config import ModelAliasRule
@@ -136,3 +138,74 @@ def test_main_delegates_to_cli(
         "argv": ["--default-backend", backend_choices[0]],
         "build_app_fn": None,
     }
+
+
+def test_parse_cli_args_delegates_to_canonical(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_parse(argv: list[str] | None) -> str:
+        captured["argv"] = argv
+        return "sentinel"
+
+    monkeypatch.setattr(cli_v2._cli_module, "parse_cli_args", fake_parse)
+
+    result = parse_cli_args(["--flag"])
+
+    assert result == "sentinel"
+    assert captured["argv"] == ["--flag"]
+
+
+def test_apply_cli_args_unwraps_tuple_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    expected = AppConfig(host="127.0.0.1", port=4321)
+
+    def fake_apply(args: object) -> tuple[AppConfig, str]:
+        return expected, "metadata"
+
+    monkeypatch.setattr(cli_v2._cli_module, "apply_cli_args", fake_apply)
+
+    config = apply_cli_args(object())
+
+    assert config is expected
+
+
+def test_apply_cli_args_passthrough_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    expected = AppConfig()
+
+    def fake_apply(args: object) -> AppConfig:
+        return expected
+
+    monkeypatch.setattr(cli_v2._cli_module, "apply_cli_args", fake_apply)
+
+    config = apply_cli_args(object())
+
+    assert config is expected
+
+
+def test_is_port_in_use_delegates_to_canonical(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_is_port_in_use(host: str, port: int) -> bool:
+        if (host, port) == ("localhost", 9876):
+            return True
+        raise AssertionError("Unexpected arguments")
+
+    monkeypatch.setattr(cli_v2._cli_module, "is_port_in_use", fake_is_port_in_use)
+
+    assert is_port_in_use("localhost", 9876) is True
+
+
+def test_main_passes_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: dict[str, object] = {}
+
+    def fake_main(
+        argv: list[str] | None, build_app_fn: Callable[[AppConfig], object] | None
+    ) -> None:
+        recorded["argv"] = argv
+        recorded["build_app_fn"] = build_app_fn
+
+    monkeypatch.setattr(cli_v2._cli_module, "main", fake_main)
+
+    build_fn = lambda config: config
+
+    cli_main(argv=["--help"], build_app_fn=build_fn)
+
+    assert recorded["argv"] == ["--help"]
+    assert recorded["build_app_fn"] is build_fn

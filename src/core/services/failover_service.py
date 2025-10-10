@@ -77,8 +77,27 @@ class FailoverService:
         # Get the route configuration
         route_config = backend_config.failover_routes.get(model)
         if not route_config:
-            logger.debug("No failover route found for model", model=model)
-            return []
+            # Support conventional fallback keys like "default" or "*" so that a
+            # single route can be shared across models. Configuration examples in
+            # this project document a "default" route, but the original
+            # implementation never consulted it which meant complex failover
+            # could not trigger unless a model-specific entry existed.
+            fallback_route = None
+            for key, candidate in backend_config.failover_routes.items():
+                try:
+                    key_normalized = str(key).strip().lower()
+                except Exception:
+                    key_normalized = ""
+
+                if key_normalized in {"default", "*"}:
+                    fallback_route = candidate
+                    break
+
+            if fallback_route:
+                route_config = fallback_route
+            else:
+                logger.debug("No failover route found for model", model=model)
+                return []
 
         policy = route_config.get("policy", "k")
         elements = route_config.get("elements", [])
@@ -91,7 +110,9 @@ class FailoverService:
         for element in elements:
             try:
                 # Parse the element into backend and model
-                elem_backend, elem_model = parse_model_backend(element)
+                elem_backend, elem_model = parse_model_backend(
+                    element, default_backend=backend_type
+                )
                 attempts.append(FailoverAttempt(backend=elem_backend, model=elem_model))
             except ValueError:
                 logger.warning(

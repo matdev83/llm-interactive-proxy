@@ -10,7 +10,7 @@ import logging
 import os
 import socket
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 import uvicorn
@@ -31,6 +31,20 @@ def is_port_in_use(host: str, port: int) -> bool:
     """Check if a port is in use on a given host."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex((host, port)) == 0
+
+
+def _normalize_api_key_value(value: str | Sequence[str]) -> list[str]:
+    """Normalize CLI-supplied API key values into the expected list format."""
+
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return [cleaned] if cleaned else []
+
+    return [
+        item
+        for item in value
+        if isinstance(item, str) and item.strip()
+    ]
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
@@ -177,8 +191,8 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--log-level",
         dest="log_level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-        help="Set the logging level (e.g., INFO, DEBUG)",
+        default=None,
+        help="Set the logging level (default: use config or INFO)",
     )
 
     # Feature flags
@@ -607,10 +621,12 @@ def apply_cli_args(
 
     # API keys and URLs
     if args.openrouter_api_key is not None:
-        cfg.backends["openrouter"].api_key = args.openrouter_api_key
+        cfg.backends["openrouter"].api_key = _normalize_api_key_value(
+            args.openrouter_api_key
+        )
         record_cli(
             "backends.openrouter.api_key",
-            args.openrouter_api_key,
+            cfg.backends["openrouter"].api_key,
             "--openrouter-api-key",
         )
     if args.openrouter_api_base_url is not None:
@@ -621,11 +637,16 @@ def apply_cli_args(
             "--openrouter-api-base-url",
         )
     if args.gemini_api_key is not None:
-        cfg.backends["gemini"].api_key = args.gemini_api_key
-        os.environ["GEMINI_API_KEY"] = args.gemini_api_key
+        cfg.backends["gemini"].api_key = _normalize_api_key_value(
+            args.gemini_api_key
+        )
+        if cfg.backends["gemini"].api_key:
+            os.environ["GEMINI_API_KEY"] = cfg.backends["gemini"].api_key[0]
+        else:
+            os.environ.pop("GEMINI_API_KEY", None)
         record_cli(
             "backends.gemini.api_key",
-            args.gemini_api_key,
+            cfg.backends["gemini"].api_key,
             "--gemini-api-key",
         )
     if args.gemini_api_base_url is not None:
@@ -636,8 +657,12 @@ def apply_cli_args(
             "--gemini-api-base-url",
         )
     if args.zai_api_key is not None:
-        cfg.backends["zai"].api_key = args.zai_api_key
-        record_cli("backends.zai.api_key", args.zai_api_key, "--zai-api-key")
+        cfg.backends["zai"].api_key = _normalize_api_key_value(args.zai_api_key)
+        record_cli(
+            "backends.zai.api_key",
+            cfg.backends["zai"].api_key,
+            "--zai-api-key",
+        )
 
     # Feature flags (inverted boolean logic)
     if args.disable_interactive_mode is not None:

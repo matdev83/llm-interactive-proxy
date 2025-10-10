@@ -11,6 +11,7 @@ from src.core.commands.registry import get_all_commands, get_command_handler
 from src.core.domain import chat as models
 from src.core.domain.chat import ChatMessage
 from src.core.domain.processed_result import ProcessedResult
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.session_service_interface import ISessionService
 
@@ -27,6 +28,7 @@ class NewCommandService(ICommandService):
         session_service: ISessionService,
         command_parser: CommandParser,
         strict_command_detection: bool = False,
+        app_state: IApplicationState | None = None,
     ):
         """
         Initializes the command service.
@@ -39,6 +41,40 @@ class NewCommandService(ICommandService):
         self.session_service = session_service
         self.command_parser = command_parser
         self.strict_command_detection = strict_command_detection
+        self._app_state = app_state
+
+    def _refresh_command_prefix(self) -> None:
+        """Synchronize the parser's prefix with the current application state."""
+        if self._app_state is None:
+            return
+
+        try:
+            prefix = self._app_state.get_command_prefix()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Unable to resolve command prefix from application state: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return
+
+        if not isinstance(prefix, str) or not prefix:
+            return
+
+        if prefix == self.command_parser.command_prefix:
+            return
+
+        try:
+            self.command_parser.set_command_prefix(prefix)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to update command parser prefix to '%s': %s",
+                    prefix,
+                    exc,
+                    exc_info=True,
+                )
 
     def _get_last_non_blank_line_content(self, text: str) -> str:
         """
@@ -73,6 +109,8 @@ class NewCommandService(ICommandService):
         Returns:
             A ProcessedResult object.
         """
+        self._refresh_command_prefix()
+
         if not messages:
             return ProcessedResult(
                 modified_messages=[], command_executed=False, command_results=[]
@@ -89,7 +127,6 @@ class NewCommandService(ICommandService):
         command_results: list[Any] = []
         command_executed = False
 
-        executed_at: int | None = None
         executed_command_name: str | None = None
         for message in reversed(modified_messages):
             if message.role != "user":
@@ -109,9 +146,8 @@ class NewCommandService(ICommandService):
                     "",
                 )
 
-            # Apply strict command detection if enabled
-            if self.strict_command_detection:
-                content_str = self._get_last_non_blank_line_content(content_str)
+            # The command service should only ever parse the last line for commands.
+            content_str = self._get_last_non_blank_line_content(content_str)
 
             parse_result = self.command_parser.parse(content_str)
             if not parse_result:
@@ -119,20 +155,26 @@ class NewCommandService(ICommandService):
 
             command, matched_text = parse_result
 
+            # Only execute commands that appear at the END of the message (after trimming)
+            trimmed_content = content_str.rstrip()
+            if not trimmed_content.endswith(matched_text):
+                # Command is not at the end, skip it
+                continue
+
             # Remove the command from the message content.
             if isinstance(message.content, str):
-                if command.name == "hello":
-                    # For 'hello': replace command with empty space to preserve structure
-                    idx = content_str.find(matched_text)
-                    if idx != -1:
-                        before = content_str[:idx]
-                        after = content_str[idx + len(matched_text) :]
+                # Find and remove the command from the full message content
+                original_content = message.content
+                idx = original_content.rfind(matched_text)
+                if idx != -1:
+                    before = original_content[:idx]
+                    after = original_content[idx + len(matched_text) :]
+                    if command.name == "hello":
+                        # For 'hello': preserve structure without stripping
                         message.content = before + after
                     else:
-                        message.content = content_str
-                else:
-                    # Default: replace the matched command in place and trim
-                    message.content = content_str.replace(matched_text, "").strip()
+                        # Default: strip trailing whitespace
+                        message.content = (before + after).rstrip()
             elif isinstance(message.content, list):
                 for i, part in enumerate(message.content):
                     if (
@@ -178,27 +220,9 @@ class NewCommandService(ICommandService):
             executed_command_name = command.name
             wrapped_result = CommandResultWrapper(executed_command_name, result)
             command_executed = True
-            executed_at = (
-                modified_messages.index(message) if message in modified_messages else 0
-            )
+            (modified_messages.index(message) if message in modified_messages else 0)
             command_results.append(wrapped_result)
             break
-
-        # Cleanup: strip commands from earlier messages without executing them
-        if command_executed and executed_at is not None:
-            for idx in range(executed_at):
-                m = modified_messages[idx]
-                if m.role != "user":
-                    continue
-                content_val = m.content if isinstance(m.content, str) else None
-                if not isinstance(content_val, str):
-                    continue
-                pr = self.command_parser.parse(content_val)
-                if pr:
-                    _, match = pr
-                    m.content = content_val.replace(match, "").strip()
-                else:
-                    m.content = content_val.strip()
 
         # If, after command execution, there is no meaningful user content left,
         # return a command-only result to avoid unnecessary backend calls.

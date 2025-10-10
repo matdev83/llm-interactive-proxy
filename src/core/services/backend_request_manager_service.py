@@ -93,14 +93,9 @@ class BackendRequestManager(IBackendRequestManager):
                             )
                         )
 
-                backend_request = ChatRequest(
-                    model=request_data.model,
-                    messages=normalized_messages,
-                    temperature=request_data.temperature,
-                    top_p=request_data.top_p,
-                    max_tokens=request_data.max_tokens,
-                    stream=request_data.stream,
-                    extra_body=request_data.extra_body,
+                # Preserve all original request fields (including tools/tool_choice)
+                backend_request = request_data.model_copy(
+                    update={"messages": normalized_messages}
                 )
             else:
                 # All modified messages are empty, skip backend call
@@ -333,12 +328,5 @@ class BackendRequestManager(IBackendRequestManager):
         recovery_message = ChatMessage(role="user", content=recovery_prompt)
         retry_messages.append(recovery_message)
 
-        return ChatRequest(
-            model=original_request.model,
-            messages=retry_messages,
-            temperature=original_request.temperature,
-            top_p=original_request.top_p,
-            max_tokens=original_request.max_tokens,
-            stream=original_request.stream,
-            extra_body=original_request.extra_body,
-        )
+        # Preserve tools and other fields while appending the recovery message
+        return original_request.model_copy(update={"messages": retry_messages})

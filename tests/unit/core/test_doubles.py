@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from src.core.common.exceptions import BackendError
 from src.core.domain.chat import (
@@ -456,3 +457,75 @@ class TestDataBuilder:
             status_code=200,
             headers={"content-type": "application/json"},
         )
+
+
+@pytest.mark.asyncio
+async def test_mock_success_command_execute_records_call() -> None:
+    """MockSuccessCommand should track invocations and return CommandResult."""
+
+    command = MockSuccessCommand("test-command")
+    session = TestDataBuilder.create_session()
+
+    result = await command.execute({"arg": "value"}, session)
+
+    assert command.called is True
+    assert command.called_with_args == {"arg": "value"}
+    assert isinstance(result, CommandResult)
+    assert result.success is True
+    assert result.name == "test-command"
+
+
+@pytest.mark.asyncio
+async def test_mock_backend_service_returns_enqueued_response() -> None:
+    """MockBackendService should return queued responses and record calls."""
+
+    backend_service = MockBackendService()
+    response = TestDataBuilder.create_chat_response()
+    backend_service.add_response(response)
+    request = TestDataBuilder.create_chat_request()
+
+    result = await backend_service.call_completion(request)
+
+    assert result is response
+    assert backend_service.calls == [request]
+
+    with pytest.raises(BackendError):
+        await backend_service.call_completion(request)
+
+
+@pytest.mark.asyncio
+async def test_mock_session_service_reuses_sessions() -> None:
+    """MockSessionService should create and reuse sessions by identifier."""
+
+    service = MockSessionService()
+
+    session_one = await service.get_session("session-1")
+    session_two = await service.get_session("session-1")
+    session_three = await service.get_session("session-2")
+
+    assert session_one is session_two
+    assert session_one is not session_three
+    assert session_one.session_id == "session-1"
+    assert session_three.session_id == "session-2"
+
+
+@pytest.mark.asyncio
+async def test_mock_rate_limiter_usage_and_limits() -> None:
+    """MockRateLimiter should track usage and return configured limits."""
+
+    rate_limiter = MockRateLimiter()
+
+    default_info = await rate_limiter.check_limit("key")
+    assert default_info.is_limited is False
+    assert default_info.limit == 100
+
+    await rate_limiter.record_usage("key", cost=5)
+    assert rate_limiter.usage["key"] == 5
+
+    await rate_limiter.set_limit("key", limit=10, time_window=30)
+    configured_info = await rate_limiter.check_limit("key")
+    assert configured_info.limit == 10
+    assert configured_info.time_window == 30
+
+    await rate_limiter.reset("key")
+    assert "key" not in rate_limiter.usage

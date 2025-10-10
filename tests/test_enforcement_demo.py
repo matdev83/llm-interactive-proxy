@@ -1,31 +1,26 @@
-"""
-Demo test to show the automatic enforcement in action.
-"""
+"""Behavioral tests for the :mod:`src.core.domain.session` module."""
 
-from unittest.mock import AsyncMock
+from datetime import datetime, timezone
 
-from src.core.domain.session import Session
+from src.core.domain.session import Session, SessionStateAdapter
 
 
-def test_problematic_session_mock():
-    """This test will trigger warnings due to using AsyncMock for Session."""
-    # This should trigger a warning from our SafeAsyncMock
-    session_mock = AsyncMock(spec=Session)
-    session_mock.session_id = "test-123"
+def test_session_exposes_initialized_identifier() -> None:
+    """Session.session_id should return the identifier passed to the constructor."""
 
-    # Use the mock
-    result = session_mock.session_id
-    assert result == "test-123"
+    session = Session(session_id="test-123")
+
+    assert session.session_id == "test-123"
 
 
-def test_safe_session_usage():
-    """This test shows the recommended approach using direct session creation."""
-    # Create a test session directly without complex fixtures
-    from src.core.domain.session import Session
+def test_session_initializes_state_and_timestamps() -> None:
+    """A newly created Session should provide defaults for state and timestamps."""
 
-    session = Session(session_id="test-session")
+    timestamp = datetime.now(timezone.utc)
 
-    # Verify the session was created properly
-    assert session is not None
-    assert session.session_id == "test-session"
-    assert session.state is not None
+    session = Session(session_id="session-1", created_at=timestamp, last_active_at=timestamp)
+
+    assert isinstance(session.state, SessionStateAdapter)
+    assert session.created_at is timestamp
+    assert session.last_active_at is timestamp
+    assert session.history == []

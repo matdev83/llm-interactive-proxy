@@ -109,6 +109,18 @@ def anthropic_to_openai_request(
         "stop": anthropic_request.stop_sequences,
         "stream": anthropic_request.stream or False,
     }
+    if anthropic_request.metadata:
+        try:
+            metadata_dict = (
+                anthropic_request.metadata
+                if isinstance(anthropic_request.metadata, dict)
+                else dict(anthropic_request.metadata)
+            )
+        except Exception:
+            metadata_dict = {}
+        user_id = metadata_dict.get("user_id") or metadata_dict.get("user")
+        if user_id is not None:
+            result["user"] = str(user_id)
     if anthropic_request.tools:
         converted_tools = [
             tool_def
@@ -420,6 +432,27 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
         openai_chunk: dict[str, Any] = json.loads(chunk_data)
         choice: dict[str, Any] = openai_chunk.get("choices", [{}])[0]
         delta: dict[str, Any] = choice.get("delta", {})
+
+        # Role delta -> emit message_start event so Anthropic clients receive
+        # the metadata that frames the rest of the stream.  Without this the
+        # very first OpenAI chunk (which only contains the assistant role)
+        # would be silently dropped, leaving Anthropic front-ends without a
+        # message header and breaking downstream parsing.
+        if delta.get("role"):
+            payload = {
+                "type": "message_start",
+                "index": 0,
+                "message": {
+                    "id": id,
+                    "type": "message",
+                    "role": delta["role"],
+                    "model": model,
+                },
+            }
+            return (
+                "event: message_start\n"
+                f"data: {json.dumps(payload)}\n\n"
+            )
 
         # Content delta
         if delta.get("content"):

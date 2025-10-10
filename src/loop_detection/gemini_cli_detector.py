@@ -442,7 +442,10 @@ class GeminiCliLoopDetector(ILoopDetector):
         """Save current state for restoration."""
         return {
             "stream_content_history": self.stream_content_history,
-            "content_stats": self.content_stats.copy(),
+            "content_stats": {
+                hash_hex: indices.copy()
+                for hash_hex, indices in self.content_stats.items()
+            },
             "last_content_index": self.last_content_index,
             "loop_detected": self.loop_detected,
             "in_code_block": self.in_code_block,

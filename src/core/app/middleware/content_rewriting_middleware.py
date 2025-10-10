@@ -27,15 +27,32 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             role = message.get("role")
             original_content = message.get("content")
 
-            if not isinstance(original_content, str):
+            if isinstance(original_content, str):
+                rewritten_content = self.rewriter.rewrite_prompt(
+                    original_content, role if isinstance(role, str) else ""
+                )
+                if original_content != rewritten_content:
+                    message["content"] = rewritten_content
+                    is_rewritten = True
                 continue
 
-            rewritten_content = self.rewriter.rewrite_prompt(
-                original_content, role if isinstance(role, str) else ""
-            )
-            if original_content != rewritten_content:
-                message["content"] = rewritten_content
-                is_rewritten = True
+            if not isinstance(original_content, list):
+                continue
+
+            for block in original_content:
+                if not isinstance(block, dict):
+                    continue
+
+                text_value = block.get("text")
+                if not isinstance(text_value, str):
+                    continue
+
+                rewritten_text = self.rewriter.rewrite_prompt(
+                    text_value, role if isinstance(role, str) else ""
+                )
+                if rewritten_text != text_value:
+                    block["text"] = rewritten_text
+                    is_rewritten = True
 
         return is_rewritten
 
@@ -128,9 +145,12 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         is_rewritten = False
 
         outputs = payload.get("output")
+        aggregated_texts: list[str | None] = []
+
         if isinstance(outputs, list):
             for item in outputs:
                 if not isinstance(item, dict):
+                    aggregated_texts.append(None)
                     continue
 
                 content = item.get("content")
@@ -139,11 +159,14 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                     if rewritten != content:
                         item["content"] = rewritten
                         is_rewritten = True
+                    aggregated_texts.append(rewritten)
                     continue
 
                 if not isinstance(content, list):
+                    aggregated_texts.append(None)
                     continue
 
+                aggregated_parts: list[str] = []
                 for block in content:
                     if not isinstance(block, dict):
                         continue
@@ -156,17 +179,39 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                     if rewritten_text != text_value:
                         block["text"] = rewritten_text
                         is_rewritten = True
+                    aggregated_parts.append(rewritten_text)
+
+                aggregated_texts.append(
+                    "".join(aggregated_parts) if aggregated_parts else None
+                )
 
         output_text = payload.get("output_text")
         if isinstance(output_text, list):
-            for index, text_value in enumerate(output_text):
-                if not isinstance(text_value, str):
-                    continue
+            if aggregated_texts and len(aggregated_texts) == len(output_text):
+                for index, text_value in enumerate(output_text):
+                    if not isinstance(text_value, str):
+                        continue
 
-                rewritten_text = self.rewriter.rewrite_reply(text_value)
-                if rewritten_text != text_value:
-                    payload["output_text"][index] = rewritten_text
-                    is_rewritten = True
+                    aggregated_text = aggregated_texts[index]
+                    if aggregated_text is None:
+                        rewritten_text = self.rewriter.rewrite_reply(text_value)
+                        if rewritten_text != text_value:
+                            payload["output_text"][index] = rewritten_text
+                            is_rewritten = True
+                        continue
+
+                    if aggregated_text != text_value:
+                        payload["output_text"][index] = aggregated_text
+                        is_rewritten = True
+            else:
+                for index, text_value in enumerate(output_text):
+                    if not isinstance(text_value, str):
+                        continue
+
+                    rewritten_text = self.rewriter.rewrite_reply(text_value)
+                    if rewritten_text != text_value:
+                        payload["output_text"][index] = rewritten_text
+                        is_rewritten = True
 
         return is_rewritten
 
@@ -177,6 +222,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         request_for_next_call = request
         if request.method == "POST":
             body_bytes = await request.body()
+            scope_for_next_call = request.scope
 
             try:
                 data = json.loads(body_bytes)
@@ -190,6 +236,21 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
 
                 if is_rewritten:
                     body_bytes = json.dumps(data).encode("utf-8")
+                    scope_for_next_call = dict(request.scope)
+                    headers = list(scope_for_next_call.get("headers", []))
+                    new_length = str(len(body_bytes)).encode("latin-1")
+
+                    header_found = False
+                    for index, (name, _value) in enumerate(headers):
+                        if name.lower() == b"content-length":
+                            headers[index] = (name, new_length)
+                            header_found = True
+                            break
+
+                    if not header_found:
+                        headers.append((b"content-length", new_length))
+
+                    scope_for_next_call["headers"] = headers
 
             except json.JSONDecodeError:
                 # Not a JSON request, do nothing to the body
@@ -199,7 +260,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             async def receive():
                 return {"type": "http.request", "body": body_bytes, "more_body": False}
 
-            request_for_next_call = Request(request.scope, receive)
+            request_for_next_call = Request(scope_for_next_call, receive)
 
         # Step 2: Call the next middleware/app
         response = await call_next(request_for_next_call)

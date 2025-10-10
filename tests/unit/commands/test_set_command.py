@@ -160,3 +160,27 @@ async def test_handle_project_success(command: SetCommand, mock_session: Mock):
     assert result.success is True
     assert result.message == "Project changed to test_project"
     assert new_state.project == "test_project"
+
+
+@pytest.mark.asyncio
+async def test_handle_redact_api_keys_updates_state(
+    command: SetCommand, mock_session: Mock
+) -> None:
+    result, new_state = await command._handle_redact_api_keys_in_prompts(
+        "false", mock_session.state, {}
+    )
+
+    assert result.success is True
+    assert new_state.api_key_redaction_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_handle_redact_api_keys_enables_state(
+    command: SetCommand, mock_session: Mock
+) -> None:
+    result, new_state = await command._handle_redact_api_keys_in_prompts(
+        "true", mock_session.state, {}
+    )
+
+    assert result.success is True
+    assert new_state.api_key_redaction_enabled is True

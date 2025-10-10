@@ -132,8 +132,13 @@ Fixtures:
                 break
 
         # Should detect either the short or long pattern
+        assert (
+            detection_event is not None
+        ), "Expected at least one loop detection for mixed patterns"
+
         stats = detector.get_stats()
-        assert stats["total_events"] >= 0  # May have detected something
+        assert stats["total_events"] > 0
+        assert detection_event.repetition_count >= 2
 
     def test_performance_with_large_content(self):
         """Test that the detector performs well with larger content volumes."""

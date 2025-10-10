@@ -1,8 +1,4 @@
-"""
-Tests for Usage Tracking Interface.
-
-This module tests the usage tracking interface definitions and contract compliance.
-"""
+"""Tests for the usage tracking interface definitions and contract compliance."""
 
 from abc import ABC
 import inspect
@@ -66,10 +62,10 @@ class TestUsageTrackingInterfaceCompliance:
         """Test that track_request method has asynccontextmanager decorator."""
         track_request_method = IUsageTrackingService.track_request
 
-        # @asynccontextmanager wraps the original async generator function and
-        # stores it on the __wrapped__ attribute. If the decorator were removed,
-        # this attribute would no longer be present and the wrapped object would
-        # cease to be an async generator.
+        # The asynccontextmanager decorator wraps an async generator function and
+        # preserves it on the ``__wrapped__`` attribute. Verifying this attribute
+        # exists (and is the expected async generator) ensures the decorator is
+        # actually applied.
         assert hasattr(track_request_method, "__wrapped__")
         assert inspect.isasyncgenfunction(track_request_method.__wrapped__)
 

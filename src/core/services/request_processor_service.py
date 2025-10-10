@@ -158,7 +158,7 @@ class RequestProcessor(IRequestProcessor):
                     if md is None:
                         continue
                     # Accept either a ModelDefaults instance or a plain dict-like
-                    if isinstance(md, ModelDefaults | dict):
+                    if isinstance(md, (ModelDefaults, dict)):
                         model_defaults = md
                         break
 
@@ -346,27 +346,50 @@ class RequestProcessor(IRequestProcessor):
                     except (AttributeError, KeyError, TypeError):
                         app_config = None
 
-                # Only apply if feature flag is enabled (default True)
+                # Only apply if feature flag or session override enable it
                 should_redact = True
+                session_override: bool | None = None
                 try:
-                    if app_config is not None and hasattr(app_config, "auth"):
-                        should_redact = bool(app_config.auth.redact_api_keys_in_prompts)
-                except (AttributeError, TypeError, ValueError):
-                    # Be conservative: keep redaction enabled on errors
-                    should_redact = True
+                    session_state = getattr(session, "state", None)
+                    if session_state is not None:
+                        session_override = getattr(
+                            session_state, "api_key_redaction_enabled", None
+                        )
+                        if not isinstance(session_override, (bool, type(None))):
+                            session_override = None
+                except Exception:
+                    session_override = None
+
+                if session_override is None:
+                    try:
+                        if app_config is not None and hasattr(app_config, "auth"):
+                            should_redact = bool(
+                                app_config.auth.redact_api_keys_in_prompts
+                            )
+                    except (AttributeError, TypeError, ValueError):
+                        # Be conservative: keep redaction enabled on errors
+                        should_redact = True
+                else:
+                    should_redact = bool(session_override)
 
                 if should_redact:
                     api_keys = discover_api_keys_from_config_and_env(app_config)
                     # Command prefix can be None; RedactionMiddleware has a default
                     command_prefix = None
-                    try:
-                        command_prefix = (
-                            app_config.command_prefix
-                            if app_config is not None
-                            else None
-                        )
-                    except (AttributeError, TypeError):
-                        command_prefix = None
+                    if self._app_state is not None:
+                        try:
+                            command_prefix = self._app_state.get_command_prefix()
+                        except AttributeError:
+                            command_prefix = None
+                    if not command_prefix:
+                        try:
+                            command_prefix = (
+                                app_config.command_prefix
+                                if app_config is not None
+                                else None
+                            )
+                        except (AttributeError, TypeError):
+                            command_prefix = None
 
                     # Check if commands are disabled
                     commands_disabled = False

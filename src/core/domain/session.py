@@ -76,6 +76,7 @@ class SessionState(ValueObject):
     pytest_compression_min_lines: int = 0
     planning_phase_turn_count: int = 0
     planning_phase_file_write_count: int = 0
+    api_key_redaction_enabled: bool | None = None
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -138,6 +139,12 @@ class SessionState(ValueObject):
     def with_planning_phase_file_write_count(self, count: int) -> SessionState:
         """Create a new session state with updated planning phase file write count."""
         return self.model_copy(update={"planning_phase_file_write_count": count})
+
+    def with_api_key_redaction_enabled(
+        self, enabled: bool | None
+    ) -> SessionState:
+        """Create a new session state with updated API key redaction flag."""
+        return self.model_copy(update={"api_key_redaction_enabled": enabled})
 
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
@@ -219,6 +226,30 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         """Set the hello_requested flag on the underlying state."""
         with contextlib.suppress(Exception):
             self._state = self._state.with_hello_requested(value)
+
+    @property
+    def api_key_redaction_enabled(self) -> bool | None:
+        """Get whether API key redaction is enabled for this session."""
+        return getattr(self._state, "api_key_redaction_enabled", None)
+
+    @api_key_redaction_enabled.setter
+    def api_key_redaction_enabled(self, value: bool | None) -> None:
+        """Set the API key redaction flag on the underlying state."""
+        with contextlib.suppress(Exception):
+            self._state = self._state.with_api_key_redaction_enabled(value)
+
+    def with_api_key_redaction_enabled(
+        self, enabled: bool | None
+    ) -> ISessionState:
+        """Create a new session state with updated API key redaction flag."""
+        base_state: SessionState
+        if isinstance(self._state, SessionState):
+            base_state = self._state
+        else:
+            base_state = SessionState.from_dict(self._state.to_dict())
+
+        new_state = base_state.with_api_key_redaction_enabled(enabled)
+        return SessionStateAdapter(new_state)
 
     @property
     def is_cline_agent(self) -> bool:

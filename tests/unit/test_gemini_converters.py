@@ -16,6 +16,7 @@ from src.core.domain.chat import (
 from src.gemini_converters import (
     gemini_to_openai_messages,
     gemini_to_openai_request,
+    gemini_to_openai_stream_chunk,
     openai_to_gemini_contents,
     openai_to_gemini_response,
     openai_to_gemini_stream_chunk,
@@ -105,6 +106,33 @@ class TestMessageConversion:
         )
         assert messages[0].content == expected_content
 
+    def test_gemini_to_openai_function_call(self) -> None:
+        """Function call parts should produce tool calls."""
+        contents = [
+            Content(
+                parts=[
+                    Part(
+                        functionCall={
+                            "name": "get_weather",
+                            "args": {"location": "Paris"},
+                        }
+                    )
+                ],
+                role="model",
+            )
+        ]
+
+        messages = gemini_to_openai_messages(contents)
+
+        assert len(messages) == 1
+        message = messages[0]
+        assert message.role == "assistant"
+        assert message.tool_calls is not None
+        assert len(message.tool_calls) == 1
+        tool_call = message.tool_calls[0]
+        assert tool_call.function.name == "get_weather"
+        assert json.loads(tool_call.function.arguments) == {"location": "Paris"}
+
     def test_openai_to_gemini_simple_message(self) -> None:
         """Test converting OpenAI message to Gemini content."""
         messages = [ChatMessage(role="user", content="Hello!")]
@@ -164,6 +192,44 @@ class TestMessageConversion:
         data = json.loads(payload)
 
         assert data["candidates"][0]["content"]["parts"][0]["text"] == "Hello"
+
+    def test_gemini_stream_chunk_maps_function_call_finish_reason(self) -> None:
+        """Gemini streaming finish reasons should map to OpenAI equivalents."""
+        chunk = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "Done"}]},
+                    "finishReason": "FUNCTION_CALL",
+                    "index": 0,
+                }
+            ]
+        }
+
+        converted = gemini_to_openai_stream_chunk(f"data: {json.dumps(chunk)}\n\n")
+        assert converted.startswith("data: ")
+
+        payload = converted[6:].strip()
+        data = json.loads(payload)
+
+        assert data["choices"][0]["finish_reason"] == "function_call"
+
+    def test_gemini_stream_chunk_maps_safety_finish_reason(self) -> None:
+        """Safety stops should map to OpenAI content_filter finish reason."""
+        chunk = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "Filtered"}]},
+                    "finishReason": "SAFETY",
+                    "index": 0,
+                }
+            ]
+        }
+
+        converted = gemini_to_openai_stream_chunk(f"data: {json.dumps(chunk)}\n\n")
+        payload = converted[6:].strip()
+        data = json.loads(payload)
+
+        assert data["choices"][0]["finish_reason"] == "content_filter"
 
     def test_gemini_request_tools_are_converted(self) -> None:
         """Gemini tool declarations should be translated to OpenAI tool definitions."""
