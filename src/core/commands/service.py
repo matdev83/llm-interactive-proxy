@@ -132,12 +132,12 @@ class NewCommandService(ICommandService):
             if message.role != "user":
                 continue
 
-            content_str = ""
+            raw_content = ""
             if isinstance(message.content, str):
-                content_str = message.content
+                raw_content = message.content
             elif isinstance(message.content, list):
                 # For now, we only look for commands in the first text part.
-                content_str = next(
+                raw_content = next(
                     (
                         part.text
                         for part in message.content
@@ -146,20 +146,28 @@ class NewCommandService(ICommandService):
                     "",
                 )
 
-            # The command service should only ever parse the last line for commands.
-            content_str = self._get_last_non_blank_line_content(content_str)
+            if not raw_content:
+                continue
 
-            parse_result = self.command_parser.parse(content_str)
+            if self.strict_command_detection:
+                content_to_parse = self._get_last_non_blank_line_content(raw_content)
+            else:
+                content_to_parse = raw_content
+
+            if not content_to_parse:
+                continue
+
+            parse_result = self.command_parser.parse(content_to_parse)
             if not parse_result:
                 continue
 
             command, matched_text = parse_result
 
-            # Only execute commands that appear at the END of the message (after trimming)
-            trimmed_content = content_str.rstrip()
-            if not trimmed_content.endswith(matched_text):
-                # Command is not at the end, skip it
-                continue
+            if self.strict_command_detection:
+                # In strict mode the command must appear on the last non-blank line
+                trimmed_content = content_to_parse.rstrip()
+                if not trimmed_content.endswith(matched_text):
+                    continue
 
             # Remove the command from the message content.
             if isinstance(message.content, str):
@@ -181,7 +189,7 @@ class NewCommandService(ICommandService):
                         isinstance(part, models.MessageContentPartText)
                         and matched_text in part.text
                     ):
-                        part.text = part.text.replace(matched_text, "").strip()
+                        part.text = part.text.replace(matched_text, "", 1).strip()
                         if not part.text:
                             message.content.pop(i)
                         break

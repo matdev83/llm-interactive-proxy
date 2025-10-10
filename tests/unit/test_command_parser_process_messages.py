@@ -133,3 +133,54 @@ async def test_process_messages_uses_runtime_command_prefix() -> None:
 
     assert result.command_executed is True
     assert command_parser.command_prefix == "$/"
+
+
+@pytest.mark.asyncio
+async def test_non_strict_mode_detects_command_outside_last_line() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    service = NewCommandService(
+        session_service,
+        command_parser,
+        strict_command_detection=False,
+    )
+    processor = CoreCommandProcessor(service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content="Summary before command\n!/hello\nAdditional explanation after command",
+        )
+    ]
+
+    result = await processor.process_messages(messages, session_id="test-session")
+    assert result.command_executed is True
+    assert result.modified_messages[0].content == (
+        "Summary before command\n\nAdditional explanation after command"
+    )
+
+
+@pytest.mark.asyncio
+async def test_strict_mode_ignores_command_not_on_last_line() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    service = NewCommandService(
+        session_service,
+        command_parser,
+        strict_command_detection=True,
+    )
+    processor = CoreCommandProcessor(service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content="Summary before command\n!/hello\nAdditional explanation after command",
+        )
+    ]
+
+    result = await processor.process_messages(messages, session_id="test-session")
+    assert result.command_executed is False
+    assert (
+        result.modified_messages[0].content
+        == "Summary before command\n!/hello\nAdditional explanation after command"
+    )
