@@ -103,8 +103,8 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_inbound_reply_rewriting_ignores_non_string_content(self):
-        """Ensure non-string replies are forwarded unchanged."""
+    def test_inbound_reply_rewriting_handles_multimodal_content(self):
+        """Ensure text blocks inside multimodal replies are rewritten."""
 
         os.makedirs(os.path.join(self.test_config_dir, "replies", "001"), exist_ok=True)
         with open(
@@ -125,7 +125,11 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                     "message": {
                         "role": "assistant",
                         "content": [
-                            {"type": "text", "text": "This is an original reply."}
+                            {"type": "text", "text": "This is an original reply."},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "https://example.com"},
+                            },
                         ],
                     }
                 }
@@ -160,9 +164,16 @@ class TestContentRewritingMiddleware(unittest.TestCase):
         async def run_test():
             response = await middleware.dispatch(request, call_next)
             new_body = json.loads(response.body)
+            rewritten_blocks = new_body["choices"][0]["message"]["content"]
             self.assertEqual(
-                new_body["choices"][0]["message"]["content"],
-                [{"type": "text", "text": "This is an original reply."}],
+                rewritten_blocks,
+                [
+                    {"type": "text", "text": "This is an rewritten reply."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "https://example.com"},
+                    },
+                ],
             )
 
         import asyncio
