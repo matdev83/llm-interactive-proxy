@@ -4,6 +4,8 @@ Tests for LoopDetector.
 This module provides comprehensive test coverage for the LoopDetector class.
 """
 
+from unittest.mock import Mock
+
 import pytest
 from src.loop_detection.analyzer import LoopDetectionEvent
 from src.loop_detection.config import InternalLoopDetectionConfig
@@ -172,6 +174,37 @@ class TestLoopDetector:
         result = detector.process_chunk("test content")
 
         assert result is None  # Processing should continue despite callback error
+
+    def test_process_chunk_respects_analysis_interval(
+        self, detector: LoopDetector
+    ) -> None:
+        """Ensure expensive analysis is skipped until enough new data arrives."""
+
+        detector.config.analysis_interval = 10
+        mock_ingest = Mock(return_value=True)
+        mock_analyze = Mock(return_value=None)
+        detector.analyzer.ingest_chunk = mock_ingest  # type: ignore[assignment]
+        detector.analyzer.analyze_pending_stream = mock_analyze  # type: ignore[assignment]
+
+        detector.process_chunk("12345")
+        mock_ingest.assert_called_once_with("12345")
+        mock_analyze.assert_called_once()
+        first_processed = detector.total_processed
+        assert detector._last_analysis_position == first_processed
+
+        mock_ingest.reset_mock()
+        mock_analyze.reset_mock()
+        detector.process_chunk("abc")
+        mock_ingest.assert_called_once_with("abc")
+        mock_analyze.assert_not_called()
+        assert detector._last_analysis_position == first_processed
+
+        mock_ingest.reset_mock()
+        mock_analyze.reset_mock()
+        detector.process_chunk("z" * 7)
+        mock_ingest.assert_called_once_with("z" * 7)
+        mock_analyze.assert_called_once()
+        assert detector._last_analysis_position == detector.total_processed
 
     def test_reset_detector(self, detector: LoopDetector) -> None:
         """Test resetting the detector."""
