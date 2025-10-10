@@ -73,3 +73,26 @@ async def test_resolver_uses_configured_default_when_available() -> None:
 
     assert session_id == "pre-set"
     assert context.session_id == "pre-set"
+
+
+@pytest.mark.asyncio
+async def test_resolver_respects_request_provided_session_id_before_default() -> None:
+    class ConfigWithSession:
+        def __init__(self) -> None:
+            self.session = type(
+                "SessionConfig", (), {"default_session_id": "fallback"}
+            )()
+
+    resolver = DefaultSessionResolver(ConfigWithSession())
+
+    context = RequestContext(
+        headers={"x-session-id": "user-123"},
+        cookies={},
+        state={},
+        app_state={},
+    )
+
+    session_id = await resolver.resolve_session_id(context)
+
+    assert session_id == "user-123"
+    assert context.session_id == "user-123"
