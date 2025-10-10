@@ -157,11 +157,17 @@ class TestGeminiCliAcpConnectorProcessManagement:
             await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
         connector._process = mock_process
 
         await connector._kill_process()
 
         mock_process.terminate.assert_called_once()
+        mock_process.stdin.close.assert_called_once()
+        mock_process.stdout.close.assert_called_once()
+        mock_process.stderr.close.assert_called_once()
         assert connector._process is None
 
     async def test_kill_process_force_kill_on_timeout(self, connector, temp_workspace):
@@ -171,12 +177,40 @@ class TestGeminiCliAcpConnectorProcessManagement:
 
         mock_process = MagicMock()
         mock_process.wait.side_effect = subprocess.TimeoutExpired("gemini", 5)
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
         connector._process = mock_process
 
         await connector._kill_process()
 
         mock_process.terminate.assert_called_once()
         mock_process.kill.assert_called_once()
+        mock_process.stdin.close.assert_called_once()
+        mock_process.stdout.close.assert_called_once()
+        mock_process.stderr.close.assert_called_once()
+
+    async def test_spawn_process_failure_closes_streams(
+        self, connector, temp_workspace
+    ):
+        """Process failure should close pipes to avoid leaks."""
+        with patch.object(connector, "_check_gemini_cli_available", return_value=True):
+            await connector.initialize(project_dir=str(temp_workspace))
+
+        mock_process = MagicMock()
+        mock_process.poll.return_value = 1
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
+        mock_process.stderr.read.return_value = b"failure"
+
+        with patch("subprocess.Popen", return_value=mock_process):
+            with pytest.raises(BackendError):
+                await connector._spawn_gemini_cli_process()
+
+        mock_process.stdin.close.assert_called_once()
+        mock_process.stdout.close.assert_called_once()
+        mock_process.stderr.close.assert_called_once()
 
 
 class TestGeminiCliAcpConnectorProjectDirControl:
