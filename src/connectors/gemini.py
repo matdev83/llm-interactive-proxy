@@ -52,12 +52,17 @@ class GeminiBackend(LLMBackend):
     async def initialize(self, **kwargs: Any) -> None:
         """Store configuration for lazy initialization."""
         self.gemini_api_base_url = kwargs.get("gemini_api_base_url")
-        self.key_name = kwargs.get("key_name")
+        configured_key_name = kwargs.get("key_name")
+        if configured_key_name:
+            self.key_name = str(configured_key_name)
+        else:
+            # Default to the standard Google API key header when none is provided.
+            self.key_name = "x-goog-api-key"
         self.api_key = kwargs.get("api_key")
 
-        if not self.gemini_api_base_url or not self.key_name or not self.api_key:
+        if not self.gemini_api_base_url or not self.api_key:
             raise ValueError(
-                "gemini_api_base_url, key_name, and api_key are required for GeminiBackend"
+                "gemini_api_base_url and api_key are required for GeminiBackend"
             )
 
         # Don't make HTTP calls during initialization
