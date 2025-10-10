@@ -43,6 +43,23 @@ class NewCommandService(ICommandService):
         self.strict_command_detection = strict_command_detection
         self._app_state = app_state
 
+    @property
+    def app_state(self) -> IApplicationState | None:
+        """Expose the application state dependency for command handlers."""
+
+        return self._app_state
+
+    def get_app_config(self) -> Any | None:
+        """Return the current application configuration if available."""
+
+        if self._app_state is None:
+            return None
+
+        try:
+            return self._app_state.get_setting("app_config")
+        except Exception:  # pragma: no cover - defensive fallback
+            return getattr(self._app_state, "app_config", None)
+
     def _refresh_command_prefix(self) -> None:
         """Synchronize the parser's prefix with the current application state."""
         if self._app_state is None:
