@@ -3,25 +3,49 @@ from __future__ import annotations
 import json
 
 import pytest
+
+from src.core.domain.chat import ImageURL, MessageContentPartImage
 from src.core.domain.translation import Translation
 
 
 class TestTranslationEdgeCases:
     def test_malformed_json_in_tool_calls(self):
-        """Placeholder to be implemented later."""
-        assert True
+        """Malformed tool JSON should be sanitized to an empty object."""
+
+        broken_arguments = "{'query': 'weather"  # unterminated string literal
+
+        normalized = Translation._normalize_tool_arguments(broken_arguments)
+
+        assert normalized == "{}"
 
     def test_invalid_image_urls(self):
-        """Placeholder to be implemented later."""
-        assert True
+        """Non-http/https image URLs should be rejected for Gemini payloads."""
+
+        invalid_part = MessageContentPartImage(
+            image_url=ImageURL(url="ftp://example.com/image.png")
+        )
+
+        assert Translation._process_gemini_image_part(invalid_part) is None
 
     def test_missing_required_fields(self):
-        """Placeholder to be implemented later."""
-        assert True
+        """Responses payload entries missing a role should default to 'user'."""
+
+        input_payload = [{"content": [{"type": "text", "text": "hello"}]}]
+
+        normalized = Translation._normalize_responses_input_to_messages(
+            input_payload
+        )
+
+        assert normalized == [
+            {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+        ]
 
     def test_streaming_error_conditions(self):
-        """Placeholder to be implemented later."""
-        assert True
+        """Invalid Gemini streaming chunks should return an explicit error payload."""
+
+        result = Translation.gemini_to_domain_stream_chunk("not a dict")
+
+        assert result == {"error": "Invalid chunk format: expected a dictionary"}
 
     @pytest.mark.parametrize(
         "args_input, expected_output_str",
