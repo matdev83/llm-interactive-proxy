@@ -797,6 +797,7 @@ class Translation(BaseTranslator):
             tool_choice = request.get("tool_choice")
             seed = request.get("seed")
             reasoning_effort = request.get("reasoning_effort")
+            reasoning_payload = request.get("reasoning")
         else:
             model = getattr(request, "model", None)
             messages = getattr(request, "messages", [])
@@ -810,6 +811,19 @@ class Translation(BaseTranslator):
             tool_choice = getattr(request, "tool_choice", None)
             seed = getattr(request, "seed", None)
             reasoning_effort = getattr(request, "reasoning_effort", None)
+            reasoning_payload = getattr(request, "reasoning", None)
+
+        if reasoning_effort in ("", None) and isinstance(reasoning_payload, dict):
+            raw_effort = reasoning_payload.get("effort")
+            if isinstance(raw_effort, str) and raw_effort.strip():
+                reasoning_effort = raw_effort
+
+        normalized_reasoning: dict[str, Any] | None = None
+        if reasoning_payload:
+            if isinstance(reasoning_payload, dict):
+                normalized_reasoning = dict(reasoning_payload)
+            elif hasattr(reasoning_payload, "model_dump"):
+                normalized_reasoning = reasoning_payload.model_dump()  # type: ignore[attr-defined]
 
         if not model:
             raise ValueError("Model not found in request")
@@ -835,6 +849,7 @@ class Translation(BaseTranslator):
             tool_choice=tool_choice,
             seed=seed,
             reasoning_effort=reasoning_effort,
+            reasoning=normalized_reasoning,
         )
 
     @staticmethod
@@ -1725,6 +1740,29 @@ class Translation(BaseTranslator):
             payload["tools"] = request.tools
         if request.tool_choice is not None:
             payload["tool_choice"] = request.tool_choice
+
+        # Handle OpenAI reasoning configuration
+        reasoning_payload: dict[str, Any] | None = None
+        if request.reasoning is not None:
+            if isinstance(request.reasoning, dict):
+                reasoning_payload = dict(request.reasoning)
+            elif hasattr(request.reasoning, "model_dump"):
+                reasoning_payload = request.reasoning.model_dump()  # type: ignore[attr-defined]
+
+        effort_value = request.reasoning_effort
+        if isinstance(effort_value, str):
+            normalized_effort = effort_value.strip()
+        else:
+            normalized_effort = effort_value
+
+        if normalized_effort:
+            if reasoning_payload is None:
+                reasoning_payload = {}
+            if "effort" not in reasoning_payload:
+                reasoning_payload["effort"] = effort_value
+
+        if reasoning_payload:
+            payload["reasoning"] = reasoning_payload
 
         # Handle structured output for Responses API
         if request.extra_body and "response_format" in request.extra_body:

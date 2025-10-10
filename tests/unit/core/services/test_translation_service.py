@@ -54,6 +54,34 @@ def test_to_domain_request_openai():
     assert domain_request.messages[0].content == "Hello"
 
 
+def test_to_domain_request_openai_with_reasoning_block():
+    service = TranslationService()
+    openai_request = {
+        "model": "o1-mini",
+        "messages": [{"role": "user", "content": "Explain"}],
+        "reasoning": {"effort": "medium", "max_tokens": 2048},
+    }
+
+    domain_request = service.to_domain_request(openai_request, "openai")
+
+    assert domain_request.reasoning_effort == "medium"
+    assert domain_request.reasoning == {"effort": "medium", "max_tokens": 2048}
+
+
+def test_from_domain_request_openai_includes_reasoning_effort():
+    service = TranslationService()
+    canonical_request = CanonicalChatRequest(
+        model="o1-mini",
+        messages=[ChatMessage(role="user", content="Solve a puzzle")],
+        reasoning_effort="high",
+    )
+
+    payload = service.from_domain_request(canonical_request, "openai")
+
+    assert "reasoning" in payload
+    assert payload["reasoning"]["effort"] == "high"
+
+
 def test_to_domain_response_openai():
     service = TranslationService()
     openai_response = {
