@@ -228,6 +228,7 @@ class TestResponsesApiTranslation:
         assert responses_response["object"] == "response"
         assert responses_response["model"] == "gpt-4"
         assert len(responses_response["choices"]) == 1
+        assert "output" in responses_response
 
         choice_data = responses_response["choices"][0]
         assert choice_data["index"] == 0
@@ -242,6 +243,19 @@ class TestResponsesApiTranslation:
             "email": "john@example.com",
         }
         assert choice_data["finish_reason"] == "stop"
+
+        output_item = responses_response["output"][0]
+        assert output_item["role"] == "assistant"
+        assert output_item["status"] == "completed"
+        assert output_item["content"] == [
+            {
+                "type": "output_text",
+                "text": '{"name": "John Doe", "age": 30, "email": "john@example.com"}',
+            }
+        ]
+        assert responses_response["output_text"] == [
+            '{"name": "John Doe", "age": 30, "email": "john@example.com"}'
+        ]
 
     def test_from_domain_to_responses_response_preserves_tool_calls(self):
         """Tool calls should be surfaced in Responses API payloads."""
@@ -291,6 +305,17 @@ class TestResponsesApiTranslation:
             "total_tokens": 15,
         }
 
+        output_item = responses_response["output"][0]
+        assert output_item["status"] == "requires_action"
+        assert output_item["content"] == [
+            {
+                "type": "tool_call",
+                "id": "call_123",
+                "function": {"name": "attempt_repair", "arguments": '{"status": "ok"}'},
+            }
+        ]
+        assert "output_text" not in responses_response
+
     def test_from_domain_to_responses_response_with_markdown_json(self):
         """Test converting a response with JSON wrapped in markdown code blocks."""
         choice = ChatCompletionChoice(
@@ -318,6 +343,10 @@ class TestResponsesApiTranslation:
         assert choice_data["message"]["content"] == '{"name": "Jane Doe", "age": 25}'
         assert choice_data["message"]["parsed"] == {"name": "Jane Doe", "age": 25}
 
+        output_item = responses_response["output"][0]
+        assert output_item["content"][0]["text"] == '{"name": "Jane Doe", "age": 25}'
+        assert responses_response["output_text"] == ['{"name": "Jane Doe", "age": 25}']
+
     def test_from_domain_to_responses_response_invalid_json(self):
         """Test converting a response with invalid JSON content."""
         choice = ChatCompletionChoice(
@@ -343,6 +372,10 @@ class TestResponsesApiTranslation:
         choice_data = responses_response["choices"][0]
         assert choice_data["message"]["content"] == "This is not valid JSON content"
         assert choice_data["message"]["parsed"] is None
+
+        output_item = responses_response["output"][0]
+        assert output_item["content"][0]["text"] == "This is not valid JSON content"
+        assert responses_response["output_text"] == ["This is not valid JSON content"]
 
     def test_from_domain_to_responses_response_json_in_text(self):
         """Test extracting JSON from mixed text content."""
@@ -370,6 +403,10 @@ class TestResponsesApiTranslation:
         choice_data = responses_response["choices"][0]
         assert choice_data["message"]["content"] == '{"name": "Bob", "age": 35}'
         assert choice_data["message"]["parsed"] == {"name": "Bob", "age": 35}
+
+        output_item = responses_response["output"][0]
+        assert output_item["content"][0]["text"] == '{"name": "Bob", "age": 35}'
+        assert responses_response["output_text"] == ['{"name": "Bob", "age": 35}']
 
     def test_from_domain_to_responses_request_basic(self):
         """Test converting a CanonicalChatRequest to Responses API request format."""
@@ -847,6 +884,9 @@ class TestResponsesApiIntegration:
             "name": "John Doe",
             "age": 30,
         }
+        assert responses_response["output"][0]["content"][0]["text"] == (
+            '{"name": "John Doe", "age": 30}'
+        )
 
     def test_structured_output_enhancement_integration(self):
         """Test integration of structured output enhancement with translation."""
@@ -899,3 +939,5 @@ class TestResponsesApiIntegration:
         assert "name" in parsed
         assert "age" in parsed
         assert isinstance(parsed["age"], int)
+        output_item = responses_response["output"][0]
+        assert output_item["content"][0]["type"] == "output_text"
