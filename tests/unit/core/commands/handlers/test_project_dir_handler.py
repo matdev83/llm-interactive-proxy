@@ -166,6 +166,43 @@ class TestProjectDirCommandHandler:
         mock_state.with_project_dir.assert_called_once_with(None)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("quote", ['"', "'"])
+    async def test_handle_with_quoted_path(
+        self,
+        handler: ProjectDirCommandHandler,
+        mock_state: ISessionState,
+        tmp_path: Path,
+        quote: str,
+    ) -> None:
+        """Quoted directory values should be unwrapped before validation."""
+        quoted_dir = tmp_path / "project with spaces"
+        quoted_dir.mkdir()
+
+        value = f"{quote}{quoted_dir}{quote}"
+        result = handler.handle(value, mock_state)
+
+        assert isinstance(result, CommandHandlerResult)
+        assert result.success is True
+        assert result.message == f"Project directory set to {quoted_dir}"
+        assert result.new_state is mock_state
+
+        mock_state.with_project_dir.assert_called_once_with(str(quoted_dir))
+
+    @pytest.mark.asyncio
+    async def test_handle_with_quoted_empty_string(
+        self, handler: ProjectDirCommandHandler, mock_state: ISessionState
+    ) -> None:
+        """Empty quoted input should behave like an unset command."""
+        result = handler.handle('""', mock_state)
+
+        assert isinstance(result, CommandHandlerResult)
+        assert result.success is True
+        assert result.message == "Project directory unset"
+        assert result.new_state is mock_state
+
+        mock_state.with_project_dir.assert_called_once_with(None)
+
+    @pytest.mark.asyncio
     async def test_handle_with_relative_path(
         self,
         handler: ProjectDirCommandHandler,
