@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -31,6 +32,8 @@ class ToolCallReactorService(IToolCallReactor):
     This service manages a collection of tool call handlers and orchestrates
     their execution when tool calls are detected in LLM responses.
     """
+
+    _MAX_ARGUMENT_SNAPSHOT_BYTES = 16 * 1024
 
     def __init__(self, history_tracker: IToolCallHistoryTracker | None = None) -> None:
         """Initialize the tool call reactor service.
@@ -129,7 +132,9 @@ class ToolCallReactorService(IToolCallReactor):
                 "model_name": context.model_name,
                 "calling_agent": context.calling_agent,
                 "timestamp": timestamp,
-                "tool_arguments": copy.deepcopy(context.tool_arguments),
+                "tool_arguments": self._snapshot_tool_arguments(
+                    context.tool_arguments
+                ),
             }
 
             await self._history_tracker.record_tool_call(
@@ -182,6 +187,57 @@ class ToolCallReactorService(IToolCallReactor):
             List of handler names.
         """
         return list(self._handlers.keys())
+
+    @classmethod
+    def _snapshot_tool_arguments(cls, arguments: Any) -> Any:
+        """Create a bounded snapshot of tool arguments for history tracking."""
+
+        if arguments is None:
+            return None
+
+        if isinstance(arguments, str):
+            encoded = arguments.encode("utf-8", errors="ignore")
+            if len(encoded) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
+                return arguments
+            truncated = encoded[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
+            return {
+                "__truncated__": True,
+                "preview": truncated.decode("utf-8", errors="ignore"),
+                "omitted_bytes": len(encoded) - len(truncated),
+            }
+
+        if isinstance(arguments, (bytes, bytearray)):
+            buffer = bytes(arguments)
+            if len(buffer) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
+                return buffer.decode("utf-8", errors="ignore")
+            truncated = buffer[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
+            return {
+                "__truncated__": True,
+                "preview": truncated.decode("utf-8", errors="ignore"),
+                "omitted_bytes": len(buffer) - len(truncated),
+            }
+
+        try:
+            serialized = json.dumps(arguments, ensure_ascii=False)
+        except (TypeError, ValueError):
+            serialized = repr(arguments)
+
+        encoded = serialized.encode("utf-8", errors="ignore")
+        if len(encoded) > cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
+            truncated = encoded[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
+            return {
+                "__truncated__": True,
+                "preview": truncated.decode("utf-8", errors="ignore"),
+                "omitted_bytes": len(encoded) - len(truncated),
+            }
+
+        try:
+            return copy.deepcopy(arguments)
+        except Exception:
+            try:
+                return json.loads(serialized)
+            except Exception:
+                return serialized
 
 
 class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
