@@ -242,6 +242,7 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
                 text += chunk
             # Check that we get Anthropic streaming format
             assert "content_block_delta" in text or "delta" in text
+            assert "event: message_stop" in text
             mock_process.assert_awaited_once()
 
 

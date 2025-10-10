@@ -556,7 +556,8 @@ def openai_stream_to_anthropic_stream(chunk_data: str) -> str:
 
     try:
         if payload_str.strip() == "[DONE]":
-            return chunk_data  # pass through - not currently asserted on
+            stop_payload = {"type": "message_stop"}
+            return "event: message_stop\n" f"data: {json.dumps(stop_payload)}\n\n"
 
         openai_chunk: dict[str, Any] = json.loads(payload_str)
         choice = openai_chunk.get("choices", [{}])[0]
