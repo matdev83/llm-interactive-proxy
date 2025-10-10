@@ -68,6 +68,7 @@ properties:
       max_age: { type: integer, minimum: 0 }
       default_interactive_mode: { type: boolean }
       force_set_project: { type: boolean }
+      project_dir_resolution_model: { type: ["string", "null"] }
       disable_interactive_commands: { type: boolean }
       tool_call_repair_enabled: { type: boolean }
       json_repair_enabled: { type: boolean }

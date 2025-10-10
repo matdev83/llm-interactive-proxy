@@ -68,6 +68,7 @@ class SessionState(ValueObject):
     )
     project: str | None = None
     project_dir: str | None = None
+    project_dir_resolution_attempted: bool = False
     interactive_just_enabled: bool = False
     hello_requested: bool = False
     is_cline_agent: bool = False
@@ -99,6 +100,14 @@ class SessionState(ValueObject):
     def with_project_dir(self, project_dir: str | None) -> SessionState:
         """Create a new session state with updated project directory."""
         return self.model_copy(update={"project_dir": project_dir})
+
+    def with_project_dir_resolution_attempted(
+        self, attempted: bool
+    ) -> SessionState:
+        """Create a new session state with updated resolution attempt flag."""
+        return self.model_copy(
+            update={"project_dir_resolution_attempted": attempted}
+        )
 
     def with_hello_requested(self, hello_requested: bool) -> SessionState:
         """Create a new session state with updated hello_requested flag."""
@@ -194,6 +203,17 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         """Set the project_dir on the underlying state (mutating adapter)."""
         with contextlib.suppress(Exception):
             self._state = self._state.with_project_dir(value)
+
+    @property
+    def project_dir_resolution_attempted(self) -> bool:
+        """Return whether automatic project directory detection was attempted."""
+        return getattr(self._state, "project_dir_resolution_attempted", False)
+
+    @project_dir_resolution_attempted.setter
+    def project_dir_resolution_attempted(self, value: bool) -> None:
+        """Set the project directory resolution attempted flag."""
+        with contextlib.suppress(Exception):
+            self._state = self._state.with_project_dir_resolution_attempted(value)
 
     @property
     def interactive_mode(self) -> bool:

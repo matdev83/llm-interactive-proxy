@@ -291,6 +291,26 @@ strict_command_detection: true
 - Strict: `I tried !/help but it didn't work` → Command ignored (conversation)
 - Strict: `Some context\n!/help` → Command processed (last line)
 
+- Automatic project directory detection is also available when you want the proxy to set
+  `project_dir` on the very first client prompt.
+
+### Automatic Project Directory Detection
+
+Enable the proxy to inspect the initial user prompt and automatically set the session
+project directory. The proxy calls a dedicated backend/model combination once and never
+exposes the helper model response to the user session.
+
+**Configuration Options** (CLI overrides environment variable and config file):
+
+- **CLI Flag**: `--project-dir-resolution-model BACKEND:MODEL`
+- **Environment Variable**: `PROJECT_DIR_RESOLUTION_MODEL=BACKEND:MODEL`
+- **Config File**: `session.project_dir_resolution_model: "BACKEND:MODEL"`
+
+When enabled, the proxy sends the first user prompt to the specified backend/model with
+strict XML output instructions. If the helper model returns an absolute Windows or Linux
+path, the proxy records it as the session `project_dir` and logs the detected value. If no
+path is detected, the proxy logs the failure and continues without setting a directory.
+
 - Keep your existing tools; just point them to the proxy endpoint.
 - The proxy handles streaming, retries/failover (if enabled), and output repair.
 

@@ -21,6 +21,9 @@ from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.services.project_directory_resolution_service import (
+    ProjectDirectoryResolutionService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,7 @@ class RequestProcessor(IRequestProcessor):
         backend_request_manager: IBackendRequestManager,
         response_manager: IResponseManager,
         app_state: IApplicationState | None = None,
+        project_dir_resolution_service: ProjectDirectoryResolutionService | None = None,
     ) -> None:
         """Initialize the request processor with decomposed services."""
         self._command_processor = command_processor
@@ -42,6 +46,7 @@ class RequestProcessor(IRequestProcessor):
         self._backend_request_manager = backend_request_manager
         self._response_manager = response_manager
         self._app_state = app_state
+        self._project_dir_resolution_service = project_dir_resolution_service
 
     async def process_request(
         self, context: RequestContext, request_data: Any
@@ -59,6 +64,18 @@ class RequestProcessor(IRequestProcessor):
         session = await self._session_manager.update_session_agent(
             session, request_data.agent
         )
+
+        if self._project_dir_resolution_service is not None:
+            try:
+                await self._project_dir_resolution_service.maybe_resolve_project_directory(
+                    session, request_data
+                )
+            except Exception:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Project directory auto-detection failed during request handling",
+                        exc_info=True,
+                    )
 
         logger.debug(f"Resolved session_id: {session_id}")
         logger.debug(

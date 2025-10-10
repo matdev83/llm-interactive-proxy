@@ -27,6 +27,13 @@
   - **Comprehensive Testing**: Added 13 unit tests covering all command detection scenarios and edge cases
   - **Documentation**: Updated README with detailed usage examples and behavior comparisons
 
+- **Feature**: Automatic project directory detection driven by a dedicated helper model
+  - **One-Time Analysis**: On the first user prompt the proxy can call a configured backend:model to infer an absolute project directory
+  - **Strict Output Contract**: Helper model must respond with XML describing the directory or an error; the proxy validates paths for Windows and Linux formats before applying them
+  - **Configuration Options**: CLI flag (`--project-dir-resolution-model BACKEND:MODEL`), environment variable (`PROJECT_DIR_RESOLUTION_MODEL`), and config entry (`session.project_dir_resolution_model`)
+  - **Isolated Execution**: The helper model response stays out of the user session, and results are surfaced via INFO-level diagnostics only
+  - **Testing**: Added unit tests for successful resolution, invalid responses, and disabled configuration paths
+
 - **Feature**: Added pytest execution agent steering to prevent agents from running entire test suites inadvertently
   - **Intelligent Detection**: Automatically detects when agents attempt to run full pytest suites without specific file, directory, or node selectors
   - **Steering Behavior**: First matching command in a session is intercepted and replaced with a helpful steering message encouraging selective test execution
