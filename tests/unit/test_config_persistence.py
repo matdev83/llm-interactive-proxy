@@ -144,6 +144,18 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch, functional_backend: st
     monkeypatch.delenv("LLM_BACKEND", raising=False)
 
 
+def test_load_rejects_non_object_json(tmp_path):
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text("[]", encoding="utf-8")
+
+    manager = ConfigManager(FastAPI(), str(cfg_path))
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        manager.load()
+
+    assert "JSON object" in str(exc_info.value)
+
+
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
