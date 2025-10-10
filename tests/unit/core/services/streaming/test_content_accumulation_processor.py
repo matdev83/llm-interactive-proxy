@@ -133,3 +133,19 @@ async def test_content_accumulation_processor_empty_initial_stream(
     # Assert
     assert processed_final_chunk.content == ""
     assert processed_final_chunk.is_done is True
+
+
+@pytest.mark.asyncio
+async def test_content_accumulation_processor_reset_method_clears_buffer(
+    content_accumulation_processor,
+):
+    chunk = StreamingContent(content="stale")
+    await content_accumulation_processor.process(chunk)
+
+    content_accumulation_processor.reset()
+
+    final_chunk = StreamingContent(content="fresh", is_done=True)
+    processed_final_chunk = await content_accumulation_processor.process(final_chunk)
+
+    assert processed_final_chunk.content == "fresh"
+    assert processed_final_chunk.is_done is True

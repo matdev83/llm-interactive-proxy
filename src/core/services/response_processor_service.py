@@ -243,6 +243,20 @@ class ResponseProcessor(IResponseProcessor):
         if self._loop_detector is not None:
             self._loop_detector.reset()
 
+        # Ensure stream processors start clean for each streaming request so
+        # buffered content from previous sessions cannot leak forward.
+        if self._stream_normalizer is not None:
+            reset_method = getattr(self._stream_normalizer, "reset", None)
+            if callable(reset_method):
+                try:
+                    reset_method()
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to reset stream normalizer state: %s",
+                        exc,
+                        exc_info=True,
+                    )
+
         # For the basic streaming tests without a mock normalizer, we need to handle
         # the raw chunks directly
         if self._stream_normalizer is None:

@@ -21,6 +21,7 @@ from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 
 @pytest.fixture
@@ -55,6 +56,7 @@ def mock_stream_normalizer() -> AsyncMock:
     """Fixture for a mock stream normalizer."""
     normalizer = AsyncMock(spec=IStreamNormalizer)
     normalizer.process_stream.return_value = AsyncMock()
+    normalizer.reset = MagicMock()
     return normalizer
 
 
@@ -246,6 +248,32 @@ class TestResponseProcessor:
         mock_stream_normalizer.process_stream.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_process_streaming_response_resets_normalizer(
+        self, response_processor: ResponseProcessor, mock_stream_normalizer: AsyncMock
+    ) -> None:
+        """Ensure the stream normalizer state is reset before each stream."""
+
+        async def mock_stream_generator() -> AsyncGenerator[StreamingContent, None]:
+            if False:  # pragma: no cover - generator requires a yield
+                yield StreamingContent(content="", is_done=True)
+
+        mock_stream_normalizer.process_stream.return_value = mock_stream_generator()
+
+        async def empty_request_stream() -> AsyncGenerator[StreamingChatResponse, None]:
+            if False:  # pragma: no cover - generator requires a yield
+                yield StreamingChatResponse(content="", model="test")
+
+        _ = [
+            chunk
+            async for chunk in response_processor.process_streaming_response(
+                empty_request_stream(),
+                "session123",
+            )
+        ]
+
+        mock_stream_normalizer.reset.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_process_streaming_response_error_handling(
         self, response_processor: ResponseProcessor, mock_stream_normalizer: AsyncMock
     ) -> None:
@@ -371,3 +399,48 @@ class TestResponseProcessor:
         assert len(processed_responses) == 2
         assert processed_responses[0].content == "123"
         assert processed_responses[1].content == "['list', 'chunk']"
+
+    @pytest.mark.asyncio
+    async def test_streaming_reset_prevents_content_leak_between_requests(
+        self,
+        mock_response_parser: MagicMock,
+        mock_middleware_application_manager: AsyncMock,
+    ) -> None:
+        """Ensure buffered content from an incomplete stream does not leak forward."""
+
+        content_processor = ContentAccumulationProcessor()
+        stream_normalizer = StreamNormalizer([content_processor])
+        processor = ResponseProcessor(
+            response_parser=mock_response_parser,
+            middleware_application_manager=mock_middleware_application_manager,
+            loop_detector=None,
+            stream_normalizer=stream_normalizer,
+            middleware_list=[],
+        )
+
+        async def first_stream() -> AsyncGenerator[dict[str, Any], None]:
+            yield {"choices": [{"delta": {"content": "stale"}}], "done": False}
+
+        async def second_stream() -> AsyncGenerator[dict[str, Any], None]:
+            yield {"choices": [{"delta": {"content": "fresh"}}], "done": True}
+
+        # Exhaust the first stream which stops without emitting an is_done chunk
+        _ = [
+            chunk
+            async for chunk in processor.process_streaming_response(
+                first_stream(),
+                "session-one",
+            )
+        ]
+
+        # The second stream should not include content from the first stream
+        second_results = [
+            chunk
+            async for chunk in processor.process_streaming_response(
+                second_stream(),
+                "session-two",
+            )
+        ]
+
+        assert len(second_results) == 1
+        assert second_results[0].content == "fresh"
