@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import math
+import time
 from typing import Any
 
 from fastapi import Request
-from src.core.common.exceptions import LLMProxyError
+from src.core.common.exceptions import LLMProxyError, RateLimitExceededError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
@@ -38,7 +40,12 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
                 self._logger.error("Domain error: %s", e, exc_info=True)
             content = e.to_dict()
             status_code = int(getattr(e, "status_code", 500))
-            return JSONResponse(content=content, status_code=status_code)
+            headers = _build_retry_after_header(
+                getattr(e, "reset_at", None) if isinstance(e, RateLimitExceededError) else None
+            )
+            return JSONResponse(
+                content=content, status_code=status_code, headers=headers
+            )
         except Exception as e:  # Fallback for unexpected errors
             self._logger.error("Unhandled exception: %s", e, exc_info=True)
             return JSONResponse(
@@ -50,3 +57,20 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
                 },
                 status_code=500,
             )
+
+
+def _build_retry_after_header(reset_at: float | int | None) -> dict[str, str] | None:
+    """Compute a Retry-After header based on a reset timestamp."""
+
+    if reset_at is None:
+        return None
+
+    # Allow ints for compatibility with callers; cast to float for math ops
+    reset_at_float = float(reset_at)
+    now = time.time()
+    delay_seconds = max(0.0, reset_at_float - now)
+
+    if delay_seconds <= 0:
+        return {"Retry-After": "0"}
+
+    return {"Retry-After": str(int(math.ceil(delay_seconds)))}
