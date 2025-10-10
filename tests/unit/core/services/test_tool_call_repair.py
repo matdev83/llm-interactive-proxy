@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator  # Added import
 import pytest
 from pytest_mock import MockerFixture
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.domain.streaming_content import StreamingContent
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
@@ -150,3 +151,22 @@ class TestStreamingToolCallRepairProcessor:
         )
         assert actual_calls[2].content == "World."
         assert actual_calls[3].is_done is True and actual_calls[3].content == ""
+
+
+class TestToolCallRepairProcessorBuffering:
+    @pytest.mark.asyncio
+    async def test_enforces_buffer_cap(self) -> None:
+        service = ToolCallRepairService(max_buffer_bytes=12)
+        processor = ToolCallRepairProcessor(service, max_buffer_bytes=12)
+
+        first = await processor.process(StreamingContent(content="A" * 8))
+        assert first.content == ""
+
+        second = await processor.process(StreamingContent(content="B" * 8))
+        assert second.content == "AAAA"
+
+        third = await processor.process(StreamingContent(content="C" * 4))
+        assert third.content == "AAAA"
+
+        final = await processor.process(StreamingContent(content="", is_done=True))
+        assert final.content == "BBBBBBBBCCCC"
