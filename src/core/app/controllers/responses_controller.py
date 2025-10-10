@@ -953,8 +953,17 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
                         agent_response_formatter = AgentResponseFormatter()
 
                     session_manager = SessionManager(concrete_session, session_resolver)
+
+                    from src.core.interfaces.wire_capture_interface import (
+                        IWireCapture,
+                    )
+
+                    wire_capture = service_provider.get_service(IWireCapture)  # type: ignore[type-abstract]
+
                     backend_request_manager = BackendRequestManager(
-                        backend_processor, concrete_response_proc
+                        backend_processor,
+                        concrete_response_proc,
+                        wire_capture=wire_capture,
                     )
                     response_manager = ResponseManager(agent_response_formatter)
 
