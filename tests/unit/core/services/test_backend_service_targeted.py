@@ -220,6 +220,33 @@ class TestBackendServiceTargeted:
             assert response.content["model"] == "test-model"
 
     @pytest.mark.asyncio
+    async def test_gemini_cli_acp_backends_are_session_scoped(self):
+        """Gemini CLI ACP connector instances should not leak across sessions."""
+
+        service = create_backend_service()
+
+        backend_one = MockBackend(httpx.AsyncClient())
+        backend_two = MockBackend(httpx.AsyncClient())
+
+        ensure_mock = AsyncMock(side_effect=[backend_one, backend_two])
+
+        with patch.object(service._factory, "ensure_backend", ensure_mock):
+            resolved_one = await service._get_or_create_backend(
+                "gemini-cli-acp", session_id="session-1"
+            )
+            resolved_again = await service._get_or_create_backend(
+                "gemini-cli-acp", session_id="session-1"
+            )
+            resolved_two = await service._get_or_create_backend(
+                "gemini-cli-acp", session_id="session-2"
+            )
+
+        assert resolved_one is backend_one
+        assert resolved_again is backend_one
+        assert resolved_two is backend_two
+        assert ensure_mock.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_chat_completions_forwards_control_flags(self):
         """Ensure chat_completions forwards failover and context to call_completion."""
 
