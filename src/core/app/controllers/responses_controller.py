@@ -725,13 +725,43 @@ class ResponsesController:
             if not isinstance(required, list):
                 raise ValueError("Required field must be a list")
 
-            if "object" in schema_types and "properties" in schema:
+            if "object" in schema_types and isinstance(
+                schema.get("properties"), dict
+            ):
                 properties = schema["properties"]
+                composition_keywords = {
+                    "allOf",
+                    "anyOf",
+                    "oneOf",
+                    "$ref",
+                    "if",
+                    "then",
+                    "else",
+                    "dependentSchemas",
+                    "dependencies",
+                }
+                pattern_properties = schema.get("patternProperties")
+                additional_properties = schema.get("additionalProperties")
+
                 for req_field in required:
-                    if req_field not in properties:
-                        raise ValueError(
-                            f"Required field '{req_field}' not found in properties"
-                        )
+                    if req_field in properties:
+                        continue
+
+                    if any(keyword in schema for keyword in composition_keywords):
+                        continue
+
+                    if isinstance(pattern_properties, dict) and pattern_properties:
+                        continue
+
+                    if additional_properties in (True, False):
+                        if additional_properties is True:
+                            continue
+                    elif isinstance(additional_properties, dict) and additional_properties:
+                        continue
+
+                    raise ValueError(
+                        f"Required field '{req_field}' not found in properties"
+                    )
 
         # Validate enum if present
         if "enum" in schema:
