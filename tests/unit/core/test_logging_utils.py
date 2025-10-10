@@ -53,7 +53,8 @@ class TestRedaction:
 
         result = redact_dict(data)
 
-        assert result["api_key"] != "sk_12345678"  # Redacted
+        # Ensure the sensitive value is no longer the original string
+        assert result["api_key"] != data["api_key"]  # Redacted
         assert result["name"] == "test"  # Not redacted
         assert result["config"]["password"] != "secret123"  # Redacted
         assert result["config"]["public"] == "public_value"  # Not redacted
