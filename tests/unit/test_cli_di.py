@@ -80,12 +80,12 @@ def test_configuration_precedence(
 
 
 def test_cli_interactive_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
+    monkeypatch.delenv("DEFAULT_INTERACTIVE_MODE", raising=False)
     args = parse_cli_args(["--disable-interactive-mode"])
     cfg = apply_cli_args(args)
-    assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
+    assert os.environ["DEFAULT_INTERACTIVE_MODE"] == "false"
     assert cfg.session.default_interactive_mode is False
-    monkeypatch.delenv("DISABLE_INTERACTIVE_MODE", raising=False)
+    monkeypatch.delenv("DEFAULT_INTERACTIVE_MODE", raising=False)
 
 
 def test_cli_redaction_flag(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -102,7 +102,7 @@ def test_cli_redaction_flag(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
     args = parse_cli_args(["--disable-interactive-mode"])
     cfg = apply_cli_args(args)
-    assert os.environ["DISABLE_INTERACTIVE_MODE"] == "True"
+    assert os.environ["DEFAULT_INTERACTIVE_MODE"] == "false"
     assert cfg.session.default_interactive_mode is False
 
 
