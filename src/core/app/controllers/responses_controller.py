@@ -224,6 +224,19 @@ class ResponsesController:
                                 chunk_metadata = chunk.metadata or {}
                                 if isinstance(chunk.content, dict):
                                     chunk_payload = chunk.content
+                            elif isinstance(chunk, (bytes, bytearray, memoryview)):
+                                raw_bytes = bytes(chunk)
+                                chunk_content = raw_bytes.decode(
+                                    "utf-8", errors="replace"
+                                )
+                                candidate = chunk_content.strip()
+                                if candidate.startswith("data:"):
+                                    candidate = candidate[5:].lstrip()
+                                if candidate.startswith("{") and candidate.endswith("}"):
+                                    with contextlib.suppress(ValueError, TypeError):
+                                        parsed = json.loads(candidate)
+                                        if isinstance(parsed, dict):
+                                            chunk_payload = parsed
                             elif isinstance(chunk, dict):
                                 chunk_content = str(chunk.get("content", ""))
                                 chunk_metadata = chunk.get("metadata", {}) or {}
