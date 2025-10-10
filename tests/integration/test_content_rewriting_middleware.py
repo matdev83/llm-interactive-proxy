@@ -244,6 +244,121 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_request_rewriting_responses_instructions_string(self):
+        """Ensure Responses API instructions strings are rewritten."""
+
+        rewriter = ContentRewriterService(config_path=self.test_config_dir)
+        middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+        request_payload = {
+            "instructions": "original system guidance",  # matches rule in setUp
+            "input": "user input",
+        }
+
+        async def call_next(request):
+            data = await request.json()
+            self.assertEqual(data["instructions"], "rewritten system guidance")
+            return Response(
+                content=json.dumps({"ok": True}), media_type="application/json"
+            )
+
+        async def receive():
+            return {
+                "type": "http.request",
+                "body": json.dumps(request_payload).encode("utf-8"),
+                "more_body": False,
+            }
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "headers": Headers({"content-type": "application/json"}).raw,
+                "http_version": "1.1",
+                "server": ("testserver", 80),
+                "client": ("testclient", 123),
+                "scheme": "http",
+                "root_path": "",
+                "path": "/test",
+                "raw_path": b"/test",
+                "query_string": b"",
+            },
+            receive=receive,
+        )
+
+        async def run_test():
+            response = await middleware.dispatch(request, call_next)
+            self.assertEqual(response.status_code, 200)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_request_rewriting_responses_instructions_blocks(self):
+        """Ensure Responses API instruction content blocks are rewritten."""
+
+        rewriter = ContentRewriterService(config_path=self.test_config_dir)
+        middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+        request_payload = {
+            "instructions": [
+                {"type": "text", "text": "original system guidance"},
+                {"type": "image", "image_url": {"url": "https://example.com"}},
+            ],
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "This should remain unchanged."}
+                    ],
+                }
+            ],
+        }
+
+        async def call_next(request):
+            data = await request.json()
+            instructions = data["instructions"]
+            self.assertIsInstance(instructions, list)
+            self.assertEqual(instructions[0]["text"], "rewritten system guidance")
+            self.assertEqual(
+                instructions[1]["image_url"]["url"], "https://example.com"
+            )
+            return Response(
+                content=json.dumps({"ok": True}), media_type="application/json"
+            )
+
+        async def receive():
+            return {
+                "type": "http.request",
+                "body": json.dumps(request_payload).encode("utf-8"),
+                "more_body": False,
+            }
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "headers": Headers({"content-type": "application/json"}).raw,
+                "http_version": "1.1",
+                "server": ("testserver", 80),
+                "client": ("testclient", 123),
+                "scheme": "http",
+                "root_path": "",
+                "path": "/test",
+                "raw_path": b"/test",
+                "query_string": b"",
+            },
+            receive=receive,
+        )
+
+        async def run_test():
+            response = await middleware.dispatch(request, call_next)
+            self.assertEqual(response.status_code, 200)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_outbound_prompt_rewriting(self):
         """Verify that outbound prompts are rewritten correctly."""
 
