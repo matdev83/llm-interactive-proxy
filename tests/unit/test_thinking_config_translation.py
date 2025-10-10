@@ -5,6 +5,8 @@ Gemini uses thinkingBudget (integer for max tokens) not reasoning_effort (string
 Based on gemini-cli reference: dev/thrdparty/gemini-cli-new/packages/core/src/config/models.ts
 """
 
+import pytest
+
 from src.core.domain.chat import ChatRequest
 from src.core.services.translation_service import TranslationService
 
@@ -114,25 +116,24 @@ class TestThinkingConfigTranslation:
             assert isinstance(budget, int)
 
 
-def test_thinking_config_documentation() -> None:
-    """Document the thinkingConfig parameter based on gemini-cli source.
+def test_cli_thinking_budget_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure THINKING_BUDGET env var overrides reasoning_effort mapping."""
 
-    Source: dev/thrdparty/gemini-cli-new/packages/core/src/config/models.ts
+    service = TranslationService()
 
-    Key findings:
-    - Gemini uses thinkingBudget (integer) not reasoning_effort (string)
-    - -1 = DEFAULT_THINKING_MODE (dynamic, let model decide)
-    - 0 = no thinking
-    - >0 = max thinking tokens
-    - includeThoughts: true to include reasoning in output
+    request = ChatRequest(
+        model="gemini-2.5-pro",
+        messages=[{"role": "user", "content": "test"}],
+        reasoning_effort="low",  # Would map to 512 without override
+    )
 
-    Usage in gemini-cli:
-    ```typescript
-    config.thinkingConfig = {
-      includeThoughts: true,
-      thinkingBudget: DEFAULT_THINKING_MODE,  // -1
-    };
-    ```
-    """
-    # This test documents the correct API structure
-    assert True
+    monkeypatch.setenv("THINKING_BUDGET", "8192")
+
+    gemini_request = service.from_domain_to_gemini_request(request)
+
+    generation_config = gemini_request.get("generationConfig", {})
+    thinking_config = generation_config.get("thinkingConfig")
+
+    assert thinking_config is not None, "Expected thinkingConfig when override is set"
+    assert thinking_config["thinkingBudget"] == 8192
+    assert thinking_config["includeThoughts"] is True
