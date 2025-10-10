@@ -250,6 +250,67 @@ async def test_wrap_inbound_stream(structured_wire_capture):
         assert stream_end["metadata"]["byte_count"] == total_bytes
 
 
+@pytest.mark.asyncio
+async def test_wrap_inbound_stream_does_not_store_all_chunks(
+    structured_wire_capture,
+):
+    """Ensure stream wrapper does not keep references to every chunk."""
+
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        client_host="127.0.0.1",
+        session_id="test-session",
+        agent="test-agent",
+    )
+
+    class GeneratingStream:
+        def __init__(self, count: int) -> None:
+            self.count = count
+            self.index = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self.index >= self.count:
+                raise StopAsyncIteration
+            self.index += 1
+            return f"chunk-{self.index}".encode()
+
+    wrapped_stream = structured_wire_capture.wrap_inbound_stream(
+        context=context,
+        session_id="test-session",
+        backend="openai",
+        model="gpt-4",
+        key_name="OPENAI_API_KEY",
+        stream=GeneratingStream(2),
+    )
+
+    iterator = wrapped_stream.__aiter__()
+    frame = getattr(iterator, "ag_frame", None)
+    if frame is None:
+        pytest.skip("Python runtime does not expose async generator frames")
+
+    # Ensure no all_chunks local is created for buffering
+    assert "all_chunks" not in frame.f_locals
+
+    first_chunk = await iterator.__anext__()
+    assert first_chunk == b"chunk-1"
+
+    frame = getattr(iterator, "ag_frame", None)
+    if frame is not None:
+        assert "all_chunks" not in frame.f_locals
+        assert frame.f_locals.get("total_bytes") == len(first_chunk)
+
+    second_chunk = await iterator.__anext__()
+    assert second_chunk == b"chunk-2"
+
+    with pytest.raises(StopAsyncIteration):
+        await iterator.__anext__()
+
 def test_extract_system_prompt(structured_wire_capture):
     """Test system prompt extraction from different formats."""
     # OpenAI format
