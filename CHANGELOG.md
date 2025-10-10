@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2025-10-06 - Various Improvements
 
 - **Feature**: Added Model Name Rewrites system for dynamic model name transformation
   - **Powerful Regex Engine**: Transform model names using Python regular expressions with capture group support

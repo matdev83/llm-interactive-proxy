@@ -1,4 +1,5 @@
 import logging
+from collections import deque
 
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
@@ -23,9 +24,9 @@ class ContentAccumulationProcessor(IStreamProcessor):
 
         Args:
             max_buffer_bytes: Maximum buffer size in bytes (default: 10MB).
-                If exceeded, the buffer is truncated to keep only the most recent content.
         """
-        self._buffer = ""
+        self._buffer: deque[str] = deque()
+        self._buffer_byte_length = 0
         self._max_buffer_bytes = max_buffer_bytes
         self._truncation_logged = False
 
@@ -42,34 +43,30 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 raw_data=content.raw_data,
             )
 
-        self._buffer += content.content
+        # Add content to buffer and update byte length incrementally
+        if content.content:
+            self._buffer.append(content.content)
+            self._buffer_byte_length += len(content.content.encode("utf-8"))
 
         # Enforce buffer size limit to prevent unbounded memory growth
-        buffer_size = len(self._buffer.encode("utf-8"))
-        if buffer_size > self._max_buffer_bytes:
+        if self._buffer_byte_length > self._max_buffer_bytes:
             if not self._truncation_logged:
                 logger.warning(
                     f"ContentAccumulationProcessor buffer exceeded {self._max_buffer_bytes} bytes "
-                    f"(current: {buffer_size} bytes). Truncating to most recent content to prevent memory leak."
+                    f"(current: {self._buffer_byte_length} bytes). Truncating to most recent content to prevent memory leak."
                 )
                 self._truncation_logged = True
 
-            # Keep only the most recent content that fits within the limit
-            # Use a sliding window approach: keep the tail of the buffer
-            excess_bytes = buffer_size - self._max_buffer_bytes
-            # Estimate characters to remove (approximate, as UTF-8 can be 1-4 bytes per char)
-            chars_to_remove = max(1, excess_bytes // 2)  # Conservative estimate
-            self._buffer = self._buffer[chars_to_remove:]
-
-            # Verify we're now under the limit, if not, be more aggressive
-            while len(self._buffer.encode("utf-8")) > self._max_buffer_bytes:
-                # Remove 10% more characters
-                chars_to_remove = max(1, len(self._buffer) // 10)
-                self._buffer = self._buffer[chars_to_remove:]
+            # Remove chunks from the left until we're under the limit
+            while self._buffer and self._buffer_byte_length > self._max_buffer_bytes:
+                removed_chunk = self._buffer.popleft()
+                self._buffer_byte_length -= len(removed_chunk.encode("utf-8"))
 
         if content.is_done:
-            final_content = self._buffer
-            self._buffer = ""
+            # Join all buffer chunks into final content
+            final_content = "".join(self._buffer)
+            self._buffer.clear()
+            self._buffer_byte_length = 0
             self._truncation_logged = False  # Reset for next stream
             return StreamingContent(
                 content=final_content,

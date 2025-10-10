@@ -175,7 +175,8 @@ class StructuredOutputMiddleware(IResponseMiddleware):
 
         except Exception as e:
             logger.error(
-                f"Unexpected error in structured output middleware for session {session_id}: {e}"
+                f"Unexpected error in structured output middleware for session {session_id}: {e}",
+                exc_info=True,
             )
 
             # Add error information to the response metadata
@@ -202,7 +203,10 @@ class StructuredOutputMiddleware(IResponseMiddleware):
                     metadata=metadata,
                 )
 
-            # Always return the original response for unexpected errors
+            if strict_validation:
+                raise
+
+            # Always return the original response for unexpected errors in non-strict mode
             return response
 
     def _extract_content(self, response: Any) -> str | None:

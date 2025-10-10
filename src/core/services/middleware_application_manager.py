@@ -75,12 +75,12 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
 
     async def _apply_non_streaming_middleware(
         self,
-        content: str,
+        content: Any,
         middleware_list: list[IResponseMiddleware],
         stop_event: Any = None,
         session_id: str = "",
         context: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> Any:
         processed_response = ProcessedResponse(content=content, usage=None, metadata={})
 
         base_context: dict[str, Any] = {"stop_event": stop_event}
@@ -107,7 +107,7 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         content_value = processed_response.content
         if content_value is None:
             return ""
-        return str(content_value)
+        return content_value
 
     async def _apply_streaming_middleware(
         self,

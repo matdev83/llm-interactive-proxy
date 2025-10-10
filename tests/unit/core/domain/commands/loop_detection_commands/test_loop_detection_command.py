@@ -106,8 +106,11 @@ def test_command_metadata_describes_loop_detection() -> None:
         ("YeS", True),
         ("1", True),
         ("on", True),
+        (True, True),
+        (" true ", True),
         ("0", False),
         ("no", False),
+        (" Off ", False),
         (False, False),
     ],
 )

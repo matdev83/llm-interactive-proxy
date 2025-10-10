@@ -17,6 +17,8 @@ from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatMessage,
+    FunctionCall,
+    ToolCall,
 )
 from src.core.domain.responses_api import (
     JsonSchema,
@@ -175,6 +177,28 @@ class TestResponsesApiTranslation:
         assert domain_chunk["choices"][0]["finish_reason"] == "stop"
         assert domain_chunk["choices"][0]["delta"] == {}
 
+    def test_to_domain_stream_chunk_responses_normalizes_content(self):
+        """Responses stream chunks with content lists should flatten to strings."""
+
+        sse_chunk = (
+            'data: {"id": "resp-1", "object": "response.chunk", '
+            '"model": "gpt-4", "choices": [{"index": 0, "delta": '
+            '{"content": [{"type": "output_text", "text": "Hello"}, '
+            '{"type": "output_text", "text": " world"}], '
+            '"tool_calls": [{"id": "call_1", "type": "function", '
+            '"function": {"name": "foo", "arguments": {"value": 1}}}]}}]}\n\n'
+        )
+
+        domain_chunk = self.service.to_domain_stream_chunk(
+            sse_chunk, "openai-responses"
+        )
+
+        delta = domain_chunk["choices"][0]["delta"]
+        assert delta["content"] == "Hello world"
+        tool_calls = delta.get("tool_calls")
+        assert isinstance(tool_calls, list) and tool_calls
+        assert tool_calls[0]["function"]["arguments"] == '{"value": 1}'
+
     def test_from_domain_to_responses_response_basic(self):
         """Test converting a ChatResponse to Responses API response format."""
         # Create a sample ChatResponse
@@ -219,10 +243,52 @@ class TestResponsesApiTranslation:
         }
         assert choice_data["finish_reason"] == "stop"
 
+    def test_from_domain_to_responses_response_preserves_tool_calls(self):
+        """Tool calls should be surfaced in Responses API payloads."""
+        function_call = FunctionCall(
+            name="attempt_repair", arguments='{"status": "ok"}'
+        )
+        tool_call = ToolCall(id="call_123", function=function_call)
+
+        choice = ChatCompletionChoice(
+            index=0,
+            message=ChatCompletionChoiceMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[tool_call],
+            ),
+            finish_reason="tool_calls",
+        )
+
+        chat_response = CanonicalChatResponse(
+            id="resp-tool-123",
+            object="chat.completion",
+            created=int(time.time()),
+            model="gpt-4",
+            choices=[choice],
+            usage={"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15},
+        )
+
+        responses_response = self.service.from_domain_to_responses_response(
+            chat_response
+        )
+
+        choice_payload = responses_response["choices"][0]
+        message_payload = choice_payload["message"]
+
+        assert message_payload["content"] is None
+        assert choice_payload["finish_reason"] == "tool_calls"
+        tool_payloads = message_payload.get("tool_calls")
+        assert isinstance(tool_payloads, list) and tool_payloads
+        first_tool = tool_payloads[0]
+        assert first_tool["id"] == "call_123"
+        assert first_tool["function"]["name"] == "attempt_repair"
+        assert first_tool["function"]["arguments"] == '{"status": "ok"}'
+
         assert responses_response["usage"] == {
-            "prompt_tokens": 10,
-            "completion_tokens": 20,
-            "total_tokens": 30,
+            "prompt_tokens": 5,
+            "completion_tokens": 10,
+            "total_tokens": 15,
         }
 
     def test_from_domain_to_responses_response_with_markdown_json(self):

@@ -142,10 +142,18 @@ def get_service_collection() -> ServiceCollection:
         # order-dependent failures. register_core_services is idempotent.
         try:
             register_core_services(_service_collection, None)
-        except Exception:
+        except Exception as exc:
             logging.getLogger(__name__).exception(
                 "Failed to register core services into global service collection"
             )
+            _service_collection = None
+            raise ServiceResolutionError(
+                "Failed to register core services",
+                details={
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            ) from exc
     return _service_collection
 
 
@@ -324,10 +332,12 @@ def register_core_services(
         session_service = provider.get_required_service(SessionService)
         command_parser = provider.get_required_service(CommandParser)
         config = provider.get_required_service(AppConfig)
+        app_state = provider.get_service(IApplicationState)
         return NewCommandService(
             session_service,
             command_parser,
             strict_command_detection=config.strict_command_detection,
+            app_state=app_state,
         )
 
     # Register CommandService and bind to interface

@@ -139,9 +139,14 @@ class BackendService(IBackendService):
                 if not pattern or not replacement:
                     continue
 
-                if re.match(pattern, model):
-                    # Use re.sub for proper replacement with capture groups
-                    new_model = re.sub(pattern, replacement, model)
+                # Anchor patterns to the start of the string by default to
+                # preserve the historical behaviour of ``re.match`` while
+                # still honoring any explicit anchors provided in the
+                # configuration.
+                match = re.match(pattern, model)
+                if match:
+                    # Use match.expand to honor capture groups regardless of match span
+                    new_model = match.expand(replacement)
                     logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
                     return new_model
             except (re.error, AttributeError, TypeError) as e:
@@ -151,6 +156,37 @@ class BackendService(IBackendService):
                 continue
 
         return model
+
+    @staticmethod
+    def _stream_as_sse_bytes(
+        it: Any,
+    ) -> Any:
+        """Adapt a stream of domain chunks into SSE-encoded bytes.
+
+        Accepts an async iterator that may yield ProcessedResponse, dict, str, or bytes
+        and produces an async iterator of bytes suitable for wire capture and direct
+        transport to clients.
+        """
+        import json
+
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        async def _adapter() -> Any:
+            async for chunk in it:  # type: ignore
+                content = (
+                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                )
+                if isinstance(content, dict):
+                    line = f"data: {json.dumps(content)}\n\n".encode()
+                    yield line
+                elif isinstance(content, str):
+                    yield content.encode("utf-8")
+                elif isinstance(content, bytes):
+                    yield content
+                else:
+                    yield str(content).encode("utf-8")
+
+        return _adapter()
 
     def _apply_reasoning_config(
         self, request: ChatRequest, session: Any
@@ -562,16 +598,28 @@ class BackendService(IBackendService):
                         from src.core.domain.responses import StreamingResponseEnvelope
 
                         if isinstance(result, StreamingResponseEnvelope):
+                            # Adapt domain stream to bytes for capture and transport
+                            byte_stream = self._stream_as_sse_bytes(result.content)
                             wrapped_stream = self._wire_capture.wrap_inbound_stream(
                                 context=context,
                                 session_id=session_id,
                                 backend=backend_type,
                                 model=effective_model,
                                 key_name=key_name,
-                                stream=result.content,  # type: ignore
+                                stream=byte_stream,  # type: ignore
                             )
+
+                            # Convert back to ProcessedResponse stream for adapters
+                            async def _to_processed() -> Any:
+                                from src.core.interfaces.response_processor_interface import (
+                                    ProcessedResponse,
+                                )
+
+                                async for b in wrapped_stream:  # type: ignore
+                                    yield ProcessedResponse(content=b)
+
                             return StreamingResponseEnvelope(
-                                content=wrapped_stream,  # type: ignore
+                                content=_to_processed(),
                                 media_type=result.media_type,
                                 headers=result.headers,
                             )
@@ -698,11 +746,22 @@ class BackendService(IBackendService):
             ) from e
 
     async def chat_completions(
-        self, request: ChatRequest, **kwargs: Any
-    ) -> ResponseEnvelope | StreamingResponseEnvelope:  # type: ignore
-        """Handle chat completions with the LLM"""
-        stream = kwargs.get("stream", False)
-        return await self.call_completion(request, stream=stream)
+        self,
+        request: ChatRequest,
+        *,
+        stream: bool = False,
+        allow_failover: bool = True,
+        context: RequestContext | None = None,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:  # type: ignore[override]
+        """Handle chat completions with the LLM."""
+
+        return await self.call_completion(
+            request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
 
     async def _apply_planning_phase_if_needed(
         self, session: Any, default_backend: str
