@@ -462,7 +462,26 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                         DefaultSessionResolver,
                     )
 
-                    session_resolver = DefaultSessionResolver(None)  # type: ignore[arg-type]
+                    session_resolver = service_provider.get_service(
+                        DefaultSessionResolver
+                    )
+                    if session_resolver is None:
+                        from src.core.config.app_config import AppConfig
+
+                        config = service_provider.get_service(AppConfig)
+                        session_resolver = DefaultSessionResolver(config)
+                        try:
+                            from src.core.di.services import get_service_collection
+
+                            services = get_service_collection()
+                            services.add_instance(
+                                DefaultSessionResolver, session_resolver
+                            )
+                            services.add_instance(
+                                cast(type, ISessionResolver), session_resolver
+                            )
+                        except Exception:
+                            pass
 
                 # Get agent response formatter for ResponseManager
                 from src.core.interfaces.agent_response_formatter_interface import (
