@@ -299,9 +299,9 @@ class ResponseProcessor(IResponseProcessor):
                                 content = data["choices"][0]["delta"]["content"]
                             yield ProcessedResponse(
                                 content=content,
-                                metadata={"session_id": session_id}
-                                if session_id
-                                else {},
+                                metadata=(
+                                    {"session_id": session_id} if session_id else {}
+                                ),
                                 usage=None,
                             )
                     except json.JSONDecodeError:

@@ -12,13 +12,13 @@ import pytest
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.domain.backend_type import BackendType
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import (
     HeaderConfig,
     HeaderOverrideMode,
 )
-from src.core.domain.backend_type import BackendType
-from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -331,7 +331,9 @@ class TestBackendServiceTargeted:
             def __init__(self) -> None:
                 self.recorded_identity = None
 
-            async def initialize(self, **kwargs: Any) -> None:  # pragma: no cover - noop
+            async def initialize(
+                self, **kwargs: Any
+            ) -> None:  # pragma: no cover - noop
                 return None
 
             def get_available_models(self) -> list[str]:
@@ -365,7 +367,9 @@ class TestBackendServiceTargeted:
             def get_default_backend(self) -> str:  # pragma: no cover - not used
                 return "openai"
 
-            def get_functional_backends(self) -> set[str]:  # pragma: no cover - not used
+            def get_functional_backends(
+                self,
+            ) -> set[str]:  # pragma: no cover - not used
                 return {"openai"}
 
             def apply_backend_config(
@@ -408,10 +412,7 @@ class TestBackendServiceTargeted:
         asyncio.run(_invoke())
 
         assert backend_instance.recorded_identity is not None
-        assert (
-            backend_instance.recorded_identity.title.default_value
-            == "ProviderTitle"
-        )
+        assert backend_instance.recorded_identity.title.default_value == "ProviderTitle"
         assert (
             backend_instance.recorded_identity.url.default_value
             == "https://provider.example"

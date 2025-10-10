@@ -306,9 +306,7 @@ class GeminiBackend(LLMBackend):
     ) -> StreamingResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:streamGenerateContent"
-        request = self.client.build_request(
-            "POST", url, json=payload, headers=headers
-        )
+        request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:

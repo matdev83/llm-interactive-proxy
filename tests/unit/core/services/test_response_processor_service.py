@@ -337,7 +337,9 @@ class TestResponseProcessor:
         assert processed_responses[0].metadata["model"] == "test_model"
         assert processed_responses[1].content == "raw_chunk2"
         assert processed_responses[1].metadata["model"] == "test_model"
-        assert all(r.metadata.get("session_id") == "session_id" for r in processed_responses)
+        assert all(
+            r.metadata.get("session_id") == "session_id" for r in processed_responses
+        )
         mock_stream_normalizer.process_stream.assert_not_called()
 
     @pytest.mark.asyncio
@@ -360,7 +362,9 @@ class TestResponseProcessor:
         assert len(processed_responses) == 2
         assert processed_responses[0].content == "dict_chunk1"
         assert processed_responses[1].content == "dict_chunk2"
-        assert all(r.metadata.get("session_id") == "session_id" for r in processed_responses)
+        assert all(
+            r.metadata.get("session_id") == "session_id" for r in processed_responses
+        )
 
     @pytest.mark.asyncio
     async def test_process_streaming_response_raw_bytes_sse_chunks(
@@ -382,7 +386,9 @@ class TestResponseProcessor:
         assert len(processed_responses) == 2
         assert processed_responses[0].content == "byte_chunk1"
         assert processed_responses[1].content == "byte_chunk2"
-        assert all(r.metadata.get("session_id") == "session_id" for r in processed_responses)
+        assert all(
+            r.metadata.get("session_id") == "session_id" for r in processed_responses
+        )
 
     @pytest.mark.asyncio
     async def test_process_streaming_response_raw_unrecognized_chunks(
@@ -404,7 +410,9 @@ class TestResponseProcessor:
         assert len(processed_responses) == 2
         assert processed_responses[0].content == "123"
         assert processed_responses[1].content == "['list', 'chunk']"
-        assert all(r.metadata.get("session_id") == "session_id" for r in processed_responses)
+        assert all(
+            r.metadata.get("session_id") == "session_id" for r in processed_responses
+        )
 
     @pytest.mark.asyncio
     async def test_streaming_reset_prevents_content_leak_between_requests(

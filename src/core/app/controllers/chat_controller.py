@@ -18,6 +18,7 @@ from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.interfaces.translation_service_interface import ITranslationService
+from src.core.services.translation_service import TranslationService
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
