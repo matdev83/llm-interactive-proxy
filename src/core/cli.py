@@ -221,6 +221,15 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Require project name to be set before sending prompts",
     )
     parser.add_argument(
+        "--project-dir-resolution-model",
+        dest="project_dir_resolution_model",
+        metavar="BACKEND:MODEL",
+        help=(
+            "Automatically detect an absolute project directory on the first user prompt "
+            "using BACKEND:MODEL"
+        ),
+    )
+    parser.add_argument(
         "--disable-interactive-commands",
         action="store_true",
         default=None,
@@ -686,6 +695,15 @@ def apply_cli_args(
         os.environ["FORCE_SET_PROJECT"] = "true" if args.force_set_project else "false"
         record_cli(
             "session.force_set_project", args.force_set_project, "--force-set-project"
+        )
+    if getattr(args, "project_dir_resolution_model", None) is not None:
+        cfg.session.project_dir_resolution_model = (
+            args.project_dir_resolution_model
+        )
+        record_cli(
+            "session.project_dir_resolution_model",
+            args.project_dir_resolution_model,
+            "--project-dir-resolution-model",
         )
 
     # These still rely on environment variables for now

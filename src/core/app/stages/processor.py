@@ -245,7 +245,38 @@ class ProcessorStage(InitializationStage):
             from src.core.interfaces.request_processor_interface import (
                 IRequestProcessor,
             )
+            from src.core.services.project_directory_resolution_service import (
+                ProjectDirectoryResolutionService,
+            )
             from src.core.services.request_processor_service import RequestProcessor
+
+            project_dir_service_cls = ProjectDirectoryResolutionService
+
+            from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.interfaces.session_service_interface import ISessionService
+
+            def project_dir_service_factory(
+                provider: IServiceProvider,
+            ) -> ProjectDirectoryResolutionService:
+                from typing import cast
+
+                app_config = provider.get_required_service(AppConfig)
+                backend_service = provider.get_required_service(
+                    cast(type, IBackendService)
+                )
+                session_service = provider.get_required_service(
+                    cast(type, ISessionService)
+                )
+                return project_dir_service_cls(
+                    app_config,
+                    backend_service,
+                    session_service,
+                )
+
+            services.add_singleton(
+                ProjectDirectoryResolutionService,
+                implementation_factory=project_dir_service_factory,
+            )
 
             def request_processor_factory(
                 provider: IServiceProvider,
@@ -281,6 +312,9 @@ class ProcessorStage(InitializationStage):
                 app_state: IApplicationState | None = provider.get_service(
                     cast(type, IApplicationState)
                 )
+                project_dir_resolution_service: (
+                    ProjectDirectoryResolutionService | None
+                ) = provider.get_service(ProjectDirectoryResolutionService)
 
                 return RequestProcessor(
                     command_processor,
@@ -288,6 +322,7 @@ class ProcessorStage(InitializationStage):
                     backend_request_manager,
                     response_manager,
                     app_state=app_state,
+                    project_dir_resolution_service=project_dir_resolution_service,
                 )
 
             # Register concrete implementation
