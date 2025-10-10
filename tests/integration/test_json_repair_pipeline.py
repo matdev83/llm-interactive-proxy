@@ -43,12 +43,14 @@ async def test_json_repair_and_tool_call_repair_together_objects() -> None:
     async for item in normalizer.process_stream(stream(), output_format="objects"):
         results.append(item)
 
-    # Tool call should be converted to OpenAI tool_calls JSON string within combined content
-    # Extract JSON substrings and check type (repaired JSON may not appear due to downstream processor behavior)
+    # Tool call should be converted to an OpenAI tool_calls JSON object with full metadata
     non_empty = [r for r in results if r.content or r.is_done]
     combined = "".join(r.content for r in non_empty if r.content)
-    # Simple presence check is adequate since tool-call content is JSON-dumped
-    assert '"type": "function"' in combined
+    tool_call = json.loads(combined)
+    assert tool_call["type"] == "function"
+    assert "id" in tool_call and tool_call["id"].startswith("call_")
+    assert tool_call["function"]["name"] == "myfunc"
+    assert json.loads(tool_call["function"]["arguments"]) == {"x": 1}
 
 
 @pytest.mark.asyncio

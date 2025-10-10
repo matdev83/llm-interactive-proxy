@@ -163,9 +163,8 @@ async def initialized_app(app: FastAPI):
     yield app
 
 
-def test_versioned_endpoint_exists(client: TestClient):
-    """Test that the versioned endpoint exists."""
-    # Should not return 404
+def test_versioned_endpoint_requires_authentication(client: TestClient):
+    """The versioned endpoint should reject requests without API key."""
     response = client.post(
         "/v1/chat/completions",
         json={
@@ -174,8 +173,9 @@ def test_versioned_endpoint_exists(client: TestClient):
         },
     )
 
-    # We expect an error due to missing services, but not a 404
-    assert response.status_code != 404
+    # The route exists but must enforce authentication.
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unauthorized"}
 
 
 @pytest.mark.asyncio
