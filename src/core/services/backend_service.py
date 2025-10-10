@@ -6,7 +6,7 @@ from typing import Any, cast
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -533,12 +533,22 @@ class BackendService(IBackendService):
 
             try:
                 app_config_typed: AppConfig = cast(AppConfig, self._config)
-                backend_config_from_app = app_config_typed.backends.get(backend_type)
-                identity = (
-                    backend_config_from_app.identity
-                    if backend_config_from_app and backend_config_from_app.identity
-                    else app_config_typed.identity
-                )
+                provider_backend_config = self._backend_configs.get(backend_type)
+                if (
+                    provider_backend_config
+                    and getattr(provider_backend_config, "identity", None)
+                ):
+                    identity = provider_backend_config.identity
+                else:
+                    backend_config_from_app = app_config_typed.backends.get(
+                        backend_type
+                    )
+                    identity = (
+                        backend_config_from_app.identity
+                        if backend_config_from_app
+                        and backend_config_from_app.identity
+                        else app_config_typed.identity
+                    )
                 # Wire-capture: capture outbound payload pre-call (best-effort)
                 try:
                     if self._wire_capture and self._wire_capture.enabled():
@@ -707,30 +717,31 @@ class BackendService(IBackendService):
             return self._backends[backend_type]
 
         try:
-            provider_cfg: Any | None = None
+            provider_backend_config: BackendConfig | None = None
+            app_config: AppConfig = cast(AppConfig, self._config)
+
             if self._backend_config_provider:
                 provider_cfg = self._backend_config_provider.get_backend_config(
                     backend_type
                 )
 
-            # Use provider config if available, otherwise use default app config
-            from src.core.config.app_config import AppConfig
+                if isinstance(provider_cfg, BackendConfig):
+                    provider_backend_config = provider_cfg
+                elif isinstance(provider_cfg, AppConfig):
+                    app_config = provider_cfg
 
-            if isinstance(provider_cfg, AppConfig):
-                app_config = provider_cfg
+            if provider_backend_config is not None:
+                try:
+                    self._backend_configs[backend_type] = (
+                        provider_backend_config.model_copy(deep=True)
+                    )
+                except AttributeError:
+                    self._backend_configs[backend_type] = provider_backend_config
             else:
-                app_config = cast(AppConfig, self._config)
+                self._backend_configs.pop(backend_type, None)
 
-            # Cast provider_cfg to BackendConfig for type compatibility
-            from src.core.config.app_config import BackendConfig
-
-            backend_config = (
-                provider_cfg
-                if isinstance(provider_cfg, BackendConfig) or provider_cfg is None
-                else None
-            )
             backend: LLMBackend = await self._factory.ensure_backend(
-                backend_type, app_config, backend_config
+                backend_type, app_config, provider_backend_config
             )
             self._backends[backend_type] = backend
             return backend
