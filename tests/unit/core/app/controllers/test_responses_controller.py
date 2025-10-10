@@ -112,6 +112,55 @@ class TestResponsesControllerSchemaValidation:
         # Should not raise a TypeError or validation error
         ResponsesController._validate_json_schema(schema)
 
+    def test_validate_json_schema_rejects_overlong_regex_patterns(self) -> None:
+        """Regex patterns that are excessively long should be rejected."""
+
+        long_pattern = "^" + "a" * 600 + "$"
+        schema = {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "pattern": long_pattern},
+            },
+        }
+
+        with pytest.raises(ValueError) as exc:
+            ResponsesController._validate_json_schema(schema)
+
+        assert "Regex pattern too long" in str(exc.value)
+
+    def test_validate_json_schema_rejects_nested_unbounded_regex(self) -> None:
+        """Schemas with nested unbounded regex quantifiers must be rejected to avoid ReDoS."""
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "pattern": r"^(?:a+)+$",
+                }
+            },
+        }
+
+        with pytest.raises(ValueError) as exc:
+            ResponsesController._validate_json_schema(schema)
+
+        assert "nested unbounded quantifiers" in str(exc.value)
+
+    def test_validate_json_schema_accepts_safe_nested_quantifiers(self) -> None:
+        """Quantifiers that do not repeat unbounded groups should be allowed."""
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "sequence": {
+                    "type": "string",
+                    "pattern": r"^(?:ab?)+$",
+                }
+            },
+        }
+
+        ResponsesController._validate_json_schema(schema)
+
 
 @pytest.mark.asyncio
 async def test_handle_responses_request_uses_injected_translation_service() -> None:
