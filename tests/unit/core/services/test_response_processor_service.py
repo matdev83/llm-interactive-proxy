@@ -243,6 +243,8 @@ class TestResponseProcessor:
         assert len(processed_chunks) == 2
         assert processed_chunks[0].content == "chunk1"
         assert processed_chunks[1].content == "chunk2"
+        assert processed_chunks[0].metadata["session_id"] == "session123"
+        assert processed_chunks[1].metadata["session_id"] == "session123"
         mock_stream_normalizer.process_stream.assert_called_once()
 
     @pytest.mark.asyncio
@@ -307,6 +309,7 @@ class TestResponseProcessor:
         assert processed_responses[0].metadata["model"] == "test_model"
         assert processed_responses[1].content == "raw_chunk2"
         assert processed_responses[1].metadata["model"] == "test_model"
+        assert all(r.metadata.get("session_id") == "session_id" for r in processed_responses)
         mock_stream_normalizer.process_stream.assert_not_called()
 
     @pytest.mark.asyncio
@@ -329,6 +332,7 @@ class TestResponseProcessor:
         assert len(processed_responses) == 2
         assert processed_responses[0].content == "dict_chunk1"
         assert processed_responses[1].content == "dict_chunk2"
+        assert all(r.metadata.get("session_id") == "session_id" for r in processed_responses)
 
     @pytest.mark.asyncio
     async def test_process_streaming_response_raw_bytes_sse_chunks(
@@ -350,6 +354,7 @@ class TestResponseProcessor:
         assert len(processed_responses) == 2
         assert processed_responses[0].content == "byte_chunk1"
         assert processed_responses[1].content == "byte_chunk2"
+        assert all(r.metadata.get("session_id") == "session_id" for r in processed_responses)
 
     @pytest.mark.asyncio
     async def test_process_streaming_response_raw_unrecognized_chunks(
@@ -371,3 +376,4 @@ class TestResponseProcessor:
         assert len(processed_responses) == 2
         assert processed_responses[0].content == "123"
         assert processed_responses[1].content == "['list', 'chunk']"
+        assert all(r.metadata.get("session_id") == "session_id" for r in processed_responses)

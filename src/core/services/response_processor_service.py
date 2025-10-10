@@ -249,9 +249,12 @@ class ResponseProcessor(IResponseProcessor):
             async for chunk in response_iterator:
                 # Convert chunk to ProcessedResponse
                 if isinstance(chunk, StreamingChatResponse):
+                    metadata: dict[str, Any] = {"model": chunk.model}
+                    if session_id:
+                        metadata["session_id"] = session_id
                     yield ProcessedResponse(
                         content=chunk.content or "",
-                        metadata={"model": chunk.model},
+                        metadata=metadata,
                         usage=None,
                     )
                 elif isinstance(chunk, dict) and "choices" in chunk:
@@ -262,7 +265,10 @@ class ResponseProcessor(IResponseProcessor):
                         and "content" in chunk["choices"][0]["delta"]
                     ):
                         content = chunk["choices"][0]["delta"]["content"]
-                    yield ProcessedResponse(content=content, metadata={}, usage=None)
+                    metadata = {"session_id": session_id} if session_id else {}
+                    yield ProcessedResponse(
+                        content=content, metadata=metadata, usage=None
+                    )
                 elif isinstance(chunk, bytes):
                     # Try to parse as SSE
                     try:
@@ -278,16 +284,26 @@ class ResponseProcessor(IResponseProcessor):
                             ):
                                 content = data["choices"][0]["delta"]["content"]
                             yield ProcessedResponse(
-                                content=content, metadata={}, usage=None
+                                content=content,
+                                metadata={"session_id": session_id}
+                                if session_id
+                                else {},
+                                usage=None,
                             )
                     except json.JSONDecodeError:
                         # Just yield the raw bytes as string
                         yield ProcessedResponse(
-                            content=str(chunk), metadata={}, usage=None
+                            content=str(chunk),
+                            metadata={"session_id": session_id} if session_id else {},
+                            usage=None,
                         )
                 else:
                     # Default handling for unknown types
-                    yield ProcessedResponse(content=str(chunk), metadata={}, usage=None)
+                    yield ProcessedResponse(
+                        content=str(chunk),
+                        metadata={"session_id": session_id} if session_id else {},
+                        usage=None,
+                    )
             return
 
         if self._stream_normalizer is None:
@@ -322,6 +338,8 @@ class ResponseProcessor(IResponseProcessor):
                             "is_done": processed_chunk.is_done,
                             "tool_calls": processed_chunk.metadata.get("tool_calls"),
                         }
+                        if session_id:
+                            metadata["session_id"] = session_id
                         yield ProcessedResponse(
                             content=content,
                             usage=None,  # Usage is typically at the end of the stream
@@ -332,10 +350,11 @@ class ResponseProcessor(IResponseProcessor):
                         logger.warning(
                             f"Unexpected chunk type from stream normalizer: {type(processed_chunk)}"
                         )
+                        metadata = {"session_id": session_id} if session_id else {}
                         yield ProcessedResponse(
                             content=str(processed_chunk),
                             usage=None,
-                            metadata={},
+                            metadata=metadata,
                         )
             except (
                 TypeError,
@@ -352,7 +371,10 @@ class ResponseProcessor(IResponseProcessor):
                 yield ProcessedResponse(
                     content=f"Error in stream processing: {inner_e}",
                     usage=None,
-                    metadata={"error": True},
+                    metadata={
+                        "error": True,
+                        **({"session_id": session_id} if session_id else {}),
+                    },
                 )
         except json.JSONDecodeError as e:
             logger.error(
@@ -361,7 +383,11 @@ class ResponseProcessor(IResponseProcessor):
             yield ProcessedResponse(
                 content=f"Error decoding JSON in stream: {e}",
                 usage=None,
-                metadata={"error": True, "original_error": str(e)},
+                metadata={
+                    "error": True,
+                    "original_error": str(e),
+                    **({"session_id": session_id} if session_id else {}),
+                },
             )
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             # Catch common expected exceptions for data processing
@@ -371,5 +397,9 @@ class ResponseProcessor(IResponseProcessor):
             yield ProcessedResponse(
                 content=f"Error processing streaming data: {e}",
                 usage=None,
-                metadata={"error": True, "original_error": str(e)},
+                metadata={
+                    "error": True,
+                    "original_error": str(e),
+                    **({"session_id": session_id} if session_id else {}),
+                },
             )
