@@ -78,7 +78,9 @@ class BackendService(IBackendService):
         # Ensure config is properly typed for type checking
         _typed_config = cast(AppConfig, config)
 
-        self._failover_service: FailoverService = FailoverService(failover_routes={})
+        self._failover_service: FailoverService = FailoverService(
+            failover_routes=self._failover_routes
+        )
         if failover_coordinator is None:
             logger.warning(
                 "BackendService: No IFailoverCoordinator provided; using default FailoverCoordinator. "
