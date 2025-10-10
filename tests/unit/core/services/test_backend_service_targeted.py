@@ -2,6 +2,8 @@
 Additional targeted tests for the BackendService to improve coverage.
 """
 
+import asyncio
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -9,6 +11,12 @@ import httpx
 import pytest
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError
+from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.domain.configuration.app_identity_config import AppIdentityConfig
+from src.core.domain.configuration.header_config import (
+    HeaderConfig,
+    HeaderOverrideMode,
+)
 from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -286,3 +294,128 @@ class TestBackendServiceTargeted:
 
         assert "not functional" in str(exc_info.value).lower()
         assert not mock_backend.chat_completions_called
+
+    def test_provider_identity_precedence(self):
+        """Provider-supplied backend identity should override global defaults."""
+
+        provider_identity = AppIdentityConfig(
+            title=HeaderConfig(
+                mode=HeaderOverrideMode.DEFAULT,
+                default_value="ProviderTitle",
+            ),
+            url=HeaderConfig(
+                mode=HeaderOverrideMode.DEFAULT,
+                default_value="https://provider.example",
+            ),
+        )
+        provider_backend_config = BackendConfig(
+            api_key=["provider-key"],
+            identity=provider_identity,
+        )
+
+        global_identity = AppIdentityConfig(
+            title=HeaderConfig(
+                mode=HeaderOverrideMode.DEFAULT,
+                default_value="GlobalTitle",
+            ),
+            url=HeaderConfig(
+                mode=HeaderOverrideMode.DEFAULT,
+                default_value="https://global.example",
+            ),
+        )
+        app_config = AppConfig(identity=global_identity)
+
+        class IdentityBackend(LLMBackend):
+            backend_type = "openai"
+
+            def __init__(self) -> None:
+                self.recorded_identity = None
+
+            async def initialize(self, **kwargs: Any) -> None:  # pragma: no cover - noop
+                return None
+
+            def get_available_models(self) -> list[str]:
+                return ["gpt-4"]
+
+            async def chat_completions(
+                self,
+                request_data: ChatRequest,
+                processed_messages: list,
+                effective_model: str,
+                identity: Any = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope:
+                self.recorded_identity = identity
+                return ResponseEnvelope(content={}, headers={})
+
+        backend_instance = IdentityBackend()
+
+        class StubProvider:
+            def __init__(self, backend_config: BackendConfig) -> None:
+                self._backend_config = backend_config
+
+            def get_backend_config(self, name: str) -> BackendConfig | None:
+                if name == "openai":
+                    return self._backend_config
+                return None
+
+            def iter_backend_names(self) -> list[str]:  # pragma: no cover - not used
+                return ["openai"]
+
+            def get_default_backend(self) -> str:  # pragma: no cover - not used
+                return "openai"
+
+            def get_functional_backends(self) -> set[str]:  # pragma: no cover - not used
+                return {"openai"}
+
+            def apply_backend_config(
+                self, request: ChatRequest, backend_type: str, config: AppConfig
+            ) -> ChatRequest:
+                return request
+
+        factory = Mock(spec=BackendFactory)
+        factory.ensure_backend = AsyncMock(return_value=backend_instance)
+
+        rate_limiter = Mock()
+        rate_limiter.check_limit = AsyncMock(
+            return_value=SimpleNamespace(is_limited=False)
+        )
+        rate_limiter.record_usage = AsyncMock()
+
+        session_service = Mock(spec=ISessionService)
+        session_service.get_session = AsyncMock(return_value=None)
+
+        app_state = Mock(spec=IApplicationState)
+
+        service = BackendService(
+            factory,
+            rate_limiter,
+            app_config,
+            session_service,
+            app_state,
+            backend_config_provider=StubProvider(provider_backend_config),
+        )
+
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="openai:gpt-4",
+            stream=False,
+        )
+
+        async def _invoke() -> None:
+            await service.call_completion(chat_request, stream=False)
+
+        asyncio.run(_invoke())
+
+        assert backend_instance.recorded_identity is not None
+        assert (
+            backend_instance.recorded_identity.title.default_value
+            == "ProviderTitle"
+        )
+        assert (
+            backend_instance.recorded_identity.url.default_value
+            == "https://provider.example"
+        )
+        factory.ensure_backend.assert_awaited_once_with(
+            "openai", app_config, provider_backend_config
+        )
