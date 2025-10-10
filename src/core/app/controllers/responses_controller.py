@@ -42,9 +42,9 @@ class ResponsesController:
         """
         self._processor = request_processor
         if translation_service is None:
-            from src.core.services.translation_service import TranslationService
-
-            translation_service = TranslationService()
+            raise InitializationError(
+                "Translation service must be provided by the DI container"
+            )
 
         self._translation_service = translation_service
 
@@ -1000,8 +1000,10 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
             from src.core.services.translation_service import TranslationService
 
             translation_service = service_provider.get_service(TranslationService)
-            if translation_service is None:
-                translation_service = TranslationService()
+        if translation_service is None:
+            raise InitializationError(
+                "TranslationService is not registered in the service provider"
+            )
 
         return ResponsesController(
             request_processor,

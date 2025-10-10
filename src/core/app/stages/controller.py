@@ -186,6 +186,12 @@ class ControllerStage(InitializationStage):
             )
             if translation_service is None:
                 translation_service = provider.get_service(TranslationService)
+            if translation_service is None:
+                from src.core.common.exceptions import InitializationError
+
+                raise InitializationError(
+                    "TranslationService is not registered in the service provider"
+                )
 
             return ResponsesController(
                 request_processor,
