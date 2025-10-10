@@ -77,7 +77,13 @@ class ControllerStage(InitializationStage):
             request_processor: IRequestProcessor = provider.get_required_service(
                 cast(type, IRequestProcessor)
             )
-            return ChatController(request_processor)
+            translation_service = ChatController._resolve_translation_service_from_provider(
+                provider
+            )
+            return ChatController(
+                request_processor,
+                translation_service=translation_service,
+            )
 
         # Register as singleton
         services.add_singleton(
@@ -180,6 +186,12 @@ class ControllerStage(InitializationStage):
             )
             if translation_service is None:
                 translation_service = provider.get_service(TranslationService)
+            if translation_service is None:
+                from src.core.common.exceptions import InitializationError
+
+                raise InitializationError(
+                    "TranslationService is not registered in the service provider"
+                )
 
             return ResponsesController(
                 request_processor,

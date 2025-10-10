@@ -42,9 +42,9 @@ class ResponsesController:
         """
         self._processor = request_processor
         if translation_service is None:
-            from src.core.services.translation_service import TranslationService
-
-            translation_service = TranslationService()
+            raise InitializationError(
+                "Translation service must be provided by the DI container"
+            )
 
         self._translation_service = translation_service
 
@@ -937,7 +937,26 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
                             DefaultSessionResolver,
                         )
 
-                        session_resolver = DefaultSessionResolver(None)  # type: ignore[arg-type]
+                        session_resolver = service_provider.get_service(
+                            DefaultSessionResolver
+                        )
+                        if session_resolver is None:
+                            from src.core.config.app_config import AppConfig
+
+                            config = service_provider.get_service(AppConfig)
+                            session_resolver = DefaultSessionResolver(config)
+                            try:
+                                from src.core.di.services import get_service_collection
+
+                                services = get_service_collection()
+                                services.add_instance(
+                                    DefaultSessionResolver, session_resolver
+                                )
+                                services.add_instance(
+                                    ISessionResolver, session_resolver  # type: ignore[type-abstract]
+                                )
+                            except Exception:
+                                pass
 
                     # Get agent response formatter for ResponseManager
                     from src.core.interfaces.agent_response_formatter_interface import (
@@ -1000,8 +1019,10 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
             from src.core.services.translation_service import TranslationService
 
             translation_service = service_provider.get_service(TranslationService)
-            if translation_service is None:
-                translation_service = TranslationService()
+        if translation_service is None:
+            raise InitializationError(
+                "TranslationService is not registered in the service provider"
+            )
 
         return ResponsesController(
             request_processor,

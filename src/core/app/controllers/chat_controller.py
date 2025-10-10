@@ -6,6 +6,7 @@ Handles all chat completion related API endpoints.
 
 import asyncio
 import logging
+from typing import cast
 
 from fastapi import HTTPException, Request, Response
 
@@ -16,6 +17,7 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -30,13 +32,75 @@ logger = logging.getLogger(__name__)
 class ChatController:
     """Controller for chat-related endpoints."""
 
-    def __init__(self, request_processor: IRequestProcessor) -> None:
+    def __init__(
+        self,
+        request_processor: IRequestProcessor,
+        translation_service: ITranslationService | None = None,
+    ) -> None:
         """Initialize the controller.
 
         Args:
             request_processor: The request processor service
         """
         self._processor = request_processor
+        self._translation_service = (
+            translation_service
+            if translation_service is not None
+            else self._resolve_translation_service_from_provider(None)
+        )
+
+    @staticmethod
+    def _resolve_translation_service_from_provider(
+        provider: IServiceProvider | None,
+    ) -> ITranslationService:
+        """Resolve TranslationService through DI when available."""
+
+        from src.core.services.translation_service import TranslationService
+
+        def _try_get(
+            svc_provider: IServiceProvider,
+            key: object,
+        ) -> ITranslationService | None:
+            try:
+                service = svc_provider.get_service(key)
+            except Exception as exc:  # pragma: no cover - diagnostic fallback
+                logger.debug(
+                    "Translation service lookup failed for %s: %s",
+                    getattr(key, "__name__", repr(key)),
+                    exc,
+                    exc_info=True,
+                )
+                return None
+            if service is None:
+                return None
+            return cast(ITranslationService, service)
+
+        if provider is not None:
+            resolved = _try_get(provider, cast(type, ITranslationService))
+            if resolved is not None:
+                return resolved
+            resolved = _try_get(provider, TranslationService)
+            if resolved is not None:
+                return resolved
+
+        try:
+            from src.core.di.services import get_service_provider
+
+            global_provider = get_service_provider()
+        except Exception as exc:  # pragma: no cover - diagnostic fallback
+            logger.debug(
+                "Global TranslationService resolution failed: %s", exc, exc_info=True
+            )
+        else:
+            if global_provider is not provider:
+                resolved = _try_get(global_provider, cast(type, ITranslationService))
+                if resolved is not None:
+                    return resolved
+                resolved = _try_get(global_provider, TranslationService)
+                if resolved is not None:
+                    return resolved
+
+        return TranslationService()
 
     async def handle_chat_completion(
         self,
@@ -86,13 +150,6 @@ class ChatController:
                     from src.core.app.controllers.anthropic_controller import (
                         get_anthropic_controller,
                     )
-                    from src.core.interfaces.translation_service_interface import (
-                        ITranslationService,
-                    )
-                    from src.core.services.translation_service import (
-                        TranslationService,
-                    )
-
                     # Normalize message content to str for AnthropicMessage
                     anth_messages = []
                     for m in domain_request.messages:
@@ -151,6 +208,8 @@ class ChatController:
                         return anth_response  # type: ignore[return-value]
 
                     # Convert Anthropic JSON to domain then to OpenAI shape
+                    # Use DI-resolved translation service to ensure proper dependency injection
+                    translation_service = self._resolve_translation_service_from_provider(service_provider)
                     domain_resp = translation_service.to_domain_response(
                         anth_json, "anthropic"
                     )
@@ -596,7 +655,26 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                             DefaultSessionResolver,
                         )
 
-                        session_resolver = DefaultSessionResolver(None)  # type: ignore[arg-type]
+                        session_resolver = service_provider.get_service(
+                            DefaultSessionResolver
+                        )
+                        if session_resolver is None:
+                            from src.core.config.app_config import AppConfig
+
+                            config = service_provider.get_service(AppConfig)
+                            session_resolver = DefaultSessionResolver(config)
+                            try:
+                                from src.core.di.services import get_service_collection
+
+                                services = get_service_collection()
+                                services.add_instance(
+                                    DefaultSessionResolver, session_resolver
+                                )
+                                services.add_instance(
+                                    ISessionResolver, session_resolver  # type: ignore[type-abstract]
+                                )
+                            except Exception:
+                                pass
 
                     # Get agent response formatter for ResponseManager
                     from src.core.interfaces.agent_response_formatter_interface import (
@@ -652,6 +730,12 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
         if request_processor is None:
             raise InitializationError("Could not find or create RequestProcessor")
 
-        return ChatController(request_processor)
+        translation_service = ChatController._resolve_translation_service_from_provider(
+            service_provider
+        )
+        return ChatController(
+            request_processor,
+            translation_service=translation_service,
+        )
     except Exception as e:
         raise InitializationError(f"Failed to create ChatController: {e}") from e
