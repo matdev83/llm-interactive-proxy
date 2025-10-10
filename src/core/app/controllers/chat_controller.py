@@ -175,9 +175,22 @@ class ChatController:
                     from src.core.interfaces.di_interface import IServiceProvider
 
                     sp = await _gspd(request)
-                    anth_controller = get_anthropic_controller(
-                        _cast(IServiceProvider, sp)
+                    service_provider = _cast(IServiceProvider, sp)
+
+                    translation_service = service_provider.get_service(
+                        _cast(type, ITranslationService)
                     )
+                    if translation_service is None:
+                        translation_service = service_provider.get_service(
+                            TranslationService
+                        )
+
+                    if translation_service is None:
+                        raise InitializationError(
+                            "Translation service is not registered in the DI container"
+                        )
+
+                    anth_controller = get_anthropic_controller(service_provider)
 
                     anth_response = await anth_controller.handle_anthropic_messages(
                         request, anth_req
@@ -195,7 +208,8 @@ class ChatController:
                         return anth_response  # type: ignore[return-value]
 
                     # Convert Anthropic JSON to domain then to OpenAI shape
-                    translation_service = self._translation_service
+                    # Use DI-resolved translation service to ensure proper dependency injection
+                    translation_service = self._resolve_translation_service_from_provider(service_provider)
                     domain_resp = translation_service.to_domain_response(
                         anth_json, "anthropic"
                     )
