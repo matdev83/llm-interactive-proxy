@@ -146,26 +146,37 @@ class NewCommandService(ICommandService):
                     "",
                 )
 
-            # The command service should only ever parse the last line for commands.
-            content_str = self._get_last_non_blank_line_content(content_str)
+            if self.strict_command_detection:
+                content_to_parse = self._get_last_non_blank_line_content(content_str)
+            else:
+                content_to_parse = content_str
 
-            parse_result = self.command_parser.parse(content_str)
+            if not content_to_parse:
+                continue
+
+            parse_result = self.command_parser.parse(content_to_parse)
             if not parse_result:
                 continue
 
             command, matched_text = parse_result
 
-            # Only execute commands that appear at the END of the message (after trimming)
-            trimmed_content = content_str.rstrip()
-            if not trimmed_content.endswith(matched_text):
-                # Command is not at the end, skip it
-                continue
+            # In strict mode, only execute commands that appear at the end of the
+            # last non-blank line (after trimming). In default mode commands can
+            # appear anywhere in the message body.
+            if self.strict_command_detection:
+                trimmed_content = content_to_parse.rstrip()
+                if not trimmed_content.endswith(matched_text):
+                    # Command is not at the end, skip it
+                    continue
 
             # Remove the command from the message content.
             if isinstance(message.content, str):
                 # Find and remove the command from the full message content
                 original_content = message.content
-                idx = original_content.rfind(matched_text)
+                if self.strict_command_detection:
+                    idx = original_content.rfind(matched_text)
+                else:
+                    idx = original_content.find(matched_text)
                 if idx != -1:
                     before = original_content[:idx]
                     after = original_content[idx + len(matched_text) :]
@@ -173,17 +184,34 @@ class NewCommandService(ICommandService):
                         # For 'hello': preserve structure without stripping
                         message.content = before + after
                     else:
-                        # Default: strip trailing whitespace
-                        message.content = (before + after).rstrip()
+                        if self.strict_command_detection:
+                            # Default: strip trailing whitespace when enforcing strict mode
+                            message.content = (before + after).rstrip()
+                        else:
+                            message.content = before + after
             elif isinstance(message.content, list):
                 for i, part in enumerate(message.content):
                     if (
                         isinstance(part, models.MessageContentPartText)
                         and matched_text in part.text
                     ):
-                        part.text = part.text.replace(matched_text, "").strip()
-                        if not part.text:
+                        part_text = part.text
+                        if self.strict_command_detection:
+                            idx = part_text.rfind(matched_text)
+                        else:
+                            idx = part_text.find(matched_text)
+                        if idx == -1:
+                            continue
+                        before = part_text[:idx]
+                        after = part_text[idx + len(matched_text) :]
+                        if self.strict_command_detection:
+                            new_text = (before + after).strip()
+                        else:
+                            new_text = before + after
+                        if not new_text or not new_text.strip():
                             message.content.pop(i)
+                        else:
+                            part.text = new_text
                         break
 
             handler_class = get_command_handler(command.name)
