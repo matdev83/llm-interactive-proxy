@@ -37,6 +37,12 @@ class ToolCallRepairService:
         # Cap per-session buffer to guard against pathological streams
         self._max_buffer_bytes: int = max_buffer_bytes or (64 * 1024)  # default 64 KB
 
+    @property
+    def max_buffer_bytes(self) -> int:
+        """Return the configured buffer cap in bytes."""
+
+        return self._max_buffer_bytes
+
     def repair_tool_calls(self, response_content: str) -> dict[str, Any] | None:
         """
         Detects tool calls within the given response content (string) and converts
