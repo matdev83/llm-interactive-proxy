@@ -18,6 +18,7 @@ from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.interfaces.translation_service_interface import ITranslationService
+from src.core.services.translation_service import TranslationService
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -62,7 +63,7 @@ class ChatController:
             key: object,
         ) -> ITranslationService | None:
             try:
-                service = svc_provider.get_service(key)
+                service = svc_provider.get_service(cast(type, key))
             except Exception as exc:  # pragma: no cover - diagnostic fallback
                 logger.debug(
                     "Translation service lookup failed for %s: %s",
@@ -100,7 +101,12 @@ class ChatController:
                 if resolved is not None:
                     return resolved
 
-        return TranslationService()
+        message = "TranslationService is not registered in the service provider"
+        logger.error(message)
+        raise InitializationError(
+            message,
+            details={"service": "TranslationService"},
+        )
 
     async def handle_chat_completion(
         self,
@@ -210,12 +216,12 @@ class ChatController:
 
                     # Convert Anthropic JSON to domain then to OpenAI shape
                     # Use DI-resolved translation service to ensure proper dependency injection
-                    translation_service = (
+                    translation_service_resolved: ITranslationService = (
                         self._resolve_translation_service_from_provider(
                             service_provider
                         )
                     )
-                    domain_resp = translation_service.to_domain_response(
+                    domain_resp = translation_service_resolved.to_domain_response(
                         anth_json, "anthropic"
                     )
                     openai_json = translation_service.from_domain_to_openai_response(

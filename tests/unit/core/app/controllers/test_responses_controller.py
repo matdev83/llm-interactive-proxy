@@ -95,6 +95,28 @@ class TestResponsesControllerSchemaValidation:
         # Should not raise an exception when handling list-based union types
         ResponsesController._validate_json_schema(schema)
 
+    def test_validate_json_schema_allows_required_from_composed_schema(self) -> None:
+        """Required fields supplied via composition keywords should be accepted."""
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "metadata": {"type": "object"},
+            },
+            "allOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "slug": {"type": "string"},
+                    },
+                }
+            ],
+            "required": ["slug"],
+        }
+
+        # Should not raise since slug is introduced via allOf composition
+        ResponsesController._validate_json_schema(schema)
+
     def test_validate_json_schema_accepts_union_type_and_items_list(self) -> None:
         """Union-typed schemas with list-based items should validate successfully."""
 

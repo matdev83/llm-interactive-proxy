@@ -107,8 +107,8 @@ class _StubStreamResponse:
     def aiter_text(self) -> Any:
         async def _gen() -> Any:
             yield (
-                "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": "
-                "\"Hello chunk\"}]}}]}\n\n"
+                'data: {"candidates": [{"content": {"parts": [{"text": '
+                '"Hello chunk"}]}}]}\n\n'
             )
 
         return _gen()
@@ -142,7 +142,9 @@ class _StubAsyncClient:
         }
         return self.last_request
 
-    async def send(self, request: dict[str, Any], stream: bool = False) -> _StubStreamResponse:
+    async def send(
+        self, request: dict[str, Any], stream: bool = False
+    ) -> _StubStreamResponse:
         self.last_stream_flag = stream
         response = _StubStreamResponse()
         self.last_response = response

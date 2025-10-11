@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from typing import Any, cast
 
 import httpx
@@ -107,7 +107,14 @@ class GeminiBackend(LLMBackend):
     # Translation is now handled by TranslationService
 
     def _convert_part_for_gemini(
-        self, part: MessageContentPartText | MessageContentPartImage
+        self,
+        part: (
+            MessageContentPartText
+            | MessageContentPartImage
+            | Mapping[str, Any]
+            | str
+            | Any
+        ),
     ) -> dict[str, Any]:
         """Convert a MessageContentPart into Gemini API format."""
         if isinstance(part, MessageContentPartText):
@@ -128,10 +135,20 @@ class GeminiBackend(LLMBackend):
             return {
                 "fileData": {"mimeType": "application/octet-stream", "fileUri": url}
             }
-        data = part.model_dump(exclude_unset=True)
+        if isinstance(part, str):
+            return {"text": part}
+
+        data: dict[str, Any]
+        if isinstance(part, Mapping):
+            data = dict(part)
+        elif hasattr(part, "model_dump") and callable(part.model_dump):
+            data = part.model_dump(exclude_unset=True)
+        else:
+            return {"text": str(part)}
+
         if data.get("type") == "text" and "text" in data:
             # Text content is already processed by middleware
-            data.pop("type", None)
+            data = {key: value for key, value in data.items() if key != "type"}
         return data
 
     def _prepare_gemini_contents(
@@ -139,36 +156,82 @@ class GeminiBackend(LLMBackend):
     ) -> list[dict[str, Any]]:
         payload_contents = []
         for msg in processed_messages:
-            if msg.role == "system":
+            role = None
+            if isinstance(msg, Mapping):
+                role = msg.get("role")
+            else:
+                role = getattr(msg, "role", None)
+
+            if role == "system":
                 # Gemini API does not support system role
                 continue
 
-            if isinstance(msg.content, str):
+            if role is None:
+                role = "user"
+
+            def _get_value(obj: Any, key: str) -> Any:
+                if isinstance(obj, Mapping):
+                    return obj.get(key)
+                return getattr(obj, key, None)
+
+            content = _get_value(msg, "content")
+            parts_key_value = _get_value(msg, "parts")
+
+            if isinstance(content, str):
                 # If this is a tool or function role, represent it as functionResponse for Gemini
-                if msg.role in ["tool", "function"]:
+                if role in ["tool", "function"]:
                     # Try to parse JSON payload; otherwise wrap string
                     try:
-                        input_obj = json.loads(msg.content)
+                        input_obj = json.loads(content)
                     except Exception:
-                        input_obj = {"output": msg.content}
+                        input_obj = {"output": content}
                     parts: list[dict[str, Any]] = [
                         {
                             "functionResponse": {
-                                "name": getattr(msg, "name", "tool") or "tool",
+                                "name": _get_value(msg, "name") or "tool",
                                 "response": input_obj,
                             }
                         }
                     ]
                 else:
                     # Content is already processed by middleware
-                    parts = [{"text": msg.content}]
+                    parts = [{"text": content}]
             else:
-                parts = [self._convert_part_for_gemini(part) for part in msg.content]
+                raw_parts: Sequence[Any] | None = None
+
+                if isinstance(content, Sequence) and not isinstance(
+                    content, str | bytes | bytearray
+                ):
+                    raw_parts = content
+                elif isinstance(content, Mapping):
+                    inferred_parts = content.get("parts")
+                    if isinstance(inferred_parts, Sequence) and not isinstance(
+                        inferred_parts, str | bytes | bytearray
+                    ):
+                        raw_parts = inferred_parts
+                    else:
+                        raw_parts = [content]
+                elif content is None:
+                    if isinstance(parts_key_value, Sequence) and not isinstance(
+                        parts_key_value, str | bytes | bytearray
+                    ):
+                        raw_parts = parts_key_value
+                    elif parts_key_value is not None:
+                        raw_parts = [parts_key_value]
+
+                if raw_parts is None:
+                    raw_parts = []
+
+                parts = [self._convert_part_for_gemini(part) for part in raw_parts]
+
+                if not parts and parts_key_value is not None:
+                    # Fallback for singular dict/str stored under parts
+                    parts = [self._convert_part_for_gemini(parts_key_value)]
 
             # Map roles to 'user' or 'model' as required by Gemini API
-            if msg.role == "user":
+            if role == "user":
                 gemini_role = "user"
-            elif msg.role in ["tool", "function"]:
+            elif role in ["tool", "function"]:
                 # Tool/function results are treated as coming from the user side in Gemini
                 gemini_role = "user"
             else:  # e.g., assistant
@@ -244,9 +307,7 @@ class GeminiBackend(LLMBackend):
     ) -> StreamingResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:streamGenerateContent"
-        request = self.client.build_request(
-            "POST", url, json=payload, headers=headers
-        )
+        request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
