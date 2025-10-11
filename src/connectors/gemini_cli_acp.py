@@ -509,7 +509,9 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         try:
             # Check if project directory was changed via session state
-            project_dir_from_session = kwargs.get("project")  # project_dir from session
+            project_dir_from_session = kwargs.get("project_dir") or kwargs.get(
+                "project"
+            )
             if project_dir_from_session and str(project_dir_from_session) != str(
                 self._project_dir
             ):

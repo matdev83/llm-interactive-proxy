@@ -489,9 +489,56 @@ class BackendService(IBackendService):
         try:
             await self._rate_limiter.record_usage(rate_key)
 
+            session: Any | None = None
+            session_id_for_backend: str | None = None
+
+            # Resolve session from context when available so session-scoped
+            # backends (e.g., gemini-cli-acp) keep their state isolated.
+            if context and context.session_id:
+                session_id_for_backend = context.session_id
+                try:
+                    session = await self._session_service.get_session(
+                        context.session_id
+                    )
+                except Exception:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to load session '%s' for backend call",
+                            context.session_id,
+                            exc_info=True,
+                        )
+                    session = None
+
+            request_session_id = (
+                request.extra_body.get("session_id")
+                if request.extra_body
+                else None
+            )
+            if (
+                session is None
+                and isinstance(request_session_id, str)
+                and request_session_id
+            ):
+                if session_id_for_backend is None:
+                    session_id_for_backend = request_session_id
+                try:
+                    session = await self._session_service.get_session(
+                        request_session_id
+                    )
+                except Exception:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to load session '%s' from request body",
+                            request_session_id,
+                            exc_info=True,
+                        )
+                    session = None
+
             # Initialize backend only after passing rate limiting checks
             try:
-                backend = await self._get_or_create_backend(backend_type)
+                backend = await self._get_or_create_backend(
+                    backend_type, session_id=session_id_for_backend
+                )
             except (TypeError, ValueError, AttributeError, KeyError) as e:
                 raise BackendError(
                     message=f"Failed to initialize backend {backend_type}",
@@ -513,11 +560,8 @@ class BackendService(IBackendService):
             domain_request: ChatRequest = request
 
             # Apply session reasoning configuration if available
-            if context and context.session_id:
+            if session is not None:
                 try:
-                    session = await self._session_service.get_session(
-                        context.session_id
-                    )
                     domain_request = self._apply_reasoning_config(
                         domain_request, session
                     )
@@ -574,6 +618,23 @@ class BackendService(IBackendService):
                             effective_model,
                             exc_info=True,
                         )
+                backend_call_kwargs: dict[str, Any] = {}
+                if session_id_for_backend:
+                    backend_call_kwargs["session_id"] = session_id_for_backend
+                if session is not None and hasattr(session, "state"):
+                    try:
+                        project_value = getattr(session.state, "project", None)
+                        if isinstance(project_value, str) and project_value:
+                            backend_call_kwargs["project"] = project_value
+                    except Exception:
+                        pass
+                    try:
+                        project_dir_value = getattr(session.state, "project_dir", None)
+                        if isinstance(project_dir_value, str) and project_dir_value:
+                            backend_call_kwargs["project_dir"] = project_dir_value
+                    except Exception:
+                        pass
+
                 try:
                     result: ResponseEnvelope | StreamingResponseEnvelope = (
                         await backend.chat_completions(
@@ -581,6 +642,7 @@ class BackendService(IBackendService):
                             processed_messages=request.messages,
                             effective_model=effective_model,
                             identity=identity,
+                            **backend_call_kwargs,
                         )
                     )
                 except BackendError as be:
@@ -711,10 +773,21 @@ class BackendService(IBackendService):
             )
             return False, f"Backend validation failed: {e!s}"
 
-    async def _get_or_create_backend(self, backend_type: str) -> LLMBackend:
-        """Get an existing backend or create a new one"""
-        if backend_type in self._backends:
-            return self._backends[backend_type]
+    async def _get_or_create_backend(
+        self, backend_type: str, session_id: str | None = None
+    ) -> LLMBackend:
+        """Get an existing backend or create a new one."""
+
+        cache_key = backend_type
+        if backend_type == "gemini-cli-acp":
+            cache_key = (
+                f"{backend_type}:{session_id}"
+                if session_id
+                else f"{backend_type}:default"
+            )
+
+        if cache_key in self._backends:
+            return self._backends[cache_key]
 
         try:
             provider_backend_config: BackendConfig | None = None
@@ -743,7 +816,7 @@ class BackendService(IBackendService):
             backend: LLMBackend = await self._factory.ensure_backend(
                 backend_type, app_config, provider_backend_config
             )
-            self._backends[backend_type] = backend
+            self._backends[cache_key] = backend
             return backend
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(
