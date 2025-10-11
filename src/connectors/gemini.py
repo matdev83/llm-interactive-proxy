@@ -140,10 +140,7 @@ class GeminiBackend(LLMBackend):
                 # or in generic format (has "content")
                 if "parts" in msg:
                     # Already in Gemini format, use directly
-                    payload_contents.append({
-                        "role": role,
-                        "parts": msg["parts"]
-                    })
+                    payload_contents.append({"role": role, "parts": msg["parts"]})
                     continue
                 else:
                     content = msg.get("content")
@@ -166,7 +163,11 @@ class GeminiBackend(LLMBackend):
                     parts: list[dict[str, Any]] = [
                         {
                             "functionResponse": {
-                                "name": getattr(msg, "name", "tool") or "tool" if not isinstance(msg, dict) else msg.get("name", "tool"),
+                                "name": (
+                                    getattr(msg, "name", "tool") or "tool"
+                                    if not isinstance(msg, dict)
+                                    else msg.get("name", "tool")
+                                ),
                                 "response": input_obj,
                             }
                         }

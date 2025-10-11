@@ -28,6 +28,22 @@ class StubTranslationService:
         self.request_used = True
         return self._domain_request
 
+    def from_domain_response(
+        self, response: ChatResponse, target_format: str = "openai"
+    ) -> dict[str, object]:
+        self.response_used = True
+        return {
+            "id": response.id,
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "converted"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
     def from_domain_to_responses_response(
         self, response: ChatResponse
     ) -> dict[str, object]:

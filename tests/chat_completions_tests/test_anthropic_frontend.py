@@ -202,6 +202,7 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
     ) as mock_process:
         # Create a streaming response that mimics OpenAI streaming format
         from src.core.domain.responses import StreamingResponseEnvelope
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
 
         async def mock_streaming_generator():
             # OpenAI-style streaming chunks that will be converted to Anthropic format
@@ -212,7 +213,7 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
                 "data: [DONE]\n\n",
             ]
             for chunk in chunks:
-                yield chunk.encode("utf-8")
+                yield ProcessedResponse(content=chunk)
 
         streaming_envelope = StreamingResponseEnvelope(
             content=mock_streaming_generator(),

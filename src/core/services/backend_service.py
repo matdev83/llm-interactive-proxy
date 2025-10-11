@@ -962,6 +962,12 @@ class BackendService(IBackendService):
             original_model if original_model is not None else current_config.model
         )
 
+        # Ensure that we are not passing mock objects to the BackendConfiguration
+        if hasattr(target_backend, "_extract_mock_name"):
+            target_backend = str(target_backend)
+        if hasattr(target_model, "_extract_mock_name"):
+            target_model = str(target_model)
+
         restored_config = BackendConfiguration(
             backend_type=target_backend,
             model=target_model,

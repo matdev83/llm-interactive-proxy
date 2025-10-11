@@ -151,7 +151,11 @@ class _StubAsyncClient:
         return response
 
     async def post(
-        self, url: str, *, json: Any | None = None, headers: dict[str, str] | None = None
+        self,
+        url: str,
+        *,
+        json: Any | None = None,
+        headers: dict[str, str] | None = None,
     ) -> _StubStreamResponse:
         # Store request info for assertions
         self.last_request = {

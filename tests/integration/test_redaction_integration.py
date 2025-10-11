@@ -110,7 +110,11 @@ def _register_fake_backend_once() -> None:
 async def _build_services_with_fake_backend(
     app_config: AppConfig,
 ) -> tuple[
-    BackendRequestManager, type[_FakeBackend], MockSessionService, ResponseProcessor
+    BackendRequestManager,
+    type[_FakeBackend],
+    MockSessionService,
+    ResponseProcessor,
+    Any,
 ]:
     # Ensure our backend is registered before creating configs/services
     _register_fake_backend_once()
@@ -190,6 +194,7 @@ async def _build_services_with_fake_backend(
         _FakeBackend,
         session_service,
         response_processor,
+        http_client,
     )
 
 
@@ -216,63 +221,71 @@ async def test_end_to_end_non_streaming_redaction() -> None:
         _,
         session_manager,
         _response_manager,
+        http_client,
     ) = await _build_services_with_fake_backend(cfg)
 
-    # Prepare RequestProcessor with real backend path
-    from src.core.interfaces.command_processor_interface import ICommandProcessor
-    from src.core.services.request_processor_service import RequestProcessor
+    try:
+        # Prepare RequestProcessor with real backend path
+        from src.core.interfaces.command_processor_interface import ICommandProcessor
+        from src.core.services.request_processor_service import RequestProcessor
 
-    command_processor = AsyncMock(spec=ICommandProcessor)
+        command_processor = AsyncMock(spec=ICommandProcessor)
 
-    # Minimal app_state exposing app_config to RequestProcessor redaction
-    app_state = MagicMock(spec=IApplicationState)
-    app_state.get_setting.return_value = cfg
+        # Minimal app_state exposing app_config to RequestProcessor redaction
+        app_state = MagicMock(spec=IApplicationState)
+        app_state.get_setting.return_value = cfg
+        app_state.get_command_prefix.return_value = "!/"
+        app_state.get_disable_commands.return_value = False
 
-    from src.core.interfaces.response_manager_interface import IResponseManager
-    from src.core.interfaces.session_resolver_interface import ISessionResolver
-    from src.core.services.session_manager_service import SessionManager
+        from src.core.interfaces.response_manager_interface import IResponseManager
+        from src.core.interfaces.session_resolver_interface import ISessionResolver
+        from src.core.services.session_manager_service import SessionManager
 
-    mock_session_resolver = AsyncMock(spec=ISessionResolver)
-    mock_response_manager = AsyncMock(spec=IResponseManager)
+        mock_session_resolver = AsyncMock(spec=ISessionResolver)
+        mock_response_manager = AsyncMock(spec=IResponseManager)
 
-    processor = RequestProcessor(
-        command_processor,
-        SessionManager(session_manager, mock_session_resolver),
-        backend_request_manager,
-        mock_response_manager,
-        app_state=app_state,
-    )
-
-    # Command processor yields no changes
-    from src.core.domain.processed_result import ProcessedResult
-
-    async def _cp(messages, session_id, context):  # type: ignore[no-redef]
-        return ProcessedResult(
-            modified_messages=messages, command_executed=False, command_results=[]
+        processor = RequestProcessor(
+            command_processor,
+            SessionManager(session_manager, mock_session_resolver),
+            backend_request_manager,
+            mock_response_manager,
+            app_state=app_state,
         )
 
-    command_processor.process_messages.side_effect = _cp
+        # Command processor yields no changes
+        from src.core.domain.processed_result import ProcessedResult
 
-    # Send request containing a secret and a proxy command
-    secret = cfg.auth.api_keys[0]
-    req = ChatRequest(
-        model="fakemodel",
-        messages=[ChatMessage(role="user", content=f"Use {secret} and !/hello")],
-    )
-    context = AsyncMock()
+        async def _cp(messages, session_id, context):  # type: ignore[no-redef]
+            return ProcessedResult(
+                modified_messages=messages, command_executed=False, command_results=[]
+            )
 
-    resp = await processor.process_request(context, req)
-    assert isinstance(resp, ResponseEnvelope)
+        command_processor.process_messages.side_effect = _cp
 
-    # The fake backend instance should have captured the request; assert redacted content
-    assert FAKE_INSTANCES, "Fake backend instance not created"
-    redacted_request = FAKE_INSTANCES[-1].last_request
-    assert redacted_request is not None
-    text = next((m.content for m in redacted_request.messages if m.role == "user"), "")
-    assert isinstance(text, str)
-    assert "(API_KEY_HAS_BEEN_REDACTED)" in text
-    assert secret not in text
-    assert "!/hello" not in text
+        # Send request containing a secret and a proxy command
+        secret = cfg.auth.api_keys[0]
+        req = ChatRequest(
+            model="fakemodel",
+            messages=[ChatMessage(role="user", content=f"Use {secret} and !/hello")],
+        )
+        context = AsyncMock()
+
+        resp = await processor.process_request(context, req)
+        assert isinstance(resp, ResponseEnvelope)
+
+        # The fake backend instance should have captured the request; assert redacted content
+        assert FAKE_INSTANCES, "Fake backend instance not created"
+        redacted_request = FAKE_INSTANCES[-1].last_request
+        assert redacted_request is not None
+        text = next(
+            (m.content for m in redacted_request.messages if m.role == "user"), ""
+        )
+        assert isinstance(text, str)
+        assert "(API_KEY_HAS_BEEN_REDACTED)" in text
+        assert secret not in text
+        assert "!/hello" not in text
+    finally:
+        await http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -283,56 +296,64 @@ async def test_end_to_end_streaming_redaction() -> None:
         _,
         session_manager,
         _response_manager,
+        http_client,
     ) = await _build_services_with_fake_backend(cfg)
 
-    from src.core.interfaces.command_processor_interface import ICommandProcessor
-    from src.core.services.request_processor_service import RequestProcessor
+    try:
+        from src.core.interfaces.command_processor_interface import ICommandProcessor
+        from src.core.services.request_processor_service import RequestProcessor
 
-    command_processor = AsyncMock(spec=ICommandProcessor)
+        command_processor = AsyncMock(spec=ICommandProcessor)
 
-    app_state = MagicMock(spec=IApplicationState)
-    app_state.get_setting.return_value = cfg
+        app_state = MagicMock(spec=IApplicationState)
+        app_state.get_setting.return_value = cfg
+        app_state.get_command_prefix.return_value = "!/"
+        app_state.get_disable_commands.return_value = False
 
-    from src.core.interfaces.response_manager_interface import IResponseManager
-    from src.core.interfaces.session_resolver_interface import ISessionResolver
-    from src.core.services.session_manager_service import SessionManager
+        from src.core.interfaces.response_manager_interface import IResponseManager
+        from src.core.interfaces.session_resolver_interface import ISessionResolver
+        from src.core.services.session_manager_service import SessionManager
 
-    mock_session_resolver = AsyncMock(spec=ISessionResolver)
-    mock_response_manager = AsyncMock(spec=IResponseManager)
+        mock_session_resolver = AsyncMock(spec=ISessionResolver)
+        mock_response_manager = AsyncMock(spec=IResponseManager)
 
-    processor = RequestProcessor(
-        command_processor,
-        SessionManager(session_manager, mock_session_resolver),
-        backend_request_manager,
-        mock_response_manager,
-        app_state=app_state,
-    )
-
-    from src.core.domain.processed_result import ProcessedResult
-
-    async def _cp(messages, session_id, context):  # type: ignore[no-redef]
-        return ProcessedResult(
-            modified_messages=messages, command_executed=False, command_results=[]
+        processor = RequestProcessor(
+            command_processor,
+            SessionManager(session_manager, mock_session_resolver),
+            backend_request_manager,
+            mock_response_manager,
+            app_state=app_state,
         )
 
-    command_processor.process_messages.side_effect = _cp
+        from src.core.domain.processed_result import ProcessedResult
 
-    secret = cfg.auth.api_keys[0]
-    req = ChatRequest(
-        model="fakemodel",
-        messages=[ChatMessage(role="user", content=f"Stream {secret} and !/help")],
-        stream=True,
-    )
-    context = AsyncMock()
+        async def _cp(messages, session_id, context):  # type: ignore[no-redef]
+            return ProcessedResult(
+                modified_messages=messages, command_executed=False, command_results=[]
+            )
 
-    resp = await processor.process_request(context, req)
-    assert isinstance(resp, StreamingResponseEnvelope)
+        command_processor.process_messages.side_effect = _cp
 
-    assert FAKE_INSTANCES, "Fake backend instance not created"
-    redacted_request = FAKE_INSTANCES[-1].last_request
-    assert redacted_request is not None
-    text = next((m.content for m in redacted_request.messages if m.role == "user"), "")
-    assert isinstance(text, str)
-    assert "(API_KEY_HAS_BEEN_REDACTED)" in text
-    assert secret not in text
-    assert "!/help" not in text
+        secret = cfg.auth.api_keys[0]
+        req = ChatRequest(
+            model="fakemodel",
+            messages=[ChatMessage(role="user", content=f"Stream {secret} and !/help")],
+            stream=True,
+        )
+        context = AsyncMock()
+
+        resp = await processor.process_request(context, req)
+        assert isinstance(resp, StreamingResponseEnvelope)
+
+        assert FAKE_INSTANCES, "Fake backend instance not created"
+        redacted_request = FAKE_INSTANCES[-1].last_request
+        assert redacted_request is not None
+        text = next(
+            (m.content for m in redacted_request.messages if m.role == "user"), ""
+        )
+        assert isinstance(text, str)
+        assert "(API_KEY_HAS_BEEN_REDACTED)" in text
+        assert secret not in text
+        assert "!/help" not in text
+    finally:
+        await http_client.aclose()

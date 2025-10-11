@@ -331,6 +331,10 @@ class RequestProcessor(IRequestProcessor):
         # Apply request redaction middleware (API keys and proxy commands)
         # just before calling the backend, so both original and command-modified
         # messages are covered.
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Redaction check: backend_request is not None = {backend_request is not None}"
+            )
         if backend_request is not None:
             try:
                 from src.core.common.logging_utils import (
