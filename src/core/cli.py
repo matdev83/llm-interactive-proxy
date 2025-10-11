@@ -673,6 +673,9 @@ def apply_cli_args(
     # Feature flags (inverted boolean logic)
     if args.disable_interactive_mode is not None:
         cfg.session.default_interactive_mode = not args.disable_interactive_mode
+        os.environ["DEFAULT_INTERACTIVE_MODE"] = (
+            "false" if args.disable_interactive_mode else "true"
+        )
         os.environ["DISABLE_INTERACTIVE_MODE"] = (
             "True" if args.disable_interactive_mode else "False"
         )
