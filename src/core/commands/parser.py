@@ -59,7 +59,9 @@ class CommandParser:
         )
         return re.compile(rf"{escaped_prefix}(?P<name>[\w-]+)(?:\((?P<args>[^)]*)\))?")
 
-    def parse(self, content: str) -> tuple[Command, str] | None:
+    def parse(
+        self, content: str, command_prefix: str | None = None
+    ) -> tuple[Command, str] | None:
         """
         Parses a command from the given content.
 
@@ -69,7 +71,11 @@ class CommandParser:
         Returns:
             A tuple containing the Command object and the matched string, or None.
         """
-        prefix = self.command_prefix
+        prefix_value: str | None = command_prefix if command_prefix else self.command_prefix
+        if not isinstance(prefix_value, str) or not prefix_value:
+            return None
+
+        prefix = prefix_value
         search_index = 0
         while True:
             start = content.find(prefix, search_index)

@@ -78,6 +78,7 @@ class SessionState(ValueObject):
     planning_phase_turn_count: int = 0
     planning_phase_file_write_count: int = 0
     api_key_redaction_enabled: bool | None = None
+    command_prefix_override: str | None = None
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -148,6 +149,13 @@ class SessionState(ValueObject):
     def with_api_key_redaction_enabled(self, enabled: bool | None) -> SessionState:
         """Create a new session state with updated API key redaction flag."""
         return self.model_copy(update={"api_key_redaction_enabled": enabled})
+
+    def with_command_prefix_override(
+        self, command_prefix: str | None
+    ) -> SessionState:
+        """Create a new session state with a session-scoped command prefix override."""
+
+        return self.model_copy(update={"command_prefix_override": command_prefix})
 
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
@@ -263,6 +271,28 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
 
         new_state = base_state.with_api_key_redaction_enabled(enabled)
         return SessionStateAdapter(new_state)  # type: ignore[arg-type]
+
+    @property
+    def command_prefix_override(self) -> str | None:
+        """Get the session-specific command prefix override if configured."""
+        value = getattr(self._state, "command_prefix_override", None)
+        if isinstance(value, str):
+            return value
+        return None
+
+    def with_command_prefix_override(
+        self, command_prefix: str | None
+    ) -> ISessionState:
+        """Create a new session state adapter with updated command prefix override."""
+
+        base_state: SessionState
+        if isinstance(self._state, SessionState):
+            base_state = self._state
+        else:
+            base_state = SessionState.from_dict(self._state.to_dict())
+
+        new_state = base_state.with_command_prefix_override(command_prefix)
+        return SessionStateAdapter(new_state)
 
     @property
     def is_cline_agent(self) -> bool:

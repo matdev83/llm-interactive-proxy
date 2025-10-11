@@ -260,6 +260,17 @@ class ISessionState(IValueObject, ISessionStateMutator):
     def with_api_key_redaction_enabled(self, enabled: bool | None) -> ISessionState:
         """Create a new state with updated API key redaction flag."""
 
+    @property
+    @abstractmethod
+    def command_prefix_override(self) -> str | None:
+        """Get the session-scoped command prefix override if present."""
+
+    @abstractmethod
+    def with_command_prefix_override(
+        self, command_prefix: str | None
+    ) -> ISessionState:
+        """Create a new state with updated command prefix override."""
+
     @abstractmethod
     def with_planning_phase_config(self, config: IPlanningPhaseConfig) -> ISessionState:
         """Create a new state with updated planning phase configuration."""

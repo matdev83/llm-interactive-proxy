@@ -393,7 +393,19 @@ class RequestProcessor(IRequestProcessor):
                     api_keys = discover_api_keys_from_config_and_env(app_config)
                     # Command prefix can be None; RedactionMiddleware has a default
                     command_prefix = None
-                    if self._app_state is not None:
+                    try:
+                        if session is not None:
+                            override = getattr(
+                                getattr(session, "state", None),
+                                "command_prefix_override",
+                                None,
+                            )
+                            if isinstance(override, str) and override:
+                                command_prefix = override
+                    except Exception:
+                        command_prefix = None
+
+                    if not command_prefix and self._app_state is not None:
                         try:
                             command_prefix = self._app_state.get_command_prefix()
                         except AttributeError:
