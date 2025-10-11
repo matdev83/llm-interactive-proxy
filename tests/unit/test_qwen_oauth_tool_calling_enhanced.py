@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi import HTTPException
+
+pytestmark = pytest.mark.xdist_group("qwen_oauth_tool_calling")
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.domain.chat import (
     ChatMessage,

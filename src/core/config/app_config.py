@@ -412,31 +412,35 @@ class SessionConfig(DomainModel):
     def _sync_pytest_full_suite_settings(cls, values: dict[str, Any]) -> dict[str, Any]:
         """Keep pytest full-suite steering settings mirrored with reactor config."""
         reactor_config = values.get("tool_call_reactor")
-        if not isinstance(reactor_config, ToolCallReactorConfig):
-            reactor_config = ToolCallReactorConfig()
+
+        # Convert to dict if it's already a ToolCallReactorConfig instance
+        if isinstance(reactor_config, ToolCallReactorConfig):
+            reactor_config_dict = reactor_config.model_dump()
+        elif isinstance(reactor_config, dict):
+            reactor_config_dict = dict(reactor_config)
+        else:
+            reactor_config_dict = {}
 
         enabled = values.get("pytest_full_suite_steering_enabled")
         message = values.get("pytest_full_suite_steering_message")
 
+        # Update the dict instead of mutating frozen model
         if enabled is not None:
-            object.__setattr__(
-                reactor_config, "pytest_full_suite_steering_enabled", enabled
-            )
+            reactor_config_dict["pytest_full_suite_steering_enabled"] = enabled
         else:
-            values["pytest_full_suite_steering_enabled"] = (
-                reactor_config.pytest_full_suite_steering_enabled
+            values["pytest_full_suite_steering_enabled"] = reactor_config_dict.get(
+                "pytest_full_suite_steering_enabled", False
             )
 
         if message is not None:
-            object.__setattr__(
-                reactor_config, "pytest_full_suite_steering_message", message
-            )
+            reactor_config_dict["pytest_full_suite_steering_message"] = message
         else:
-            values["pytest_full_suite_steering_message"] = (
-                reactor_config.pytest_full_suite_steering_message
+            values["pytest_full_suite_steering_message"] = reactor_config_dict.get(
+                "pytest_full_suite_steering_message"
             )
 
-        values["tool_call_reactor"] = reactor_config
+        # Store the dict - Pydantic will convert it to ToolCallReactorConfig
+        values["tool_call_reactor"] = reactor_config_dict
         return values
 
 
@@ -499,9 +503,15 @@ from src.core.services.backend_registry import (
 
 
 class BackendSettings(DomainModel):
-    """Settings for all backends."""
+    """Settings for all backends.
 
-    model_config = ConfigDict(frozen=True, extra="allow")
+    Note: This class is intentionally not frozen because it needs to support
+    dynamic backend configurations that are added at runtime. Backend configs
+    are stored in __dict__ to allow attribute-style access (e.g., config.backends.openai)
+    without pre-defining all possible backends as fields.
+    """
+
+    model_config = ConfigDict(frozen=False, extra="allow")
 
     default_backend: str = "openai"
     static_route: str | None = (
