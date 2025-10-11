@@ -83,33 +83,43 @@ class RedactionMiddleware(IRequestMiddleware):
         # except for tool/function responses which contain legitimate tool output
         # (file contents, search results, etc.) that may include proxy command examples
 
-        # Create a copy of the request to modify
-        processed_request = request.model_copy(deep=True)
+        # Since request and messages may be frozen Pydantic models, we need to create
+        # new message objects with modified content
+        from src.core.domain.chat import ChatMessage
 
-        num_messages = len(processed_request.messages)
-        for i, message in enumerate(processed_request.messages):
+        new_messages = []
+        num_messages = len(request.messages)
+
+        for i, message in enumerate(request.messages):
             if not message.content:
+                new_messages.append(message)
                 continue
 
             is_last_message = i == num_messages - 1
             is_tool_response = message.role in ["tool", "function"]
 
+            new_content = message.content
+
             # Redact API keys from all messages
             if isinstance(message.content, str):
-                message.content = self._api_key_redactor.redact(message.content)
-            elif isinstance(message.content, list):
-                text_part_indexes: list[int] = []
-                for index, part in enumerate(message.content):
+                new_content = self._api_key_redactor.redact(message.content)
+            elif isinstance(message.content, list | tuple):
+                # For list content, we need to process each part
+                new_content_list: list[Any] = []
+                for part in message.content:
                     part_text = self._extract_text(part)
-                    if not part_text:
-                        continue
-
-                    redacted_text = self._api_key_redactor.redact(part_text)
-                    if redacted_text != part_text:
-                        self._assign_text(part, redacted_text)
-                        part_text = redacted_text
-
-                    text_part_indexes.append(index)
+                    if part_text:
+                        redacted_text = self._api_key_redactor.redact(part_text)
+                        if isinstance(part, MessageContentPartText):
+                            new_content_list.append(
+                                MessageContentPartText(text=redacted_text)
+                            )
+                        else:
+                            # For other types (like MessageContentPartImage), keep as is
+                            new_content_list.append(part)
+                    else:
+                        new_content_list.append(part)
+                new_content = new_content_list
 
             # Only filter commands on the last message, and only if it's not a tool response
             if is_last_message and not is_tool_response:
@@ -119,28 +129,39 @@ class RedactionMiddleware(IRequestMiddleware):
                     else self._command_filter.filter_commands
                 )
 
-                if isinstance(message.content, str):
-                    message.content = filter_fn(message.content)
-                elif isinstance(message.content, list):
-                    # Only inspect parts that actually contained text after redaction
-                    text_part_indexes = [
-                        idx
-                        for idx, part in enumerate(message.content)
-                        if self._extract_text(part)
-                    ]
-
-                    for index in reversed(text_part_indexes):
-                        part = message.content[index]
+                if isinstance(new_content, str):
+                    new_content = filter_fn(new_content)
+                elif isinstance(new_content, list):
+                    # Only filter the last text part, need to modify the list
+                    for index in reversed(range(len(new_content))):
+                        part = new_content[index]
                         part_text = self._extract_text(part)
                         if not part_text or not part_text.strip():
                             continue
 
                         filtered_text = filter_fn(part_text)
-                        if filtered_text != part_text:
-                            self._assign_text(part, filtered_text)
+                        if isinstance(part, MessageContentPartText):
+                            new_content[index] = MessageContentPartText(
+                                text=filtered_text
+                            )
+                        # Only handle MessageContentPartText and MessageContentPartImage, no dicts
                         break
 
-        return processed_request
+            # Create new message with potentially modified content
+            if new_content != message.content:
+                new_message = ChatMessage(
+                    role=message.role,
+                    content=new_content,
+                    name=message.name,
+                    tool_call_id=message.tool_call_id,
+                    tool_calls=message.tool_calls,
+                )
+                new_messages.append(new_message)
+            else:
+                new_messages.append(message)
+
+        # Create new request with modified messages
+        return request.model_copy(update={"messages": new_messages})
 
     def update_api_keys(self, api_keys: Iterable[str]) -> None:
         """Update the API keys to redact.

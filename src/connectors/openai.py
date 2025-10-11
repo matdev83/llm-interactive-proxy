@@ -61,17 +61,10 @@ class OpenAIConnector(LLMBackend):
 
         # Health check attributes
         self._health_checked: bool = False
-        # Check environment variable to allow disabling health checks globally
-        import os
-
-        disable_health_checks = os.getenv("DISABLE_HEALTH_CHECKS", "false").lower() in (
-            "true",
-            "1",
-            "yes",
+        # Health checks are enabled by default and controlled by the AppConfig
+        self._health_check_enabled: bool = not self.config.get(
+            "session.dangerous_command_prevention_enabled", False
         )
-
-        # Health checks enabled by default unless explicitly disabled via env
-        self._health_check_enabled: bool = not disable_health_checks
 
     def get_headers(self) -> dict[str, str]:
         """Return request headers including API key and per-request identity."""
@@ -333,9 +326,9 @@ class OpenAIConnector(LLMBackend):
 
                 for message in processed_messages:
                     if hasattr(message, "model_dump") and callable(message.model_dump):
-                        normalized_messages.append(
-                            dict(message.model_dump(exclude_none=False))
-                        )
+                        dumped = message.model_dump(exclude_none=False)
+                        if isinstance(dumped, dict):
+                            normalized_messages.append(dumped)
                         continue
 
                     msg: dict[str, Any]
@@ -557,9 +550,9 @@ class OpenAIConnector(LLMBackend):
                 for m in processed_messages:
                     # If the message is a pydantic model, use model_dump
                     if hasattr(m, "model_dump") and callable(m.model_dump):
-                        normalized_messages.append(
-                            dict(m.model_dump(exclude_none=False))
-                        )
+                        dumped = m.model_dump(exclude_none=False)
+                        if isinstance(dumped, dict):
+                            normalized_messages.append(dumped)
                         continue
 
                     # Fallback: build a minimal dict

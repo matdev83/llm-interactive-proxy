@@ -261,10 +261,10 @@ class ProcessorStage(InitializationStage):
                 from typing import cast
 
                 app_config = provider.get_required_service(AppConfig)
-                backend_service = provider.get_required_service(
+                backend_service: IBackendService = provider.get_required_service(
                     cast(type, IBackendService)
                 )
-                session_service = provider.get_required_service(
+                session_service: ISessionService = provider.get_required_service(
                     cast(type, ISessionService)
                 )
                 return project_dir_service_cls(

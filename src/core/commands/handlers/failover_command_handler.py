@@ -57,6 +57,10 @@ class SessionStateApplicationStateAdapter(
     def set_api_key_redaction_enabled(self, enabled: bool) -> None:
         self._local_state["api_key_redaction_enabled"] = enabled
 
+    def set_default_api_key_redaction_enabled(self, enabled: bool) -> None:
+        """Set the default for whether API key redaction is enabled."""
+        self._local_state["default_api_key_redaction_enabled"] = enabled
+
     def set_disable_interactive_commands(self, disabled: bool) -> None:
         self._local_state["disable_interactive_commands"] = disabled
 

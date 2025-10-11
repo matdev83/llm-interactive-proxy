@@ -18,9 +18,11 @@ from src.core.interfaces.backend_service_interface import IBackendService
 @pytest_asyncio.fixture
 async def app() -> AsyncGenerator[FastAPI, None]:
     """Create a test app with oneoff commands enabled."""
+    from src.core.config.app_config import AuthConfig
+
     # Create app with test config
-    config = AppConfig()
-    config.auth.disable_auth = True
+    auth_config = AuthConfig(disable_auth=True)
+    config = AppConfig(auth=auth_config)
     # Use the modern staged initialization approach instead of deprecated methods
     from src.core.app.test_builder import build_test_app_async
 

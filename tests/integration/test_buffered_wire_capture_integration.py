@@ -33,11 +33,16 @@ def temp_capture_file():
 @pytest.fixture
 def mock_app_config(temp_capture_file):
     """Create a mock AppConfig with buffered wire capture enabled."""
-    config = AppConfig.from_env()
-    config.logging.capture_file = temp_capture_file
-    config.logging.capture_buffer_size = 1024  # Small buffer for testing
-    config.logging.capture_flush_interval = 0.1  # Fast flush for testing
-    config.logging.capture_max_entries_per_flush = 5
+    from src.core.config.app_config import LoggingConfig
+
+    base_config = AppConfig.from_env()
+    logging_config = LoggingConfig(
+        capture_file=temp_capture_file,
+        capture_buffer_size=1024,  # Small buffer for testing
+        capture_flush_interval=0.1,  # Fast flush for testing
+        capture_max_entries_per_flush=5,
+    )
+    config = base_config.model_copy(update={"logging": logging_config})
     return config
 
 
@@ -326,12 +331,17 @@ async def test_buffered_wire_capture_performance(test_app, cleanup_wire_capture)
 
 def test_buffered_wire_capture_configuration_validation(temp_capture_file):
     """Test that configuration validation works with buffered wire capture."""
+    from src.core.config.app_config import LoggingConfig
+
     # Test with valid configuration
-    config = AppConfig.from_env()
-    config.logging.capture_file = temp_capture_file
-    config.logging.capture_buffer_size = 8192
-    config.logging.capture_flush_interval = 2.0
-    config.logging.capture_max_entries_per_flush = 200
+    base_config = AppConfig.from_env()
+    logging_config = LoggingConfig(
+        capture_file=temp_capture_file,
+        capture_buffer_size=8192,
+        capture_flush_interval=2.0,
+        capture_max_entries_per_flush=200,
+    )
+    config = base_config.model_copy(update={"logging": logging_config})
 
     capture = BufferedWireCapture(config)
     assert capture.enabled() is True

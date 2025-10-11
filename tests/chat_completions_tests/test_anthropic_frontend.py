@@ -35,18 +35,25 @@ def anthropic_client():
             return_value=["claude-3-haiku-20240229"],
         ),
     ):
-        # Create a proper AppConfig object
-        config = AppConfig()
-        config.auth = AuthConfig(disable_auth=False, api_keys=["test-proxy-key"])
-        config.proxy_timeout = 10
-        config.session = SessionConfig(default_interactive_mode=False)
-        config.command_prefix = "!/"
-        config.backends = BackendSettings()
-        config.backends.anthropic = BackendConfig(
+        # Create a proper AppConfig object with all settings
+        auth_config = AuthConfig(disable_auth=False, api_keys=["test-proxy-key"])
+        session_config = SessionConfig(default_interactive_mode=False)
+
+        anthropic_backend = BackendConfig(
             api_key=["ant-key"], api_url="https://api.anthropic.com/v1"
         )
-        config.backends.default_backend = "anthropic"
-        config.logging = LoggingConfig()
+        backends_config = BackendSettings(
+            default_backend="anthropic", anthropic=anthropic_backend
+        )
+
+        config = AppConfig(
+            auth=auth_config,
+            proxy_timeout=10,
+            session=session_config,
+            command_prefix="!/",
+            backends=backends_config,
+            logging=LoggingConfig(),
+        )
 
         mock_cfg.return_value = config
         app = build_app()

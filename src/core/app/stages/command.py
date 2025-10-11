@@ -128,11 +128,13 @@ class CommandStage(InitializationStage):
                 provider: IServiceProvider,
             ) -> NewCommandService:
                 """Factory function for creating CommandService with dependencies."""
+                from typing import cast
+
                 from src.core.services.session_service_impl import SessionService
 
                 session_service = provider.get_required_service(SessionService)
                 command_parser = provider.get_required_service(CommandParser)
-                app_state = provider.get_service(IApplicationState)
+                app_state = provider.get_service(cast(type, IApplicationState))
                 return NewCommandService(
                     session_service,
                     command_parser,
@@ -215,8 +217,8 @@ class CommandStage(InitializationStage):
                         def update_api_key_redaction(self, enabled: bool) -> None:
                             self._settings.api_key_redaction_enabled = enabled
 
-                        def update_interactive_commands(self, enabled: bool) -> None:
-                            pass
+                        def update_interactive_commands(self, disabled: bool) -> None:
+                            self._settings.disable_interactive_commands = disabled
 
                     state_service = DefaultStateService(settings_service)
 

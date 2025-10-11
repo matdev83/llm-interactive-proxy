@@ -239,11 +239,8 @@ class TestProcessCommandsInMessages:
         # Note: command execution may fail in test environment due to missing dependencies
         # The main test is that the message content is properly processed
         # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # Note: messages may be cleared when commands are processed
-        # The key test is that command processing works, not message count
-        assert len(processed_messages) >= 0
-        # Note: content may not be cleared in current implementation
-        assert len(processed_messages[0].content) >= 0
+        # The message should be cleared when it only contains a command.
+        assert len(processed_messages) == 0
 
     @pytest.mark.asyncio
     async def test_command_in_earlier_message_not_processed_if_later_has_command(

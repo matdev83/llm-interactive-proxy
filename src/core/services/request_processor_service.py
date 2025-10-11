@@ -175,7 +175,7 @@ class RequestProcessor(IRequestProcessor):
                     if md is None:
                         continue
                     # Accept either a ModelDefaults instance or a plain dict-like
-                    if isinstance(md, (ModelDefaults, dict)):
+                    if isinstance(md, ModelDefaults | dict):
                         model_defaults = md
                         break
 
@@ -372,7 +372,7 @@ class RequestProcessor(IRequestProcessor):
                         session_override = getattr(
                             session_state, "api_key_redaction_enabled", None
                         )
-                        if not isinstance(session_override, (bool, type(None))):
+                        if not isinstance(session_override, bool | type(None)):
                             session_override = None
                 except Exception:
                     session_override = None
@@ -396,6 +396,9 @@ class RequestProcessor(IRequestProcessor):
                     if self._app_state is not None:
                         try:
                             command_prefix = self._app_state.get_command_prefix()
+                            # Validate that it's actually a string, not a mock or other object
+                            if not isinstance(command_prefix, str):
+                                command_prefix = None
                         except AttributeError:
                             command_prefix = None
                     if not command_prefix:
@@ -426,13 +429,13 @@ class RequestProcessor(IRequestProcessor):
                     backend_request = await redaction.process(
                         backend_request, redaction_context
                     )
-            except (AttributeError, TypeError, ValueError):
+            except Exception as e:
                 # Redaction is best-effort; never block requests on failure
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Request redaction middleware failed; proceeding without redaction",
-                        exc_info=True,
-                    )
+                logger.warning(
+                    "Request redaction middleware failed; proceeding without redaction: %s",
+                    e,
+                    exc_info=True,
+                )
 
         # Apply edit-precision tuning middleware if enabled and we still have a backend request
         if backend_request is not None:

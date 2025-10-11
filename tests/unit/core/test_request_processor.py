@@ -10,7 +10,11 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.commands import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import (
+    ProcessedResponse,
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+)
 from src.core.domain.session import Session
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.domain_entities_interface import ISessionState
@@ -180,11 +184,10 @@ async def test_request_processor_skips_redaction_when_session_disables(
 
     from unittest.mock import MagicMock
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, AuthConfig
     from src.core.interfaces.application_state_interface import IApplicationState
 
-    app_config = AppConfig()
-    app_config.auth.redact_api_keys_in_prompts = True
+    app_config = AppConfig(auth=AuthConfig(redact_api_keys_in_prompts=True))
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
@@ -257,11 +260,10 @@ async def test_request_processor_applies_redaction_when_session_enables(
 
     from unittest.mock import MagicMock
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, AuthConfig
     from src.core.interfaces.application_state_interface import IApplicationState
 
-    app_config = AppConfig()
-    app_config.auth.redact_api_keys_in_prompts = False
+    app_config = AppConfig(auth=AuthConfig(redact_api_keys_in_prompts=False))
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
@@ -323,14 +325,14 @@ async def test_request_processor_applies_edit_precision_overrides_for_failed_edi
     # Provide AppConfig with edit_precision enabled and strict values
     from unittest.mock import MagicMock
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, EditPrecisionConfig
     from src.core.interfaces.application_state_interface import IApplicationState
 
-    app_config = AppConfig()
-    app_config.edit_precision.enabled = True
-    app_config.edit_precision.temperature = 0.05
-    app_config.edit_precision.min_top_p = 0.2
-    app_config.edit_precision.override_top_p = True
+    app_config = AppConfig(
+        edit_precision=EditPrecisionConfig(
+            enabled=True, temperature=0.05, min_top_p=0.2, override_top_p=True
+        )
+    )
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
@@ -392,14 +394,17 @@ async def test_request_processor_respects_exclude_agents_regex() -> None:
 
     from unittest.mock import MagicMock
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, EditPrecisionConfig
     from src.core.interfaces.application_state_interface import IApplicationState
 
-    app_config = AppConfig()
-    app_config.edit_precision.enabled = True
-    app_config.edit_precision.temperature = 0.05
-    app_config.edit_precision.min_top_p = 0.2
-    app_config.edit_precision.exclude_agents_regex = r"^(cline|roocode)$"
+    app_config = AppConfig(
+        edit_precision=EditPrecisionConfig(
+            enabled=True,
+            temperature=0.05,
+            min_top_p=0.2,
+            exclude_agents_regex=r"^(cline|roocode)$",
+        )
+    )
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
@@ -461,14 +466,14 @@ async def test_request_processor_applies_overrides_when_pending_flag_set() -> No
 
     from unittest.mock import MagicMock
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, EditPrecisionConfig
     from src.core.interfaces.application_state_interface import IApplicationState
 
-    app_config = AppConfig()
-    app_config.edit_precision.enabled = True
-    app_config.edit_precision.temperature = 0.2
-    app_config.edit_precision.min_top_p = 0.4
-    app_config.edit_precision.override_top_p = True
+    app_config = AppConfig(
+        edit_precision=EditPrecisionConfig(
+            enabled=True, temperature=0.2, min_top_p=0.4, override_top_p=True
+        )
+    )
 
     # Build a mock app_state that returns app_config and a pending flag map
     pending_map = {"test-session": 1}
@@ -537,13 +542,14 @@ async def test_request_processor_applies_redaction_before_backend_call(
     # Provide an AppConfig via IApplicationState so redaction discovers API keys
     from unittest.mock import MagicMock
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, AuthConfig
     from src.core.interfaces.application_state_interface import IApplicationState
 
-    app_config = AppConfig()
-    # Enable redaction and provide a known API key
-    app_config.auth.redact_api_keys_in_prompts = True
-    app_config.auth.api_keys = ["SECRET_API_KEY_123"]
+    # Create config with redaction enabled and a known API key (frozen models require model_copy)
+    auth_config = AuthConfig(
+        redact_api_keys_in_prompts=True, api_keys=["SECRET_API_KEY_123"]
+    )
+    app_config = AppConfig(auth=auth_config)
 
     mock_app_state = MagicMock(spec=IApplicationState)
     # get_setting("app_config") should return our config
@@ -590,10 +596,21 @@ async def test_request_processor_applies_redaction_before_backend_call(
     redacted_request: ChatRequest = called_args[0]
     assert isinstance(redacted_request, ChatRequest)
     # Extract user content
-    redacted_content = next(
-        (m.content for m in redacted_request.messages if m.role == "user"),
-        "",
+    redacted_message = next(
+        (m for m in redacted_request.messages if m.role == "user"),
+        None,
     )
+    redacted_content = ""
+    if redacted_message is not None:
+        message_content = redacted_message.content or ""
+        if isinstance(message_content, list):
+            redacted_content = " ".join(
+                part.text if hasattr(part, "text") else str(part)
+                for part in message_content
+                if part is not None
+            )
+        else:
+            redacted_content = str(message_content)
     # API key should be replaced
     assert "SECRET_API_KEY_123" not in redacted_content
     assert "(API_KEY_HAS_BEEN_REDACTED)" in redacted_content
@@ -617,12 +634,15 @@ async def test_request_processor_redacts_command_modified_messages(
 
     from unittest.mock import MagicMock
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, AuthConfig
     from src.core.interfaces.application_state_interface import IApplicationState
 
-    app_config = AppConfig()
-    app_config.auth.redact_api_keys_in_prompts = True
-    app_config.auth.api_keys = ["ANOTHER_SECRET_KEY_456"]
+    app_config = AppConfig(
+        auth=AuthConfig(
+            redact_api_keys_in_prompts=True,
+            api_keys=["ANOTHER_SECRET_KEY_456"],
+        )
+    )
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
@@ -669,10 +689,23 @@ async def test_request_processor_redacts_command_modified_messages(
     redacted_request: ChatRequest = (
         backend_request_manager.process_backend_request.call_args[0][0]
     )
-    text = next((m.content for m in redacted_request.messages if m.role == "user"), "")
-    assert "ANOTHER_SECRET_KEY_456" not in text
-    assert "(API_KEY_HAS_BEEN_REDACTED)" in text
-    assert "!/hello" not in text
+    redacted_message = next(
+        (m for m in redacted_request.messages if m.role == "user"), None
+    )
+    redacted_content = ""
+    if redacted_message is not None:
+        message_content = redacted_message.content or ""
+        if isinstance(message_content, list):
+            redacted_content = " ".join(
+                part.text if hasattr(part, "text") else str(part)
+                for part in message_content
+                if part is not None
+            )
+        else:
+            redacted_content = str(message_content)
+    assert "ANOTHER_SECRET_KEY_456" not in redacted_content
+    assert "(API_KEY_HAS_BEEN_REDACTED)" in redacted_content
+    assert "!/hello" not in redacted_content
 
 
 @pytest.mark.asyncio
@@ -755,12 +788,12 @@ async def test_request_processor_respects_redaction_feature_flag_disabled(
 
     from unittest.mock import MagicMock
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, AuthConfig
     from src.core.interfaces.application_state_interface import IApplicationState
 
-    app_config = AppConfig()
-    app_config.auth.redact_api_keys_in_prompts = False  # disabled
-    app_config.auth.api_keys = ["NO_REDACT_789"]
+    app_config = AppConfig(
+        auth=AuthConfig(redact_api_keys_in_prompts=False, api_keys=["NO_REDACT_789"])
+    )
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
@@ -969,10 +1002,14 @@ async def test_process_streaming_request(session_service: MockSessionService) ->
     )
 
     # Setup backend service for streaming
-    async def mock_stream_generator() -> AsyncGenerator[bytes, None]:
-        yield b'data: {"choices":[{"delta":{"content":"Hello"},"index":0}]}\n\n'
-        yield b'data: {"choices":[{"delta":{"content":" there!"},"index":0}]}\n\n'
-        yield b"data: [DONE]\n\n"
+    async def mock_stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
+        yield ProcessedResponse(
+            content=b'data: {"choices":[{"delta":{"content":"Hello"},"index":0}]}\n\n'
+        )
+        yield ProcessedResponse(
+            content=b'data: {"choices":[{"delta":{"content":" there!"},"index":0}]}\n\n'
+        )
+        yield ProcessedResponse(content=b"data: [DONE]\n\n")
 
     # Create StreamingResponseEnvelope to return
     streaming_envelope = StreamingResponseEnvelope(
@@ -991,9 +1028,9 @@ async def test_process_streaming_request(session_service: MockSessionService) ->
     assert response.media_type == "text/event-stream"
 
     # Collect the streamed chunks
-    chunks = []
+    chunks: list[str] = []
     async for chunk in response.content:
-        chunks.append(chunk.decode("utf-8"))
+        chunks.append((chunk.content or b"").decode("utf-8"))
 
     # Check the streamed content
     assert len(chunks) == 3  # 2 content chunks + [DONE]

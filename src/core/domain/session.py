@@ -258,7 +258,9 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         if isinstance(self._state, SessionState):
             base_state = self._state
         else:
-            base_state = SessionState.from_dict(self._state.to_dict())
+            base_state = cast(
+                SessionState, SessionState.from_dict(self._state.to_dict())
+            )
 
         new_state = base_state.with_api_key_redaction_enabled(enabled)
         return SessionStateAdapter(new_state)
@@ -411,6 +413,13 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(
             SessionState, self._state
         ).with_planning_phase_file_write_count(count)
+        return SessionStateAdapter(new_state)
+
+    def with_project_dir_resolution_attempted(self, attempted: bool) -> ISessionState:
+        """Create a new state with updated project_dir_resolution_attempted flag."""
+        new_state = cast(
+            SessionState, self._state
+        ).with_project_dir_resolution_attempted(attempted)
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests

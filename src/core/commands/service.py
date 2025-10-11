@@ -146,20 +146,41 @@ class NewCommandService(ICommandService):
                     "",
                 )
 
-            # The command service should only ever parse the last line for commands.
-            content_str = self._get_last_non_blank_line_content(content_str)
+            # In strict mode, only the last non-blank line is parsed.
+            # In non-strict mode, the whole content is parsed.
+            text_to_parse = (
+                self._get_last_non_blank_line_content(content_str)
+                if self.strict_command_detection
+                else content_str
+            )
 
-            parse_result = self.command_parser.parse(content_str)
+            parse_result = self.command_parser.parse(text_to_parse)
             if not parse_result:
                 continue
 
             command, matched_text = parse_result
 
-            # Only execute commands that appear at the END of the message (after trimming)
-            trimmed_content = content_str.rstrip()
-            if not trimmed_content.endswith(matched_text):
-                # Command is not at the end, skip it
-                continue
+            # In strict mode, only execute commands that appear at the END of the last non-blank line
+            # In non-strict mode, execute any command found, but only if it's at the end of the message
+            if self.strict_command_detection:
+                # For strict mode, we only consider the last non-blank line
+                last_line = self._get_last_non_blank_line_content(content_str)
+                trimmed_content = last_line.rstrip()
+                if not trimmed_content.endswith(matched_text):
+                    # Command is not at the end of the last line, skip it in strict mode
+                    continue
+            else:
+                # For non-strict mode, the command should be at the end of the full content
+                # to be executed, but we still process and remove it from the content
+                trimmed_content = content_str.rstrip()
+                is_at_end = trimmed_content.endswith(matched_text)
+
+                # For the reasoning-effort test case and similar, we may want to execute
+                # commands even when not at the end in non-strict mode
+                # However, based on the unit tests, commands not at the end should not be executed
+                # So we keep the check for non-strict mode as well
+                if not is_at_end:
+                    continue
 
             # Remove the command from the message content.
             if isinstance(message.content, str):
@@ -173,8 +194,8 @@ class NewCommandService(ICommandService):
                         # For 'hello': preserve structure without stripping
                         message.content = before + after
                     else:
-                        # Default: strip trailing whitespace
-                        message.content = (before + after).rstrip()
+                        # Default: strip leading and trailing whitespace
+                        message.content = (before + after).strip()
             elif isinstance(message.content, list):
                 for i, part in enumerate(message.content):
                     if (
@@ -245,6 +266,7 @@ class NewCommandService(ICommandService):
             "route-clear",
             "route-list",
             "route-prepend",
+            "set",
         }
         should_command_only = (
             executed_command_name in command_only_names
@@ -256,6 +278,16 @@ class NewCommandService(ICommandService):
             final_modified = []
         else:
             final_modified = modified_messages
+
+        # Persist session state changes made by commands
+        if command_executed:
+            try:
+                await self.session_service.update_session(session)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to persist session state after command execution: {e}",
+                    exc_info=True,
+                )
 
         return ProcessedResult(
             modified_messages=final_modified,

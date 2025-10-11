@@ -63,6 +63,14 @@ class ApplicationStateService(IApplicationState):
             self._state_provider.api_key_redaction_enabled = enabled
         self._local_state["api_key_redaction_enabled"] = enabled
 
+    def set_default_api_key_redaction_enabled(self, enabled: bool) -> None:
+        """Set the default for whether API key redaction is enabled."""
+        if self._state_provider:
+            # This is a temporary measure to support the legacy persistence model.
+            # The attribute is not part of the formal state provider interface.
+            self._state_provider.default_api_key_redaction_enabled = enabled
+        self._local_state["default_api_key_redaction_enabled"] = enabled
+
     def get_disable_interactive_commands(self) -> bool:
         """Get whether interactive commands are disabled."""
         if self._state_provider and hasattr(

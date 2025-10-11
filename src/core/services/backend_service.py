@@ -745,6 +745,21 @@ class BackendService(IBackendService):
                 backend_name=backend_type,
             ) from e
 
+    def get_backend(self, backend_type: str) -> LLMBackend:
+        """Get a backend instance synchronously (for testing purposes)."""
+        if backend_type in self._backends:
+            return self._backends[backend_type]
+
+        # For testing, create a simple backend instance
+        from src.core.config.app_config import AppConfig
+
+        app_config = cast(AppConfig, self._config)
+
+        # Create backend using factory
+        backend = self._factory.create_backend(backend_type, app_config)
+        self._backends[backend_type] = backend
+        return backend
+
     async def chat_completions(
         self,
         request: ChatRequest,

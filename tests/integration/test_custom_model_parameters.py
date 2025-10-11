@@ -18,8 +18,7 @@ from tests.mocks.mock_http_client import MockHTTPClient
 @pytest.fixture
 def mock_app_config() -> AppConfig:
     """Fixture for a mock AppConfig."""
-    config = AppConfig()
-    config.backends = BackendSettings(
+    backends = BackendSettings(
         openrouter=BackendConfig(
             api_key=["test-openrouter-key"], api_url="https://openrouter.ai/api/v1"
         ),
@@ -31,6 +30,7 @@ def mock_app_config() -> AppConfig:
             api_key=["test-anthropic-key"], api_url="https://api.anthropic.com/v1"
         ),
     )
+    config = AppConfig(backends=backends)
     return config
 
 

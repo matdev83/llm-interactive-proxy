@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
+from src.core.domain.anthropic_tools import convert_anthropic_tool_to_openai
 
 
 def anthropic_to_openai_request(
@@ -302,58 +303,9 @@ def _extract_tool_calls(
 
 
 def _convert_anthropic_tool_definition(tool: Any) -> dict[str, Any]:
-    """Convert an Anthropic tool definition to an OpenAI-style tool entry."""
-
-    if tool is None:
-        return {}
-
-    tool_dict: dict[str, Any]
-    if isinstance(tool, dict):
-        tool_dict = dict(tool)
-    else:
-        try:
-            tool_dict = dict(tool)  # type: ignore[arg-type]
-        except Exception:
-            return {"type": "function", "function": {}}
-
-    fn_section = tool_dict.get("function")
-    if isinstance(fn_section, dict):
-        fn_dict = dict(fn_section)
-    else:
-        fn_dict = {}
-
-    # Anthropic commonly uses "input_schema" whereas OpenAI expects "parameters".
-    parameters = fn_dict.get("parameters")
-    if parameters is None and isinstance(fn_dict.get("input_schema"), dict):
-        parameters = fn_dict.get("input_schema")
-
-    converted_function: dict[str, Any] = {}
-    if "name" in fn_dict:
-        converted_function["name"] = fn_dict["name"]
-    if "description" in fn_dict:
-        converted_function["description"] = fn_dict["description"]
-    if parameters is not None:
-        converted_function["parameters"] = parameters
-    if "strict" in fn_dict:
-        converted_function["strict"] = fn_dict["strict"]
-
-    # Preserve any remaining keys that are already OpenAI compatible.
-    for key in ("parse", "examples"):
-        if key in fn_dict and key not in converted_function:
-            converted_function[key] = fn_dict[key]
-
-    tool_type = tool_dict.get("type", "function")
-    if tool_type not in {"function", "tool"}:
-        tool_type = "function"
-
-    # If Anthropic used "tool" as the type, normalize to "function" for OpenAI compatibility.
-    if tool_type == "tool":
-        tool_type = "function"
-
-    return {
-        "type": tool_type,
-        "function": converted_function,
-    }
+    """Convert Anthropic tool definition to OpenAI format using Pydantic models."""
+    openai_tool = convert_anthropic_tool_to_openai(tool)
+    return openai_tool.model_dump()
 
 
 def _convert_anthropic_tool_choice(tool_choice: Any) -> Any:

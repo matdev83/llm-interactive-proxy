@@ -194,15 +194,20 @@ async def _build_services_with_fake_backend(
 
 
 def _make_app_config_with_fake_backend_and_keys() -> AppConfig:
+    from src.core.config.app_config import AuthConfig, BackendSettings
+
     FAKE_INSTANCES.clear()
     _register_fake_backend_once()
-    cfg = AppConfig()
-    cfg.backends.default_backend = "fake"
-    # Provide a dummy api key for the fake backend to look functional
-    cfg.backends["fake"] = BackendConfig(api_key=["TEST_FAKE_API_KEY"])
-    # Enable request redaction and provide an explicit secret for discovery
-    cfg.auth.redact_api_keys_in_prompts = True
-    cfg.auth.api_keys = ["RED_SECRET_ABC"]
+
+    # Create backend settings with fake backend
+    fake_backend = BackendConfig(api_key=["TEST_FAKE_API_KEY"])
+    backends = BackendSettings(default_backend="fake", fake=fake_backend)
+
+    # Create auth config with redaction enabled
+    auth = AuthConfig(redact_api_keys_in_prompts=True, api_keys=["RED_SECRET_ABC"])
+
+    # Create complete config
+    cfg = AppConfig(backends=backends, auth=auth)
     return cfg
 
 
@@ -227,6 +232,9 @@ async def test_end_to_end_non_streaming_redaction() -> None:
     # Minimal app_state exposing app_config to RequestProcessor redaction
     app_state = MagicMock(spec=IApplicationState)
     app_state.get_setting.return_value = cfg
+    # Fix: get_command_prefix should return a proper string, not MagicMock
+    app_state.get_command_prefix.return_value = "!/"
+    app_state.get_disable_commands.return_value = False
 
     from src.core.interfaces.response_manager_interface import IResponseManager
     from src.core.interfaces.session_resolver_interface import ISessionResolver
@@ -292,6 +300,9 @@ async def test_end_to_end_streaming_redaction() -> None:
 
     app_state = MagicMock(spec=IApplicationState)
     app_state.get_setting.return_value = cfg
+    # Fix: get_command_prefix should return a proper string, not MagicMock
+    app_state.get_command_prefix.return_value = "!/"
+    app_state.get_disable_commands.return_value = False
 
     from src.core.interfaces.response_manager_interface import IResponseManager
     from src.core.interfaces.session_resolver_interface import ISessionResolver

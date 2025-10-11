@@ -60,14 +60,13 @@ async def test_session_records_proxy_and_backend_interactions(client):
 
     session_service = get_session_service_from_app(client.app)
     session = await session_service.get_session("abc")  # type: ignore
-    assert len(session.history) == 2
-    # First entry: command processed (handler may be recorded as backend in current pipeline)
-    assert (session.history[0].prompt or "").strip() in ("!/set(project=proj1)", "")
-    # Second entry: backend interaction recorded with usage and reply
-    assert session.history[1].handler == "backend"
-    assert session.history[1].response in ("backend reply", None)
+    # Only the second request makes a backend call; the first is a command processed locally
+    assert len(session.history) == 1
+    # The backend interaction should be recorded with usage and reply
+    assert session.history[0].handler == "backend"
+    assert session.history[0].response in ("backend reply", None)
     assert (
-        session.history[1].usage is None or session.history[1].usage.total_tokens == 3
+        session.history[0].usage is None or session.history[0].usage.total_tokens == 3
     )
 
 

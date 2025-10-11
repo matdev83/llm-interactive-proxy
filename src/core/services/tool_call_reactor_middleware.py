@@ -311,38 +311,58 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         return replacement_content
 
     def _normalize_tool_call(self, tool_call: Any) -> dict[str, Any] | None:
-        """Normalize a tool call entry from metadata into a dictionary."""
+        """Normalize a tool call entry from metadata into a dictionary.
 
+        Args:
+            tool_call: The tool call object to normalize
+
+        Returns:
+            The normalized tool call as a dictionary, or None if it cannot be normalized
+        """
+        # If already a dict, return as-is
         if isinstance(tool_call, dict):
             return tool_call
 
+        # Handle dataclass objects
         if is_dataclass(tool_call):
             try:
-                return asdict(tool_call)
-            except TypeError:
+                return asdict(tool_call)  # type: ignore[arg-type]
+            except TypeError as e:
                 logger.debug(
-                    "Failed to convert dataclass tool call to dict", exc_info=True
+                    "Failed to convert dataclass tool call to dict: %s",
+                    e,
+                    exc_info=True,
                 )
+                return None
 
-        for attr in ("model_dump", "dict", "to_dict"):
-            if hasattr(tool_call, attr):
-                converter = getattr(tool_call, attr)
+        # Try common conversion methods in order of preference
+        conversion_methods = ["model_dump", "dict", "to_dict"]
+        for method_name in conversion_methods:
+            if hasattr(tool_call, method_name):
+                converter = getattr(tool_call, method_name)
                 if callable(converter):
                     try:
                         result = converter()
-                    except Exception:
+                        if isinstance(result, dict):
+                            return result
                         logger.debug(
-                            "Failed to normalize tool call using %s",
-                            attr,
+                            "Tool call conversion using %s returned non-dict type: %s",
+                            method_name,
+                            type(result),
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            "Failed to normalize tool call using %s: %s",
+                            method_name,
+                            e,
                             exc_info=True,
                         )
                         continue
 
-                    if isinstance(result, dict):
-                        return result
-
         logger.debug(
-            "Skipping unsupported tool call type from metadata: %s", type(tool_call)
+            "Skipping unsupported tool call type from metadata: %s (%s)",
+            type(tool_call),
+            tool_call,
         )
         return None
 

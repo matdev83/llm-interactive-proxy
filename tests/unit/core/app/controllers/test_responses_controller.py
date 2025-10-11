@@ -44,6 +44,23 @@ class StubTranslationService:
             ],
         }
 
+    def from_domain_response(
+        self, response: ChatResponse, target_format: str
+    ) -> dict[str, object]:
+        """Add missing from_domain_response method."""
+        self.response_used = True
+        return {
+            "id": response.id,
+            "object": "response",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "converted"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
 
 class TestResponsesControllerSchemaValidation:
     """Tests covering JSON schema validation helper logic."""

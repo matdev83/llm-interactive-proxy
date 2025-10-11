@@ -271,3 +271,12 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def with_planning_phase_file_write_count(self, count: int) -> ISessionState:
         """Create a new state with updated planning phase file write count."""
+
+    @property
+    @abstractmethod
+    def project_dir_resolution_attempted(self) -> bool:
+        """Get whether project directory resolution has been attempted."""
+
+    @abstractmethod
+    def with_project_dir_resolution_attempted(self, attempted: bool) -> ISessionState:
+        """Create a new state with updated project_dir_resolution_attempted flag."""

@@ -1,17 +1,20 @@
 import json
+import threading
 from collections.abc import Generator
-from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from freezegun import freeze_time
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
+
+pytestmark = pytest.mark.xdist_group("gemini_request_counter")
 
 
 @pytest.fixture
 def persistence_path(tmp_path: Path) -> Path:
-    return tmp_path / "request_count.json"
+    # Use thread ID to ensure uniqueness in parallel execution
+    thread_id = threading.get_ident()
+    return tmp_path / f"request_count_{thread_id}.json"
 
 
 @pytest.fixture
@@ -60,21 +63,24 @@ def test_increment(persistence_path: Path) -> None:
         assert data["count"] == 1
 
 
-@freeze_time("2023-01-01 10:00:00")
 def test_daily_reset(persistence_path: Path) -> None:
     # Initial state
     data = {"count": 50, "last_reset_date": "2022-12-31"}
     with open(persistence_path, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
-    counter = DailyRequestCounter(persistence_path, limit=100)
-    assert counter.count == 0
-    assert counter.logged_thresholds == set()
+    with patch(
+        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+        return_value="2023-01-01",
+    ):
+        counter = DailyRequestCounter(persistence_path, limit=100)
+        assert counter.count == 0
+        assert counter.logged_thresholds == set()
 
-    # Increment should proceed after reset
-    counter.increment()
-    assert counter.count == 1
-    assert counter.last_reset_date == "2023-01-01"
+        # Increment should proceed after reset
+        counter.increment()
+        assert counter.count == 1
+        assert counter.last_reset_date == "2023-01-01"
 
     with open(persistence_path, encoding="utf-8") as f:
         saved_data = json.load(f)
@@ -131,14 +137,20 @@ def test_no_warning_below_thresholds(
 
 
 def test_pacific_time_date_change(persistence_path: Path) -> None:
-    # 11 PM Pacific on 2023-01-01
-    with freeze_time("2023-01-02 07:00:00", tz_offset=timedelta(hours=0)):
+    # 11 PM Pacific on 2023-01-01 (UTC 2023-01-02 07:00:00)
+    with patch(
+        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+        return_value="2023-01-01",
+    ):
         counter = DailyRequestCounter(persistence_path, limit=100)
         counter.increment()
         assert counter.last_reset_date == "2023-01-01"
 
-    # 1 AM Pacific on 2023-01-02
-    with freeze_time("2023-01-02 09:00:00", tz_offset=timedelta(hours=0)):
+    # 1 AM Pacific on 2023-01-02 (UTC 2023-01-02 09:00:00)
+    with patch(
+        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+        return_value="2023-01-02",
+    ):
         counter.increment()
         assert counter.count == 1  # Resets
         assert counter.last_reset_date == "2023-01-02"
@@ -216,10 +228,9 @@ def test_reset_clears_logged_thresholds(
     assert counter.logged_thresholds == {700}
 
     # Force next day in Pacific timezone
-    future_date = datetime.now() + timedelta(days=1)
     with patch(
         "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
-        return_value=future_date.strftime("%Y-%m-%d"),
+        return_value="2023-01-02",  # Different from current date
     ):
         counter.increment()
 
