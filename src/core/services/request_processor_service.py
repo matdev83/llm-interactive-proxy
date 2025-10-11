@@ -175,7 +175,7 @@ class RequestProcessor(IRequestProcessor):
                     if md is None:
                         continue
                     # Accept either a ModelDefaults instance or a plain dict-like
-                    if isinstance(md, ModelDefaults | dict):
+                    if isinstance(md, (ModelDefaults, dict)):
                         model_defaults = md
                         break
 
@@ -372,7 +372,7 @@ class RequestProcessor(IRequestProcessor):
                         session_override = getattr(
                             session_state, "api_key_redaction_enabled", None
                         )
-                        if not isinstance(session_override, bool | type(None)):
+                        if not isinstance(session_override, (bool, type(None))):
                             session_override = None
                 except Exception:
                     session_override = None
