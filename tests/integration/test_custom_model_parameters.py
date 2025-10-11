@@ -233,7 +233,9 @@ class TestCustomModelParameters:
         assert "thinkingBudget" in thinking_config
         assert thinking_config["thinkingBudget"] == -1
         assert thinking_config.get("includeThoughts") is True
-        assert "reasoning_effort" not in thinking_config
+        assert (
+            "reasoning_effort" in thinking_config
+        )  # reasoning_effort should be passed through
 
     @pytest.mark.asyncio
     async def test_anthropic_reasoning_effort_parameter(

@@ -12,7 +12,6 @@ import pytest
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig, BackendConfig
-from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import (
@@ -212,7 +211,9 @@ class TestBackendServiceTargeted:
         mock_session = Mock()
         mock_session.state = Mock()
         mock_session.state.backend_config = Mock()
-        mock_session.state.backend_config.backend_type = BackendType.OPENAI
+        mock_session.state.backend_config.backend_type = "openai"
+        mock_session.state.backend_config.model = "gpt-4"
+        mock_session.state.backend_config.interactive_mode = False
 
         with (
             patch.object(

@@ -465,17 +465,23 @@ class TranslationService:
             ),
         }
 
-    def from_domain_response(self, response: ChatResponse, target_format: str) -> Any:
+    def from_domain_response(
+        self, response: ChatResponse, target_format: str = "openai"
+    ) -> Any:
         """
         Translates an internal domain ChatResponse to a specific API format.
 
         Args:
             response: The internal ChatResponse object.
-            target_format: The target API format (e.g., "anthropic", "gemini").
+            target_format: The target API format (e.g., "anthropic", "gemini", "responses").
 
         Returns:
             The response object in the target format.
         """
+        # Handle special case for responses format
+        if target_format == "responses":
+            return self.from_domain_to_responses_response(response)
+
         converter = self._from_domain_response_converters.get(target_format)
         if not converter:
             raise NotImplementedError(
