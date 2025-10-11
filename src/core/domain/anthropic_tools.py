@@ -77,7 +77,7 @@ class OpenAIToolDefinition(BaseModel):
 
 
 def convert_anthropic_tool_to_openai(
-    anthropic_tool: dict[str, Any] | AnthropicToolDefinition
+    anthropic_tool: dict[str, Any] | AnthropicToolDefinition,
 ) -> OpenAIToolDefinition:
     """
     Convert an Anthropic tool definition to OpenAI format using Pydantic models.

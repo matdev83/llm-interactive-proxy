@@ -12,7 +12,7 @@ from src.core.services.backend_registry import backend_registry
 
 
 def _unwrap_config(
-    result: AppConfig | tuple[AppConfig, ParameterResolution]
+    result: AppConfig | tuple[AppConfig, ParameterResolution],
 ) -> AppConfig:
     return result[0] if isinstance(result, tuple) else result
 

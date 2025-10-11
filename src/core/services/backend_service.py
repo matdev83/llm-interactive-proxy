@@ -510,9 +510,7 @@ class BackendService(IBackendService):
                     session = None
 
             request_session_id = (
-                request.extra_body.get("session_id")
-                if request.extra_body
-                else None
+                request.extra_body.get("session_id") if request.extra_body else None
             )
             if (
                 session is None

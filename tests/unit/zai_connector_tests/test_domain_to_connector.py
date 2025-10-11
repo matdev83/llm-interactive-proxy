@@ -37,14 +37,13 @@ async def zai_backend_fixture(
     }
 
     # Add models endpoint mock that can be reused for health checks
-    for _ in range(3):  # Allow multiple calls for health checks
-        httpx_mock.add_response(
-            url=f"{TEST_ZAI_API_BASE_URL}/models",
-            method="GET",
-            json=mock_models,
-            status_code=200,
-            headers={"Content-Type": "application/json"},
-        )
+    httpx_mock.add_response(
+        url=f"{TEST_ZAI_API_BASE_URL}/models",
+        method="GET",
+        json=mock_models,
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
 
     client = httpx.AsyncClient()
     try:

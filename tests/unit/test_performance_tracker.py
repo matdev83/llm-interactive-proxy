@@ -1,7 +1,6 @@
 import logging
 
 import pytest
-
 from src.performance_tracker import (
     PerformanceMetrics,
     track_phase,
@@ -15,10 +14,10 @@ class TimeStub:
         self._last = values[-1]
 
     def __call__(self) -> float:
-        try:
+        from contextlib import suppress
+
+        with suppress(StopIteration):
             self._last = next(self._iterator)
-        except StopIteration:
-            pass
         return self._last
 
 
@@ -34,7 +33,9 @@ class DummyMetrics:
         self.ended += 1
 
 
-def test_performance_metrics_phase_tracking_and_finalize(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_performance_metrics_phase_tracking_and_finalize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     time_stub = TimeStub([1.0, 4.0, 5.0])
     monkeypatch.setattr("src.performance_tracker.time.time", time_stub)
 
@@ -81,7 +82,9 @@ def test_performance_metrics_log_summary_logs_breakdown_and_overhead(
     assert "overhead=2.500s" in caplog.text
 
 
-def test_track_request_performance_context_manager_logs_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_track_request_performance_context_manager_logs_on_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     called: list[PerformanceMetrics] = []
 
     def fake_log_summary(self: PerformanceMetrics) -> None:
@@ -99,9 +102,8 @@ def test_track_request_performance_context_manager_logs_on_exit(monkeypatch: pyt
 def test_track_phase_context_manager_ensures_end_called_on_exception() -> None:
     dummy = DummyMetrics()
 
-    with pytest.raises(RuntimeError):
-        with track_phase(dummy, "phase-one"):
-            raise RuntimeError("boom")
+    with pytest.raises(RuntimeError), track_phase(dummy, "phase-one"):
+        raise RuntimeError("boom")
 
     assert dummy.started == ["phase-one"]
     assert dummy.ended == 1
