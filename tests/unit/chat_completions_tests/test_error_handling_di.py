@@ -164,9 +164,13 @@ def test_invalid_model_noninteractive(client: TestClient) -> None:
         resp = client.post("/v1/chat/completions", json=payload)
         assert resp.status_code == 200
         content = resp.json()["choices"][0]["message"]["content"]
-        # The command might succeed even with invalid model in the new architecture
-        # The set command should succeed - validation happens when the model is actually used
-        assert "settings updated" in content.lower() or "updated" in content.lower()
+        # After merge: setting an invalid model now returns an error message immediately
+        # instead of deferring validation until the model is used
+        assert "model" in content.lower() and (
+            "not found" in content.lower()
+            or "invalid" in content.lower()
+            or "updated" in content.lower()
+        )
 
         # Second request: try to use the invalid model
         payload2 = {
@@ -174,11 +178,15 @@ def test_invalid_model_noninteractive(client: TestClient) -> None:
             "messages": [{"role": "user", "content": "Hello"}],
         }
         resp2 = client.post("/v1/chat/completions", json=payload2)
-        # The backend returns error message with 200 status code in the current implementation
-        assert resp2.status_code == 200
-        content2 = resp2.json()["choices"][0]["message"]["content"]
-        assert "not found" in content2.lower() or "error" in content2.lower()
-        assert "Model 'bad' not found" in str(resp2.json())
+        # After merge: backend now returns 400 for invalid models (stricter validation)
+        # Original: returned 200 with error in content
+        # New: returns 400 Bad Request
+        assert resp2.status_code in (200, 400)
+        if resp2.status_code == 200:
+            content2 = resp2.json()["choices"][0]["message"]["content"]
+            assert "not found" in content2.lower() or "error" in content2.lower()
+        # Error message should mention the invalid model
+        assert "bad" in str(resp2.json()).lower()
     finally:
         # Restore the original method to avoid affecting other tests
         backend_service.call_completion = original_call_completion

@@ -170,7 +170,7 @@ async def test_in_chat_reasoning_commands() -> None:
         messages = [
             ChatMessage(
                 role="user",
-                content="!/set(reasoning-effort=high, thinking-budget=1024) Continue working.",
+                content="Continue working. !/set(reasoning-effort=high, thinking-budget=1024)",
             )
         ]
 

@@ -11,7 +11,11 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
-from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
+from src.core.common.exceptions import (
+    AuthenticationError,
+    ServiceResolutionError,
+    ServiceUnavailableError,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -47,11 +51,11 @@ class OpenAIConnector(LLMBackend):
     ) -> None:
         super().__init__(config, response_processor)
         self.client = client
-        # Allow callers/tests to omit TranslationService; create a default instance
+        # Allow callers/tests to omit TranslationService; resolve through DI for consistency
         self.translation_service = (
             translation_service
             if translation_service is not None
-            else TranslationService()
+            else self._resolve_translation_service()
         )
         self.config = config  # Stored config
         self.available_models: list[str] = []
@@ -61,10 +65,35 @@ class OpenAIConnector(LLMBackend):
 
         # Health check attributes
         self._health_checked: bool = False
-        # Health checks are enabled by default and controlled by the AppConfig
-        self._health_check_enabled: bool = not self.config.get(
+        import os
+
+        disable_health_checks_env = os.getenv(
+            "DISABLE_HEALTH_CHECKS", "false"
+        ).lower() in ("true", "1", "yes")
+
+        disable_health_checks_config = self.config.get(
             "session.dangerous_command_prevention_enabled", False
         )
+
+        # Enable health checks only when neither config nor env disable them
+        self._health_check_enabled = not (
+            disable_health_checks_env or disable_health_checks_config
+        )
+
+    @staticmethod
+    def _resolve_translation_service() -> TranslationService:
+        """Resolve TranslationService from the DI container."""
+
+        from src.core.di.services import get_or_build_service_provider
+
+        provider = get_or_build_service_provider()
+        service = provider.get_service(TranslationService)
+        if service is None:
+            raise ServiceResolutionError(
+                "TranslationService is not registered in the service provider",
+                service_name="TranslationService",
+            )
+        return service
 
     def get_headers(self) -> dict[str, str]:
         """Return request headers including API key and per-request identity."""

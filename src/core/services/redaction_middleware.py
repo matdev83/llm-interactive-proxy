@@ -42,27 +42,6 @@ class RedactionMiddleware(IRequestMiddleware):
         self._command_filter = ProxyCommandFilter(command_prefix)
         self._strict_command_detection = strict_command_detection
 
-    @staticmethod
-    def _extract_text(part: Any) -> str | None:
-        """Extract the text payload from a message part if available."""
-
-        if isinstance(part, MessageContentPartText):
-            return part.text
-        if isinstance(part, dict):
-            text = part.get("text")
-            if isinstance(text, str):
-                return text
-        return None
-
-    @staticmethod
-    def _assign_text(part: Any, value: str) -> None:
-        """Assign text back to a message part, preserving its structure."""
-
-        if isinstance(part, MessageContentPartText):
-            part.text = value
-        elif isinstance(part, dict):
-            part["text"] = value
-
     async def process(
         self, request: ChatRequest, context: dict[str, Any] | None = None
     ) -> ChatRequest:
@@ -75,6 +54,10 @@ class RedactionMiddleware(IRequestMiddleware):
         Returns:
             The processed request with sensitive information redacted
         """
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"RedactionMiddleware.process called with {len(request.messages if request.messages else [])} messages"
+            )
         # Skip if no messages
         if not request.messages:
             return request
@@ -83,85 +66,65 @@ class RedactionMiddleware(IRequestMiddleware):
         # except for tool/function responses which contain legitimate tool output
         # (file contents, search results, etc.) that may include proxy command examples
 
-        # Since request and messages may be frozen Pydantic models, we need to create
-        # new message objects with modified content
-        from src.core.domain.chat import ChatMessage
+        # Create a copy of the request to modify
+        processed_request = request.model_copy(deep=True)
 
-        new_messages = []
-        num_messages = len(request.messages)
+        # Process each message
+        for message in processed_request.messages:
+            if message.content:
+                # Skip command filtering for tool/function responses
+                # These contain legitimate tool output that may include proxy command examples
+                is_tool_response = message.role in ["tool", "function"]
 
-        for i, message in enumerate(request.messages):
-            if not message.content:
-                new_messages.append(message)
-                continue
-
-            is_last_message = i == num_messages - 1
-            is_tool_response = message.role in ["tool", "function"]
-
-            new_content = message.content
-
-            # Redact API keys from all messages
-            if isinstance(message.content, str):
-                new_content = self._api_key_redactor.redact(message.content)
-            elif isinstance(message.content, list | tuple):
-                # For list content, we need to process each part
-                new_content_list: list[Any] = []
-                for part in message.content:
-                    part_text = self._extract_text(part)
-                    if part_text:
-                        redacted_text = self._api_key_redactor.redact(part_text)
-                        if isinstance(part, MessageContentPartText):
-                            new_content_list.append(
-                                MessageContentPartText(text=redacted_text)
+                # Handle string content
+                if isinstance(message.content, str):
+                    # Apply API key redaction
+                    message.content = self._api_key_redactor.redact(message.content)
+                    # Filter commands only for user/assistant/system messages
+                    if not is_tool_response:
+                        if self._strict_command_detection:
+                            message.content = (
+                                self._command_filter.filter_commands_with_strict_mode(
+                                    message.content
+                                )
                             )
                         else:
-                            # For other types (like MessageContentPartImage), keep as is
-                            new_content_list.append(part)
-                    else:
-                        new_content_list.append(part)
-                new_content = new_content_list
-
-            # Only filter commands on the last message, and only if it's not a tool response
-            if is_last_message and not is_tool_response:
-                filter_fn = (
-                    self._command_filter.filter_commands_with_strict_mode
-                    if self._strict_command_detection
-                    else self._command_filter.filter_commands
-                )
-
-                if isinstance(new_content, str):
-                    new_content = filter_fn(new_content)
-                elif isinstance(new_content, list):
-                    # Only filter the last text part, need to modify the list
-                    for index in reversed(range(len(new_content))):
-                        part = new_content[index]
-                        part_text = self._extract_text(part)
-                        if not part_text or not part_text.strip():
-                            continue
-
-                        filtered_text = filter_fn(part_text)
-                        if isinstance(part, MessageContentPartText):
-                            new_content[index] = MessageContentPartText(
-                                text=filtered_text
+                            message.content = self._command_filter.filter_commands(
+                                message.content
                             )
-                        # Only handle MessageContentPartText and MessageContentPartImage, no dicts
-                        break
+                # Handle list of content parts
+                elif isinstance(message.content, list):
+                    for part in message.content:
+                        if isinstance(part, dict) and "text" in part and part["text"]:
+                            # Apply API key redaction
+                            part["text"] = self._api_key_redactor.redact(part["text"])
+                            # Filter commands only for user/assistant/system messages
+                            if not is_tool_response:
+                                if self._strict_command_detection:
+                                    part["text"] = (
+                                        self._command_filter.filter_commands_with_strict_mode(
+                                            part["text"]
+                                        )
+                                    )
+                                else:
+                                    part["text"] = self._command_filter.filter_commands(
+                                        part["text"]
+                                    )
+                        elif isinstance(part, MessageContentPartText) and part.text:
+                            # Apply API key redaction
+                            part.text = self._api_key_redactor.redact(part.text)
+                            # Filter commands only for user/assistant/system messages
+                            if not is_tool_response:
+                                if self._strict_command_detection:
+                                    part.text = self._command_filter.filter_commands_with_strict_mode(
+                                        part.text
+                                    )
+                                else:
+                                    part.text = self._command_filter.filter_commands(
+                                        part.text
+                                    )
 
-            # Create new message with potentially modified content
-            if new_content != message.content:
-                new_message = ChatMessage(
-                    role=message.role,
-                    content=new_content,
-                    name=message.name,
-                    tool_call_id=message.tool_call_id,
-                    tool_calls=message.tool_calls,
-                )
-                new_messages.append(new_message)
-            else:
-                new_messages.append(message)
-
-        # Create new request with modified messages
-        return request.model_copy(update={"messages": new_messages})
+        return processed_request
 
     def update_api_keys(self, api_keys: Iterable[str]) -> None:
         """Update the API keys to redact.

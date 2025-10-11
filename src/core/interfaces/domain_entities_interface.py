@@ -260,6 +260,15 @@ class ISessionState(IValueObject, ISessionStateMutator):
     def with_api_key_redaction_enabled(self, enabled: bool | None) -> ISessionState:
         """Create a new state with updated API key redaction flag."""
 
+    @property
+    @abstractmethod
+    def command_prefix_override(self) -> str | None:
+        """Get the session-scoped command prefix override if present."""
+
+    @abstractmethod
+    def with_command_prefix_override(self, command_prefix: str | None) -> ISessionState:
+        """Create a new state with updated command prefix override."""
+
     @abstractmethod
     def with_planning_phase_config(self, config: IPlanningPhaseConfig) -> ISessionState:
         """Create a new state with updated planning phase configuration."""
@@ -280,3 +289,19 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def with_project_dir_resolution_attempted(self, attempted: bool) -> ISessionState:
         """Create a new state with updated project_dir_resolution_attempted flag."""
+
+    @property
+    @abstractmethod
+    def planning_phase_original_backend(self) -> str | None:
+        """Get the stored original backend for planning phase restoration."""
+
+    @property
+    @abstractmethod
+    def planning_phase_original_model(self) -> str | None:
+        """Get the stored original model for planning phase restoration."""
+
+    @abstractmethod
+    def with_planning_phase_original_route(
+        self, backend: str | None, model: str | None
+    ) -> ISessionState:
+        """Create a new state with updated stored planning-phase backend/model."""

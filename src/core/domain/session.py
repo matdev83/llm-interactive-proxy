@@ -78,6 +78,9 @@ class SessionState(ValueObject):
     planning_phase_turn_count: int = 0
     planning_phase_file_write_count: int = 0
     api_key_redaction_enabled: bool | None = None
+    command_prefix_override: str | None = None
+    planning_phase_original_backend: str | None = None
+    planning_phase_original_model: str | None = None
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -148,6 +151,21 @@ class SessionState(ValueObject):
     def with_api_key_redaction_enabled(self, enabled: bool | None) -> SessionState:
         """Create a new session state with updated API key redaction flag."""
         return self.model_copy(update={"api_key_redaction_enabled": enabled})
+
+    def with_command_prefix_override(self, command_prefix: str | None) -> SessionState:
+        """Create a new session state with updated command prefix override."""
+        return self.model_copy(update={"command_prefix_override": command_prefix})
+
+    def with_planning_phase_original_route(
+        self, backend: str | None, model: str | None
+    ) -> SessionState:
+        """Create a new session state with updated stored planning-phase backend/model."""
+        return self.model_copy(
+            update={
+                "planning_phase_original_backend": backend,
+                "planning_phase_original_model": model,
+            }
+        )
 
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
@@ -420,6 +438,37 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(
             SessionState, self._state
         ).with_project_dir_resolution_attempted(attempted)
+        return SessionStateAdapter(new_state)
+
+    @property
+    def command_prefix_override(self) -> str | None:
+        """Get the session-scoped command prefix override if present."""
+        return self._state.command_prefix_override  # type: ignore[attr-defined]
+
+    def with_command_prefix_override(self, command_prefix: str | None) -> ISessionState:
+        """Create a new state with updated command prefix override."""
+        new_state = cast(SessionState, self._state).with_command_prefix_override(
+            command_prefix
+        )
+        return SessionStateAdapter(new_state)
+
+    @property
+    def planning_phase_original_backend(self) -> str | None:
+        """Get the stored original backend for planning phase restoration."""
+        return self._state.planning_phase_original_backend  # type: ignore[attr-defined]
+
+    @property
+    def planning_phase_original_model(self) -> str | None:
+        """Get the stored original model for planning phase restoration."""
+        return self._state.planning_phase_original_model  # type: ignore[attr-defined]
+
+    def with_planning_phase_original_route(
+        self, backend: str | None, model: str | None
+    ) -> ISessionState:
+        """Create a new state with updated stored planning-phase backend/model."""
+        new_state = cast(SessionState, self._state).with_planning_phase_original_route(
+            backend, model
+        )
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests

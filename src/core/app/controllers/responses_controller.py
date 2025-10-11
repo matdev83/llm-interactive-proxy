@@ -236,6 +236,8 @@ class ResponsesController:
                                     chunk_payload = chunk_content
                             elif isinstance(chunk, str):
                                 chunk_content = chunk
+                            elif isinstance(chunk, bytes):
+                                chunk_content = chunk.decode("utf-8")
                             else:
                                 chunk_content = str(chunk)
 
@@ -724,13 +726,19 @@ class ResponsesController:
             if not isinstance(required, list):
                 raise ValueError("Required field must be a list")
 
-            if "object" in schema_types and "properties" in schema:
-                properties = schema["properties"]
-                for req_field in required:
-                    if req_field not in properties:
-                        raise ValueError(
-                            f"Required field '{req_field}' not found in properties"
-                        )
+            # Check if required fields are defined (either directly or via composition)
+            if "object" in schema_types:
+                # Skip validation if schema uses composition keywords that may define fields
+                composition_keywords = {"allOf", "anyOf", "oneOf", "$ref"}
+                has_composition = any(key in schema for key in composition_keywords)
+
+                if not has_composition and "properties" in schema:
+                    properties = schema["properties"]
+                    for req_field in required:
+                        if req_field not in properties:
+                            raise ValueError(
+                                f"Required field '{req_field}' not found in properties"
+                            )
 
         # Validate enum if present
         if "enum" in schema:

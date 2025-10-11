@@ -2,6 +2,7 @@
 A command handler for the failover commands.
 """
 
+import contextlib
 from typing import TYPE_CHECKING, Any, cast
 
 from src.core.commands.command import Command
@@ -37,6 +38,13 @@ class SessionStateApplicationStateAdapter(
         self._local_state: dict[str, Any] = {}
 
     def get_command_prefix(self) -> str | None:
+        prefix = None
+        try:
+            prefix = getattr(self._session.state, "command_prefix_override", None)
+        except Exception:
+            prefix = None
+        if isinstance(prefix, str) and prefix:
+            return prefix
         return self._local_state.get("command_prefix")
 
     def get_api_key_redaction_enabled(self) -> bool:
@@ -53,6 +61,10 @@ class SessionStateApplicationStateAdapter(
 
     def set_command_prefix(self, prefix: str) -> None:
         self._local_state["command_prefix"] = prefix
+        with contextlib.suppress(Exception):
+            self._session.state = self._session.state.with_command_prefix_override(
+                prefix
+            )
 
     def set_api_key_redaction_enabled(self, enabled: bool) -> None:
         self._local_state["api_key_redaction_enabled"] = enabled

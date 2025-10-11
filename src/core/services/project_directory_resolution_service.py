@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-import xml.etree.ElementTree
 from typing import Any
+from xml.etree import ElementTree
 from xml.etree.ElementTree import ParseError
 
 from src.core.config.app_config import AppConfig
@@ -179,6 +179,7 @@ class ProjectDirectoryResolutionService:
     async def _persist_state(
         self, session: Session, *, directory: str | None, message: str
     ) -> None:
+        # Use Pydantic-style immutable updates from local
         session_state = session.state.with_project_dir_resolution_attempted(True)
         if directory is not None:
             session_state = session_state.with_project_dir(directory)
@@ -332,7 +333,7 @@ class ProjectDirectoryResolutionService:
         self, response_text: str
     ) -> tuple[str | None, str | None]:
         try:
-            root = xml.etree.ElementTree.fromstring(response_text.strip())
+            root = ElementTree.fromstring(response_text.strip())
         except ParseError:
             return None, "invalid XML"
         if root.tag != "directory-resolution-response":

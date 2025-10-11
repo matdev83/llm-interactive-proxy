@@ -12,7 +12,7 @@ def functional_backend() -> str:
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
-from src.core.common.exceptions import ConfigurationError
+from src.core.common.exceptions import ConfigurationError, JSONParsingError
 from src.core.config.app_config import load_config
 from src.core.persistence import ConfigManager
 
@@ -164,6 +164,18 @@ def test_invalid_persisted_backend(
     monkeypatch.delenv("LLM_BACKEND", raising=False)
 
 
+def test_load_rejects_non_object_json(tmp_path):
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text("[]", encoding="utf-8")
+
+    manager = ConfigManager(FastAPI(), str(cfg_path))
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        manager.load()
+
+    assert "JSON object" in str(exc_info.value)
+
+
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
@@ -213,3 +225,16 @@ def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
         "backend": "nonexistent",
         "functional_backends": ["openai"],
     }
+
+
+def test_load_raises_json_parsing_error_for_invalid_json(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text("{not: valid json}")
+
+    app = FastAPI()
+    manager = ConfigManager(app, path=str(cfg_path))
+
+    with pytest.raises(JSONParsingError) as exc_info:
+        manager.load()
+
+    assert "Failed to parse config file" in str(exc_info.value)

@@ -192,6 +192,7 @@ async def test_request_processor_skips_redaction_when_session_disables(
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
     mock_app_state.get_disable_commands.return_value = False
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     instantiation_count = 0
 
@@ -268,6 +269,7 @@ async def test_request_processor_applies_redaction_when_session_enables(
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
     mock_app_state.get_disable_commands.return_value = False
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     instantiation_count = 0
     processed_requests: list[ChatRequest] = []
@@ -336,6 +338,7 @@ async def test_request_processor_applies_edit_precision_overrides_for_failed_edi
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     processor = RequestProcessor(
         command_processor,
@@ -408,6 +411,7 @@ async def test_request_processor_respects_exclude_agents_regex() -> None:
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     processor = RequestProcessor(
         command_processor,
@@ -487,6 +491,7 @@ async def test_request_processor_applies_overrides_when_pending_flag_set() -> No
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.side_effect = _get_setting
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     processor = RequestProcessor(
         command_processor,
@@ -554,6 +559,8 @@ async def test_request_processor_applies_redaction_before_backend_call(
     mock_app_state = MagicMock(spec=IApplicationState)
     # get_setting("app_config") should return our config
     mock_app_state.get_setting.return_value = app_config
+    # Ensure get_command_prefix returns a proper value (not a MagicMock)
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     processor = RequestProcessor(
         command_processor,
@@ -646,6 +653,7 @@ async def test_request_processor_redacts_command_modified_messages(
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     processor = RequestProcessor(
         command_processor,
@@ -758,6 +766,7 @@ async def test_request_processor_handles_plain_dict_model_defaults() -> None:
         return default
 
     mock_app_state.get_setting.side_effect = _get_setting
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     processor = RequestProcessor(
         command_processor,
@@ -797,6 +806,7 @@ async def test_request_processor_respects_redaction_feature_flag_disabled(
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_app_state.get_setting.return_value = app_config
+    mock_app_state.get_command_prefix.return_value = "!/"
 
     processor = RequestProcessor(
         command_processor,

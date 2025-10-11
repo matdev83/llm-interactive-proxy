@@ -75,6 +75,16 @@ class ConfigManager:
             raise ConfigurationError(
                 f"An unexpected error occurred while loading config file {self.path.name}."
             ) from e
+        if not isinstance(data, dict):
+            logger.error(
+                "Invalid config file structure in %s: expected object but got %s",
+                self.path,
+                type(data).__name__,
+            )
+            raise ConfigurationError(
+                f"Config file {self.path.name} must contain a JSON object."
+            )
+
         self.apply(data)
 
     def _apply_default_backend(self, backend_value: Any) -> None:

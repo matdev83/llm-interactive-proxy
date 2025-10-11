@@ -113,6 +113,10 @@ class DefaultSessionResolver(ISessionResolver):
             context.session_id = session_id
             return session_id
 
+        if session_id:
+            context.session_id = session_id
+            return session_id
+
         # Fall back to configured default session ID if available
         if self._configured_default_id:
             context.session_id = self._configured_default_id

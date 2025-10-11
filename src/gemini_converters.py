@@ -61,7 +61,7 @@ def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
                 messages.append(ChatMessage(role="tool", content=payload))
             elif getattr(part, "function_call", None):
                 try:
-                    if part.function_call:
+                    if part.function_call is not None:
                         tool_calls.append(
                             Translation._process_gemini_function_call(
                                 part.function_call

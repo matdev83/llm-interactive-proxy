@@ -6,7 +6,7 @@ from typing import Any, cast
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -78,7 +78,9 @@ class BackendService(IBackendService):
         # Ensure config is properly typed for type checking
         _typed_config = cast(AppConfig, config)
 
-        self._failover_service: FailoverService = FailoverService(failover_routes={})
+        self._failover_service: FailoverService = FailoverService(
+            failover_routes=self._failover_routes
+        )
         if failover_coordinator is None:
             logger.warning(
                 "BackendService: No IFailoverCoordinator provided; using default FailoverCoordinator. "
@@ -533,12 +535,20 @@ class BackendService(IBackendService):
 
             try:
                 app_config_typed: AppConfig = cast(AppConfig, self._config)
-                backend_config_from_app = app_config_typed.backends.get(backend_type)
-                identity = (
-                    backend_config_from_app.identity
-                    if backend_config_from_app and backend_config_from_app.identity
-                    else app_config_typed.identity
-                )
+                provider_backend_config = self._backend_configs.get(backend_type)
+                if provider_backend_config and getattr(
+                    provider_backend_config, "identity", None
+                ):
+                    identity = provider_backend_config.identity
+                else:
+                    backend_config_from_app = app_config_typed.backends.get(
+                        backend_type
+                    )
+                    identity = (
+                        backend_config_from_app.identity
+                        if backend_config_from_app and backend_config_from_app.identity
+                        else app_config_typed.identity
+                    )
                 # Wire-capture: capture outbound payload pre-call (best-effort)
                 try:
                     if self._wire_capture and self._wire_capture.enabled():
@@ -707,30 +717,31 @@ class BackendService(IBackendService):
             return self._backends[backend_type]
 
         try:
-            provider_cfg: Any | None = None
+            provider_backend_config: BackendConfig | None = None
+            app_config: AppConfig = cast(AppConfig, self._config)
+
             if self._backend_config_provider:
                 provider_cfg = self._backend_config_provider.get_backend_config(
                     backend_type
                 )
 
-            # Use provider config if available, otherwise use default app config
-            from src.core.config.app_config import AppConfig
+                if isinstance(provider_cfg, BackendConfig):
+                    provider_backend_config = provider_cfg
+                elif isinstance(provider_cfg, AppConfig):
+                    app_config = provider_cfg
 
-            if isinstance(provider_cfg, AppConfig):
-                app_config = provider_cfg
+            if provider_backend_config is not None:
+                try:
+                    self._backend_configs[backend_type] = (
+                        provider_backend_config.model_copy(deep=True)
+                    )
+                except AttributeError:
+                    self._backend_configs[backend_type] = provider_backend_config
             else:
-                app_config = cast(AppConfig, self._config)
+                self._backend_configs.pop(backend_type, None)
 
-            # Cast provider_cfg to BackendConfig for type compatibility
-            from src.core.config.app_config import BackendConfig
-
-            backend_config = (
-                provider_cfg
-                if isinstance(provider_cfg, BackendConfig) or provider_cfg is None
-                else None
-            )
             backend: LLMBackend = await self._factory.ensure_backend(
-                backend_type, app_config, backend_config
+                backend_type, app_config, provider_backend_config
             )
             self._backends[backend_type] = backend
             return backend
@@ -822,6 +833,7 @@ class BackendService(IBackendService):
             _max_writes = 0
 
         if (turn_count >= _max_turns) or (file_write_count >= _max_writes):
+            await self._restore_planning_phase_route(session)
             return
 
         from src.core.domain.configuration.backend_config import BackendConfiguration
@@ -840,6 +852,26 @@ class BackendService(IBackendService):
 
         if current_full_model == strong_full_model:
             return
+
+        # Persist the original route so we can restore it when planning phase ends
+        try:
+            has_original_backend = bool(
+                getattr(session.state, "planning_phase_original_backend", None)
+            )
+            has_original_model = bool(
+                getattr(session.state, "planning_phase_original_model", None)
+            )
+        except Exception:
+            has_original_backend = False
+            has_original_model = False
+
+        if not (has_original_backend or has_original_model):
+            new_state = session.state.with_planning_phase_original_route(
+                requested_backend,
+                requested_model,
+            )
+            session.update_state(new_state)
+            await self._session_service.update_session(session)
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
@@ -884,6 +916,7 @@ class BackendService(IBackendService):
                 turn_count >= planning_config.max_turns
                 or file_write_count >= planning_config.max_file_writes
             ):
+                await self._restore_planning_phase_route(session)
                 return
 
             new_turn_count = turn_count + 1
@@ -904,11 +937,72 @@ class BackendService(IBackendService):
                         f"Updated planning phase counters: turns={new_turn_count}/{planning_config.max_turns}, "
                         f"file_writes={new_file_write_count}/{planning_config.max_file_writes}"
                     )
+
+                if (
+                    new_turn_count >= planning_config.max_turns
+                    or new_file_write_count >= planning_config.max_file_writes
+                ):
+                    await self._restore_planning_phase_route(session)
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     f"Failed to update planning phase counters: {e}", exc_info=True
                 )
+
+    async def _restore_planning_phase_route(self, session: Any) -> None:
+        """Restore the original backend/model after planning phase concludes."""
+
+        if not session or not session.state:
+            return
+
+        try:
+            original_backend = getattr(
+                session.state, "planning_phase_original_backend", None
+            )
+            original_model = getattr(
+                session.state, "planning_phase_original_model", None
+            )
+        except Exception:
+            return
+
+        if original_backend is None and original_model is None:
+            return
+
+        from src.core.domain.configuration.backend_config import BackendConfiguration
+        from src.core.interfaces.configuration_interface import IBackendConfig
+
+        current_config = session.state.backend_config
+        target_backend = original_backend or current_config.backend_type
+        target_model = (
+            original_model if original_model is not None else current_config.model
+        )
+
+        # Ensure that we are not passing mock objects to the BackendConfiguration
+        if hasattr(target_backend, "_extract_mock_name"):
+            target_backend = str(target_backend)
+        if hasattr(target_model, "_extract_mock_name"):
+            target_model = str(target_model)
+
+        restored_config = BackendConfiguration(
+            backend_type=target_backend,
+            model=target_model,
+            interactive_mode=current_config.interactive_mode,
+        )
+
+        new_state = session.state.with_backend_config(
+            cast(IBackendConfig, restored_config)
+        ).with_planning_phase_original_route(None, None)
+
+        session.update_state(new_state)
+        await self._session_service.update_session(session)
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Planning phase complete; restored session %s to backend=%s model=%s",
+                getattr(session, "id", None),
+                target_backend,
+                target_model,
+            )
 
     def _count_file_writes_in_response(self, response: Any) -> int:
         """Count file write tool calls in a response.

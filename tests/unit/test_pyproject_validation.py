@@ -347,9 +347,18 @@ def pyproject_path() -> Path:
 
 
 @pytest.fixture
-def venv_path() -> Path:
-    """Get path to virtual environment."""
-    return Path(__file__).parent.parent.parent / ".venv"
+def venv_path(tmp_path: Path) -> Path:
+    """Provide a temporary virtual environment path for dependency tests."""
+    venv_dir = tmp_path / "venv"
+    venv_dir.mkdir()
+    return venv_dir
+
+
+@pytest.fixture(autouse=True)
+def clear_dependency_checker_cache() -> None:
+    """Ensure DependencyChecker caches are reset between tests."""
+    DependencyChecker._installed_packages_cache.clear()
+    DependencyChecker._cache_timestamps.clear()
 
 
 def test_pyproject_toml_syntax_validation(pyproject_path: Path) -> None:
@@ -384,24 +393,50 @@ def test_pyproject_toml_complete_validation(pyproject_path: Path) -> None:
         pytest.fail("pyproject.toml validation failed:\n" + "\n".join(all_errors))
 
 
-def test_dependency_installation_status(pyproject_path: Path, venv_path: Path) -> None:
-    """Test that all dependencies from pyproject.toml are actually installed."""
-    if not venv_path.exists():
-        pytest.skip("Virtual environment not found, skipping dependency check")
+def test_dependency_installation_status(
+    pyproject_path: Path, venv_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that dependency checks succeed when required packages are present."""
 
     checker = DependencyChecker(pyproject_path, venv_path)
-    checker.check_dependencies_installed()
+
+    monkeypatch.setattr(checker, "_is_cache_valid", lambda: False)
+    monkeypatch.setattr(
+        checker, "_extract_dependencies_from_pyproject", lambda: {"pkg_a", "pkg_b"}
+    )
+    monkeypatch.setattr(
+        checker, "_get_installed_packages", lambda: {"pkg_a", "pkg_b", "pkg_c"}
+    )
+
+    cache_saved = {"value": False}
+
+    def _mark_cache_saved() -> None:
+        cache_saved["value"] = True
+
+    monkeypatch.setattr(checker, "_save_cache", _mark_cache_saved)
+
+    assert checker.check_dependencies_installed() is True
+    assert cache_saved["value"], "Cache should be saved after successful check"
 
 
 def test_dependency_installation_status_forced(
-    pyproject_path: Path, venv_path: Path
+    pyproject_path: Path, venv_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test dependency installation status with cache bypass."""
-    if not venv_path.exists():
-        pytest.skip("Virtual environment not found, skipping dependency check")
+    """Test dependency installation status bypasses cache when forced."""
 
     checker = DependencyChecker(pyproject_path, venv_path)
-    checker.check_dependencies_installed(force_check=True)
+
+    def _unexpected_cache_check() -> bool:
+        raise AssertionError("force_check should bypass cache validation")
+
+    monkeypatch.setattr(checker, "_is_cache_valid", _unexpected_cache_check)
+    monkeypatch.setattr(
+        checker, "_extract_dependencies_from_pyproject", lambda: {"pkg_a"}
+    )
+    monkeypatch.setattr(checker, "_get_installed_packages", lambda: {"pkg_a", "pkg_b"})
+    monkeypatch.setattr(checker, "_save_cache", lambda: None)
+
+    assert checker.check_dependencies_installed(force_check=True) is True
 
 
 def test_pyproject_toml_exists(pyproject_path: Path) -> None:
