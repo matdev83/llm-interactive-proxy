@@ -173,63 +173,86 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                     command_name, json.dumps({"result": message})
                 )
             else:
-                result_dict = {
-                    "id": "proxy_cmd_processed",
-                    "object": "chat.completion",
-                    "created": int(time.time()),
-                    "model": "gpt-4",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {"role": "assistant", "content": message},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "usage": {
+                # Use Pydantic models for non-Cline case
+                from src.core.domain.chat import (
+                    ChatCompletionChoice,
+                    ChatCompletionChoiceMessage,
+                    ChatResponse,
+                )
+
+                # Create the message
+                choice_message = ChatCompletionChoiceMessage(
+                    role="assistant", content=message
+                )
+
+                # Create the choice
+                choice = ChatCompletionChoice(
+                    index=0, message=choice_message, finish_reason="stop"
+                )
+
+                # Create the response
+                response = ChatResponse(
+                    id="proxy_cmd_processed",
+                    object="chat.completion",
+                    created=int(time.time()),
+                    model="gpt-4",
+                    choices=[choice],
+                    usage={
                         "prompt_tokens": 0,
                         "completion_tokens": 0,
                         "total_tokens": 0,
                     },
-                }
-                return _AwaitableDict(result_dict)
+                )
+
+                return _AwaitableDict(response.model_dump(exclude_none=True))
 
     def _create_tool_calls_response(self, command_name: str, arguments: str) -> dict:
-        """Create a tool_calls response for Cline agents."""
+        """Create a tool_calls response for Cline agents using Pydantic models."""
+        from src.core.domain.chat import (
+            ChatCompletionChoice,
+            ChatCompletionChoiceMessage,
+            ChatResponse,
+            FunctionCall,
+            ToolCall,
+        )
+
         logger.debug(
             f"Creating tool calls response for command: {command_name}, arguments: {arguments}"
         )
 
-        return {
-            "id": "proxy_cmd_processed",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": "gpt-4",  # Mock model
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [
-                            {
-                                "id": f"call_{uuid.uuid4().hex[:16]}",
-                                "type": "function",
-                                "function": {
-                                    "name": command_name,
-                                    "arguments": arguments,
-                                },
-                            }
-                        ],
-                    },
-                    "finish_reason": "tool_calls",
-                }
-            ],
-            "usage": {
+        # Create the function call
+        function_call = FunctionCall(name=command_name, arguments=arguments)
+
+        # Create the tool call
+        new_tool_call = ToolCall(
+            id=f"call_{uuid.uuid4().hex[:16]}", type="function", function=function_call
+        )
+
+        # Create the message
+        message = ChatCompletionChoiceMessage(
+            role="assistant", content=None, tool_calls=[new_tool_call]
+        )
+
+        # Create the choice
+        choice = ChatCompletionChoice(
+            index=0, message=message, finish_reason="tool_calls"
+        )
+
+        # Create the response
+        response = ChatResponse(
+            id="proxy_cmd_processed",
+            object="chat.completion",
+            created=int(time.time()),
+            model="gpt-4",  # Mock model
+            choices=[choice],
+            usage={
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
             },
-        }
+        )
+
+        return response.model_dump()
 
     def _apply_pytest_compression_sync(
         self, command_name: str, message: str, session: Session

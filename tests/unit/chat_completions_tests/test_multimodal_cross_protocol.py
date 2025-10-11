@@ -27,10 +27,7 @@ def app():
 def client(app):
     # Ensure auth is properly disabled for tests
     app.state.disable_auth = True
-    if hasattr(app.state, "app_config") and app.state.app_config:
-        app.state.app_config.auth.disable_auth = True
-        if not app.state.app_config.auth.api_keys:
-            app.state.app_config.auth.api_keys = ["test-proxy-key"]
+    # Note: Cannot mutate frozen config, but app.state.disable_auth = True is sufficient
 
     with TestClient(app, headers={"Authorization": "Bearer test-proxy-key"}) as client:
         yield client

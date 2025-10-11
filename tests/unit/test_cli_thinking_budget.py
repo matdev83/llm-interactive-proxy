@@ -28,9 +28,10 @@ class TestCLIThinkingBudget:
             del os.environ["COMMAND_PREFIX"]
 
         args = parse_cli_args(["--thinking-budget", "32768"])
-        _ = apply_cli_args(args)
+        config = apply_cli_args(args)
 
-        assert os.environ.get("THINKING_BUDGET") == "32768"
+        assert config.session.planning_phase.overrides is not None
+        assert config.session.planning_phase.overrides["thinking_budget"] == 32768
 
         # Cleanup
         if "THINKING_BUDGET" in os.environ:

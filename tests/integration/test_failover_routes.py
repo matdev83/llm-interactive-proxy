@@ -17,10 +17,10 @@ from src.core.services.failover_service import FailoverService
 def app():
     """Create a test app with failover routes enabled."""
     # Create app with test config
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, AuthConfig
 
-    config = AppConfig()
-    config.auth.disable_auth = True
+    auth_config = AuthConfig(disable_auth=True)
+    config = AppConfig(auth=auth_config)
     app = build_app(config)
 
     yield app

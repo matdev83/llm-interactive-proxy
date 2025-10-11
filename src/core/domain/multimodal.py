@@ -13,6 +13,15 @@ from enum import Enum
 from typing import Any, Literal, TypedDict
 
 from src.core.domain.base import ValueObject
+from src.core.domain.multimodal_formats import (
+    create_anthropic_image_content,
+    create_anthropic_text_content,
+    create_gemini_file_data_part,
+    create_gemini_inline_data_part,
+    create_gemini_text_part,
+    create_openai_image_content,
+    create_openai_text_content,
+)
 
 
 class OpenAIContentPartText(TypedDict):
@@ -174,66 +183,59 @@ class ContentPart(ValueObject):
 
         return result
 
-    def to_openai_format(self) -> dict[str, Any]:
-        """Convert to OpenAI format."""
-        if self.type == ContentType.TEXT:
-            return {"type": "text", "text": self.data}
-        elif self.type == ContentType.IMAGE:
-            if self.source == ContentSource.URL:
-                return {"type": "image_url", "image_url": {"url": self.data}}
-            elif self.source == ContentSource.BASE64:
-                return {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{self.mime_type or 'image/jpeg'};base64,{self.data}"
-                    },
-                }
-
-        # Default fallback for unsupported types
-        return {"type": "text", "text": f"[{self.type} content]"}
-
     def to_anthropic_format(self) -> dict[str, Any]:
-        """Convert to Anthropic format."""
+        """Convert to Anthropic content format."""
         if self.type == ContentType.TEXT:
             return {"type": "text", "text": self.data}
         elif self.type == ContentType.IMAGE:
             if self.source == ContentSource.URL:
-                return {"type": "image", "source": {"type": "url", "url": self.data}}
+                content = create_anthropic_image_content("url", url=self.data)
+                return content.model_dump()
             elif self.source == ContentSource.BASE64:
-                return {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": self.mime_type or "image/jpeg",
-                        "data": self.data,
-                    },
-                }
+                content = create_anthropic_image_content(
+                    "base64", media_type=self.mime_type or "image/jpeg", data=self.data
+                )
+                return content.model_dump()
 
-        # Default fallback for unsupported types
-        return {"type": "text", "text": f"[{self.type} content]"}
+        logging.warning(f"Unsupported content type for Anthropic: {self.type}")
+        return create_anthropic_text_content(f"[{self.type} content]").model_dump()
+
+    def to_openai_format(self) -> dict[str, Any]:
+        """Convert to OpenAI content format using Pydantic models."""
+        if self.type == ContentType.TEXT:
+            text_content = create_openai_text_content(self.data)
+            return text_content.model_dump()
+        elif self.type == ContentType.IMAGE:
+            if self.source == ContentSource.URL:
+                image_content = create_openai_image_content(self.data)
+                return image_content.model_dump()
+            elif self.source == ContentSource.BASE64:
+                data_url = f"data:{self.mime_type or 'image/jpeg'};base64,{self.data}"
+                image_content = create_openai_image_content(data_url)
+                return image_content.model_dump()
+
+        logging.warning(f"Unsupported content type for OpenAI: {self.type}")
+        return create_openai_text_content(f"[{self.type} content]").model_dump()
 
     def to_gemini_format(self) -> dict[str, Any]:
-        """Convert to Gemini format."""
+        """Convert to Gemini content format using Pydantic models."""
         if self.type == ContentType.TEXT:
-            return {"text": self.data}
+            text_part = create_gemini_text_part(self.data)
+            return text_part.model_dump()
         elif self.type == ContentType.IMAGE:
-            if self.source == ContentSource.URL:
-                return {
-                    "inline_data": {
-                        "mime_type": self.mime_type or "image/jpeg",
-                        "data": f"URL:{self.data}",  # Gemini doesn't support direct URLs, this is a placeholder
-                    }
-                }
-            elif self.source == ContentSource.BASE64:
-                return {
-                    "inline_data": {
-                        "mime_type": self.mime_type or "image/jpeg",
-                        "data": self.data,
-                    }
-                }
+            if self.source == ContentSource.BASE64:
+                inline_data_part = create_gemini_inline_data_part(
+                    self.mime_type or "image/jpeg", self.data
+                )
+                return inline_data_part.model_dump()
+            elif self.source == ContentSource.URL:
+                file_data_part = create_gemini_file_data_part(
+                    self.mime_type or "image/jpeg", self.data
+                )
+                return file_data_part.model_dump()
 
-        # Default fallback for unsupported types
-        return {"text": f"[{self.type} content]"}
+        logging.warning(f"Unsupported content type for Gemini: {self.type}")
+        return create_gemini_text_part(f"[{self.type} content]").model_dump()
 
 
 class MultimodalMessage(ValueObject):

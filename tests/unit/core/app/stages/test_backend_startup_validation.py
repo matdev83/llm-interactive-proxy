@@ -32,42 +32,30 @@ class TestBackendStartupValidation:
     @pytest.fixture
     def app_config_with_qwen_oauth(self) -> AppConfig:
         """Create AppConfig with qwen-oauth as the only backend."""
-        config = AppConfig()
-        config.backends = BackendSettings(
-            default_backend="qwen-oauth",
-            qwen_oauth=BackendConfig(api_key=["dummy_key"]),
+        return AppConfig(
+            backends=BackendSettings(
+                default_backend="qwen-oauth",
+                qwen_oauth=BackendConfig(api_key=["dummy_key"]),
+            )
         )
-        return config
 
     @pytest.fixture
     def app_config_with_multiple_backends(self) -> AppConfig:
         """Create AppConfig with multiple backends configured."""
-        config = AppConfig()
-        config.backends = BackendSettings(
-            default_backend="openai",
-            openai=BackendConfig(api_key=["openai_key"]),
-            anthropic=BackendConfig(api_key=["anthropic_key"]),
-            qwen_oauth=BackendConfig(api_key=["qwen_key"]),
+        config = AppConfig(
+            backends=BackendSettings(
+                default_backend="openai",
+                openai=BackendConfig(api_key=["openai_key"]),
+                anthropic=BackendConfig(api_key=["anthropic_key"]),
+                qwen_oauth=BackendConfig(api_key=["qwen_key"]),
+            )
         )
         return config
 
     @pytest.fixture
     def app_config_no_backends(self) -> AppConfig:
         """Create AppConfig with no backends configured."""
-        config = AppConfig()
-        # Create a BackendSettings with empty default_backend to avoid detection
-        config.backends = BackendSettings(default_backend="")
-        # Clear backend configs to ensure no backends are considered configured
-        # This prevents environment variables from being detected as configured backends
-        for backend_name in [
-            "openai",
-            "anthropic",
-            "gemini",
-            "openrouter",
-            "qwen_oauth",
-        ]:
-            if hasattr(config.backends, backend_name):
-                delattr(config.backends, backend_name)
+        config = AppConfig(backends=BackendSettings(default_backend=""))
         return config
 
     @pytest.fixture
@@ -378,10 +366,11 @@ class TestConfiguredBackendDetection(TestBackendStartupValidation):
         self, backend_stage: BackendStage, services: ServiceCollection
     ):
         """Test that default backend is detected as configured."""
-        config = AppConfig()
-        config.backends = BackendSettings(
-            default_backend="openai",
-            openai=BackendConfig(api_key=["test_openai_key"]),
+        config = AppConfig(
+            backends=BackendSettings(
+                default_backend="openai",
+                openai=BackendConfig(api_key=["test_openai_key"]),
+            )
         )
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
@@ -410,10 +399,11 @@ class TestConfiguredBackendDetection(TestBackendStartupValidation):
         self, backend_stage: BackendStage, services: ServiceCollection
     ):
         """Test that backends with API keys are detected as configured."""
-        config = AppConfig()
-        config.backends = BackendSettings(
-            openai=BackendConfig(api_key=["openai_key"]),
-            anthropic=BackendConfig(api_key=["anthropic_key"]),
+        config = AppConfig(
+            backends=BackendSettings(
+                openai=BackendConfig(api_key=["openai_key"]),
+                anthropic=BackendConfig(api_key=["anthropic_key"]),
+            )
         )
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
@@ -448,10 +438,11 @@ class TestConfiguredBackendDetection(TestBackendStartupValidation):
     ):
         """Test that backends with empty API keys are not considered configured."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        config = AppConfig()
-        config.backends = BackendSettings(
-            openai=BackendConfig(api_key=["openai_key"]),  # Has key
-            anthropic=BackendConfig(api_key=[]),  # Empty key list
+        config = AppConfig(
+            backends=BackendSettings(
+                openai=BackendConfig(api_key=["openai_key"]),  # Has key
+                anthropic=BackendConfig(api_key=[]),  # Empty key list
+            )
         )
 
         with patch("src.core.app.stages.backend.backend_registry") as mock_registry:
@@ -490,10 +481,11 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
         # Remove test environment markers to test production behavior
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
-        config = AppConfig()
-        config.backends = BackendSettings(
-            default_backend="qwen-oauth",
-            qwen_oauth=BackendConfig(api_key=["dummy_key"]),
+        config = AppConfig(
+            backends=BackendSettings(
+                default_backend="qwen-oauth",
+                qwen_oauth=BackendConfig(api_key=["dummy_key"]),
+            )
         )
 
         # Mock non-functional qwen-oauth backend
@@ -526,10 +518,11 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
         self, backend_stage: BackendStage, services: ServiceCollection
     ):
         """Test complete scenario: only qwen-oauth configured and it's functional -> startup succeeds."""
-        config = AppConfig()
-        config.backends = BackendSettings(
-            default_backend="qwen-oauth",
-            qwen_oauth=BackendConfig(api_key=["dummy_key"]),
+        config = AppConfig(
+            backends=BackendSettings(
+                default_backend="qwen-oauth",
+                qwen_oauth=BackendConfig(api_key=["dummy_key"]),
+            )
         )
 
         # Mock functional qwen-oauth backend
@@ -559,11 +552,12 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
         self, backend_stage: BackendStage, services: ServiceCollection
     ):
         """Test scenario: multiple backends, some functional, some not -> startup succeeds if at least one works."""
-        config = AppConfig()
-        config.backends = BackendSettings(
-            default_backend="openai",
-            openai=BackendConfig(api_key=["openai_key"]),
-            qwen_oauth=BackendConfig(api_key=["qwen_key"]),
+        config = AppConfig(
+            backends=BackendSettings(
+                default_backend="openai",
+                openai=BackendConfig(api_key=["openai_key"]),
+                qwen_oauth=BackendConfig(api_key=["qwen_key"]),
+            )
         )
 
         # Mock one functional backend and one non-functional

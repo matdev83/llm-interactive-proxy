@@ -6,9 +6,13 @@ import httpx
 import pytest
 
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
-)
+# Also isolate these tests to avoid state pollution from parallel test execution
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    ),
+    pytest.mark.xdist_group("qwen_oauth_error_handling"),
+]
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.common.exceptions import BackendError

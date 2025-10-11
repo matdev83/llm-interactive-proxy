@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +11,7 @@ from src.core.common.exceptions import (
     JSONParsingError,
     ServiceResolutionError,
 )
+from src.core.config.app_config import AppConfig
 from src.core.domain.model_utils import (
     ModelDefaults,  # Add import for model config classes
 )
@@ -21,15 +21,6 @@ from src.core.interfaces.di_interface import IServiceProvider
 logger = logging.getLogger(__name__)
 
 
-def _get_strict_persistence_errors() -> bool:
-    """Get strict persistence errors setting from environment."""
-    return os.getenv("STRICT_PERSISTENCE_ERRORS", "false").lower() in (
-        "true",
-        "1",
-        "yes",
-    )
-
-
 class ConfigManager:
     def __init__(
         self,
@@ -37,11 +28,20 @@ class ConfigManager:
         path: str,
         service_provider: IServiceProvider | None = None,
         app_state: IApplicationState | None = None,
+        config: AppConfig | None = None,
     ) -> None:
         self.app = app
         self.path = Path(path)
         self.service_provider = service_provider
         self.app_state = app_state
+        self.config = config
+
+    def _should_raise_strict_errors(self) -> bool:
+        """Check if strict error handling is enabled via config."""
+        if self.config:
+            value = self.config.get("session.dangerous_command_prevention_enabled")
+            return bool(value) if value is not None else False
+        return False
 
     def load(self) -> None:
         if not self.path.is_file():
@@ -75,6 +75,16 @@ class ConfigManager:
             raise ConfigurationError(
                 f"An unexpected error occurred while loading config file {self.path.name}."
             ) from e
+        if not isinstance(data, dict):
+            logger.error(
+                "Invalid config file structure in %s: expected object but got %s",
+                self.path,
+                type(data).__name__,
+            )
+            raise ConfigurationError(
+                f"Config file {self.path.name} must contain a JSON object."
+            )
+
         self.apply(data)
 
     def _apply_default_backend(self, backend_value: Any) -> None:
@@ -96,7 +106,10 @@ class ConfigManager:
                 },
             )
 
-        cli_backend = os.getenv("LLM_BACKEND")
+        # Get CLI backend from config instead of direct os.getenv
+        cli_backend = (
+            self.config.get("backends.default_backend") if self.config else None
+        )
         if cli_backend and cli_backend != backend_value:
             logger.info(
                 "Skipping config file backend '%s' because CLI argument '%s' takes precedence",
@@ -130,7 +143,9 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _get_strict_persistence_errors():
+                # Check for strict errors via config if available
+                strict_errors = self._should_raise_strict_errors()
+                if strict_errors:
                     raise ServiceResolutionError(
                         "Failed to resolve IBackendService for default backend."
                     ) from e
@@ -145,7 +160,8 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _get_strict_persistence_errors():
+                strict_errors = self._should_raise_strict_errors()
+                if strict_errors:
                     raise ConfigurationError(
                         "An unexpected error occurred while applying default backend."
                     ) from e
@@ -172,7 +188,8 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _get_strict_persistence_errors():
+                strict_errors = self._should_raise_strict_errors()
+                if strict_errors:
                     raise ServiceResolutionError(
                         "Failed to resolve ISessionService for interactive mode."
                     ) from e
@@ -186,7 +203,8 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _get_strict_persistence_errors():
+                strict_errors = self._should_raise_strict_errors()
+                if strict_errors:
                     raise ConfigurationError(
                         "An unexpected error occurred while applying interactive mode."
                     ) from e
@@ -197,16 +215,7 @@ class ConfigManager:
     def _apply_redact_api_keys(self, redact_value: Any) -> None:
         if isinstance(redact_value, bool) and self.app_state:
             self.app_state.set_api_key_redaction_enabled(redact_value)
-            # Note: default_api_key_redaction_enabled is not in the interface yet
-            # We'll need to add it or handle it differently
-            if (
-                self.app_state
-                and hasattr(self.app_state, "_state_provider")
-                and self.app_state._state_provider
-            ):
-                self.app_state._state_provider.default_api_key_redaction_enabled = (
-                    redact_value
-                )
+            self.app_state.set_default_api_key_redaction_enabled(redact_value)
 
     def _apply_command_prefix(self, prefix_value: Any) -> None:
         if isinstance(prefix_value, str):
@@ -327,7 +336,8 @@ class ConfigManager:
                             model_name,
                             exc_info=True,
                         )
-                        if _get_strict_persistence_errors():
+                        strict_errors = self._should_raise_strict_errors()
+                        if strict_errors:
                             raise ConfigurationError(
                                 "Cannot validate failover routes while the event loop is running."
                             ) from runtime_error
@@ -343,7 +353,8 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _get_strict_persistence_errors():
+                strict_errors = self._should_raise_strict_errors()
+                if strict_errors:
                     raise ServiceResolutionError(
                         "Failed to resolve IBackendService during failover validation",
                         service_name="IBackendService",
@@ -354,7 +365,8 @@ class ConfigManager:
                     e,
                     exc_info=True,
                 )
-                if _get_strict_persistence_errors():
+                strict_errors = self._should_raise_strict_errors()
+                if strict_errors:
                     raise ConfigurationError(
                         "Unexpected error validating failover element",
                     ) from e
@@ -444,11 +456,13 @@ class ConfigManager:
                     session_service, "default_interactive_mode", False
                 )
             except ServiceResolutionError as e:
-                if _get_strict_persistence_errors():
+                strict_errors = self._should_raise_strict_errors()
+                if strict_errors:
                     raise
                 logger.warning(f"Failed to get interactive mode: {e}")
             except Exception as e:
-                if _get_strict_persistence_errors():
+                strict_errors = self._should_raise_strict_errors()
+                if strict_errors:
                     raise ConfigurationError(
                         "Unexpected error reading interactive mode from session service."
                     ) from e

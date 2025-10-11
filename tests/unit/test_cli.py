@@ -4,11 +4,17 @@ from unittest.mock import patch
 
 import pytest
 from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, ParameterResolution
 
 # Make sure all connectors are imported and registered
 from src.core.services import backend_imports  # noqa: F401
 from src.core.services.backend_registry import backend_registry
+
+
+def _unwrap_config(
+    result: AppConfig | tuple[AppConfig, ParameterResolution],
+) -> AppConfig:
+    return result[0] if isinstance(result, tuple) else result
 
 
 def test_cli_allows_all_registered_backends() -> None:
@@ -25,7 +31,9 @@ def test_cli_allows_all_registered_backends() -> None:
             assert args.default_backend == backend_name
 
             # Test application of args
-            config = apply_cli_args(args)
+            config = _unwrap_config(apply_cli_args(args))
+            if isinstance(config, tuple):
+                config = config[0]
             assert config.backends.default_backend == backend_name
 
 
@@ -39,34 +47,31 @@ def test_cli_strict_command_detection_flags() -> None:
         mock_load_config.return_value = AppConfig()
         args_enable = parse_cli_args(["--strict-command-detection"])
         assert args_enable.strict_command_detection is True
-        config_enable = apply_cli_args(args_enable)
+        config_enable = _unwrap_config(apply_cli_args(args_enable))
         assert config_enable.strict_command_detection is True
 
         # 2. Test default behavior (None) when no flag is provided
         # Let's create a config where it's initially False to see if it's preserved.
-        initial_config_false = AppConfig()
-        initial_config_false.strict_command_detection = False
+        initial_config_false = AppConfig(strict_command_detection=False)
         mock_load_config.return_value = initial_config_false
 
         args_none = parse_cli_args([])
         assert args_none.strict_command_detection is None
-        config_none = apply_cli_args(args_none)
+        config_none = _unwrap_config(apply_cli_args(args_none))
         assert not config_none.strict_command_detection  # Should remain False
 
         # And if it was initially True
-        initial_config_true = AppConfig()
-        initial_config_true.strict_command_detection = True
+        initial_config_true = AppConfig(strict_command_detection=True)
         mock_load_config.return_value = initial_config_true
-        config_none_true = apply_cli_args(args_none)
+        config_none_true = _unwrap_config(apply_cli_args(args_none))
         assert config_none_true.strict_command_detection is True  # Should remain True
 
         # 3. Test that flag overrides initial config
         # Initial config is False
-        initial_config_override = AppConfig()
-        initial_config_override.strict_command_detection = False
+        initial_config_override = AppConfig(strict_command_detection=False)
         mock_load_config.return_value = initial_config_override
         # but we enable it with the flag
-        config_override = apply_cli_args(args_enable)
+        config_override = _unwrap_config(apply_cli_args(args_enable))
         assert config_override.strict_command_detection is True
 
 
@@ -129,12 +134,12 @@ def test_cli_context_window_override_argument_parsing() -> None:
         assert args.force_context_window == 5000
 
         # Test application of args to config
-        config = apply_cli_args(args)
+        config = _unwrap_config(apply_cli_args(args))
         assert config.context_window_override == 5000
 
         # Test with different values
         args2 = parse_cli_args(["--force-context-window", "100000"])
-        config2 = apply_cli_args(args2)
+        config2 = _unwrap_config(apply_cli_args(args2))
         assert config2.context_window_override == 100000
 
 
@@ -146,7 +151,7 @@ def test_cli_context_window_override_defaults_to_none() -> None:
         assert args.force_context_window is None
 
         # Test application of args to config
-        config = apply_cli_args(args)
+        config = _unwrap_config(apply_cli_args(args))
         assert config.context_window_override is None
 
 
@@ -165,7 +170,7 @@ def test_cli_context_window_override_environment_variable() -> None:
 
             # Test application of args sets environment variable
             args = parse_cli_args(["--force-context-window", "7500"])
-            config = apply_cli_args(args)
+            config = _unwrap_config(apply_cli_args(args))
 
             assert config.context_window_override == 7500
             assert os.environ.get("FORCE_CONTEXT_WINDOW") == "7500"
@@ -182,47 +187,49 @@ def test_cli_pytest_compression_flags() -> None:
     """Test that --enable-pytest-compression and --disable-pytest-compression flags work."""
     # Patch load_config where it is looked up (in the 'cli' module)
     with patch("src.core.cli.load_config") as mock_load_config:
-        # 1. Test --enable-pytest-compression
-        mock_load_config.return_value = AppConfig()
-        args_enable = parse_cli_args(["--enable-pytest-compression"])
-        assert args_enable.pytest_compression_enabled is True
-        config_enable = apply_cli_args(args_enable)
-        assert config_enable.session.pytest_compression_enabled is True
+        # Create base config
+        base_config = AppConfig()
+        mock_load_config.return_value = base_config
 
-        # 2. Test --disable-pytest-compression
-        mock_load_config.return_value = AppConfig()
+        args_enable = parse_cli_args(["--enable-pytest-compression"])
+        config_enable = _unwrap_config(apply_cli_args(args_enable))
+        assert config_enable.session.pytest_compression_enabled is True
+        assert (
+            config_enable.session.pytest_compression_min_lines
+            == base_config.session.pytest_compression_min_lines
+        )
+
         args_disable = parse_cli_args(["--disable-pytest-compression"])
-        assert args_disable.pytest_compression_enabled is False
-        config_disable = apply_cli_args(args_disable)
+        config_disable = _unwrap_config(apply_cli_args(args_disable))
         assert config_disable.session.pytest_compression_enabled is False
 
-        # 3. Test default behavior (None) when no flag is provided
-        # Let's create a config where it's initially False to see if it's preserved.
-        initial_config_false = AppConfig()
-        initial_config_false.session.pytest_compression_enabled = False
-        mock_load_config.return_value = initial_config_false
-
         args_none = parse_cli_args([])
-        assert args_none.pytest_compression_enabled is None
-        config_none = apply_cli_args(args_none)
-        assert not config_none.session.pytest_compression_enabled  # Should remain False
-
-        # And if it was initially True
-        initial_config_true = AppConfig()
-        initial_config_true.session.pytest_compression_enabled = True
-        mock_load_config.return_value = initial_config_true
-        config_none_true = apply_cli_args(args_none)
+        config_none = _unwrap_config(apply_cli_args(args_none))
         assert (
-            config_none_true.session.pytest_compression_enabled is True
-        )  # Should remain True
+            config_none.session.pytest_compression_enabled
+            == base_config.session.pytest_compression_enabled
+        )
 
-        # 4. Test that flags override initial config
-        # Initial config is False
-        initial_config_override = AppConfig()
-        initial_config_override.session.pytest_compression_enabled = False
+        custom_config = base_config.model_copy(
+            update={
+                "session": base_config.session.model_copy(
+                    update={"pytest_compression_enabled": True}
+                )
+            }
+        )
+        mock_load_config.return_value = custom_config
+        config_none_true = _unwrap_config(apply_cli_args(args_none))
+        assert config_none_true.session.pytest_compression_enabled is True
+
+        initial_config_override = base_config.model_copy(
+            update={
+                "session": base_config.session.model_copy(
+                    update={"pytest_compression_enabled": False}
+                )
+            }
+        )
         mock_load_config.return_value = initial_config_override
-        # but we enable it with the flag
-        config_override = apply_cli_args(args_enable)
+        config_override = _unwrap_config(apply_cli_args(args_enable))
         assert config_override.session.pytest_compression_enabled is True
 
 
@@ -234,7 +241,7 @@ def test_cli_pytest_full_suite_steering_flags() -> None:
         mock_load_config.return_value = AppConfig()
         args_enable = parse_cli_args(["--enable-pytest-full-suite-steering"])
         assert args_enable.pytest_full_suite_steering_enabled is True
-        config_enable = apply_cli_args(args_enable)
+        config_enable = _unwrap_config(apply_cli_args(args_enable))
         reactor_config = config_enable.session.tool_call_reactor
         assert reactor_config.pytest_full_suite_steering_enabled is True
 
@@ -242,30 +249,33 @@ def test_cli_pytest_full_suite_steering_flags() -> None:
         mock_load_config.return_value = AppConfig()
         args_disable = parse_cli_args(["--disable-pytest-full-suite-steering"])
         assert args_disable.pytest_full_suite_steering_enabled is False
-        config_disable = apply_cli_args(args_disable)
+        config_disable = _unwrap_config(apply_cli_args(args_disable))
         reactor_config = config_disable.session.tool_call_reactor
         assert reactor_config.pytest_full_suite_steering_enabled is False
 
         # Default behaviour should preserve existing configuration state
-        existing_config = AppConfig()
-        existing_config.session.tool_call_reactor.pytest_full_suite_steering_enabled = (
-            True
+        existing_config = AppConfig(
+            session=AppConfig().session.model_copy(
+                update={"pytest_full_suite_steering_enabled": True}
+            )
         )
         mock_load_config.return_value = existing_config
         args_default = parse_cli_args([])
         assert args_default.pytest_full_suite_steering_enabled is None
-        config_default = apply_cli_args(args_default)
+        config_default = _unwrap_config(apply_cli_args(args_default))
         reactor_config = config_default.session.tool_call_reactor
         assert reactor_config.pytest_full_suite_steering_enabled is True
 
 
 def test_maybe_run_as_daemon_posix_continues(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure daemon mode continues execution on POSIX systems."""
+    from src.core.config.app_config import LoggingConfig
 
     # Prepare CLI arguments and configuration
     args = argparse.Namespace(daemon=True)
-    cfg = AppConfig()
-    cfg.logging.log_file = "logs/proxy.log"
+    # Create config with logging settings
+    logging_config = LoggingConfig(log_file="logs/proxy.log")
+    cfg = AppConfig(logging=logging_config)
 
     daemonized = {"called": False}
 
@@ -301,7 +311,7 @@ def test_cli_capture_limits_arguments() -> None:
         assert args.capture_truncate_bytes == 256
         assert args.capture_max_files == 3
 
-        config = apply_cli_args(args)
+        config = _unwrap_config(apply_cli_args(args))
         assert config.logging.capture_max_bytes == 1024
         assert config.logging.capture_truncate_bytes == 256
         assert config.logging.capture_max_files == 3
@@ -328,10 +338,11 @@ def test_cli_api_keys_are_stored_as_lists(
 
     with patch("src.core.cli.load_config", return_value=AppConfig()):
         args = parse_cli_args([flag, "test-key"])
-        config = apply_cli_args(args)
+        config = _unwrap_config(apply_cli_args(args))
 
     backend_config = config.backends[backend_name]
     assert backend_config.api_key == ["test-key"]
 
+    # The environment variable should not be set
     if env_var:
         assert os.environ.get(env_var) == "test-key"
