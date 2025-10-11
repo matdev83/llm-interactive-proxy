@@ -19,7 +19,7 @@ from src.core.domain.chat import (
     ToolDefinition,
 )
 
-TEST_ZAI_API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
+TEST_ZAI_API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 
 
 @pytest_asyncio.fixture(name="zai_backend")
@@ -36,13 +36,15 @@ async def zai_backend_fixture(
         ]
     }
 
-    httpx_mock.add_response(
-        url=f"{TEST_ZAI_API_BASE_URL}models",
-        method="GET",
-        json=mock_models,
-        status_code=200,
-        headers={"Content-Type": "application/json"},
-    )
+    # Add models endpoint mock that can be reused for health checks
+    for _ in range(3):  # Allow multiple calls for health checks
+        httpx_mock.add_response(
+            url=f"{TEST_ZAI_API_BASE_URL}/models",
+            method="GET",
+            json=mock_models,
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
 
     client = httpx.AsyncClient()
     try:
@@ -68,7 +70,7 @@ async def test_chat_completions_basic_request(
     """Test that a basic chat completion request is properly formatted."""
     # Setup the mock response
     httpx_mock.add_response(
-        url=f"{TEST_ZAI_API_BASE_URL}chat/completions",
+        url=f"{TEST_ZAI_API_BASE_URL}/chat/completions",
         method="POST",
         json={"choices": [{"message": {"content": "Hello, world!"}}]},
         status_code=200,
@@ -94,7 +96,7 @@ async def test_chat_completions_basic_request(
 
     # Get the request that was sent - specify method and URL to get the correct request
     sent_request = httpx_mock.get_request(
-        method="POST", url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
+        method="POST", url=f"{TEST_ZAI_API_BASE_URL}/chat/completions"
     )
     assert sent_request is not None
     sent_payload = json.loads(sent_request.content)
@@ -110,6 +112,7 @@ async def test_chat_completions_basic_request(
     assert sent_payload["stream"] is False
 
 
+
 @pytest.mark.asyncio
 async def test_chat_completions_with_tools(
     zai_backend: ZAIConnector, httpx_mock: HTTPXMock
@@ -117,7 +120,7 @@ async def test_chat_completions_with_tools(
     """Test that a chat completion request with tools is properly formatted."""
     # Setup the mock response
     httpx_mock.add_response(
-        url=f"{TEST_ZAI_API_BASE_URL}chat/completions",
+        url=f"{TEST_ZAI_API_BASE_URL}/chat/completions",
         method="POST",
         json={"choices": [{"message": {"content": "The weather is sunny."}}]},
         status_code=200,
@@ -166,7 +169,7 @@ async def test_chat_completions_with_tools(
 
     # Get the request that was sent - specify method and URL to get the correct request
     sent_request = httpx_mock.get_request(
-        method="POST", url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
+        method="POST", url=f"{TEST_ZAI_API_BASE_URL}/chat/completions"
     )
     assert sent_request is not None
     sent_payload = json.loads(sent_request.content)
@@ -186,6 +189,7 @@ async def test_chat_completions_with_tools(
     assert sent_payload["tool_choice"] == "auto"
 
 
+
 @pytest.mark.asyncio
 async def test_chat_completions_streaming(
     zai_backend: ZAIConnector, httpx_mock: HTTPXMock
@@ -193,7 +197,7 @@ async def test_chat_completions_streaming(
     """Test that a streaming chat completion request is properly formatted."""
     # Setup the mock response for streaming
     httpx_mock.add_response(
-        url=f"{TEST_ZAI_API_BASE_URL}chat/completions",
+        url=f"{TEST_ZAI_API_BASE_URL}/chat/completions",
         method="POST",
         content=b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: {"choices":[{"delta":{"content":", world!"}}]}\n\ndata: [DONE]\n\n',
         status_code=200,
@@ -219,7 +223,7 @@ async def test_chat_completions_streaming(
 
     # Get the request that was sent - specify method and URL to get the correct request
     sent_request = httpx_mock.get_request(
-        method="POST", url=f"{TEST_ZAI_API_BASE_URL}chat/completions"
+        method="POST", url=f"{TEST_ZAI_API_BASE_URL}/chat/completions"
     )
     assert sent_request is not None
     sent_payload = json.loads(sent_request.content)
@@ -239,6 +243,7 @@ async def test_chat_completions_streaming(
 
     assert isinstance(response, StreamingResponseEnvelope)
     assert response.media_type == "text/event-stream"
+
 
 
 @pytest.mark.asyncio
@@ -267,7 +272,7 @@ async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> 
     }
 
     httpx_mock.add_response(
-        url=f"{TEST_ZAI_API_BASE_URL}models",
+        url=f"{TEST_ZAI_API_BASE_URL}/models",
         method="GET",
         json=mock_models,
         status_code=200,
@@ -283,6 +288,7 @@ async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> 
     assert models_data["data"][0]["id"] == "glm-4.5"
 
 
+
 @pytest.mark.asyncio
 async def test_default_models_fallback(httpx_mock: HTTPXMock) -> None:
     """Test that the connector falls back to default models if API call fails."""
@@ -295,7 +301,7 @@ async def test_default_models_fallback(httpx_mock: HTTPXMock) -> None:
 
         # Setup the mock to fail for the models endpoint
         httpx_mock.add_exception(
-            url=f"{TEST_ZAI_API_BASE_URL}models",
+            url=f"{TEST_ZAI_API_BASE_URL}/models",
             exception=httpx.HTTPError("API error"),
             method="GET",
         )

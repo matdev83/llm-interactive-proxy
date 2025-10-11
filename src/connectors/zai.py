@@ -33,7 +33,7 @@ class ZAIConnector(OpenAIConnector):
         translation_service: "TranslationService | None" = None,
     ) -> None:
         super().__init__(client, config, translation_service=translation_service)
-        self.api_base_url = "https://open.bigmodel.cn/api/paas/v4/"
+        self.api_base_url = "https://open.bigmodel.cn/api/paas/v4"
         self.name = "zai"
         # Load default models from YAML config file
         self._default_models = self._load_default_models()

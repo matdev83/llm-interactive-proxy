@@ -181,9 +181,10 @@ class ProjectDirectoryResolutionService:
     ) -> None:
         session_state = session.state
         with contextlib.suppress(AttributeError):
-            session_state.project_dir_resolution_attempted = True
-        if directory is not None:
-            session_state.project_dir = directory
+            if hasattr(session_state, "project_dir_resolution_attempted"):
+                session_state.project_dir_resolution_attempted = True
+        if directory is not None and hasattr(session_state, "project_dir"):
+            session_state.project_dir = directory  # type: ignore[misc]
         try:
             await self._session_service.update_session(session)
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -197,7 +198,7 @@ class ProjectDirectoryResolutionService:
 
     async def _call_resolution_model(self, prompt_text: str) -> ResponseEnvelope:
         request = ChatRequest(
-            model=self._model_identifier,
+            model=self._model_identifier or "default-model",
             messages=[
                 ChatMessage(role="system", content=self._system_prompt),
                 ChatMessage(role="user", content=prompt_text),
@@ -358,9 +359,7 @@ class ProjectDirectoryResolutionService:
             return True
         if value.startswith("\\\\"):
             return True
-        if self._WINDOWS_PATH_PATTERN.match(value):
-            return True
-        return False
+        return bool(self._WINDOWS_PATH_PATTERN.match(value))
 
 
 __all__ = ["ProjectDirectoryResolutionService"]

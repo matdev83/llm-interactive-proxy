@@ -31,6 +31,8 @@ from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_GEMINI_API_KEY_HEADER = "x-goog-api-key"
+
 
 class GeminiBackend(LLMBackend):
     """LLMBackend implementation for Google's Gemini API."""
@@ -51,19 +53,18 @@ class GeminiBackend(LLMBackend):
 
     async def initialize(self, **kwargs: Any) -> None:
         """Store configuration for lazy initialization."""
-        self.gemini_api_base_url = kwargs.get("gemini_api_base_url")
-        configured_key_name = kwargs.get("key_name")
-        if configured_key_name:
-            self.key_name = str(configured_key_name)
-        else:
-            # Default to the standard Google API key header when none is provided.
-            self.key_name = "x-goog-api-key"
-        self.api_key = kwargs.get("api_key")
+        base_url = kwargs.get("gemini_api_base_url")
+        api_key = kwargs.get("api_key")
+        provided_key_name = kwargs.get("key_name")
 
-        if not self.gemini_api_base_url or not self.api_key:
+        if not base_url or not api_key:
             raise ValueError(
                 "gemini_api_base_url and api_key are required for GeminiBackend"
             )
+
+        self.gemini_api_base_url = base_url
+        self.api_key = api_key
+        self.key_name = self._normalize_api_key_header(provided_key_name)
 
         # Don't make HTTP calls during initialization
         # Models will be fetched on first use
@@ -199,20 +200,20 @@ class GeminiBackend(LLMBackend):
                 raw_parts: Sequence[Any] | None = None
 
                 if isinstance(content, Sequence) and not isinstance(
-                    content, (str, bytes, bytearray)
+                    content, str | bytes | bytearray
                 ):
                     raw_parts = content
                 elif isinstance(content, Mapping):
                     inferred_parts = content.get("parts")
                     if isinstance(inferred_parts, Sequence) and not isinstance(
-                        inferred_parts, (str, bytes, bytearray)
+                        inferred_parts, str | bytes | bytearray
                     ):
                         raw_parts = inferred_parts
                     else:
                         raw_parts = [content]
                 elif content is None:
                     if isinstance(parts_key_value, Sequence) and not isinstance(
-                        parts_key_value, (str, bytes, bytearray)
+                        parts_key_value, str | bytes | bytearray
                     ):
                         raw_parts = parts_key_value
                     elif parts_key_value is not None:
@@ -306,9 +307,7 @@ class GeminiBackend(LLMBackend):
     ) -> StreamingResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:streamGenerateContent"
-        request = self.client.build_request(
-            "POST", url, json=payload, headers=headers
-        )
+        request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
@@ -557,20 +556,34 @@ class GeminiBackend(LLMBackend):
             or getattr(self, "gemini_api_base_url", None)
         )
         key = api_key or kwargs.get("api_key") or getattr(self, "api_key", None)
-        header_name = (
+        header_candidate = (
             key_name
             or kwargs.get("key_name")
             or getattr(self, "key_name", None)
-            or "x-goog-api-key"
         )
         if not base or not key:
             raise HTTPException(
                 status_code=500,
                 detail="Gemini API base URL and API key must be provided.",
             )
-        normalized_header = str(header_name)
+        normalized_header = self._normalize_api_key_header(header_candidate)
         headers = ensure_loop_guard_header({normalized_header: key})
         return base.rstrip("/"), headers
+
+    def _normalize_api_key_header(self, header_name: str | None) -> str:
+        """Resolve the HTTP header name used for Gemini API keys."""
+
+        if header_name is None:
+            return DEFAULT_GEMINI_API_KEY_HEADER
+
+        normalized = str(header_name).strip()
+        if not normalized:
+            return DEFAULT_GEMINI_API_KEY_HEADER
+
+        if normalized.lower() == self.backend_type:
+            return DEFAULT_GEMINI_API_KEY_HEADER
+
+        return normalized
 
     @staticmethod
     def _map_reasoning_effort_to_budget(reasoning_effort: Any) -> int:
@@ -719,15 +732,20 @@ class GeminiBackend(LLMBackend):
                     code="gemini_error",
                     status_code=response.status_code,
                 )
+
             data = response.json()
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Gemini response headers: %s", dict(response.headers))
+
+            domain_response = self.translation_service.to_domain_response(
+                data, source_format="gemini"
+            )
+
             return ResponseEnvelope(
-                content=self.translation_service.to_domain_response(
-                    data, source_format="gemini"
-                ),
+                content=domain_response,
                 headers=dict(response.headers),
                 status_code=response.status_code,
+                usage=domain_response.usage,
             )
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):

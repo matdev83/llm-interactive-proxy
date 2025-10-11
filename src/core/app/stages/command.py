@@ -132,7 +132,9 @@ class CommandStage(InitializationStage):
 
                 session_service = provider.get_required_service(SessionService)
                 command_parser = provider.get_required_service(CommandParser)
-                app_state = provider.get_service(IApplicationState)
+                from typing import cast
+
+                app_state = provider.get_service(cast(type, IApplicationState))
                 return NewCommandService(
                     session_service,
                     command_parser,

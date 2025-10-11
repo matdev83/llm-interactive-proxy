@@ -536,9 +536,8 @@ class BackendService(IBackendService):
             try:
                 app_config_typed: AppConfig = cast(AppConfig, self._config)
                 provider_backend_config = self._backend_configs.get(backend_type)
-                if (
-                    provider_backend_config
-                    and getattr(provider_backend_config, "identity", None)
+                if provider_backend_config and getattr(
+                    provider_backend_config, "identity", None
                 ):
                     identity = provider_backend_config.identity
                 else:
@@ -547,8 +546,7 @@ class BackendService(IBackendService):
                     )
                     identity = (
                         backend_config_from_app.identity
-                        if backend_config_from_app
-                        and backend_config_from_app.identity
+                        if backend_config_from_app and backend_config_from_app.identity
                         else app_config_typed.identity
                     )
                 # Wire-capture: capture outbound payload pre-call (best-effort)
