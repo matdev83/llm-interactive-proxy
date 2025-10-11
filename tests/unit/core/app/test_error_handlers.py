@@ -96,6 +96,27 @@ def test_validation_exception_handler_defaults_missing_fields() -> None:
     ]
 
 
+def test_validation_exception_handler_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = make_request("/v1/test")
+    exc = RequestValidationError(
+        [
+            {
+                "loc": ("body", "field"),
+                "msg": "field required",
+                "type": "value_error.missing",
+            }
+        ]
+    )
+
+    with caplog.at_level("WARNING", logger="src.core.app.error_handlers"):
+        response = call_handler(validation_exception_handler, request, exc)
+
+    assert response.status_code == 400
+    assert any("Validation error" in message for message in caplog.messages)
+
+
 def test_http_exception_handler_standard_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -174,6 +195,21 @@ def test_proxy_exception_handler_chat_completion_with_details(
     assert payload["error"]["details"] == {"backend": "alpha"}
 
 
+def test_proxy_exception_handler_chat_completion_all_backends_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("time.time", lambda: 1700000000)
+    request = make_request("/v1/chat/completions")
+    exc = LLMProxyError("all backends failed", status_code=418)
+
+    response = call_handler(proxy_exception_handler, request, exc)
+
+    assert response.status_code == 500
+    payload = parse_json_response(response)
+    assert payload["error"]["status_code"] == 500
+    assert payload["choices"][0]["finish_reason"] == "error"
+
+
 def test_proxy_exception_handler_standard_all_backends_failed() -> None:
     request = make_request("/v1/completions")
     exc = LLMProxyError("all backends failed", status_code=418)
@@ -201,6 +237,21 @@ def test_proxy_exception_handler_logs_details_at_debug(
 
     assert response.status_code == 422
     assert any("Error details" in message for message in caplog.messages)
+
+
+def test_proxy_exception_handler_standard_includes_details() -> None:
+    request = make_request("/v1/completions")
+    exc = LLMProxyError(
+        "backend rejected",
+        details={"backend": "alpha"},
+        status_code=422,
+    )
+
+    response = call_handler(proxy_exception_handler, request, exc)
+
+    assert response.status_code == 422
+    payload = parse_json_response(response)
+    assert payload["detail"]["error"]["details"] == {"backend": "alpha"}
 
 
 def test_proxy_exception_handler_non_proxy_exception(
