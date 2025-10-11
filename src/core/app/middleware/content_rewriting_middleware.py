@@ -60,51 +60,99 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         """Rewrite OpenAI Responses API input payloads in-place."""
 
         inputs = payload.get("input")
-        if inputs is None:
-            return False
-
         is_rewritten = False
 
         if isinstance(inputs, str):
             rewritten = self.rewriter.rewrite_prompt(inputs, "user")
             if rewritten != inputs:
                 payload["input"] = rewritten
-                return True
+                is_rewritten = True
+        elif isinstance(inputs, list):
+            for item in inputs:
+                if not isinstance(item, dict):
+                    continue
+
+                role = item.get("role")
+                content = item.get("content")
+
+                if isinstance(content, str):
+                    rewritten = self.rewriter.rewrite_prompt(
+                        content, role if isinstance(role, str) else ""
+                    )
+                    if rewritten != content:
+                        item["content"] = rewritten
+                        is_rewritten = True
+                    continue
+
+                if not isinstance(content, list):
+                    continue
+
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+
+                    text_value = block.get("text")
+                    if not isinstance(text_value, str):
+                        continue
+
+                    rewritten_text = self.rewriter.rewrite_prompt(
+                        text_value, role if isinstance(role, str) else ""
+                    )
+                    if rewritten_text != text_value:
+                        block["text"] = rewritten_text
+                        is_rewritten = True
+
+        if self._rewrite_responses_system(payload):
+            is_rewritten = True
+
+        return is_rewritten
+
+    def _rewrite_responses_system(self, payload: dict[str, Any]) -> bool:
+        """Rewrite the top-level `system` field in Responses API payloads."""
+
+        system_value = payload.get("system")
+        if system_value is None:
             return False
 
-        if not isinstance(inputs, list):
-            return False
+        is_rewritten = False
 
-        for item in inputs:
-            if not isinstance(item, dict):
-                continue
+        if isinstance(system_value, str):
+            rewritten = self.rewriter.rewrite_prompt(system_value, "system")
+            if rewritten != system_value:
+                payload["system"] = rewritten
+                is_rewritten = True
+        elif isinstance(system_value, dict):
+            if self._rewrite_text_blocks([system_value], "system"):
+                is_rewritten = True
 
-            role = item.get("role")
-            content = item.get("content")
+            content = system_value.get("content") if isinstance(system_value, dict) else None
+            if isinstance(content, list) and self._rewrite_text_blocks(content, "system"):
+                is_rewritten = True
+        elif isinstance(system_value, list):
+            if self._rewrite_text_blocks(system_value, "system"):
+                is_rewritten = True
 
-            if isinstance(content, str):
-                rewritten = self.rewriter.rewrite_prompt(
-                    content, role if isinstance(role, str) else ""
-                )
-                if rewritten != content:
-                    item["content"] = rewritten
+        return is_rewritten
+
+    def _rewrite_text_blocks(self, blocks: list[Any], role: str) -> bool:
+        """Rewrite any text blocks in-place and report whether changes occurred."""
+
+        is_rewritten = False
+
+        for index, block in enumerate(blocks):
+            if isinstance(block, str):
+                rewritten = self.rewriter.rewrite_prompt(block, role)
+                if rewritten != block:
+                    blocks[index] = rewritten
                     is_rewritten = True
                 continue
 
-            if not isinstance(content, list):
+            if not isinstance(block, dict):
                 continue
 
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-
-                text_value = block.get("text")
-                if not isinstance(text_value, str):
-                    continue
-
-                rewritten_text = self.rewriter.rewrite_prompt(
-                    text_value, role if isinstance(role, str) else ""
-                )
+            text_value = block.get("text")
+            if isinstance(text_value, str):
+                rewritten_text = self.rewriter.rewrite_prompt(text_value, role)
                 if rewritten_text != text_value:
                     block["text"] = rewritten_text
                     is_rewritten = True

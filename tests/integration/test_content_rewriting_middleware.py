@@ -435,6 +435,71 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_outbound_responses_system_rewriting(self):
+        """Ensure the Responses API `system` field is rewritten."""
+
+        async def run_test():
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            payload = {
+                "system": "This is an original system prompt.",
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "This is a user prompt.",
+                            }
+                        ],
+                    }
+                ],
+            }
+
+            async def get_body():
+                return json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = await get_body()
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            forwarded_request = call_next.call_args[0][0]
+
+            new_body = await forwarded_request.json()
+
+            self.assertEqual(
+                new_body["system"],
+                "This is an rewritten system prompt.",
+            )
+            self.assertEqual(
+                new_body["input"][0]["content"][0]["text"],
+                "This is a user prompt.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_outbound_prompt_rewriting_ignores_non_string_content(self):
         """Ensure non-string prompt content is left untouched."""
 
