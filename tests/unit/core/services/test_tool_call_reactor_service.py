@@ -5,6 +5,7 @@ Unit tests for Tool Call Reactor Service.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 
 import pytest
 from src.core.common.exceptions import ToolCallReactorError
@@ -178,6 +179,42 @@ class TestToolCallReactorService:
             ]
 
         assert stored_arguments == {"arg": ["value"]}
+
+    @pytest.mark.asyncio
+    async def test_process_tool_call_history_truncates_large_arguments(
+        self, reactor, history_tracker
+    ):
+        """Large tool arguments should be truncated before persisting to history."""
+
+        oversize_argument = "x" * (ToolCallReactorService._MAX_ARGUMENT_SNAPSHOT_BYTES + 512)
+
+        context = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="test_tool",
+            tool_arguments={"payload": oversize_argument},
+        )
+
+        await reactor.process_tool_call(context)
+
+        async with history_tracker._lock:  # type: ignore[attr-defined]
+            stored_arguments = history_tracker._history["test_session"][0]["context"][
+                "tool_arguments"
+            ]
+
+        assert isinstance(stored_arguments, dict)
+        assert stored_arguments.get("__truncated__") is True
+
+        preview_bytes = stored_arguments.get("preview", "").encode("utf-8")
+        assert len(preview_bytes) <= ToolCallReactorService._MAX_ARGUMENT_SNAPSHOT_BYTES
+
+        omitted_bytes = stored_arguments.get("omitted_bytes")
+        serialized_length = len(
+            json.dumps({"payload": oversize_argument}, ensure_ascii=False).encode("utf-8")
+        )
+        assert omitted_bytes == serialized_length - len(preview_bytes)
 
     @pytest.mark.asyncio
     async def test_process_tool_call_handler_can_handle_false(self, reactor):
