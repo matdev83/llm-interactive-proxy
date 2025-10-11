@@ -355,7 +355,7 @@ class RequestProcessor(IRequestProcessor):
                         session_override = getattr(
                             session_state, "api_key_redaction_enabled", None
                         )
-                        if not isinstance(session_override, (bool, type(None))):
+                        if not isinstance(session_override, bool | type(None)):
                             session_override = None
                 except Exception:
                     session_override = None
