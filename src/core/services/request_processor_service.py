@@ -391,8 +391,9 @@ class RequestProcessor(IRequestProcessor):
 
                 if should_redact:
                     api_keys = discover_api_keys_from_config_and_env(app_config)
-                    # Command prefix can be None; RedactionMiddleware has a default
-                    command_prefix = None
+                    if api_keys:  # Only apply redaction if we have keys to redact
+                        # Command prefix can be None; RedactionMiddleware has a default
+                        command_prefix = None
                     try:
                         if session is not None:
                             override = getattr(

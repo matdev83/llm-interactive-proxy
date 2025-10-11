@@ -136,7 +136,7 @@ class JsonRepairProcessor(IStreamProcessor):
 
         ch = text[start_pos]
         state.json_started = True
-        state.buffer = ch
+        state.buffer = ch  # This correctly includes the opening brace
         state.brace_level = 1
         state.in_string = False
         return start_pos + 1, out_parts
