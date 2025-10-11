@@ -608,7 +608,7 @@ class TestIntegrationScenarios(TestBackendStartupValidation):
 def test_backend_service_interface_shares_concrete_singleton() -> None:
     """BackendService and IBackendService should resolve to the same singleton."""
 
-    from typing import cast
+    from typing import Any, cast
 
     from src.core.app.stages.backend import BackendStage
     from src.core.config.app_config import AppConfig
@@ -634,13 +634,18 @@ def test_backend_service_interface_shares_concrete_singleton() -> None:
     services.add_instance(cast(type, IApplicationState), MagicMock())
     services.add_instance(cast(type, IWireCapture), MagicMock())
 
-    fake_instance = object()
-
     backend_stage = BackendStage()
+
+    created_instances: list[object] = []
+
+    def _backend_factory(*args: Any, **kwargs: Any) -> object:
+        instance = object()
+        created_instances.append(instance)
+        return instance
 
     with patch(
         "src.core.services.backend_service.BackendService",
-        side_effect=lambda *args, **kwargs: fake_instance,
+        side_effect=_backend_factory,
     ) as backend_cls:
         backend_stage._register_backend_service(services)
 
@@ -649,5 +654,6 @@ def test_backend_service_interface_shares_concrete_singleton() -> None:
     concrete = provider.get_required_service(backend_cls)
     interface_instance = provider.get_required_service(cast(type, IBackendService))
 
-    assert concrete is fake_instance
-    assert interface_instance is fake_instance
+    assert len(created_instances) == 1
+    assert concrete is created_instances[0]
+    assert interface_instance is created_instances[0]
