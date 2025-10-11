@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import deque
 from typing import Any, cast
 
 from json_repair import repair_json
@@ -11,6 +12,91 @@ from jsonschema import validate
 from src.core.common.exceptions import JSONParsingError, ValidationError
 
 logger = logging.getLogger(__name__)
+
+
+# Upper bounds that keep schema validation fast while allowing reasonably
+# complex schemas. These values can be tuned as needed but should remain well
+# below the point where validating attacker-controlled schemas could exhaust
+# CPU or memory resources.
+MAX_SCHEMA_NODES = 5000
+MAX_SCHEMA_COLLECTION_ITEMS = 1024
+MAX_SCHEMA_PROPERTIES = 512
+
+
+def enforce_schema_size_limits(
+    schema: dict[str, Any],
+    *,
+    max_nodes: int = MAX_SCHEMA_NODES,
+    max_collection_items: int = MAX_SCHEMA_COLLECTION_ITEMS,
+    max_properties: int = MAX_SCHEMA_PROPERTIES,
+) -> None:
+    """Ensure a JSON schema is not large enough to cause resource exhaustion."""
+
+    if not isinstance(schema, dict):
+        raise ValidationError(
+            message="Schema must be a dictionary",
+            details={"provided_type": type(schema).__name__},
+        )
+
+    nodes_seen = 0
+    queue: deque[Any] = deque([schema])
+
+    while queue:
+        current = queue.pop()
+        if isinstance(current, dict):
+            nodes_seen += 1
+            if nodes_seen > max_nodes:
+                raise ValidationError(
+                    message="JSON schema is too large",
+                    details={
+                        "max_nodes": max_nodes,
+                    },
+                )
+
+            if len(current) > max_collection_items:
+                raise ValidationError(
+                    message="JSON schema object has too many keys",
+                    details={
+                        "max_items": max_collection_items,
+                        "actual_items": len(current),
+                    },
+                )
+
+            for key, value in current.items():
+                if key == "properties" and isinstance(value, dict):
+                    if len(value) > max_properties:
+                        raise ValidationError(
+                            message="JSON schema declares too many properties",
+                            details={
+                                "max_properties": max_properties,
+                                "actual_properties": len(value),
+                            },
+                        )
+                    queue.extend(value.values())
+                elif isinstance(value, (dict, list, tuple)):
+                    queue.append(value)
+        elif isinstance(current, (list, tuple)):
+            nodes_seen += 1
+            if nodes_seen > max_nodes:
+                raise ValidationError(
+                    message="JSON schema is too large",
+                    details={
+                        "max_nodes": max_nodes,
+                    },
+                )
+
+            if len(current) > max_collection_items:
+                raise ValidationError(
+                    message="JSON schema collection has too many entries",
+                    details={
+                        "max_items": max_collection_items,
+                        "actual_items": len(current),
+                    },
+                )
+
+            for item in current:
+                if isinstance(item, (dict, list, tuple)):
+                    queue.append(item)
 
 
 class JsonRepairService:
@@ -40,6 +126,7 @@ class JsonRepairService:
         try:
             repaired_json = self.repair_json(json_string)
             if schema:
+                enforce_schema_size_limits(schema)
                 self.validate_json(repaired_json, schema)
             return repaired_json
         except JsonSchemaValidationError as e:
@@ -124,6 +211,7 @@ class JsonRepairService:
             JSONParsingError: If JSON parsing fails completely
         """
         try:
+            enforce_schema_size_limits(schema)
             # First, try to parse the content as-is
             try:
                 parsed_json = json.loads(content)
@@ -229,6 +317,7 @@ class JsonRepairService:
             ValidationError: If the schema is invalid and contains critical issues
         """
         try:
+            enforce_schema_size_limits(schema)
             # Basic schema structure validation
             if not isinstance(schema, dict):
                 raise ValidationError(

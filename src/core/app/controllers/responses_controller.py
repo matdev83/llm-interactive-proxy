@@ -16,6 +16,7 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.translation_service_interface import (
     ITranslationService,
 )
+from src.core.services.json_repair_service import enforce_schema_size_limits
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -637,6 +638,8 @@ class ResponsesController:
         """
         if not isinstance(schema, dict):
             raise ValueError("Schema must be a dictionary")
+
+        enforce_schema_size_limits(schema)
 
         # Check for required fields
         if "type" not in schema:
