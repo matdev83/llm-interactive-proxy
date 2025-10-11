@@ -111,6 +111,59 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
 
         return is_rewritten
 
+    def _rewrite_responses_instructions(self, payload: dict[str, Any]) -> bool:
+        """Rewrite OpenAI Responses API instructions in-place."""
+
+        instructions = payload.get("instructions")
+        if instructions is None:
+            return False
+
+        if isinstance(instructions, str):
+            rewritten = self.rewriter.rewrite_prompt(instructions, "system")
+            if rewritten != instructions:
+                payload["instructions"] = rewritten
+                return True
+            return False
+
+        if isinstance(instructions, dict):
+            text_value = instructions.get("text")
+            if isinstance(text_value, str):
+                rewritten_text = self.rewriter.rewrite_prompt(
+                    text_value, "system"
+                )
+                if rewritten_text != text_value:
+                    instructions["text"] = rewritten_text
+                    return True
+            return False
+
+        if isinstance(instructions, list):
+            is_rewritten = False
+            for index, block in enumerate(instructions):
+                if not isinstance(block, dict):
+                    if isinstance(block, str):
+                        rewritten_text = self.rewriter.rewrite_prompt(
+                            block, "system"
+                        )
+                        if rewritten_text != block:
+                            instructions[index] = rewritten_text
+                            is_rewritten = True
+                    continue
+
+                text_value = block.get("text")
+                if not isinstance(text_value, str):
+                    continue
+
+                rewritten_text = self.rewriter.rewrite_prompt(
+                    text_value, "system"
+                )
+                if rewritten_text != text_value:
+                    block["text"] = rewritten_text
+                    is_rewritten = True
+
+            return is_rewritten
+
+        return False
+
     def _rewrite_chat_response(self, payload: dict[str, Any]) -> bool:
         """Rewrite OpenAI chat completion responses in-place."""
 
@@ -232,6 +285,9 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                     is_rewritten = True
 
                 if self._rewrite_responses_input(data):
+                    is_rewritten = True
+
+                if self._rewrite_responses_instructions(data):
                     is_rewritten = True
 
                 if is_rewritten:
