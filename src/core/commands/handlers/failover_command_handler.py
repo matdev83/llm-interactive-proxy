@@ -37,6 +37,13 @@ class SessionStateApplicationStateAdapter(
         self._local_state: dict[str, Any] = {}
 
     def get_command_prefix(self) -> str | None:
+        prefix = None
+        try:
+            prefix = getattr(self._session.state, "command_prefix_override", None)
+        except Exception:
+            prefix = None
+        if isinstance(prefix, str) and prefix:
+            return prefix
         return self._local_state.get("command_prefix")
 
     def get_api_key_redaction_enabled(self) -> bool:
@@ -53,6 +60,10 @@ class SessionStateApplicationStateAdapter(
 
     def set_command_prefix(self, prefix: str) -> None:
         self._local_state["command_prefix"] = prefix
+        try:
+            self._session.state = self._session.state.with_command_prefix_override(prefix)
+        except Exception:
+            pass
 
     def set_api_key_redaction_enabled(self, enabled: bool) -> None:
         self._local_state["api_key_redaction_enabled"] = enabled

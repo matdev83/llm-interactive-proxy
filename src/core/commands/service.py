@@ -43,38 +43,35 @@ class NewCommandService(ICommandService):
         self.strict_command_detection = strict_command_detection
         self._app_state = app_state
 
-    def _refresh_command_prefix(self) -> None:
-        """Synchronize the parser's prefix with the current application state."""
-        if self._app_state is None:
-            return
+    def _determine_command_prefix(self, session: Session | None) -> str:
+        """Resolve the effective command prefix for the provided session."""
 
-        try:
-            prefix = self._app_state.get_command_prefix()
-        except Exception as exc:  # pragma: no cover - defensive logging
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Unable to resolve command prefix from application state: %s",
-                    exc,
-                    exc_info=True,
-                )
-            return
+        if session is not None:
+            try:
+                override = getattr(session.state, "command_prefix_override", None)
+            except Exception:  # pragma: no cover - best-effort logging path
+                override = None
+            else:
+                if isinstance(override, str) and override:
+                    return override
+
+        prefix: str | None = None
+        if self._app_state is not None:
+            try:
+                prefix = self._app_state.get_command_prefix()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Unable to resolve command prefix from application state: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                prefix = None
 
         if not isinstance(prefix, str) or not prefix:
-            return
+            prefix = self.command_parser.command_prefix
 
-        if prefix == self.command_parser.command_prefix:
-            return
-
-        try:
-            self.command_parser.set_command_prefix(prefix)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to update command parser prefix to '%s': %s",
-                    prefix,
-                    exc,
-                    exc_info=True,
-                )
+        return prefix
 
     def _get_last_non_blank_line_content(self, text: str) -> str:
         """
@@ -109,8 +106,6 @@ class NewCommandService(ICommandService):
         Returns:
             A ProcessedResult object.
         """
-        self._refresh_command_prefix()
-
         if not messages:
             return ProcessedResult(
                 modified_messages=[], command_executed=False, command_results=[]
@@ -122,6 +117,8 @@ class NewCommandService(ICommandService):
             return ProcessedResult(
                 modified_messages=messages, command_executed=False, command_results=[]
             )
+
+        prefix_for_session = self._determine_command_prefix(session)
 
         modified_messages = messages.copy()
         command_results: list[Any] = []
@@ -149,7 +146,9 @@ class NewCommandService(ICommandService):
             # The command service should only ever parse the last line for commands.
             content_str = self._get_last_non_blank_line_content(content_str)
 
-            parse_result = self.command_parser.parse(content_str)
+            parse_result = self.command_parser.parse(
+                content_str, command_prefix=prefix_for_session
+            )
             if not parse_result:
                 continue
 
