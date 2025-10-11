@@ -154,12 +154,13 @@ class StructuredWireCapture(IWireCapture):
             )
             await self._append_json(header_entry)
 
-            # Track accumulated chunks for byte count
-            all_chunks = []
+            # Track total bytes without storing all chunks to avoid memory growth
+            total_bytes = 0
 
             # Process stream chunks
             async for chunk in stream:
-                all_chunks.append(chunk)
+                chunk_length = len(chunk)
+                total_bytes += chunk_length
 
                 # Capture each chunk
                 text = chunk.decode("utf-8", errors="replace")
@@ -172,7 +173,7 @@ class StructuredWireCapture(IWireCapture):
                     model=model,
                     key_name=key_name,
                     payload=text,
-                    byte_count=len(chunk),
+                    byte_count=chunk_length,
                 )
                 try:
                     await self._append_json(chunk_entry)
@@ -182,7 +183,6 @@ class StructuredWireCapture(IWireCapture):
                 yield chunk
 
             # End of stream marker
-            total_bytes = sum(len(chunk) for chunk in all_chunks)
             end_entry = self._create_json_entry(
                 flow="backend_to_frontend",
                 direction="response_stream_end",
