@@ -186,7 +186,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     )
 
                     # Create a new response with the replacement content
-                    if result.replacement_response:
+                    if result.replacement_response is not None:
                         replacement_response = self._create_replacement_response(
                             response,
                             result.replacement_response,
