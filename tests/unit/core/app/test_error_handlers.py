@@ -96,6 +96,25 @@ def test_validation_exception_handler_defaults_missing_fields() -> None:
     ]
 
 
+def test_validation_exception_handler_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    request = make_request("/v1/test")
+    exc = RequestValidationError(
+        [
+            {
+                "loc": ("body", "prompt"),
+                "msg": "field required",
+                "type": "value_error.missing",
+            }
+        ]
+    )
+
+    with caplog.at_level("WARNING", logger="src.core.app.error_handlers"):
+        response = call_handler(validation_exception_handler, request, exc)
+
+    assert response.status_code == 400
+    assert any("Validation error" in message for message in caplog.messages)
+
+
 def test_http_exception_handler_standard_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -136,6 +155,19 @@ def test_http_exception_handler_chat_completions(
         "type": "HttpError",
         "status_code": 429,
     }
+
+
+def test_http_exception_handler_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    request = make_request("/v1/models")
+    exc = HTTPException(status_code=400, detail="Missing field")
+
+    with caplog.at_level("WARNING", logger="src.core.app.error_handlers"):
+        response = call_handler(http_exception_handler, request, exc)
+
+    assert response.status_code == 400
+    assert any(
+        "HTTP error 400: Missing field" in message for message in caplog.messages
+    )
 
 
 def test_http_exception_handler_preserves_headers(
@@ -184,6 +216,21 @@ def test_proxy_exception_handler_standard_all_backends_failed() -> None:
     payload = parse_json_response(response)
     assert payload["detail"]["error"]["message"] == "all backends failed"
     assert payload["detail"]["error"]["status_code"] == 500
+
+
+def test_proxy_exception_handler_chat_completion_without_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("time.time", lambda: 1700000000)
+    request = make_request("/v1/chat/completions")
+    exc = LLMProxyError("backend rejected", details=None, status_code=409)
+
+    response = call_handler(proxy_exception_handler, request, exc)
+
+    assert response.status_code == 409
+    payload = parse_json_response(response)
+    assert payload["error"]["status_code"] == 409
+    assert "details" not in payload["error"]
 
 
 def test_proxy_exception_handler_logs_details_at_debug(
