@@ -6,10 +6,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.core.config.app_config import AppConfig
+from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.configuration.planning_phase_config import (
     PlanningPhaseConfiguration,
 )
 from src.core.domain.session import Session, SessionState
+from src.core.services.backend_factory import BackendFactory
+from src.core.services.backend_service import BackendService
 
 
 @pytest.fixture
@@ -35,6 +38,9 @@ def planning_enabled_session():
         enabled=True, strong_model="openai:gpt-4", max_turns=10, max_file_writes=1
     )
     state = SessionState(
+        backend_config=BackendConfiguration(
+            backend_type="openai", model="gpt-3.5-turbo"
+        ),
         planning_phase_config=planning_config,
         planning_phase_turn_count=0,
         planning_phase_file_write_count=0,
@@ -50,12 +56,37 @@ def planning_disabled_session():
         enabled=False, strong_model=None, max_turns=10, max_file_writes=1
     )
     state = SessionState(
+        backend_config=BackendConfiguration(
+            backend_type="openai", model="gpt-3.5-turbo"
+        ),
         planning_phase_config=planning_config,
         planning_phase_turn_count=0,
         planning_phase_file_write_count=0,
     )
     session = Session(session_id="test-session", state=state)
     return session
+
+
+@pytest.fixture
+def backend_service_fixture(planning_enabled_session: Session):
+    """Provide a BackendService instance with mocked dependencies."""
+
+    session_service = AsyncMock()
+    session_service.update_session = AsyncMock()
+    session_service.get_session = AsyncMock(return_value=planning_enabled_session)
+
+    app_config = AppConfig()
+    app_config.backends.default_backend = "openai"
+
+    service = BackendService(
+        factory=Mock(spec=BackendFactory),
+        rate_limiter=Mock(),
+        config=app_config,
+        session_service=session_service,
+        app_state=Mock(),
+    )
+
+    return service, session_service
 
 
 class TestPlanningPhaseConfiguration:
@@ -181,3 +212,96 @@ class TestPlanningPhaseEndToEnd:
 
         assert planning_enabled_session.state.planning_phase_turn_count == 2
         assert planning_enabled_session.state.planning_phase_config.max_turns == 2
+
+    @pytest.mark.asyncio
+    async def test_planning_phase_restores_original_route_when_limits_reached(
+        self,
+        backend_service_fixture,
+        planning_enabled_session,
+    ):
+        service, session_service = backend_service_fixture
+
+        # First call should store the original route and switch to strong model
+        await service._apply_planning_phase_if_needed(
+            planning_enabled_session, "openai"
+        )
+
+        assert (
+            planning_enabled_session.state.backend_config.model
+            == "gpt-4"
+        )
+        assert (
+            planning_enabled_session.state.planning_phase_original_backend
+            == "openai"
+        )
+        assert (
+            planning_enabled_session.state.planning_phase_original_model
+            == "gpt-3.5-turbo"
+        )
+
+        session_service.update_session.reset_mock()
+
+        # Exceed max turns and ensure we restore the original backend/model
+        planning_enabled_session.update_state(
+            planning_enabled_session.state.with_planning_phase_turn_count(
+                planning_enabled_session.state.planning_phase_config.max_turns
+            )
+        )
+
+        await service._apply_planning_phase_if_needed(
+            planning_enabled_session, "openai"
+        )
+
+        assert (
+            planning_enabled_session.state.backend_config.model
+            == "gpt-3.5-turbo"
+        )
+        assert (
+            planning_enabled_session.state.planning_phase_original_backend is None
+        )
+        assert (
+            planning_enabled_session.state.planning_phase_original_model is None
+        )
+        session_service.update_session.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_planning_phase_counter_updates_trigger_restore(
+        self,
+        backend_service_fixture,
+        planning_enabled_session,
+    ):
+        service, session_service = backend_service_fixture
+        dummy_response = Mock()
+        dummy_response.metadata = {}
+
+        # Reduce max turns to 2 so the second update triggers restoration
+        planning_enabled_session.update_state(
+            planning_enabled_session.state.with_planning_phase_config(
+                planning_enabled_session.state.planning_phase_config.with_max_turns(2)
+            )
+        )
+
+        # Activate planning phase to store original route
+        await service._apply_planning_phase_if_needed(
+            planning_enabled_session, "openai"
+        )
+
+        session_service.get_session.return_value = planning_enabled_session
+
+        # Increment counters below the limit
+        await service._update_planning_phase_counters("test-session", dummy_response)
+        assert planning_enabled_session.state.backend_config.model == "gpt-4"
+
+        # Increment counters to meet the limit and trigger restoration
+        await service._update_planning_phase_counters("test-session", dummy_response)
+
+        assert (
+            planning_enabled_session.state.backend_config.model
+            == "gpt-3.5-turbo"
+        )
+        assert (
+            planning_enabled_session.state.planning_phase_original_backend is None
+        )
+        assert (
+            planning_enabled_session.state.planning_phase_original_model is None
+        )

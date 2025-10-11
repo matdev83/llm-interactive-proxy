@@ -77,6 +77,8 @@ class SessionState(ValueObject):
     pytest_compression_min_lines: int = 0
     planning_phase_turn_count: int = 0
     planning_phase_file_write_count: int = 0
+    planning_phase_original_backend: str | None = None
+    planning_phase_original_model: str | None = None
     api_key_redaction_enabled: bool | None = None
     command_prefix_override: str | None = None
 
@@ -145,6 +147,19 @@ class SessionState(ValueObject):
     def with_planning_phase_file_write_count(self, count: int) -> SessionState:
         """Create a new session state with updated planning phase file write count."""
         return self.model_copy(update={"planning_phase_file_write_count": count})
+
+    def with_planning_phase_original_route(
+        self,
+        backend: str | None,
+        model: str | None,
+    ) -> SessionState:
+        """Create a new session state with updated stored planning-phase route."""
+        return self.model_copy(
+            update={
+                "planning_phase_original_backend": backend,
+                "planning_phase_original_model": model,
+            }
+        )
 
     def with_api_key_redaction_enabled(self, enabled: bool | None) -> SessionState:
         """Create a new session state with updated API key redaction flag."""
@@ -437,6 +452,22 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(
             SessionState, self._state
         ).with_planning_phase_file_write_count(count)
+        return SessionStateAdapter(new_state)
+
+    @property
+    def planning_phase_original_backend(self) -> str | None:
+        return cast(SessionState, self._state).planning_phase_original_backend
+
+    @property
+    def planning_phase_original_model(self) -> str | None:
+        return cast(SessionState, self._state).planning_phase_original_model
+
+    def with_planning_phase_original_route(
+        self, backend: str | None, model: str | None
+    ) -> ISessionState:
+        new_state = cast(SessionState, self._state).with_planning_phase_original_route(
+            backend, model
+        )
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests
