@@ -1,5 +1,6 @@
 import argparse
 import os
+import socket
 from unittest.mock import patch
 
 import pytest
@@ -119,6 +120,23 @@ def test_cli_backend_choices_match_registry() -> None:
             cli_choices is not None
         ), "CLI argument '--default-backend' has no choices"
         assert sorted(cli_choices) == sorted(registered_backends)
+
+
+def test_is_port_in_use_supports_ipv6() -> None:
+    """is_port_in_use should gracefully handle IPv6 hosts."""
+
+    if not socket.has_ipv6:
+        pytest.skip("IPv6 is not supported on this platform")
+
+    from src.core.cli import is_port_in_use
+
+    with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as server:
+        server.bind(("::1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        assert is_port_in_use("::1", port) is True
+
+    assert is_port_in_use("::1", port) is False
 
 
 def test_cli_context_window_override_argument_parsing() -> None:
