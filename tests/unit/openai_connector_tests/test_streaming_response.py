@@ -507,6 +507,7 @@ async def test_streaming_response_error(
     # Verify the exception
     assert excinfo.value.status_code == 400
     assert "Bad request" in str(excinfo.value.detail)
+    assert mock_response.closed
 
 
 @pytest.mark.asyncio
