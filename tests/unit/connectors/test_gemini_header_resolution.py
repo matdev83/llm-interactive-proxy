@@ -64,3 +64,29 @@ async def test_list_models_respects_key_name(monkeypatch: pytest.MonkeyPatch) ->
     assert captured_headers["X-Alt-Key"] == "another-secret"
     assert captured_headers[LOOP_GUARD_HEADER] == LOOP_GUARD_VALUE
     assert result == {"models": []}
+
+
+@pytest.mark.asyncio
+async def test_initialize_normalizes_backend_type_key_name() -> None:
+    backend = GeminiBackend(
+        httpx.AsyncClient(), AppConfig(), translation_service=TranslationService()
+    )
+
+    await backend.initialize(
+        gemini_api_base_url="https://example.com/api",
+        key_name="gemini",
+        api_key="secret-token",
+    )
+
+    # The connector should normalize the OpenRouter-style key name to the actual
+    # Gemini API header so requests are authenticated correctly.
+    assert backend.key_name == "x-goog-api-key"
+
+    base_url, headers = await backend._resolve_gemini_api_config(  # type: ignore[attr-defined]
+        None,
+        None,
+        None,
+    )
+
+    assert base_url == "https://example.com/api"
+    assert headers["x-goog-api-key"] == "secret-token"
