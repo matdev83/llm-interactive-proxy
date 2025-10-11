@@ -1,5 +1,5 @@
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.handlers.failover_command_handler import (

@@ -959,9 +959,7 @@ class BackendService(IBackendService):
         current_config = session.state.backend_config
         target_backend = original_backend or current_config.backend_type
         target_model = (
-            original_model
-            if original_model is not None
-            else current_config.model
+            original_model if original_model is not None else current_config.model
         )
 
         restored_config = BackendConfiguration(
@@ -970,11 +968,9 @@ class BackendService(IBackendService):
             interactive_mode=current_config.interactive_mode,
         )
 
-        new_state = (
-            session.state.with_backend_config(
-                cast(IBackendConfig, restored_config)
-            ).with_planning_phase_original_route(None, None)
-        )
+        new_state = session.state.with_backend_config(
+            cast(IBackendConfig, restored_config)
+        ).with_planning_phase_original_route(None, None)
 
         session.update_state(new_state)
         await self._session_service.update_session(session)

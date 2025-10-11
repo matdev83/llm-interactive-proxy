@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import cast
-
 from uuid import uuid4
 
 from src.core.domain.streaming_response_processor import StreamingContent
