@@ -376,14 +376,35 @@ class RequestProcessor(IRequestProcessor):
                     api_keys = discover_api_keys_from_config_and_env(app_config)
                     # Command prefix can be None; RedactionMiddleware has a default
                     command_prefix = None
+
+                    # Check for session-level command prefix override first (highest priority)
                     try:
-                        command_prefix = (
-                            app_config.command_prefix
-                            if app_config is not None
-                            else None
-                        )
-                    except (AttributeError, TypeError):
-                        command_prefix = None
+                        session_state = getattr(session, "state", None)
+                        if session_state is not None:
+                            session_override = getattr(session_state, "command_prefix_override", None)
+                            if isinstance(session_override, str) and session_override:
+                                command_prefix = session_override
+                    except Exception:
+                        # Best effort - continue with other prefix sources
+                        pass
+
+                    # If no session override, prioritize app state command prefix over app config
+                    if command_prefix is None and self._app_state is not None:
+                        try:
+                            command_prefix = self._app_state.get_command_prefix()
+                        except AttributeError:
+                            command_prefix = None
+
+                    # Fall back to app_config command prefix if neither session override nor app state have one
+                    if command_prefix is None:
+                        try:
+                            command_prefix = (
+                                app_config.command_prefix
+                                if app_config is not None
+                                else None
+                            )
+                        except (AttributeError, TypeError):
+                            command_prefix = None
 
                     # Check if commands are disabled
                     commands_disabled = False

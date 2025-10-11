@@ -46,6 +46,16 @@ class NewCommandService(ICommandService):
         self.strict_command_detection = strict_command_detection
         self._app_state = app_state
 
+        # Initialize command parser with app state command prefix if available
+        if self._app_state is not None:
+            try:
+                app_prefix = self._app_state.get_command_prefix()
+                if isinstance(app_prefix, str) and app_prefix:
+                    self.command_parser.command_prefix = app_prefix
+            except Exception:
+                # Best effort - don't fail initialization if we can't get the prefix
+                pass
+
     def _determine_command_prefix(self, session: "Session | None") -> str:
         """Resolve the effective command prefix for the provided session."""
 
