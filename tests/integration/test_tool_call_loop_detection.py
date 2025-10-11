@@ -40,11 +40,14 @@ async def test_client():
         session={"default_interactive_mode": True},
     )
 
-    # Ensure command_prefix is set before building the app
-    config_with_prefix = config.model_copy(update={"command_prefix": "!/"})
-
     # Build test app using the modern async approach - this handles all initialization automatically
-    test_app = await build_test_app_async(config_with_prefix)
+    test_app = await build_test_app_async(config)
+
+    # The config is already available from the test_app
+    app_config = test_app.state.app_config
+    app_config.command_prefix = "!/"
+
+    test_app.state.app_config = app_config
 
     with TestClient(test_app, headers={"Authorization": "Bearer test-key"}) as client:
         yield client

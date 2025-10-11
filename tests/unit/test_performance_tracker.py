@@ -1,6 +1,8 @@
 import logging
+from collections import deque
 
 import pytest
+from src import performance_tracker
 from src.performance_tracker import (
     PerformanceMetrics,
     track_phase,
@@ -31,6 +33,17 @@ class DummyMetrics:
 
     def end_phase(self) -> None:
         self.ended += 1
+
+
+def _time_sequence(*values: float):
+    queue = deque(values)
+
+    def _next_time() -> float:
+        if not queue:
+            raise AssertionError("No more time values available")
+        return queue.popleft()
+
+    return _next_time
 
 
 def test_performance_metrics_phase_tracking_and_finalize(
@@ -107,3 +120,80 @@ def test_track_phase_context_manager_ensures_end_called_on_exception() -> None:
 
     assert dummy.started == ["phase-one"]
     assert dummy.ended == 1
+
+
+def test_track_phase_wraps_start_and_end(monkeypatch):
+    metrics = PerformanceMetrics()
+    events: list[tuple[str, str | None]] = []
+
+    def fake_start(phase_name: str) -> None:
+        events.append(("start", phase_name))
+
+    def fake_end() -> None:
+        events.append(("end", None))
+
+    monkeypatch.setattr(metrics, "start_phase", fake_start)
+    monkeypatch.setattr(metrics, "end_phase", fake_end)
+
+    with track_phase(metrics, "backend_call"):
+        events.append(("inside", None))
+
+    assert events == [
+        ("start", "backend_call"),
+        ("inside", None),
+        ("end", None),
+    ]
+
+
+def test_finalize_completes_active_phase(monkeypatch):
+    time_values = _time_sequence(10.0, 12.5, 15.0)
+    monkeypatch.setattr(performance_tracker.time, "time", time_values)
+
+    metrics = PerformanceMetrics(request_start=5.0)
+    metrics.start_phase("backend_call")
+
+    metrics.finalize()
+
+    assert metrics.backend_call_time == 2.5
+    assert metrics.total_time == 10.0
+
+
+def test_summary_helpers_include_defaults():
+    metrics = PerformanceMetrics()
+    metrics.total_time = 2.3456
+    metrics.command_processing_time = 0.123
+    metrics.response_processing_time = 0.456
+
+    summary_prefix = metrics._format_summary_prefix()
+    assert summary_prefix == [
+        "PERF_SUMMARY session=unknown",
+        "total=2.346s",
+        "backend=unknown",
+        "model=unknown",
+        "streaming=False",
+        "commands=False",
+    ]
+
+    timing_parts = metrics._format_timing_parts()
+    assert timing_parts == [
+        "cmd_proc=0.123s",
+        "resp_proc=0.456s",
+    ]
+
+
+def test_track_phase_ends_on_exception(monkeypatch):
+    metrics = PerformanceMetrics()
+    called: list[str] = []
+
+    def fake_end_phase() -> None:
+        called.append("end")
+
+    monkeypatch.setattr(metrics, "end_phase", fake_end_phase)
+
+    try:
+        with track_phase(metrics, "response_processing"):
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+
+    assert called == ["end"]
