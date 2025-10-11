@@ -322,7 +322,6 @@ class ProcessorStage(InitializationStage):
                     backend_request_manager,
                     response_manager,
                     app_state=app_state,
-                    project_dir_resolution_service=project_dir_resolution_service,
                 )
 
             # Register concrete implementation

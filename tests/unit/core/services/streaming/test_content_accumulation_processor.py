@@ -20,10 +20,14 @@ async def test_content_accumulation_processor_accumulates_multiple_chunks(
     content_accumulation_processor,
 ):
     # Arrange
-    chunk1 = StreamingContent(content="Hello, ", metadata={"stream_id": "test-stream-1"})
+    chunk1 = StreamingContent(
+        content="Hello, ", metadata={"stream_id": "test-stream-1"}
+    )
     chunk2 = StreamingContent(content="world", metadata={"stream_id": "test-stream-1"})
     chunk3 = StreamingContent(content="!", metadata={"stream_id": "test-stream-1"})
-    final_chunk = StreamingContent(content="", is_done=True, metadata={"stream_id": "test-stream-1"})
+    final_chunk = StreamingContent(
+        content="", is_done=True, metadata={"stream_id": "test-stream-1"}
+    )
 
     # Act
     processed_chunk1 = await content_accumulation_processor.process(chunk1)
@@ -44,8 +48,12 @@ async def test_content_accumulation_processor_emits_on_is_done(
     content_accumulation_processor,
 ):
     # Arrange
-    chunk1 = StreamingContent(content="First part.", metadata={"stream_id": "test-stream-2"})
-    final_chunk = StreamingContent(content="Second part.", is_done=True, metadata={"stream_id": "test-stream-2"})
+    chunk1 = StreamingContent(
+        content="First part.", metadata={"stream_id": "test-stream-2"}
+    )
+    final_chunk = StreamingContent(
+        content="Second part.", is_done=True, metadata={"stream_id": "test-stream-2"}
+    )
 
     # Act
     processed_chunk1 = await content_accumulation_processor.process(chunk1)
@@ -62,9 +70,13 @@ async def test_content_accumulation_processor_handles_empty_chunks(
     content_accumulation_processor,
 ):
     # Arrange
-    chunk1 = StreamingContent(content="Some content", metadata={"stream_id": "test-stream-3"})
+    chunk1 = StreamingContent(
+        content="Some content", metadata={"stream_id": "test-stream-3"}
+    )
     empty_chunk = StreamingContent(content="", metadata={"stream_id": "test-stream-3"})
-    final_empty_chunk = StreamingContent(content="", is_done=True, metadata={"stream_id": "test-stream-3"})
+    final_empty_chunk = StreamingContent(
+        content="", is_done=True, metadata={"stream_id": "test-stream-3"}
+    )
 
     # Act
     processed_chunk1 = await content_accumulation_processor.process(chunk1)
@@ -98,9 +110,17 @@ async def test_content_accumulation_processor_resets_buffer_after_emission(
     content_accumulation_processor,
 ):
     # Arrange
-    chunk1 = StreamingContent(content="First stream part. ", is_done=True, metadata={"stream_id": "test-stream-4"})
-    chunk2 = StreamingContent(content="Second stream part.", metadata={"stream_id": "test-stream-5"})
-    final_chunk_2 = StreamingContent(content="", is_done=True, metadata={"stream_id": "test-stream-5"})
+    chunk1 = StreamingContent(
+        content="First stream part. ",
+        is_done=True,
+        metadata={"stream_id": "test-stream-4"},
+    )
+    chunk2 = StreamingContent(
+        content="Second stream part.", metadata={"stream_id": "test-stream-5"}
+    )
+    final_chunk_2 = StreamingContent(
+        content="", is_done=True, metadata={"stream_id": "test-stream-5"}
+    )
 
     # Act - first stream
     processed_chunk1 = await content_accumulation_processor.process(chunk1)

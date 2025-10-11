@@ -128,12 +128,9 @@ class TestSuiteProtection:
                 test_count = 0
                 for line in combined_output.split("\n"):
                     if (
-                        "<Function" in line
-                        and "test_" in line
-                        or "<Coroutine" in line
-                        and "test_" in line
-                        or "<TestCaseFunction" in line
-                        and "test_" in line
+                        ("<Function" in line and "test_" in line)
+                        or ("<Coroutine" in line and "test_" in line)
+                        or ("<TestCaseFunction" in line and "test_" in line)
                     ):
                         test_count += 1
 

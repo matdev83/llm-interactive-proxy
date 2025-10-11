@@ -112,7 +112,6 @@ async def test_chat_completions_basic_request(
     assert sent_payload["stream"] is False
 
 
-
 @pytest.mark.asyncio
 async def test_chat_completions_with_tools(
     zai_backend: ZAIConnector, httpx_mock: HTTPXMock
@@ -189,7 +188,6 @@ async def test_chat_completions_with_tools(
     assert sent_payload["tool_choice"] == "auto"
 
 
-
 @pytest.mark.asyncio
 async def test_chat_completions_streaming(
     zai_backend: ZAIConnector, httpx_mock: HTTPXMock
@@ -245,7 +243,6 @@ async def test_chat_completions_streaming(
     assert response.media_type == "text/event-stream"
 
 
-
 @pytest.mark.asyncio
 async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> None:
     """Test that the list_models method works correctly."""
@@ -286,7 +283,6 @@ async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> 
     assert "data" in models_data
     assert len(models_data["data"]) == 3
     assert models_data["data"][0]["id"] == "glm-4.5"
-
 
 
 @pytest.mark.asyncio

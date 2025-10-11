@@ -226,13 +226,9 @@ class TestPlanningPhaseEndToEnd:
             planning_enabled_session, "openai"
         )
 
+        assert planning_enabled_session.state.backend_config.model == "gpt-4"
         assert (
-            planning_enabled_session.state.backend_config.model
-            == "gpt-4"
-        )
-        assert (
-            planning_enabled_session.state.planning_phase_original_backend
-            == "openai"
+            planning_enabled_session.state.planning_phase_original_backend == "openai"
         )
         assert (
             planning_enabled_session.state.planning_phase_original_model
@@ -252,16 +248,9 @@ class TestPlanningPhaseEndToEnd:
             planning_enabled_session, "openai"
         )
 
-        assert (
-            planning_enabled_session.state.backend_config.model
-            == "gpt-3.5-turbo"
-        )
-        assert (
-            planning_enabled_session.state.planning_phase_original_backend is None
-        )
-        assert (
-            planning_enabled_session.state.planning_phase_original_model is None
-        )
+        assert planning_enabled_session.state.backend_config.model == "gpt-3.5-turbo"
+        assert planning_enabled_session.state.planning_phase_original_backend is None
+        assert planning_enabled_session.state.planning_phase_original_model is None
         session_service.update_session.assert_called()
 
     @pytest.mark.asyncio
@@ -295,13 +284,6 @@ class TestPlanningPhaseEndToEnd:
         # Increment counters to meet the limit and trigger restoration
         await service._update_planning_phase_counters("test-session", dummy_response)
 
-        assert (
-            planning_enabled_session.state.backend_config.model
-            == "gpt-3.5-turbo"
-        )
-        assert (
-            planning_enabled_session.state.planning_phase_original_backend is None
-        )
-        assert (
-            planning_enabled_session.state.planning_phase_original_model is None
-        )
+        assert planning_enabled_session.state.backend_config.model == "gpt-3.5-turbo"
+        assert planning_enabled_session.state.planning_phase_original_backend is None
+        assert planning_enabled_session.state.planning_phase_original_model is None

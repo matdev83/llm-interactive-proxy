@@ -5,7 +5,6 @@ import json
 from collections.abc import AsyncGenerator
 
 import pytest
-
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )

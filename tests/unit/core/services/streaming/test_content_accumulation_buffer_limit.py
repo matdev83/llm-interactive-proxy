@@ -21,9 +21,15 @@ class TestContentAccumulationBufferLimit:
         processor = ContentAccumulationProcessor(max_buffer_bytes=1024)  # 1KB limit
 
         # Send small chunks
-        chunk1 = StreamingContent(content="Hello ", metadata={"stream_id": "buffer-test-1"})
-        chunk2 = StreamingContent(content="World", metadata={"stream_id": "buffer-test-1"})
-        chunk3 = StreamingContent(content="!", is_done=True, metadata={"stream_id": "buffer-test-1"})
+        chunk1 = StreamingContent(
+            content="Hello ", metadata={"stream_id": "buffer-test-1"}
+        )
+        chunk2 = StreamingContent(
+            content="World", metadata={"stream_id": "buffer-test-1"}
+        )
+        chunk3 = StreamingContent(
+            content="!", is_done=True, metadata={"stream_id": "buffer-test-1"}
+        )
 
         result1 = await processor.process(chunk1)
         assert result1.content == ""  # Buffered, not emitted yet
