@@ -46,7 +46,7 @@ class NewCommandService(ICommandService):
         self.strict_command_detection = strict_command_detection
         self._app_state = app_state
 
-    def _determine_command_prefix(self, session: Session | None) -> str:
+    def _determine_command_prefix(self, session: "Session | None") -> str:
         """Resolve the effective command prefix for the provided session."""
 
         if session is not None:
