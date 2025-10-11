@@ -281,6 +281,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                     stderr = self._process.stderr.read().decode(
                         "utf-8", errors="replace"
                     )
+                self._cleanup_process(self._process)
                 raise BackendError(
                     message="gemini-cli process failed to start",
                     details={"stderr": stderr},
@@ -291,6 +292,7 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         except Exception as e:
             logger.error(f"Failed to spawn gemini-cli process: {e}")
+            await self._kill_process()
             raise APIConnectionError(
                 message=f"Failed to start gemini-cli: {e}",
                 details={"executable": self._gemini_cli_executable},
@@ -299,18 +301,41 @@ class GeminiCliAcpConnector(GeminiBackend):
     async def _kill_process(self) -> None:
         """Kill the gemini-cli process."""
         if self._process:
+            process = self._process
             try:
-                self._process.terminate()
+                process.terminate()
                 try:
-                    self._process.wait(timeout=5)
+                    process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    self._process.kill()
-                    self._process.wait(timeout=5)
+                    process.kill()
+                    process.wait(timeout=5)
                 logger.debug("gemini-cli process terminated")
             except Exception as e:
                 logger.warning(f"Error terminating gemini-cli process: {e}")
             finally:
-                self._process = None
+                self._cleanup_process(process)
+
+    def _cleanup_process(
+        self, process: subprocess.Popen[bytes] | None = None
+    ) -> None:
+        """Close process pipes and clear reference."""
+        proc = process or self._process
+        if not proc:
+            return
+
+        for stream_name in ("stdin", "stdout", "stderr"):
+            stream = getattr(proc, stream_name, None)
+            if stream is None:
+                continue
+            try:
+                stream.close()
+            except Exception as stream_error:
+                logger.debug(
+                    "Error closing gemini-cli %s stream: %s", stream_name, stream_error
+                )
+
+        if proc is self._process:
+            self._process = None
 
     async def _send_jsonrpc_message(self, method: str, params: dict[str, Any]) -> None:
         """Send a JSON-RPC message to gemini-cli via stdin.
