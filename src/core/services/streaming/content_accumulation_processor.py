@@ -43,7 +43,8 @@ class ContentAccumulationProcessor(IStreamProcessor):
             state = _StreamBufferState()
             self._states[stream_id] = state
         return state
-  def reset(self) -> None:
+
+    def reset(self) -> None:
         """Reset the internal buffer so stale content does not leak between streams."""
         self._states.clear()
 
