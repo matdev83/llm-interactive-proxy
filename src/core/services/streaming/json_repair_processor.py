@@ -227,8 +227,6 @@ class JsonRepairProcessor(IStreamProcessor):
                         message=f"JSON repair failed in strict mode: {e}",
                         details={"original_buffer": state.buffer},
                     ) from e
-                logger.warning(
-                    "JSON repair raised error during final flush: %s", e
-                )
+                logger.warning("JSON repair raised error during final flush: %s", e)
             return buf
         return None

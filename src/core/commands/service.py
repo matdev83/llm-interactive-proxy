@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.handlers.failover_command_handler import (
@@ -14,6 +14,9 @@ from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.session_service_interface import ISessionService
+
+if TYPE_CHECKING:
+    from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
 

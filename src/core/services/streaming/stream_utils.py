@@ -17,9 +17,10 @@ def get_stream_id(content: StreamingContent) -> str:
     """
 
     metadata = content.metadata
-    stream_id = metadata.get("stream_id") or metadata.get("session_id") or metadata.get("id")
+    stream_id = (
+        metadata.get("stream_id") or metadata.get("session_id") or metadata.get("id")
+    )
     if not stream_id:
         stream_id = uuid4().hex
         metadata["stream_id"] = stream_id
     return str(stream_id)
-

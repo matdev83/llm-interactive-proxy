@@ -266,9 +266,7 @@ class ISessionState(IValueObject, ISessionStateMutator):
         """Get the session-scoped command prefix override if present."""
 
     @abstractmethod
-    def with_command_prefix_override(
-        self, command_prefix: str | None
-    ) -> ISessionState:
+    def with_command_prefix_override(self, command_prefix: str | None) -> ISessionState:
         """Create a new state with updated command prefix override."""
 
     @abstractmethod

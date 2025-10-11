@@ -150,9 +150,7 @@ class SessionState(ValueObject):
         """Create a new session state with updated API key redaction flag."""
         return self.model_copy(update={"api_key_redaction_enabled": enabled})
 
-    def with_command_prefix_override(
-        self, command_prefix: str | None
-    ) -> SessionState:
+    def with_command_prefix_override(self, command_prefix: str | None) -> SessionState:
         """Create a new session state with a session-scoped command prefix override."""
 
         return self.model_copy(update={"command_prefix_override": command_prefix})
@@ -280,16 +278,13 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
             return value
         return None
 
-    def with_command_prefix_override(
-        self, command_prefix: str | None
-    ) -> ISessionState:
+    def with_command_prefix_override(self, command_prefix: str | None) -> ISessionState:
         """Create a new session state adapter with updated command prefix override."""
 
-        base_state: SessionState
         if isinstance(self._state, SessionState):
-            base_state = self._state
+            base_state = self._state  # type: ignore[assignment]
         else:
-            base_state = SessionState.from_dict(self._state.to_dict())
+            base_state = SessionState.from_dict(self._state.to_dict())  # type: ignore[assignment]
 
         new_state = base_state.with_command_prefix_override(command_prefix)
         return SessionStateAdapter(new_state)

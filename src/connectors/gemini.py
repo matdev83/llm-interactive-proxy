@@ -557,9 +557,7 @@ class GeminiBackend(LLMBackend):
         )
         key = api_key or kwargs.get("api_key") or getattr(self, "api_key", None)
         header_candidate = (
-            key_name
-            or kwargs.get("key_name")
-            or getattr(self, "key_name", None)
+            key_name or kwargs.get("key_name") or getattr(self, "key_name", None)
         )
         if not base or not key:
             raise HTTPException(

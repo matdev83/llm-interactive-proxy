@@ -71,7 +71,9 @@ class CommandParser:
         Returns:
             A tuple containing the Command object and the matched string, or None.
         """
-        prefix_value: str | None = command_prefix if command_prefix else self.command_prefix
+        prefix_value: str | None = (
+            command_prefix if command_prefix else self.command_prefix
+        )
         if not isinstance(prefix_value, str) or not prefix_value:
             return None
 

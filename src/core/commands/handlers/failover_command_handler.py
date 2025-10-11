@@ -61,7 +61,9 @@ class SessionStateApplicationStateAdapter(
     def set_command_prefix(self, prefix: str) -> None:
         self._local_state["command_prefix"] = prefix
         try:
-            self._session.state = self._session.state.with_command_prefix_override(prefix)
+            self._session.state = self._session.state.with_command_prefix_override(
+                prefix
+            )
         except Exception:
             pass
 

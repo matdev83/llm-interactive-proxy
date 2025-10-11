@@ -76,7 +76,9 @@ class StreamingToolCallRepairProcessor:
 
         # Process final chunk to flush any remaining buffer
         final_streaming_content = await self._tool_call_repair_processor.process(
-            StreamingContent(content="", is_done=True, metadata={"stream_id": stream_id})
+            StreamingContent(
+                content="", is_done=True, metadata={"stream_id": stream_id}
+            )
         )
         if final_streaming_content.content:
             yield ProcessedResponse(
