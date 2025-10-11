@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -146,15 +148,27 @@ def _looks_like_full_suite(command: str) -> bool:
 @dataclass
 class _SessionState:
     last_command: str | None = None
+    last_seen: float = 0.0
 
 
 class PytestFullSuiteHandler(IToolCallHandler):
     """Steering handler for full-suite pytest commands."""
 
-    def __init__(self, message: str | None = None, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        message: str | None = None,
+        enabled: bool = True,
+        *,
+        state_ttl_seconds: int = 1800,
+        max_sessions: int = 1024,
+        monotonic: Callable[[], float] | None = None,
+    ) -> None:
         self._message = message or DEFAULT_STEERING_MESSAGE
         self._enabled = enabled
         self._session_state: dict[str, _SessionState] = {}
+        self._state_ttl_seconds = max(state_ttl_seconds, 1)
+        self._max_sessions = max(max_sessions, 1)
+        self._monotonic = monotonic or time.monotonic
 
     @property
     def name(self) -> str:
@@ -177,8 +191,16 @@ class PytestFullSuiteHandler(IToolCallHandler):
         if not _looks_like_full_suite(normalized):
             return False
 
+        now = self._monotonic()
+        self._prune_session_state(now)
+
         state = self._session_state.get(context.session_id)
-        return not (state and state.last_command == normalized)
+        if state:
+            state.last_seen = now
+            if state.last_command == normalized:
+                return False
+
+        return True
 
     async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
         if not self._enabled:
@@ -192,11 +214,19 @@ class PytestFullSuiteHandler(IToolCallHandler):
         if not _looks_like_full_suite(normalized):
             return ToolCallReactionResult(should_swallow=False)
 
-        state = self._session_state.setdefault(context.session_id, _SessionState())
+        now = self._monotonic()
+        self._prune_session_state(now)
+
+        state = self._session_state.setdefault(
+            context.session_id, _SessionState(last_seen=now)
+        )
+        state.last_seen = now
         if state.last_command == normalized:
             return ToolCallReactionResult(should_swallow=False)
 
         state.last_command = normalized
+        # Ensure memory guardrails are enforced after recording the new command
+        self._prune_session_state(now)
 
         logger.info(
             "Steering full-suite pytest command in session %s: %s",
@@ -214,6 +244,26 @@ class PytestFullSuiteHandler(IToolCallHandler):
                 "source": "pytest_full_suite_steering",
             },
         )
+
+    def _prune_session_state(self, now: float) -> None:
+        expired: list[str] = []
+        for session_id, state in self._session_state.items():
+            if now - state.last_seen > self._state_ttl_seconds:
+                expired.append(session_id)
+
+        for session_id in expired:
+            del self._session_state[session_id]
+
+        if len(self._session_state) <= self._max_sessions:
+            return
+
+        # Remove oldest sessions to cap memory usage
+        sorted_sessions = sorted(
+            self._session_state.items(), key=lambda item: item[1].last_seen
+        )
+        remove_count = len(self._session_state) - self._max_sessions
+        for session_id, _ in sorted_sessions[:remove_count]:
+            del self._session_state[session_id]
 
     def _extract_pytest_command(self, context: ToolCallContext) -> str | None:
         tool_name_raw = context.tool_name or ""

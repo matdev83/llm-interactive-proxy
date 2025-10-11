@@ -8,6 +8,17 @@ from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
 )
 
 
+class _FakeMonotonic:
+    def __init__(self) -> None:
+        self._value = 0.0
+
+    def advance(self, seconds: float) -> None:
+        self._value += seconds
+
+    def __call__(self) -> float:
+        return self._value
+
+
 @pytest.mark.parametrize(
     "command,expected",
     [
@@ -182,3 +193,52 @@ async def test_handler_allows_targeted_python_pytest_invocation() -> None:
     result = await handler.handle(context)
 
     assert result.should_swallow is False
+
+
+@pytest.mark.asyncio
+async def test_handler_prunes_expired_session_state() -> None:
+    clock = _FakeMonotonic()
+    handler = PytestFullSuiteHandler(
+        enabled=True,
+        state_ttl_seconds=5,
+        monotonic=clock,
+    )
+    first = _build_context("pytest", session_id="session-1")
+
+    assert await handler.can_handle(first) is True
+    await handler.handle(first)
+    assert "session-1" in handler._session_state
+
+    clock.advance(6)
+
+    second = _build_context("pytest", session_id="session-2")
+    assert await handler.can_handle(second) is True
+    assert "session-1" not in handler._session_state
+
+
+@pytest.mark.asyncio
+async def test_handler_caps_session_state_size() -> None:
+    clock = _FakeMonotonic()
+    handler = PytestFullSuiteHandler(
+        enabled=True,
+        max_sessions=2,
+        monotonic=clock,
+    )
+
+    first = _build_context("pytest", session_id="session-1")
+    second = _build_context("pytest", session_id="session-2")
+    third = _build_context("pytest", session_id="session-3")
+
+    assert await handler.can_handle(first) is True
+    await handler.handle(first)
+    clock.advance(1)
+
+    assert await handler.can_handle(second) is True
+    await handler.handle(second)
+    clock.advance(1)
+
+    assert await handler.can_handle(third) is True
+    await handler.handle(third)
+
+    assert len(handler._session_state) == 2
+    assert "session-1" not in handler._session_state
