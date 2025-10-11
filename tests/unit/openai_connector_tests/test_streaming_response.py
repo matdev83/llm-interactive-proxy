@@ -510,6 +510,36 @@ async def test_streaming_response_error(
 
 
 @pytest.mark.asyncio
+async def test_streaming_response_error_closes_response(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Ensure streaming error responses release the underlying connection."""
+
+    mock_response = MockResponse(status_code=502, content=b"{\"error\": \"boom\"}", is_error=True)
+    close_mock = AsyncMock()
+    mock_response.aclose = close_mock
+
+    mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
+    )
+
+    with pytest.raises(HTTPException):
+        await connector.chat_completions(
+            request_data,
+            [{"role": "user", "content": "test"}],
+            "test-model",
+        )
+
+    close_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_streaming_response_request_error(
     connector: OpenAIConnector, mocker: MockerFixture
 ) -> None:
