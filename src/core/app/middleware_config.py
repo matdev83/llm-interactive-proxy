@@ -82,11 +82,13 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
                     brute_force_config, "max_block_seconds", 3600
                 ),
             }
-        app.add_middleware(
+        # Type ignore for middleware kwargs - mypy can't validate dynamic kwargs properly
+        # The brute_force_kwargs are validated at runtime by the middleware
+        app.add_middleware(  # type: ignore[arg-type,misc,call-arg,operator]
             APIKeyMiddleware,
             valid_keys=api_keys,
             trusted_ips=trusted_ips,
-            **brute_force_kwargs,
+            **brute_force_kwargs,  # type: ignore[arg-type]
         )
     else:
         logger.info("API Key authentication is disabled")

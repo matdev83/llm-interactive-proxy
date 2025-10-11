@@ -332,7 +332,7 @@ def register_core_services(
         session_service = provider.get_required_service(SessionService)
         command_parser = provider.get_required_service(CommandParser)
         config = provider.get_required_service(AppConfig)
-        app_state = provider.get_service(IApplicationState)
+        app_state = provider.get_service(cast(type, IApplicationState))
         return NewCommandService(
             session_service,
             command_parser,

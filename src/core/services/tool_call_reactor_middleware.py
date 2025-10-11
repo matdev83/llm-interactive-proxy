@@ -316,7 +316,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if isinstance(tool_call, dict):
             return tool_call
 
-        if is_dataclass(tool_call):
+        if is_dataclass(tool_call) and not isinstance(tool_call, type):
             try:
                 return asdict(tool_call)
             except TypeError:

@@ -21,7 +21,6 @@ from src.anthropic_models import AnthropicMessagesRequest
 from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
-    ServiceResolutionError,
 )
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
@@ -459,7 +458,10 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                         except Exception:  # pragma: no cover - diagnostics only
                             global_provider = None
                         else:
-                            if global_provider is not service_provider:
+                            if (
+                                global_provider is not None
+                                and global_provider is not service_provider
+                            ):
                                 app_state = global_provider.get_service(
                                     cast(type, IApplicationState)
                                 )

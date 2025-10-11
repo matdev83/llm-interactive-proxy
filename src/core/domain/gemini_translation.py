@@ -57,7 +57,7 @@ def gemini_content_to_chat_messages(
 
             response_payload = function_response.get("response")
 
-            if isinstance(response_payload, (dict, list)):
+            if isinstance(response_payload, dict | list):
                 try:
                     content_text = json.dumps(response_payload)
                 except (TypeError, ValueError):

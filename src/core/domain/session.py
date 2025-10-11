@@ -207,7 +207,8 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def project_dir_resolution_attempted(self, value: bool) -> None:
         """Set the project directory resolution attempted flag."""
         with contextlib.suppress(Exception):
-            self._state = self._state.with_project_dir_resolution_attempted(value)
+            if hasattr(self._state, "with_project_dir_resolution_attempted"):
+                self._state = self._state.with_project_dir_resolution_attempted(value)
 
     @property
     def interactive_mode(self) -> bool:
@@ -254,14 +255,14 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
 
     def with_api_key_redaction_enabled(self, enabled: bool | None) -> ISessionState:
         """Create a new session state with updated API key redaction flag."""
-        base_state: SessionState
+        # Type ignore needed due to interface compatibility issues
         if isinstance(self._state, SessionState):
-            base_state = self._state
+            base_state = self._state  # type: ignore[assignment]
         else:
-            base_state = SessionState.from_dict(self._state.to_dict())
+            base_state = SessionState.from_dict(self._state.to_dict())  # type: ignore[assignment]
 
         new_state = base_state.with_api_key_redaction_enabled(enabled)
-        return SessionStateAdapter(new_state)
+        return SessionStateAdapter(new_state)  # type: ignore[arg-type]
 
     @property
     def is_cline_agent(self) -> bool:

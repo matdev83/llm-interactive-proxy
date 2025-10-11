@@ -199,20 +199,20 @@ class GeminiBackend(LLMBackend):
                 raw_parts: Sequence[Any] | None = None
 
                 if isinstance(content, Sequence) and not isinstance(
-                    content, (str, bytes, bytearray)
+                    content, str | bytes | bytearray
                 ):
                     raw_parts = content
                 elif isinstance(content, Mapping):
                     inferred_parts = content.get("parts")
                     if isinstance(inferred_parts, Sequence) and not isinstance(
-                        inferred_parts, (str, bytes, bytearray)
+                        inferred_parts, str | bytes | bytearray
                     ):
                         raw_parts = inferred_parts
                     else:
                         raw_parts = [content]
                 elif content is None:
                     if isinstance(parts_key_value, Sequence) and not isinstance(
-                        parts_key_value, (str, bytes, bytearray)
+                        parts_key_value, str | bytes | bytearray
                     ):
                         raw_parts = parts_key_value
                     elif parts_key_value is not None:
