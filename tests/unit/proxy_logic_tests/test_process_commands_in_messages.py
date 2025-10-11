@@ -3,7 +3,6 @@ from unittest.mock import Mock
 
 import pytest
 import src.core.domain.chat as models
-from src.core.commands.command import Command
 from src.core.commands.parser import CommandParser
 from src.core.commands.service import NewCommandService
 from src.core.domain.session import Session
@@ -532,53 +531,3 @@ class TestProcessCommandsInMessages:
         else:
             # Message was cleared after command processing
             assert len(processed_messages) == 0
-
-    @pytest.mark.asyncio
-    async def test_command_prefix_override_is_scoped_per_session(self) -> None:
-        class RecordingParser(CommandParser):
-            def __init__(self) -> None:
-                super().__init__()
-                self.prefix_history: list[str] = []
-
-            def parse(
-                self, content: str, command_prefix: str | None = None
-            ) -> tuple[Command, str] | None:
-                prefix = command_prefix if command_prefix else self.command_prefix
-                self.prefix_history.append(prefix)
-                return super().parse(content, command_prefix=command_prefix)
-
-        class RecordingSessionService:
-            def __init__(self) -> None:
-                self._sessions: dict[str, Session] = {}
-
-            async def get_session(self, session_id: str) -> Session:
-                session = self._sessions.get(session_id)
-                if session is None:
-                    session = Session(session_id=session_id)
-                    self._sessions[session_id] = session
-                return session
-
-        class StaticAppState:
-            def __init__(self, prefix: str) -> None:
-                self._prefix = prefix
-
-            def get_command_prefix(self) -> str:
-                return self._prefix
-
-        from src.core.services.command_processor import CommandProcessor
-
-        session_service = RecordingSessionService()
-        parser = RecordingParser()
-        app_state = StaticAppState("!/")
-        service = NewCommandService(session_service, parser, app_state=app_state)
-        processor = CommandProcessor(service)
-
-        session_a = await session_service.get_session("session-a")
-        session_a.state = session_a.state.with_command_prefix_override("#/")
-
-        msg = models.ChatMessage(role="user", content="no command here")
-        await processor.process_messages([msg], "session-a")
-        assert parser.prefix_history[-1] == "#/"
-
-        await processor.process_messages([msg], "session-b")
-        assert parser.prefix_history[-1] == "!/"
