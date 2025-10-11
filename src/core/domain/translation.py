@@ -929,7 +929,7 @@ class Translation(BaseTranslator):
             return Translation.openai_to_domain_response(response)
 
         # If the backend already returned OpenAI-style choices, reuse that logic.
-        if response.get("choices"):
+        if response.get("choices") and not response.get("output"):
             return Translation.openai_to_domain_response(response)
 
         output_items = response.get("output") or []
@@ -2373,6 +2373,19 @@ class Translation(BaseTranslator):
 
         # Convert choices to Responses API format
         choices = []
+        output_items: list[dict[str, Any]] = []
+        aggregated_output_text: list[str | None] = []
+
+        def _map_finish_reason_to_status(finish_reason: str | None) -> str:
+            if finish_reason in (None, "", "stop"):
+                return "completed"
+            if finish_reason == "length":
+                return "incomplete"
+            if finish_reason in {"tool_calls", "function_call"}:
+                return "requires_action"
+            if finish_reason == "content_filter":
+                return "blocked"
+            return "completed"
         for choice in response.choices:
             if choice.message:
                 # Try to parse the content as JSON for structured output
@@ -2461,6 +2474,49 @@ class Translation(BaseTranslator):
                 }
                 choices.append(response_choice)
 
+                # Build Responses API output structure (mirrors incoming payloads)
+                text_value = (
+                    message_payload.get("content")
+                    if isinstance(message_payload.get("content"), str)
+                    else None
+                )
+                if text_value:
+                    aggregated_output_text.append(text_value)
+                else:
+                    aggregated_output_text.append(None)
+
+                output_content_parts: list[dict[str, Any]] = []
+
+                if text_value:
+                    output_content_parts.append(
+                        {"type": "output_text", "text": text_value}
+                    )
+
+                if tool_calls_payload:
+                    for tool_call in tool_calls_payload:
+                        output_content_parts.append(
+                            {
+                                "type": "tool_call",
+                                "id": tool_call.get("id"),
+                                "function": tool_call.get("function"),
+                            }
+                        )
+
+                output_item = {
+                    "id": f"msg-{response.id}-{choice.index}",
+                    "type": "message",
+                    "role": choice.message.role,
+                    "status": _map_finish_reason_to_status(
+                        choice.finish_reason
+                    ),
+                    "content": output_content_parts,
+                }
+
+                if choice.finish_reason:
+                    output_item["finish_reason"] = choice.finish_reason
+
+                output_items.append(output_item)
+
         # Build the Responses API response
         responses_response = {
             "id": response.id,
@@ -2469,6 +2525,17 @@ class Translation(BaseTranslator):
             "model": response.model,
             "choices": choices,
         }
+
+        if output_items:
+            responses_response["output"] = output_items
+
+            # Only include output_text if we have any textual content
+            text_values = [text for text in aggregated_output_text if text is not None]
+            if text_values:
+                responses_response["output_text"] = [
+                    text if text is not None else ""
+                    for text in aggregated_output_text
+                ]
 
         # Add usage information if available
         if response.usage:
