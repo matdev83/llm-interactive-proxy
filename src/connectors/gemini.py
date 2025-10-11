@@ -133,36 +133,57 @@ class GeminiBackend(LLMBackend):
     ) -> list[dict[str, Any]]:
         payload_contents = []
         for msg in processed_messages:
-            if msg.role == "system":
+            # Handle both object and dict formats for backward compatibility
+            if isinstance(msg, dict):
+                role = msg.get("role")
+                # For dict format, check if it's already in Gemini format (has "parts")
+                # or in generic format (has "content")
+                if "parts" in msg:
+                    # Already in Gemini format, use directly
+                    payload_contents.append({
+                        "role": role,
+                        "parts": msg["parts"]
+                    })
+                    continue
+                else:
+                    content = msg.get("content")
+            else:
+                role = getattr(msg, "role", None)
+                content = getattr(msg, "content", None)
+
+            if role == "system":
                 # Gemini API does not support system role
                 continue
 
-            if isinstance(msg.content, str):
+            if isinstance(content, str):
                 # If this is a tool or function role, represent it as functionResponse for Gemini
-                if msg.role in ["tool", "function"]:
+                if role in ["tool", "function"]:
                     # Try to parse JSON payload; otherwise wrap string
                     try:
-                        input_obj = json.loads(msg.content)
+                        input_obj = json.loads(content)
                     except Exception:
-                        input_obj = {"output": msg.content}
+                        input_obj = {"output": content}
                     parts: list[dict[str, Any]] = [
                         {
                             "functionResponse": {
-                                "name": getattr(msg, "name", "tool") or "tool",
+                                "name": getattr(msg, "name", "tool") or "tool" if not isinstance(msg, dict) else msg.get("name", "tool"),
                                 "response": input_obj,
                             }
                         }
                     ]
                 else:
                     # Content is already processed by middleware
-                    parts = [{"text": msg.content}]
+                    parts = [{"text": content}]
+            elif content is not None:
+                parts = [self._convert_part_for_gemini(part) for part in content]
             else:
-                parts = [self._convert_part_for_gemini(part) for part in msg.content]
+                # Skip messages with no content
+                continue
 
             # Map roles to 'user' or 'model' as required by Gemini API
-            if msg.role == "user":
+            if role == "user":
                 gemini_role = "user"
-            elif msg.role in ["tool", "function"]:
+            elif role in ["tool", "function"]:
                 # Tool/function results are treated as coming from the user side in Gemini
                 gemini_role = "user"
             else:  # e.g., assistant

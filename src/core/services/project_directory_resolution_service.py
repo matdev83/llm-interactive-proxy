@@ -5,8 +5,8 @@ from __future__ import annotations
 import contextlib
 import logging
 import re
-import xml.etree.ElementTree as ET
 from typing import Any
+from xml.etree import ElementTree
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -334,8 +334,8 @@ class ProjectDirectoryResolutionService:
         self, response_text: str
     ) -> tuple[str | None, str | None]:
         try:
-            root = ET.fromstring(response_text.strip())
-        except ET.ParseError:
+            root = ElementTree.fromstring(response_text.strip())
+        except ElementTree.ParseError:
             return None, "invalid XML"
         if root.tag != "directory-resolution-response":
             return None, "unexpected root tag"

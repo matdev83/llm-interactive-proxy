@@ -377,11 +377,19 @@ class RequestProcessor(IRequestProcessor):
                     # Command prefix can be None; RedactionMiddleware has a default
                     command_prefix = None
 
+                    # Debug logging for API keys
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Redaction middleware: discovered {len(api_keys)} API keys"
+                        )
+
                     # Check for session-level command prefix override first (highest priority)
                     try:
                         session_state = getattr(session, "state", None)
                         if session_state is not None:
-                            session_override = getattr(session_state, "command_prefix_override", None)
+                            session_override = getattr(
+                                session_state, "command_prefix_override", None
+                            )
                             if isinstance(session_override, str) and session_override:
                                 command_prefix = session_override
                     except Exception:
@@ -421,9 +429,44 @@ class RequestProcessor(IRequestProcessor):
                         command_prefix=command_prefix or "!/",
                     )
                     redaction_context = {"commands_disabled": commands_disabled}
+
+                    # Debug logging before redaction
+                    if (
+                        logger.isEnabledFor(logging.DEBUG)
+                        and backend_request
+                        and backend_request.messages
+                    ):
+                        original_content = (
+                            getattr(backend_request.messages[0], "content", "")
+                            if backend_request.messages
+                            else ""
+                        )
+                        if original_content is None:
+                            original_content = ""
+                        logger.debug(
+                            f"Content before redaction: {original_content[:100]}..."
+                        )
+
                     backend_request = await redaction.process(
                         backend_request, redaction_context
                     )
+
+                    # Debug logging after redaction
+                    if (
+                        logger.isEnabledFor(logging.DEBUG)
+                        and backend_request
+                        and backend_request.messages
+                    ):
+                        redacted_content = (
+                            getattr(backend_request.messages[0], "content", "")
+                            if backend_request.messages
+                            else ""
+                        )
+                        if redacted_content is None:
+                            redacted_content = ""
+                        logger.debug(
+                            f"Content after redaction: {redacted_content[:100]}..."
+                        )
             except (AttributeError, TypeError, ValueError):
                 # Redaction is best-effort; never block requests on failure
                 if logger.isEnabledFor(logging.DEBUG):

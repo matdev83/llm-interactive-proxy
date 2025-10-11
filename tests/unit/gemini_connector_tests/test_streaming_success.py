@@ -150,6 +150,23 @@ class _StubAsyncClient:
         self.last_response = response
         return response
 
+    async def post(
+        self, url: str, *, json: Any | None = None, headers: dict[str, str] | None = None
+    ) -> _StubStreamResponse:
+        # Store request info for assertions
+        self.last_request = {
+            "method": "POST",
+            "url": url,
+            "json": json,
+            "headers": headers or {},
+        }
+        # For streaming requests, set stream flag to True
+        is_streaming = url.endswith(":streamGenerateContent")
+        self.last_stream_flag = is_streaming
+        response = _StubStreamResponse()
+        self.last_response = response
+        return response
+
 
 @pytest.mark.asyncio
 async def test_chat_completions_streaming_uses_httpx_stream_send() -> None:
