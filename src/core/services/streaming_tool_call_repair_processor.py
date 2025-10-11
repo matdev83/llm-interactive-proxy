@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import cast
 
+from uuid import uuid4
+
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.streaming.tool_call_repair_processor import (
@@ -51,6 +53,8 @@ class StreamingToolCallRepairProcessor:
         else:
             iterator = cast(AsyncIterator[ProcessedResponse], chunk_source)
 
+        stream_id = uuid4().hex
+
         async for chunk in iterator:
             streaming_content_chunk = StreamingContent(
                 content=chunk.content or "",
@@ -59,6 +63,7 @@ class StreamingToolCallRepairProcessor:
                 usage=chunk.usage,
                 # raw_data=chunk.raw_data # ProcessedResponse doesn't have raw_data
             )
+            streaming_content_chunk.metadata["stream_id"] = stream_id
             processed_streaming_content = (
                 await self._tool_call_repair_processor.process(streaming_content_chunk)
             )
@@ -71,7 +76,7 @@ class StreamingToolCallRepairProcessor:
 
         # Process final chunk to flush any remaining buffer
         final_streaming_content = await self._tool_call_repair_processor.process(
-            StreamingContent(content="", is_done=True)
+            StreamingContent(content="", is_done=True, metadata={"stream_id": stream_id})
         )
         if final_streaming_content.content:
             yield ProcessedResponse(
