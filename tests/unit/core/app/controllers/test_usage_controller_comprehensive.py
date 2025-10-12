@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
+from src.constants import MAX_RECENT_USAGE_RECORDS
 from src.core.app.controllers.usage_controller import UsageController
 from src.core.domain.usage_data import UsageData
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
@@ -228,7 +229,7 @@ class TestUsageController:
 
         assert result == mock_usage_data
         mock_usage_service.get_recent_usage.assert_called_once_with(
-            session_id=None, limit=10000
+            session_id=None, limit=MAX_RECENT_USAGE_RECORDS
         )
 
     @pytest.mark.asyncio
@@ -236,15 +237,21 @@ class TestUsageController:
         self, controller: UsageController, mock_usage_service: IUsageTrackingService
     ) -> None:
         """Test get_recent_usage with zero limit."""
-        mock_usage_data = []
-        mock_usage_service.get_recent_usage.return_value = mock_usage_data
-
         result = await controller.get_recent_usage(limit=0)
 
-        assert result == mock_usage_data
-        mock_usage_service.get_recent_usage.assert_called_once_with(
-            session_id=None, limit=0
-        )
+        assert result == []
+        mock_usage_service.get_recent_usage.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_recent_usage_negative_limit(
+        self, controller: UsageController, mock_usage_service: IUsageTrackingService
+    ) -> None:
+        """Test get_recent_usage with negative limit."""
+
+        result = await controller.get_recent_usage(limit=-5)
+
+        assert result == []
+        mock_usage_service.get_recent_usage.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_service_error_handling_stats(
@@ -384,15 +391,10 @@ class TestUsageController:
         self, controller: UsageController, mock_usage_service: IUsageTrackingService
     ) -> None:
         """Test get_recent_usage with negative limit value."""
-        mock_usage_data = []
-        mock_usage_service.get_recent_usage.return_value = mock_usage_data
-
         result = await controller.get_recent_usage(limit=-10)
 
-        assert result == mock_usage_data
-        mock_usage_service.get_recent_usage.assert_called_once_with(
-            session_id=None, limit=-10
-        )
+        assert result == []
+        mock_usage_service.get_recent_usage.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_get_usage_stats_zero_days(

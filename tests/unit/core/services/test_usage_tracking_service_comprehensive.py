@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from src.constants import MAX_RECENT_USAGE_RECORDS
 from src.core.domain.usage_data import UsageData
 from src.core.interfaces.repositories_interface import IUsageRepository
 from src.core.services.usage_tracking_service import UsageTrackingService
@@ -347,6 +348,28 @@ class TestUsageTrackingService:
         mock_repository.get_by_session_id.assert_called_once_with("session1")
 
     @pytest.mark.asyncio
+    async def test_get_recent_usage_zero_limit(
+        self, service: UsageTrackingService, mock_repository: IUsageRepository
+    ) -> None:
+        """Recent usage should return empty results for non-positive limits."""
+
+        result = await service.get_recent_usage(limit=0)
+
+        assert result == []
+        mock_repository.get_all.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_recent_usage_negative_limit(
+        self, service: UsageTrackingService, mock_repository: IUsageRepository
+    ) -> None:
+        """Negative limits should be treated as zero to avoid large responses."""
+
+        result = await service.get_recent_usage(limit=-10)
+
+        assert result == []
+        mock_repository.get_all.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_get_recent_usage_defaults(
         self, service: UsageTrackingService, mock_repository: IUsageRepository
     ) -> None:
@@ -357,6 +380,32 @@ class TestUsageTrackingService:
         result = await service.get_recent_usage()
 
         assert result == mock_usage_data
+        mock_repository.get_all.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_recent_usage_large_limit_is_clamped(
+        self, service: UsageTrackingService, mock_repository: IUsageRepository
+    ) -> None:
+        """Large limits should be clamped to protect against excessive workloads."""
+
+        mock_usage_data = [
+            UsageData(
+                id=str(index),
+                session_id="session",
+                model="model",
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                cost=0.0,
+                timestamp=datetime.now(timezone.utc) + timedelta(seconds=index),
+            )
+            for index in range(MAX_RECENT_USAGE_RECORDS + 50)
+        ]
+        mock_repository.get_all.return_value = mock_usage_data
+
+        result = await service.get_recent_usage(limit=10_000)
+
+        assert len(result) == MAX_RECENT_USAGE_RECORDS
         mock_repository.get_all.assert_called_once()
 
     @pytest.mark.asyncio

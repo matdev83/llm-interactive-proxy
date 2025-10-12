@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, Query
 from src.core.di.services import get_or_build_service_provider
 from src.core.domain.usage_data import UsageData
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
+from src.constants import MAX_RECENT_USAGE_RECORDS
+from src.core.common.usage_limits import normalize_recent_usage_limit
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +64,31 @@ class UsageController:
         if not self.usage_service:
             return []
 
+        try:
+            requested_limit = int(limit)
+        except (TypeError, ValueError):
+            requested_limit = 0
+
+        normalized_limit = normalize_recent_usage_limit(requested_limit)
+
+        if normalized_limit == 0:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Recent usage requested with limit=%s; returning empty result", limit
+                )
+            return []
+
+        if normalized_limit < requested_limit:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Recent usage limit clamped from %s to %s (max=%s)",
+                    limit,
+                    normalized_limit,
+                    MAX_RECENT_USAGE_RECORDS,
+                )
+
         result = await self.usage_service.get_recent_usage(
-            session_id=session_id, limit=limit
+            session_id=session_id, limit=normalized_limit
         )
         return result  # type: ignore[no-any-return]
 
@@ -92,7 +117,12 @@ async def get_usage_stats(
 @router.get("/recent", response_model=list[UsageData])
 async def get_recent_usage(
     session_id: str | None = Query(None, description="Filter by session ID"),
-    limit: int = Query(100, description="Maximum number of records to return"),
+    limit: int = Query(
+        100,
+        description="Maximum number of records to return",
+        ge=0,
+        le=MAX_RECENT_USAGE_RECORDS,
+    ),
     service_provider: Any = Depends(get_or_build_service_provider),
 ) -> list[UsageData]:
     """Get recent usage data.
@@ -106,5 +136,30 @@ async def get_recent_usage(
         List of usage data entities
     """
     usage_service = service_provider.get_required_service(IUsageTrackingService)
-    result = await usage_service.get_recent_usage(session_id=session_id, limit=limit)
+    try:
+        requested_limit = int(limit)
+    except (TypeError, ValueError):
+        requested_limit = 0
+
+    normalized_limit = normalize_recent_usage_limit(requested_limit)
+
+    if normalized_limit == 0:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "API recent usage requested with limit=%s; returning empty result", limit
+            )
+        return []
+
+    if normalized_limit < requested_limit:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "API recent usage limit clamped from %s to %s (max=%s)",
+                limit,
+                normalized_limit,
+                MAX_RECENT_USAGE_RECORDS,
+            )
+
+    result = await usage_service.get_recent_usage(
+        session_id=session_id, limit=normalized_limit
+    )
     return result  # type: ignore[no-any-return]
