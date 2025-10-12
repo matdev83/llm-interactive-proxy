@@ -731,6 +731,9 @@ def apply_cli_args(
     if args.disable_interactive_mode is not None:
         session = cli_overrides.setdefault("session", {})
         session["default_interactive_mode"] = not args.disable_interactive_mode
+        os.environ["DEFAULT_INTERACTIVE_MODE"] = (
+            "false" if args.disable_interactive_mode else "true"
+        )
         os.environ["DISABLE_INTERACTIVE_MODE"] = (
             "True" if args.disable_interactive_mode else "False"
         )
