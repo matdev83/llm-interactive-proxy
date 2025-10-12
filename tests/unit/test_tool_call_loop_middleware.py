@@ -312,6 +312,6 @@ async def test_tracker_cache_eviction(loop_config, tool_call_response) -> None:
         )
 
     # Only the two most recent sessions should remain cached
-    remaining_sessions = list(middleware._session_trackers.keys())  # noqa: SLF001
+    remaining_sessions = list(middleware._session_trackers.keys())
     assert len(remaining_sessions) == 2
     assert "session-0" not in remaining_sessions

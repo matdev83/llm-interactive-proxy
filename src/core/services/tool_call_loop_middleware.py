@@ -38,7 +38,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if max_cached_sessions <= 0:
             raise ValueError("max_cached_sessions must be positive")
 
-        self._session_trackers: "OrderedDict[str, ToolCallTracker]" = OrderedDict()
+        self._session_trackers: OrderedDict[str, ToolCallTracker] = OrderedDict()
         self._max_cached_sessions = max_cached_sessions
 
     async def process(
