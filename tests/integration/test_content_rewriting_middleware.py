@@ -1034,6 +1034,84 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_inbound_responses_output_rewriting_updates_output_text_string(self):
+        """Ensure scalar output_text stays in sync with rewritten outputs."""
+
+        async def run_test():
+            os.makedirs(
+                os.path.join(self.test_config_dir, "replies", "004b"),
+                exist_ok=True,
+            )
+            with open(
+                os.path.join(self.test_config_dir, "replies", "004b", "SEARCH.txt"),
+                "w",
+            ) as f:
+                f.write("original reply")
+            with open(
+                os.path.join(self.test_config_dir, "replies", "004b", "REPLACE.txt"),
+                "w",
+            ) as f:
+                f.write("rewritten reply")
+
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            response_payload = {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "This is an original reply.",
+                            }
+                        ]
+                    }
+                ],
+                "output_text": "This is an original reply.",
+            }
+
+            async def call_next(request):
+                return Response(
+                    content=json.dumps(response_payload),
+                    media_type="application/json",
+                )
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                },
+                receive=receive,
+            )
+
+            response = await middleware.dispatch(request, call_next)
+            body = json.loads(response.body)
+
+            self.assertEqual(
+                body["output"][0]["content"][0]["text"],
+                "This is an rewritten reply.",
+            )
+            self.assertEqual(
+                body["output_text"],
+                "This is an rewritten reply.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_inbound_responses_output_prepend_rules_apply_once(self):
         """Ensure PREPEND rules are not applied twice to output text."""
 
