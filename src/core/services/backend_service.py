@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, cast
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
-from src.core.config.app_config import AppConfig, BackendConfig
-from src.core.config.config_loader import _collect_api_keys
+from src.core.config.app_config import (
+    AppConfig,
+    BackendConfig,
+    _collect_api_keys_from_env,
+)
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -489,9 +493,54 @@ class BackendService(IBackendService):
         try:
             await self._rate_limiter.record_usage(rate_key)
 
+            session: Any | None = None
+            session_id_for_backend: str | None = None
+
+            # Resolve session from context when available so session-scoped
+            # backends (e.g., gemini-cli-acp) keep their state isolated.
+            if context and context.session_id:
+                session_id_for_backend = context.session_id
+                try:
+                    session = await self._session_service.get_session(
+                        context.session_id
+                    )
+                except Exception:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to load session '%s' for backend call",
+                            context.session_id,
+                            exc_info=True,
+                        )
+                    session = None
+
+            request_session_id = (
+                request.extra_body.get("session_id") if request.extra_body else None
+            )
+            if (
+                session is None
+                and isinstance(request_session_id, str)
+                and request_session_id
+            ):
+                if session_id_for_backend is None:
+                    session_id_for_backend = request_session_id
+                try:
+                    session = await self._session_service.get_session(
+                        request_session_id
+                    )
+                except Exception:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to load session '%s' from request body",
+                            request_session_id,
+                            exc_info=True,
+                        )
+                    session = None
+
             # Initialize backend only after passing rate limiting checks
             try:
-                backend = await self._get_or_create_backend(backend_type)
+                backend = await self._get_or_create_backend(
+                    backend_type, session_id=session_id_for_backend
+                )
             except (TypeError, ValueError, AttributeError, KeyError) as e:
                 raise BackendError(
                     message=f"Failed to initialize backend {backend_type}",
@@ -513,11 +562,8 @@ class BackendService(IBackendService):
             domain_request: ChatRequest = request
 
             # Apply session reasoning configuration if available
-            if context and context.session_id:
+            if session is not None:
                 try:
-                    session = await self._session_service.get_session(
-                        context.session_id
-                    )
                     domain_request = self._apply_reasoning_config(
                         domain_request, session
                     )
@@ -536,9 +582,8 @@ class BackendService(IBackendService):
             try:
                 app_config_typed: AppConfig = cast(AppConfig, self._config)
                 provider_backend_config = self._backend_configs.get(backend_type)
-                if (
-                    provider_backend_config
-                    and getattr(provider_backend_config, "identity", None)
+                if provider_backend_config and getattr(
+                    provider_backend_config, "identity", None
                 ):
                     identity = provider_backend_config.identity
                 else:
@@ -547,8 +592,7 @@ class BackendService(IBackendService):
                     )
                     identity = (
                         backend_config_from_app.identity
-                        if backend_config_from_app
-                        and backend_config_from_app.identity
+                        if backend_config_from_app and backend_config_from_app.identity
                         else app_config_typed.identity
                     )
                 # Wire-capture: capture outbound payload pre-call (best-effort)
@@ -576,6 +620,23 @@ class BackendService(IBackendService):
                             effective_model,
                             exc_info=True,
                         )
+                backend_call_kwargs: dict[str, Any] = {}
+                if session_id_for_backend:
+                    backend_call_kwargs["session_id"] = session_id_for_backend
+                if session is not None and hasattr(session, "state"):
+                    try:
+                        project_value = getattr(session.state, "project", None)
+                        if isinstance(project_value, str) and project_value:
+                            backend_call_kwargs["project"] = project_value
+                    except Exception:
+                        pass
+                    try:
+                        project_dir_value = getattr(session.state, "project_dir", None)
+                        if isinstance(project_dir_value, str) and project_dir_value:
+                            backend_call_kwargs["project_dir"] = project_dir_value
+                    except Exception:
+                        pass
+
                 try:
                     result: ResponseEnvelope | StreamingResponseEnvelope = (
                         await backend.chat_completions(
@@ -583,6 +644,7 @@ class BackendService(IBackendService):
                             processed_messages=request.messages,
                             effective_model=effective_model,
                             identity=identity,
+                            **backend_call_kwargs,
                         )
                     )
                 except BackendError as be:
@@ -713,10 +775,21 @@ class BackendService(IBackendService):
             )
             return False, f"Backend validation failed: {e!s}"
 
-    async def _get_or_create_backend(self, backend_type: str) -> LLMBackend:
-        """Get an existing backend or create a new one"""
-        if backend_type in self._backends:
-            return self._backends[backend_type]
+    async def _get_or_create_backend(
+        self, backend_type: str, session_id: str | None = None
+    ) -> LLMBackend:
+        """Get an existing backend or create a new one."""
+
+        cache_key = backend_type
+        if backend_type == "gemini-cli-acp":
+            cache_key = (
+                f"{backend_type}:{session_id}"
+                if session_id
+                else f"{backend_type}:default"
+            )
+
+        if cache_key in self._backends:
+            return self._backends[cache_key]
 
         try:
             provider_backend_config: BackendConfig | None = None
@@ -745,7 +818,7 @@ class BackendService(IBackendService):
             backend: LLMBackend = await self._factory.ensure_backend(
                 backend_type, app_config, provider_backend_config
             )
-            self._backends[backend_type] = backend
+            self._backends[cache_key] = backend
             return backend
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(
@@ -757,6 +830,21 @@ class BackendService(IBackendService):
                 f"Failed to create backend '{backend_type}': {e}",
                 backend_name=backend_type,
             ) from e
+
+    def get_backend(self, backend_type: str) -> LLMBackend:
+        """Get a backend instance synchronously (for testing purposes)."""
+        if backend_type in self._backends:
+            return self._backends[backend_type]
+
+        # For testing, create a simple backend instance
+        from src.core.config.app_config import AppConfig
+
+        app_config = cast(AppConfig, self._config)
+
+        # Create backend using factory
+        backend = self._factory.create_backend(backend_type, app_config)
+        self._backends[backend_type] = backend
+        return backend
 
     async def chat_completions(
         self,
@@ -820,6 +908,7 @@ class BackendService(IBackendService):
             _max_writes = 0
 
         if (turn_count >= _max_turns) or (file_write_count >= _max_writes):
+            await self._restore_planning_phase_route(session)
             return
 
         from src.core.domain.configuration.backend_config import BackendConfiguration
@@ -838,6 +927,26 @@ class BackendService(IBackendService):
 
         if current_full_model == strong_full_model:
             return
+
+        # Persist the original route so we can restore it when planning phase ends
+        try:
+            has_original_backend = bool(
+                getattr(session.state, "planning_phase_original_backend", None)
+            )
+            has_original_model = bool(
+                getattr(session.state, "planning_phase_original_model", None)
+            )
+        except Exception:
+            has_original_backend = False
+            has_original_model = False
+
+        if not (has_original_backend or has_original_model):
+            new_state = session.state.with_planning_phase_original_route(
+                requested_backend,
+                requested_model,
+            )
+            session.update_state(new_state)
+            await self._session_service.update_session(session)
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
@@ -882,6 +991,7 @@ class BackendService(IBackendService):
                 turn_count >= planning_config.max_turns
                 or file_write_count >= planning_config.max_file_writes
             ):
+                await self._restore_planning_phase_route(session)
                 return
 
             new_turn_count = turn_count + 1
@@ -902,11 +1012,72 @@ class BackendService(IBackendService):
                         f"Updated planning phase counters: turns={new_turn_count}/{planning_config.max_turns}, "
                         f"file_writes={new_file_write_count}/{planning_config.max_file_writes}"
                     )
+
+                if (
+                    new_turn_count >= planning_config.max_turns
+                    or new_file_write_count >= planning_config.max_file_writes
+                ):
+                    await self._restore_planning_phase_route(session)
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     f"Failed to update planning phase counters: {e}", exc_info=True
                 )
+
+    async def _restore_planning_phase_route(self, session: Any) -> None:
+        """Restore the original backend/model after planning phase concludes."""
+
+        if not session or not session.state:
+            return
+
+        try:
+            original_backend = getattr(
+                session.state, "planning_phase_original_backend", None
+            )
+            original_model = getattr(
+                session.state, "planning_phase_original_model", None
+            )
+        except Exception:
+            return
+
+        if original_backend is None and original_model is None:
+            return
+
+        from src.core.domain.configuration.backend_config import BackendConfiguration
+        from src.core.interfaces.configuration_interface import IBackendConfig
+
+        current_config = session.state.backend_config
+        target_backend = original_backend or current_config.backend_type
+        target_model = (
+            original_model if original_model is not None else current_config.model
+        )
+
+        # Ensure that we are not passing mock objects to the BackendConfiguration
+        if hasattr(target_backend, "_extract_mock_name"):
+            target_backend = str(target_backend)
+        if hasattr(target_model, "_extract_mock_name"):
+            target_model = str(target_model)
+
+        restored_config = BackendConfiguration(
+            backend_type=target_backend,
+            model=target_model,
+            interactive_mode=current_config.interactive_mode,
+        )
+
+        new_state = session.state.with_backend_config(
+            cast(IBackendConfig, restored_config)
+        ).with_planning_phase_original_route(None, None)
+
+        session.update_state(new_state)
+        await self._session_service.update_session(session)
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Planning phase complete; restored session %s to backend=%s model=%s",
+                getattr(session, "id", None),
+                target_backend,
+                target_model,
+            )
 
     def _count_file_writes_in_response(self, response: Any) -> int:
         """Count file write tool calls in a response.
@@ -1052,7 +1223,7 @@ class BackendService(IBackendService):
             }.get(backend_type)
             if not env_base:
                 return backend_type
-            mapping = _collect_api_keys(env_base)
+            mapping = _collect_api_keys_from_env(env_base, os.environ)
             for name, value in mapping.items():
                 if value == api_key_value:
                     return name

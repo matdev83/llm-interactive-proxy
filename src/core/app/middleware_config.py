@@ -62,9 +62,8 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         # This prevents unauthorized access and maintains security boundaries
         logger.info("API Key authentication is enabled", key_count=len(api_keys))
         # Add API Key middleware
-        brute_force_kwargs = {}
-        if brute_force_config is not None:
-            brute_force_kwargs = {
+        brute_force_kwargs = (
+            {
                 "brute_force_enabled": getattr(brute_force_config, "enabled", True),
                 "brute_force_ttl_seconds": getattr(
                     brute_force_config, "ttl_seconds", 900
@@ -82,11 +81,14 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
                     brute_force_config, "max_block_seconds", 3600
                 ),
             }
+            if brute_force_config is not None
+            else {}
+        )
         app.add_middleware(
             APIKeyMiddleware,
             valid_keys=api_keys,
             trusted_ips=trusted_ips,
-            **brute_force_kwargs,
+            **brute_force_kwargs,  # type: ignore[arg-type]
         )
     else:
         logger.info("API Key authentication is disabled")

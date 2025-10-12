@@ -17,9 +17,12 @@ from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
-)
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    ),
+    pytest.mark.no_global_mock,
+]
 
 
 class TestQwenOAuthCredentials:

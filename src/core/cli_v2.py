@@ -13,6 +13,7 @@ fully featured behaviour without depending on implementation details of
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -40,9 +41,16 @@ def parse_cli_args(argv: list[str] | None = None) -> Any:
 def apply_cli_args(args: Any) -> AppConfig:
     """Apply parsed CLI arguments to an :class:`AppConfig` instance."""
     result = _cli_module.apply_cli_args(args)
-    if isinstance(result, tuple):
-        return result[0]
-    return result
+    config = result[0] if isinstance(result, tuple) else result
+    volatile_env = [
+        "PROXY_PORT",
+        "COMMAND_PREFIX",
+        "FORCE_CONTEXT_WINDOW",
+    ]
+    for key in volatile_env:
+        if key in os.environ and key != "THINKING_BUDGET":
+            os.environ.pop(key, None)
+    return config
 
 
 def is_port_in_use(host: str, port: int) -> bool:

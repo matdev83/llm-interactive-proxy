@@ -8,7 +8,7 @@ and integration with existing proxy infrastructure.
 
 import json
 import logging
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from unittest.mock import patch
 
 import pytest
@@ -30,16 +30,18 @@ class TestResponsesAPIFrontendIntegration:
     @pytest.fixture
     def app_config(self) -> AppConfig:
         """Create an AppConfig for testing."""
+        # Create auth config with disabled authentication
+        auth_config = AuthConfig(
+            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+        )
+
+        # Create complete config with all settings
         config = AppConfig(
             host="localhost",
             port=8000,
             command_prefix="!/",
             backends=BackendSettings(default_backend="mock"),
-        )
-
-        # Disable authentication for tests
-        config.auth = AuthConfig(
-            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+            auth=auth_config,
         )
 
         return config
@@ -509,6 +511,51 @@ class TestResponsesAPIFrontendIntegration:
             assert response.status_code == 200
             # Content type should be text/event-stream for streaming
             assert "text/event-stream" in response.headers.get("content-type", "")
+
+    def test_responses_api_streaming_decodes_byte_chunks(
+        self, client: TestClient
+    ) -> None:
+        """Byte chunks from backends should be decoded for SSE output."""
+
+        request_data = {
+            "model": "mock-model",
+            "messages": [{"role": "user", "content": "Stream bytes"}],
+            "stream": True,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "bytes_test",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"content": {"type": "string"}},
+                        "required": ["content"],
+                    },
+                },
+            },
+        }
+
+        with patch(
+            "src.core.services.request_processor_service.RequestProcessor.process_request"
+        ) as mock_process:
+
+            async def mock_stream() -> AsyncGenerator[bytes, None]:
+                yield b'{"choices": [{"delta": {"content": "Hello"}}]}'
+
+            mock_response = StreamingResponseEnvelope(
+                content=mock_stream(),
+                headers={"content-type": "text/event-stream"},
+                media_type="text/event-stream",
+            )
+
+            mock_process.return_value = mock_response
+
+            with client.stream("POST", "/v1/responses", json=request_data) as response:
+                assert response.status_code == 200
+                body = b"".join(response.iter_bytes())
+
+        response_text = body.decode("utf-8")
+        assert "b'" not in response_text
+        assert "Hello" in response_text
 
     def test_responses_api_streaming_propagates_tool_calls(
         self, client: TestClient

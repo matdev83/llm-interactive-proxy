@@ -767,21 +767,20 @@ class TestBackendServiceFailover:
             headers={},
         )
 
-        # Mock get_or_create_backend to return the appropriate backend
-        original_get_or_create = service_with_simple_failover._get_or_create_backend
-
-        async def mock_get_or_create(backend_type):
+        # Mock the factory's ensure_backend method to return the appropriate backend
+        async def mock_ensure_backend(backend_type, config, translation_service):
             if backend_type == BackendType.OPENAI:
                 return primary_backend
             elif backend_type == BackendType.OPENROUTER:
                 return fallback_backend
-            return await original_get_or_create(backend_type)
+            else:
+                raise ValueError(f"Unexpected backend type: {backend_type}")
 
         # Act
         with patch.object(
-            service_with_simple_failover,
-            "_get_or_create_backend",
-            side_effect=mock_get_or_create,
+            service_with_simple_failover._factory,
+            "ensure_backend",
+            side_effect=mock_ensure_backend,
         ):
             response = await service_with_simple_failover.call_completion(chat_request)
 
@@ -823,24 +822,23 @@ class TestBackendServiceFailover:
         client3 = httpx.AsyncClient()
         second_fallback = MockBackend(client3)
 
-        # Mock get_or_create_backend
-        original_get_or_create = service_with_complex_failover._get_or_create_backend
-
-        async def mock_get_or_create(backend_type):
+        # Mock the factory's ensure_backend method to return the appropriate backend
+        async def mock_ensure_backend(backend_type, config, translation_service):
             if backend_type == BackendType.OPENAI:
                 return primary_backend
             elif backend_type == BackendType.ANTHROPIC:
                 return first_fallback
             elif backend_type == BackendType.OPENROUTER:
                 return second_fallback
-            return await original_get_or_create(backend_type)
+            else:
+                raise ValueError(f"Unexpected backend type: {backend_type}")
 
         # Act
         with (
             patch.object(
-                service_with_complex_failover,
-                "_get_or_create_backend",
-                side_effect=mock_get_or_create,
+                service_with_complex_failover._factory,
+                "ensure_backend",
+                side_effect=mock_ensure_backend,
             ),
             patch(
                 "src.core.domain.configuration.backend_config.BackendConfiguration"
@@ -912,24 +910,23 @@ class TestBackendServiceFailover:
             headers={},
         )
 
-        # Mock get_or_create_backend
-        original_get_or_create = service_with_complex_failover._get_or_create_backend
-
-        async def mock_get_or_create(backend_type):
+        # Mock the factory's ensure_backend method to return the appropriate backend
+        async def mock_ensure_backend(backend_type, config, translation_service):
             if backend_type == BackendType.OPENAI:
                 return primary_backend
             elif backend_type == BackendType.ANTHROPIC:
                 return first_fallback
             elif backend_type == BackendType.OPENROUTER:
                 return second_fallback
-            return await original_get_or_create(backend_type)
+            else:
+                raise ValueError(f"Unexpected backend type: {backend_type}")
 
         # Act
         with (
             patch.object(
-                service_with_complex_failover,
-                "_get_or_create_backend",
-                side_effect=mock_get_or_create,
+                service_with_complex_failover._factory,
+                "ensure_backend",
+                side_effect=mock_ensure_backend,
             ),
             patch(
                 "src.core.domain.configuration.backend_config.BackendConfiguration"
@@ -997,24 +994,23 @@ class TestBackendServiceFailover:
             "Second failover error"
         )
 
-        # Mock get_or_create_backend
-        original_get_or_create = service_with_complex_failover._get_or_create_backend
-
-        async def mock_get_or_create(backend_type):
+        # Mock the factory's ensure_backend method to return the appropriate backend
+        async def mock_ensure_backend(backend_type, config, translation_service):
             if backend_type == BackendType.OPENAI:
                 return primary_backend
             elif backend_type == BackendType.ANTHROPIC:
                 return first_fallback
             elif backend_type == BackendType.OPENROUTER:
                 return second_fallback
-            return await original_get_or_create(backend_type)
+            else:
+                raise ValueError(f"Unexpected backend type: {backend_type}")
 
         # Act
         with (
             patch.object(
-                service_with_complex_failover,
-                "_get_or_create_backend",
-                side_effect=mock_get_or_create,
+                service_with_complex_failover._factory,
+                "ensure_backend",
+                side_effect=mock_ensure_backend,
             ),
             patch(
                 "src.core.domain.configuration.backend_config.BackendConfiguration"

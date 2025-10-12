@@ -19,15 +19,18 @@ def app_config():
         BackendSettings,
     )
 
-    config = AppConfig()
-    config.command_prefix = "!/"
-    config.session.default_interactive_mode = True
-    config.auth = AuthConfig(disable_auth=True)
-    config.backends = BackendSettings()
-    config.backends.openai = BackendConfig(api_key=["test-key"])
-    config.backends.openai.api_url = "https://api.openai.com/v1"
-
-    return config
+    return AppConfig(
+        command_prefix="!/",
+        session=AppConfig().session.model_copy(
+            update={"default_interactive_mode": True}
+        ),
+        auth=AuthConfig(disable_auth=True),
+        backends=BackendSettings(
+            openai=BackendConfig(
+                api_key=["test-key"], api_url="https://api.openai.com/v1"
+            )
+        ),
+    )
 
 
 @pytest.fixture

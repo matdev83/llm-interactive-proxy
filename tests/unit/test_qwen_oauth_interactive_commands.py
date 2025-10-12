@@ -12,10 +12,11 @@ from src.core.app.test_builder import build_test_app as build_app
 
 def _load_config():
     """Helper to load config from environment variables."""
-    from src.core.config.config_loader import ConfigLoader
+    from src.core.config.app_config import load_config
 
-    loader = ConfigLoader()
-    return loader.load_config()
+    # Return the config as a dict for backward compatibility with these tests
+    cfg = load_config()
+    return {"backend": cfg.backends.default_backend}
 
 
 class TestQwenOAuthInteractiveCommands:

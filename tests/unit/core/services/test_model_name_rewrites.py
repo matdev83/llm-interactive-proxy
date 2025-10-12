@@ -3,8 +3,8 @@
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from src.core.config.app_config import AppConfig, ModelAliasRule
-from src.core.domain.chat import ChatRequest
+from src.core.config.app_config import AppConfig, BackendSettings, ModelAliasRule
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.session_service_interface import ISessionService
@@ -38,13 +38,15 @@ class TestModelNameRewrites:
     @pytest.fixture
     def base_config(self):
         """Base configuration without model aliases."""
-        return AppConfig(backends={"default_backend": "openai"}, model_aliases=[])
+        return AppConfig(
+            backends=BackendSettings(default_backend="openai"), model_aliases=[]
+        )
 
     @pytest.fixture
     def config_with_aliases(self):
         """Configuration with model alias rules."""
         return AppConfig(
-            backends={"default_backend": "openai"},
+            backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(
                     pattern="^claude-3-sonnet-20240229$",
@@ -133,7 +135,7 @@ class TestModelNameRewrites:
         # AC6: Given multiple rules in model_aliases, if a model name matches
         # more than one pattern, only the first matching rule in the list MUST be applied.
         config = AppConfig(
-            backends={"default_backend": "openai"},
+            backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(pattern="gpt-.*", replacement="first-match:gpt-model"),
                 ModelAliasRule(pattern="gpt-4", replacement="second-match:gpt-4"),
@@ -159,7 +161,7 @@ class TestModelNameRewrites:
         """Test that model name is unchanged when no rules match."""
         # Create a config with specific patterns that won't match our test model
         config = AppConfig(
-            backends={"default_backend": "openai"},
+            backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(
                     pattern="^claude-.*", replacement="gemini:claude-replacement"
@@ -185,7 +187,7 @@ class TestModelNameRewrites:
     def test_apply_model_aliases_invalid_regex(self, caplog):
         """Test handling of invalid regex patterns."""
         config = AppConfig(
-            backends={"default_backend": "openai"},
+            backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(
                     pattern="[invalid-regex",  # Missing closing bracket
@@ -215,7 +217,7 @@ class TestModelNameRewrites:
     def test_apply_model_aliases_regex_substring_match(self):
         """Test that regex rules can match anywhere in the model string."""
         config = AppConfig(
-            backends={"default_backend": "openai"},
+            backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(pattern=".*turbo$", replacement="suffix:matched"),
             ],
@@ -246,7 +248,7 @@ class TestModelNameRewrites:
         )
 
         request = ChatRequest(
-            model="gpt-4-turbo", messages=[{"role": "user", "content": "Hello"}]
+            model="gpt-4-turbo", messages=[ChatMessage(role="user", content="Hello")]
         )
 
         backend_type, effective_model = (
@@ -265,10 +267,10 @@ class TestModelNameRewrites:
         # AC8: If the --static-route CLI parameter is set, it MUST take precedence
         # over any model_aliases rules. The model alias logic should not be executed.
         config = AppConfig(
-            backends={
-                "default_backend": "openai",
-                "static_route": "forced-backend:forced-model",
-            },
+            backends=BackendSettings(
+                default_backend="openai",
+                static_route="forced-backend:forced-model",
+            ),
             model_aliases=[
                 ModelAliasRule(pattern=".*", replacement="should-not-be-used:model")
             ],
@@ -286,7 +288,7 @@ class TestModelNameRewrites:
         backend_service._session_service.get_session = AsyncMock(return_value=None)
 
         request = ChatRequest(
-            model="any-model", messages=[{"role": "user", "content": "Hello"}]
+            model="any-model", messages=[ChatMessage(role="user", content="Hello")]
         )
 
         backend_type, effective_model = (
@@ -302,7 +304,7 @@ class TestModelNameRewrites:
         # AC1: The proxy MUST start without errors when a valid model_aliases
         # list is present in config.yaml.
         config = AppConfig(
-            backends={"default_backend": "openai"},
+            backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(
                     pattern="^gpt-4$", replacement="openrouter:openai/gpt-4"
@@ -323,7 +325,7 @@ class TestModelNameRewrites:
         # AC3: The proxy MUST start and operate normally if the model_aliases
         # key is absent from the configuration.
         config = AppConfig(
-            backends={"default_backend": "openai"}
+            backends=BackendSettings(default_backend="openai")
             # model_aliases not specified - should default to empty list
         )
 
@@ -332,7 +334,7 @@ class TestModelNameRewrites:
     def test_complex_regex_patterns(self, backend_service_with_aliases):
         """Test complex regex patterns with multiple capture groups."""
         config = AppConfig(
-            backends={"default_backend": "openai"},
+            backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(
                     pattern="^(gpt|claude)-(\\d+)-(\\w+)$",
@@ -446,11 +448,15 @@ class TestModelAliasesConfiguration:
     def test_cli_overrides_config_file(self):
         """Test that CLI parameters override config file settings."""
         from src.core.cli import apply_cli_args, parse_cli_args
-        from src.core.config.app_config import AppConfig, ModelAliasRule
+        from src.core.config.app_config import (
+            AppConfig,
+            BackendSettings,
+            ModelAliasRule,
+        )
 
         # Create config with file-based aliases
         config = AppConfig(
-            backends={"default_backend": "openai"},
+            backends=BackendSettings(default_backend="openai"),
             model_aliases=[
                 ModelAliasRule(pattern="^file-pattern$", replacement="file-replacement")
             ],
@@ -466,8 +472,8 @@ class TestModelAliasesConfiguration:
         src.core.cli.load_config = lambda path=None, resolution=None: config
 
         try:
-            # apply_cli_args returns a single AppConfig object by default
-            result_config = apply_cli_args(args)
+            # apply_cli_args returns a tuple of (AppConfig, ParameterResolution)
+            result_config, _ = apply_cli_args(args, return_resolution=True)
 
             # CLI should override config file
             assert len(result_config.model_aliases) == 1
@@ -476,6 +482,29 @@ class TestModelAliasesConfiguration:
         finally:
             # Restore original function
             src.core.cli.load_config = original_load_config
+
+    @pytest.fixture(autouse=True)
+    def clean_environment(self):
+        """Ensure clean environment for each test."""
+        import os
+
+        # Store original values
+        original_env = {}
+        env_vars_to_clean = ["COMMAND_PREFIX", "MODEL_ALIASES"]
+
+        for var in env_vars_to_clean:
+            original_env[var] = os.environ.get(var)
+            if var in os.environ:
+                del os.environ[var]
+
+        yield
+
+        # Restore original values
+        for var, value in original_env.items():
+            if value is not None:
+                os.environ[var] = value
+            elif var in os.environ:
+                del os.environ[var]
 
     def test_precedence_order_cli_env_config(self):
         """Test the complete precedence order: CLI > ENV > Config File."""
@@ -487,6 +516,16 @@ class TestModelAliasesConfiguration:
         import yaml
         from src.core.cli import apply_cli_args, parse_cli_args
         from src.core.config.app_config import load_config
+
+        # Store original environment state and ensure clean environment
+        original_command_prefix = os.environ.get("COMMAND_PREFIX")
+        original_model_aliases = os.environ.get("MODEL_ALIASES")
+
+        # Clear any existing environment variables that might interfere
+        if "COMMAND_PREFIX" in os.environ:
+            del os.environ["COMMAND_PREFIX"]
+        if "MODEL_ALIASES" in os.environ:
+            del os.environ["MODEL_ALIASES"]
 
         # 1. Create temporary config file (lowest precedence)
         config_data = {
@@ -520,7 +559,7 @@ class TestModelAliasesConfiguration:
             load_config(config_path)
 
             # Now, apply CLI args, which should override both file and env
-            final_config = apply_cli_args(cli_args)
+            final_config, _ = apply_cli_args(cli_args, return_resolution=True)
 
             # Assert that CLI arguments have the highest precedence
             assert len(final_config.model_aliases) == 1
@@ -530,5 +569,14 @@ class TestModelAliasesConfiguration:
         finally:
             # Clean up
             Path(config_path).unlink()
-            if "MODEL_ALIASES" in os.environ:
+
+            # Restore original environment state
+            if original_model_aliases is not None:
+                os.environ["MODEL_ALIASES"] = original_model_aliases
+            elif "MODEL_ALIASES" in os.environ:
                 del os.environ["MODEL_ALIASES"]
+
+            if original_command_prefix is not None:
+                os.environ["COMMAND_PREFIX"] = original_command_prefix
+            elif "COMMAND_PREFIX" in os.environ:
+                del os.environ["COMMAND_PREFIX"]

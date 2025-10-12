@@ -41,7 +41,9 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
             content = e.to_dict()
             status_code = int(getattr(e, "status_code", 500))
             headers = _build_retry_after_header(
-                getattr(e, "reset_at", None) if isinstance(e, RateLimitExceededError) else None
+                getattr(e, "reset_at", None)
+                if isinstance(e, RateLimitExceededError)
+                else None
             )
             return JSONResponse(
                 content=content, status_code=status_code, headers=headers
@@ -73,4 +75,4 @@ def _build_retry_after_header(reset_at: float | int | None) -> dict[str, str] | 
     if delay_seconds <= 0:
         return {"Retry-After": "0"}
 
-    return {"Retry-After": str(int(math.ceil(delay_seconds)))}
+    return {"Retry-After": str(math.ceil(delay_seconds))}

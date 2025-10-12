@@ -657,7 +657,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                     processed_chunk = ProcessedResponse(content=chunk)
 
                                 chunk_payload = processed_chunk.content
-                                if isinstance(chunk_payload, (bytes, bytearray)):
+                                if isinstance(chunk_payload, bytes | bytearray):
                                     chunk_payload = chunk_payload.decode(
                                         "utf-8", errors="ignore"
                                     )

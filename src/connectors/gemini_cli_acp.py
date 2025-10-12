@@ -250,16 +250,13 @@ class GeminiCliAcpConnector(GeminiBackend):
             # Build command with ACP flags
             cmd = [
                 self._gemini_cli_executable,
-                "--mode",
-                "acp",  # Enable ACP mode
+                "--experimental-acp",  # Enable ACP mode
                 "--model",
                 self._model,
-                "--workspace",
-                str(self._project_dir),
             ]
 
             if self._auto_accept:
-                cmd.append("--auto-accept")
+                cmd.append("-y")  # YOLO mode (auto-accept)
 
             # Spawn process
             logger.debug(f"Spawning gemini-cli process: {' '.join(cmd)}")
@@ -509,7 +506,9 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         try:
             # Check if project directory was changed via session state
-            project_dir_from_session = kwargs.get("project")  # project_dir from session
+            project_dir_from_session = kwargs.get("project_dir") or kwargs.get(
+                "project"
+            )
             if project_dir_from_session and str(project_dir_from_session) != str(
                 self._project_dir
             ):
@@ -525,15 +524,8 @@ class GeminiCliAcpConnector(GeminiBackend):
             if self._message_id == 0:
                 await self._initialize_agent()
 
-            # Extract user message
-            user_message = ""
-            for msg in processed_messages:
-                if isinstance(msg, dict):
-                    role = msg.get("role", "")
-                    content = msg.get("content", "")
-                    if role == "user":
-                        user_message = content
-                        break
+            # Extract and convert user message to string for ACP protocol
+            user_message = self._extract_user_message_as_string(processed_messages)
 
             if not user_message:
                 raise BackendError(message="No user message found in request")
@@ -613,6 +605,89 @@ class GeminiCliAcpConnector(GeminiBackend):
             # Kill process on error to force restart
             await self._kill_process()
             raise
+
+    def _extract_user_message_as_string(self, processed_messages: list[Any]) -> str:
+        """Extract and convert user messages to string for ACP protocol.
+
+        ACP protocol requires simple string prompts, not structured message objects.
+        This method handles various message formats and converts them to strings.
+        Only the last user message is used as the remote agent handles context.
+
+        Args:
+            processed_messages: List of messages in various formats
+
+        Returns:
+            String representation of the last user message
+        """
+        last_user_message = ""
+
+        for msg in processed_messages:
+            # Handle different message formats
+            content = ""
+            role = ""
+
+            if isinstance(msg, dict):
+                # Standard message format
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+
+                # Handle nested content structures
+                if not content and "parts" in msg:
+                    # Handle multi-part messages (like from translation service)
+                    parts = msg["parts"]
+                    if isinstance(parts, list):
+                        content_parts = []
+                        for part in parts:
+                            if isinstance(part, dict):
+                                if "text" in part:
+                                    content_parts.append(part["text"])
+                                elif "content" in part:
+                                    content_parts.append(part["content"])
+                            elif isinstance(part, str):
+                                content_parts.append(part)
+                        content = " ".join(content_parts)
+
+                # Handle content as list
+                if isinstance(content, list):
+                    content_parts = []
+                    for item in content:
+                        if isinstance(item, dict):
+                            if "text" in item:
+                                content_parts.append(item["text"])
+                            elif "content" in item:
+                                content_parts.append(item["content"])
+                        elif isinstance(item, str):
+                            content_parts.append(item)
+                    content = " ".join(content_parts)
+
+                # Convert content to string if it's not already
+                if not isinstance(content, str):
+                    try:
+                        content = str(content)
+                    except Exception:
+                        content = ""
+
+            elif isinstance(msg, str):
+                # Simple string message
+                content = msg
+                role = "user"
+
+            elif hasattr(msg, "content"):
+                # Message object with content attribute
+                content = getattr(msg, "content", "")
+                if hasattr(msg, "role"):
+                    role = getattr(msg, "role", "")
+                if not isinstance(content, str):
+                    try:
+                        content = str(content)
+                    except Exception:
+                        content = ""
+
+            # Only process user messages
+            if role == "user" and content:
+                last_user_message = content
+
+        return last_user_message
 
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count for text.

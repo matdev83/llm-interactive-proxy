@@ -68,7 +68,9 @@ async def test_backend_factory_fallback_uses_di_translation_service(
     assert converter(None) is sentinel
 
 
-def test_get_config_service_handles_service_resolution_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_config_service_handles_service_resolution_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from src.core.app.controllers import models_controller
 
     class FailingProvider:

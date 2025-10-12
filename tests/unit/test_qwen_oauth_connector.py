@@ -2,6 +2,8 @@
 Unit tests for Qwen OAuth connector (refactored).
 
 These tests mock external dependencies and don't require network access.
+
+pytestmark = [pytest.mark.no_global_mock]
 """
 
 import json
