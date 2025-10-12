@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import re
+from collections import OrderedDict
 from typing import Any, cast
 
 from src.connectors.base import LLMBackend
@@ -72,6 +74,8 @@ class BackendService(IBackendService):
         self._failover_routes: dict[str, dict[str, Any]] = failover_routes or {}
         self._failover_strategy: IFailoverStrategy | None = failover_strategy
         self._backends: dict[str, LLMBackend] = {}
+        self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
+        self._per_session_backend_limit = self._resolve_per_session_backend_limit(config)
         from src.core.config.app_config import AppConfig
         from src.core.services.failover_coordinator import FailoverCoordinator
 
@@ -106,6 +110,62 @@ class BackendService(IBackendService):
                 self._backend_config_service = BackendConfigProvider(AppConfig())
         # Assign wire_capture if provided
         self._wire_capture: IWireCapture | None = wire_capture
+
+    def _resolve_per_session_backend_limit(self, config: IConfig) -> int:
+        """Determine the cache size for per-session backends."""
+        default_limit = 32
+        try:
+            session_config = getattr(config, "session", None)
+            candidate = getattr(session_config, "max_per_session_backends", default_limit)
+            if isinstance(candidate, int) and candidate > 0:
+                return candidate
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Falling back to default per-session backend limit: %s",
+                    exc,
+                    exc_info=True,
+                )
+        return default_limit
+
+    @staticmethod
+    def _is_per_session_cache_key(cache_key: str, backend_type: str) -> bool:
+        """Return True when the cache key maps to a session-scoped backend."""
+        return cache_key != backend_type
+
+    async def _enforce_per_session_backend_limit(self) -> None:
+        """Ensure the per-session backend cache does not grow without bound."""
+        limit = max(self._per_session_backend_limit, 1)
+        while len(self._per_session_backends) > limit:
+            evicted_key, evicted_backend = self._per_session_backends.popitem(last=False)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicting per-session backend %s due to cache limit %d",
+                    evicted_key,
+                    limit,
+                )
+            await self._shutdown_backend_instance(evicted_backend, evicted_key)
+
+    async def _shutdown_backend_instance(
+        self, backend: LLMBackend, cache_key: str
+    ) -> None:
+        """Attempt to gracefully shut down a backend instance."""
+        shutdown_method = getattr(backend, "shutdown", None)
+        try:
+            if callable(shutdown_method):
+                result = shutdown_method()
+                if inspect.isawaitable(result):
+                    await result
+            else:
+                exit_method = getattr(backend, "__aexit__", None)
+                if callable(exit_method):
+                    result = exit_method(None, None, None)
+                    if inspect.isawaitable(result):
+                        await result
+        except Exception as exc:
+            logger.warning(
+                "Error while shutting down backend %s: %s", cache_key, exc, exc_info=True
+            )
 
     def _apply_model_aliases(self, model: str) -> str:
         """Applies the first matching model alias rule to the model name.
@@ -784,8 +844,15 @@ class BackendService(IBackendService):
                 else f"{backend_type}:default"
             )
 
-        if cache_key in self._backends:
-            return self._backends[cache_key]
+        if self._is_per_session_cache_key(cache_key, backend_type):
+            backend = self._per_session_backends.get(cache_key)
+            if backend is not None:
+                self._per_session_backends.move_to_end(cache_key)
+                return backend
+        else:
+            backend = self._backends.get(cache_key)
+            if backend is not None:
+                return backend
 
         try:
             provider_backend_config: BackendConfig | None = None
@@ -814,7 +881,12 @@ class BackendService(IBackendService):
             backend: LLMBackend = await self._factory.ensure_backend(
                 backend_type, app_config, provider_backend_config
             )
-            self._backends[cache_key] = backend
+            if self._is_per_session_cache_key(cache_key, backend_type):
+                self._per_session_backends[cache_key] = backend
+                self._per_session_backends.move_to_end(cache_key)
+                await self._enforce_per_session_backend_limit()
+            else:
+                self._backends[cache_key] = backend
             return backend
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(

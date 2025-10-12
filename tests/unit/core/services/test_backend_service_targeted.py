@@ -229,6 +229,56 @@ class TestBackendServiceTargeted:
             assert response.content["model"] == "test-model"
 
     @pytest.mark.asyncio
+    async def test_session_backend_cache_eviction_closes_old_backends(self):
+        """Old per-session backends should be shut down when cache limit is exceeded."""
+
+        service = create_backend_service()
+        service._per_session_backend_limit = 2
+
+        class SessionScopedBackend(LLMBackend):
+            backend_type = "gemini-cli-acp"
+
+            def __init__(self) -> None:
+                super().__init__(config=Mock())
+                self.shutdown_calls = 0
+
+            async def initialize(self, **kwargs: Any) -> None:  # pragma: no cover - unused
+                return None
+
+            async def chat_completions(  # pragma: no cover - unused in this test
+                self,
+                request_data: ChatRequest,
+                processed_messages: list,
+                effective_model: str,
+                **kwargs: Any,
+            ) -> ResponseEnvelope:
+                raise NotImplementedError
+
+            async def shutdown(self) -> None:
+                self.shutdown_calls += 1
+
+        created_backends: list[SessionScopedBackend] = []
+
+        async def fake_ensure_backend(*args: Any, **kwargs: Any) -> SessionScopedBackend:
+            backend = SessionScopedBackend()
+            created_backends.append(backend)
+            return backend
+
+        with patch.object(
+            service._factory, "ensure_backend", side_effect=fake_ensure_backend
+        ):
+            await service._get_or_create_backend("gemini-cli-acp", session_id="s1")
+            await service._get_or_create_backend("gemini-cli-acp", session_id="s2")
+            await service._get_or_create_backend("gemini-cli-acp", session_id="s3")
+
+        assert created_backends[0].shutdown_calls == 1
+        assert len(service._per_session_backends) == 2
+        assert "gemini-cli-acp:s1" not in service._per_session_backends
+        assert all(
+            key.startswith("gemini-cli-acp") for key in service._per_session_backends
+        )
+
+    @pytest.mark.asyncio
     async def test_gemini_cli_acp_backends_are_session_scoped(self):
         """Gemini CLI ACP connector instances should not leak across sessions."""
 
