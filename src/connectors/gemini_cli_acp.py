@@ -54,6 +54,7 @@ import logging
 import os
 import subprocess
 import uuid
+from functools import lru_cache
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROCESS_TIMEOUT = 300.0  # 5 minutes for complex operations
 DEFAULT_CONNECTION_TIMEOUT = 60.0
 DEFAULT_IDLE_TIMEOUT = 30.0  # Kill process if idle for this long
+
+
+@lru_cache(maxsize=1)
+def _cl100k_encoding() -> tiktoken.Encoding:
+    """Lazily load and cache the cl100k_base encoding."""
+
+    return tiktoken.get_encoding("cl100k_base")
 
 
 class GeminiCliAcpConnector(GeminiBackend):
@@ -699,7 +707,7 @@ class GeminiCliAcpConnector(GeminiBackend):
             Estimated token count
         """
         try:
-            encoding = tiktoken.get_encoding("cl100k_base")
+            encoding = _cl100k_encoding()
             return len(encoding.encode(text))
         except Exception:
             # Fallback: rough estimate
