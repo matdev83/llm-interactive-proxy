@@ -1,11 +1,9 @@
-"""
-Chat Controller
-
-Handles all chat completion related API endpoints.
-"""
+"""Chat Controller handling OpenAI-compatible chat endpoints."""
 
 import asyncio
+import json
 import logging
+from collections.abc import Sequence
 from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
@@ -108,6 +106,62 @@ class ChatController:
 
         return TranslationService()
 
+    @staticmethod
+    def _coerce_message_content_to_text(content: Any) -> str:
+        """Flatten ChatMessage content into a plain text payload for Anthropic."""
+
+        if content is None:
+            return ""
+
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, bytes | bytearray):
+            return content.decode("utf-8", errors="ignore")
+
+        if hasattr(content, "model_dump"):
+            try:
+                dumped = content.model_dump()
+            except Exception:  # pragma: no cover - defensive
+                dumped = None
+            if dumped is not None:
+                return ChatController._coerce_message_content_to_text(dumped)
+
+        if isinstance(content, dict):
+            text_value = content.get("text")
+            if isinstance(text_value, str):
+                return text_value
+            if isinstance(text_value, (bytes, bytearray)):
+                return text_value.decode("utf-8", errors="ignore")
+
+            if content.get("type") == "image_url":
+                image_payload = content.get("image_url")
+                if isinstance(image_payload, dict):
+                    url_value = image_payload.get("url")
+                    if isinstance(url_value, str):
+                        return url_value
+
+            return json.dumps(content, ensure_ascii=False)
+
+        if isinstance(content, Sequence) and not isinstance(
+            content, (str, bytes, bytearray)
+        ):
+            parts: list[str] = []
+            for part in content:
+                text_part = ChatController._coerce_message_content_to_text(part)
+                if text_part:
+                    parts.append(text_part)
+            return "\n\n".join(parts)
+
+        if hasattr(content, "text"):
+            text_attr = getattr(content, "text")
+            if isinstance(text_attr, str):
+                return text_attr
+            if isinstance(text_attr, (bytes, bytearray)):
+                return text_attr.decode("utf-8", errors="ignore")
+
+        return str(content)
+
     async def handle_chat_completion(
         self,
         request: Request,
@@ -160,7 +214,9 @@ class ChatController:
                     # Normalize message content to str for AnthropicMessage
                     anth_messages = []
                     for m in domain_request.messages:
-                        content_str = m.content if isinstance(m.content, str) else ""
+                        content_str = self._coerce_message_content_to_text(
+                            getattr(m, "content", None)
+                        )
                         anth_messages.append(
                             AnthropicMessage(role=m.role, content=content_str)
                         )
