@@ -2,6 +2,8 @@
 
 import datetime
 import json
+import sys
+from typing import Any
 
 import pytest
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
@@ -81,6 +83,37 @@ class TestToolCallSignature:
             f"{tool_name}:{json.dumps(json.loads(arguments), sort_keys=True)}"
         )
         assert signature.get_full_signature() == expected_full_sig
+
+    def test_from_tool_call_with_deep_json_string(self):
+        """Deeply nested JSON strings should not crash canonicalization."""
+
+        tool_name = "test_tool"
+        depth = 2000
+        deep_json = "[" * depth + "0" + "]" * depth
+
+        signature = ToolCallSignature.from_tool_call(tool_name, deep_json)
+
+        assert signature.tool_name == tool_name
+        assert signature.raw_arguments == deep_json
+        assert signature.arguments_signature
+        assert signature.arguments_signature in {
+            deep_json,
+        } or signature.arguments_signature.startswith("sha256:")
+
+    def test_from_tool_call_with_deep_structure(self):
+        """Deeply nested mappings should fall back to a hashed signature."""
+
+        tool_name = "test_tool"
+        depth = 2000
+        nested: Any = 0
+        for _ in range(depth):
+            nested = {"value": nested}
+
+        signature = ToolCallSignature.from_tool_call(tool_name, nested)
+
+        assert signature.tool_name == tool_name
+        assert signature.arguments_signature.startswith("sha256:")
+        assert signature.raw_arguments  # Should provide some representation
 
     def test_is_expired(self):
         """Test checking if a signature has expired."""
