@@ -83,7 +83,7 @@ dev = [
     "radon",
     "types-pytz",
     "pytest-testmon",
-
+    "pre-commit",
 ]
 
 [build-system]
