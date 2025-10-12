@@ -15,8 +15,6 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import HTTPException
-from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -59,26 +57,32 @@ CLI_REFRESH_COMMAND = [
 ]
 
 
-class QwenCredentialsFileHandler(FileSystemEventHandler):
-    """File system event handler for monitoring OAuth credentials file changes."""
+def _create_file_handler(connector: "QwenOAuthConnector"):
+    """Create a file handler that inherits from FileSystemEventHandler."""
+    from watchdog.events import FileSystemEventHandler
 
-    def __init__(self, connector: "QwenOAuthConnector"):
-        """Initialize the file handler with reference to the connector.
+    class QwenCredentialsFileHandler(FileSystemEventHandler):
+        """File system event handler for monitoring OAuth credentials file changes."""
 
-        Args:
-            connector: The QwenOAuthConnector instance to notify of file changes
-        """
-        super().__init__()
-        self.connector = connector
+        def __init__(self, connector: "QwenOAuthConnector"):
+            """Initialize the file handler with reference to the connector.
 
-    def on_modified(self, event):
-        """Handle file modification events."""
-        if not event.is_directory and event.src_path == str(
-            self.connector._credentials_path
-        ):
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(f"OAuth credentials file modified: {event.src_path}")
-            self.connector._schedule_credentials_reload()
+            Args:
+                connector: The QwenOAuthConnector instance to notify of file changes
+            """
+            super().__init__()
+            self.connector = connector
+
+        def on_modified(self, event):
+            """Handle file modification events."""
+            if not event.is_directory and event.src_path == str(
+                self.connector._credentials_path
+            ):
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"OAuth credentials file modified: {event.src_path}")
+                self.connector._schedule_credentials_reload()
+
+    return QwenCredentialsFileHandler(connector)
 
 
 class QwenOAuthConnector(OpenAIConnector):
@@ -399,8 +403,11 @@ class QwenOAuthConnector(OpenAIConnector):
         """Start watching the OAuth credentials file for changes."""
         try:
             if self._credentials_path and self._credentials_path.exists():
+                # Lazy import watchdog components
+                from watchdog.observers import Observer
+
                 self._file_observer = Observer()
-                handler = QwenCredentialsFileHandler(self)
+                handler = _create_file_handler(self)
                 # Watch the directory containing the credentials file
                 watch_dir = self._credentials_path.parent
                 self._file_observer.schedule(handler, str(watch_dir), recursive=False)

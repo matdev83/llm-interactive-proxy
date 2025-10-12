@@ -530,7 +530,7 @@ class TestFileWatchingFunctionality(TestQwenOAuthCredentialValidation):
         connector._credentials_path = temp_credentials_dir / "oauth_creds.json"
         connector._credentials_path.touch()  # Create the file
 
-        with patch("src.connectors.qwen_oauth.Observer") as mock_observer_class:
+        with patch("watchdog.observers.Observer") as mock_observer_class:
             mock_observer = Mock()
             mock_observer_class.return_value = mock_observer
 
@@ -546,7 +546,7 @@ class TestFileWatchingFunctionality(TestQwenOAuthCredentialValidation):
         """Test file watching doesn't start when credentials path is None."""
         connector._credentials_path = None
 
-        with patch("src.connectors.qwen_oauth.Observer") as mock_observer_class:
+        with patch("watchdog.observers.Observer") as mock_observer_class:
             connector._start_file_watching()
 
             assert connector._file_observer is None

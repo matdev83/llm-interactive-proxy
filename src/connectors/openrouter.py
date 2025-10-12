@@ -68,9 +68,12 @@ class OpenRouterBackend(OpenAIConnector):
             return True
 
         for header_name, value in headers.items():
-            if header_name.lower() == "authorization" and isinstance(value, str):
-                if api_key in value:
-                    return True
+            if (
+                header_name.lower() == "authorization"
+                and isinstance(value, str)
+                and api_key in value
+            ):
+                return True
 
         return False
 

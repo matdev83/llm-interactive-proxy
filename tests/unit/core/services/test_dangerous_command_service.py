@@ -109,9 +109,7 @@ def test_scan_tool_call_handles_mixed_case_tool_names(
     """Ensure detection works when tool names differ only by case."""
     tool_call = ToolCall(
         id="call_123",
-        function=FunctionCall(
-            name="Execute_Command", arguments="git reset --hard"
-        ),
+        function=FunctionCall(name="Execute_Command", arguments="git reset --hard"),
         type="function",
     )
 

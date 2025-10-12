@@ -36,7 +36,7 @@ async def zai_backend_fixture(
         ]
     }
 
-    # Add models endpoint mock that can be reused for health checks
+    # Add models endpoint mock for initialization (list_models during setup)
     httpx_mock.add_response(
         url=f"{TEST_ZAI_API_BASE_URL}/models",
         method="GET",
@@ -51,6 +51,7 @@ async def zai_backend_fixture(
 
         config = AppConfig()
         backend = ZAIConnector(client, config=config)
+        backend.disable_health_check()  # Disable health checks to avoid extra HTTP requests
         await backend.initialize(api_key="test_key")
 
         # Manually set available_models for testing
@@ -267,6 +268,7 @@ async def test_list_models(zai_backend: ZAIConnector, httpx_mock: HTTPXMock) -> 
         ]
     }
 
+    # Add mock for the list_models call (only one since health check is disabled)
     httpx_mock.add_response(
         url=f"{TEST_ZAI_API_BASE_URL}/models",
         method="GET",
@@ -293,6 +295,7 @@ async def test_default_models_fallback(httpx_mock: HTTPXMock) -> None:
 
         config = AppConfig()
         backend = ZAIConnector(client, config=config)
+        backend.disable_health_check()  # Disable health checks to avoid extra HTTP requests
 
         # Setup the mock to fail for the models endpoint
         httpx_mock.add_exception(
