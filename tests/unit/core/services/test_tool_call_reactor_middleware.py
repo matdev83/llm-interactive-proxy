@@ -404,6 +404,52 @@ class TestToolCallReactorMiddleware:
         assert result == response
 
     @pytest.mark.asyncio
+    async def test_process_with_tool_calls_swallowed_empty_string(
+        self, middleware, mock_reactor
+    ):
+        """Handlers should be able to swallow with an empty replacement payload."""
+
+        tool_call_response = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_124",
+                                "type": "function",
+                                "function": {
+                                    "name": "test_tool",
+                                    "arguments": '{"arg": "value"}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        response = ProcessedResponse(content=json.dumps(tool_call_response))
+
+        swallow_result = ToolCallReactionResult(
+            should_swallow=True,
+            replacement_response="",
+            metadata={"handler": "test_handler"},
+        )
+
+        mock_reactor.process_tool_call.return_value = swallow_result
+
+        result = await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        assert isinstance(result, ProcessedResponse)
+        assert result.content == ""
+        assert result.metadata["tool_call_swallowed"] is True
+        assert result.metadata["tool_call_reactor"]["handler"] == "test_handler"
+
+    @pytest.mark.asyncio
     async def test_process_multiple_tool_calls(self, middleware, mock_reactor):
         """Test processing response with multiple tool calls."""
         tool_call_response = {
