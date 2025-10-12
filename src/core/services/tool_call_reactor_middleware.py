@@ -116,11 +116,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                 existing_calls = response.metadata.get("tool_calls")
 
                 replace_metadata_calls = False
-                if not isinstance(existing_calls, list):
-                    replace_metadata_calls = True
-                elif not existing_calls:
-                    replace_metadata_calls = True
-                elif not all(isinstance(item, dict) for item in existing_calls):
+                if not isinstance(existing_calls, list) or not existing_calls or not all(isinstance(item, dict) for item in existing_calls):
                     replace_metadata_calls = True
 
                 if replace_metadata_calls:
@@ -164,11 +160,11 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     # Preserve the original value so downstream handlers still
                     # receive the raw arguments string.
                     tool_arguments = tool_arguments_raw
-                elif isinstance(parsed_args, (dict, list)):
+                elif isinstance(parsed_args, dict | list):
                     tool_arguments = parsed_args
                 else:
                     tool_arguments = parsed_args
-            elif isinstance(tool_arguments_raw, (dict, list)):
+            elif isinstance(tool_arguments_raw, dict | list):
                 tool_arguments = tool_arguments_raw
             else:
                 tool_arguments = tool_arguments_raw
@@ -232,7 +228,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             return []
 
         # Normalize the content into a Python structure that can be inspected
-        if isinstance(content, (dict, list)):
+        if isinstance(content, dict | list):
             data = content
         elif isinstance(content, str):
             try:

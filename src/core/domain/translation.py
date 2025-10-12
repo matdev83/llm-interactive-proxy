@@ -2424,6 +2424,7 @@ class Translation(BaseTranslator):
             if finish_reason == "content_filter":
                 return "blocked"
             return "completed"
+
         for choice in response.choices:
             if choice.message:
                 # Try to parse the content as JSON for structured output
@@ -2544,9 +2545,7 @@ class Translation(BaseTranslator):
                     "id": f"msg-{response.id}-{choice.index}",
                     "type": "message",
                     "role": choice.message.role,
-                    "status": _map_finish_reason_to_status(
-                        choice.finish_reason
-                    ),
+                    "status": _map_finish_reason_to_status(choice.finish_reason),
                     "content": output_content_parts,
                 }
 
@@ -2571,8 +2570,7 @@ class Translation(BaseTranslator):
             text_values = [text for text in aggregated_output_text if text is not None]
             if text_values:
                 responses_response["output_text"] = [
-                    text if text is not None else ""
-                    for text in aggregated_output_text
+                    text if text is not None else "" for text in aggregated_output_text
                 ]
 
         # Add usage information if available
