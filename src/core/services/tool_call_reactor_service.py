@@ -32,6 +32,12 @@ class ToolCallReactorService(IToolCallReactor):
     their execution when tool calls are detected in LLM responses.
     """
 
+    _SNAPSHOT_WARNING_KEY = "__proxy_warning__"
+    _SNAPSHOT_WARNING_VALUE = "tool_arguments_snapshot_omitted"
+    _SNAPSHOT_REASON_KEY = "reason"
+    _SNAPSHOT_REASON_DEPTH = "depth_exceeded"
+    _SNAPSHOT_REASON_ERROR = "snapshot_failed"
+
     def __init__(self, history_tracker: IToolCallHistoryTracker | None = None) -> None:
         """Initialize the tool call reactor service.
 
@@ -129,7 +135,9 @@ class ToolCallReactorService(IToolCallReactor):
                 "model_name": context.model_name,
                 "calling_agent": context.calling_agent,
                 "timestamp": timestamp,
-                "tool_arguments": copy.deepcopy(context.tool_arguments),
+                "tool_arguments": self._snapshot_tool_arguments(
+                    context.tool_arguments
+                ),
             }
 
             await self._history_tracker.record_tool_call(
@@ -182,6 +190,42 @@ class ToolCallReactorService(IToolCallReactor):
             List of handler names.
         """
         return list(self._handlers.keys())
+
+    def _snapshot_tool_arguments(self, arguments: Any) -> Any:
+        """Create a defensive copy of tool arguments for history tracking.
+
+        Deeply nested structures supplied by remote agents can exceed Python's
+        recursion limit when ``copy.deepcopy`` is applied, raising a
+        ``RecursionError`` before security handlers run. This helper guards the
+        snapshot process so that excessively nested or otherwise problematic
+        payloads cannot bypass the reactor.
+        """
+
+        if arguments is None:
+            return None
+
+        try:
+            return copy.deepcopy(arguments)
+        except RecursionError:
+            logger.warning(
+                "Tool call arguments exceeded maximum recursion depth; storing"
+                " truncated snapshot instead of raising."
+            )
+            return {
+                self._SNAPSHOT_WARNING_KEY: self._SNAPSHOT_WARNING_VALUE,
+                self._SNAPSHOT_REASON_KEY: self._SNAPSHOT_REASON_DEPTH,
+            }
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Failed to snapshot tool call arguments (%s); storing fallback"
+                " placeholder instead of raising.",
+                type(exc).__name__,
+                exc_info=True,
+            )
+            return {
+                self._SNAPSHOT_WARNING_KEY: self._SNAPSHOT_WARNING_VALUE,
+                self._SNAPSHOT_REASON_KEY: self._SNAPSHOT_REASON_ERROR,
+            }
 
 
 class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):

@@ -5,6 +5,7 @@ Unit tests for Tool Call Reactor Service.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pytest
 from src.core.common.exceptions import ToolCallReactorError
@@ -178,6 +179,50 @@ class TestToolCallReactorService:
             ]
 
         assert stored_arguments == {"arg": ["value"]}
+
+    @pytest.mark.asyncio
+    async def test_process_tool_call_handles_excessive_nesting(
+        self, reactor, history_tracker
+    ):
+        """Deeply nested tool arguments should not break the reactor."""
+
+        def _build_nested_dict(depth: int) -> dict[str, Any]:
+            result: dict[str, Any] = {}
+            current: dict[str, Any] = result
+            for _ in range(depth):
+                next_level: dict[str, Any] = {}
+                current["level"] = next_level
+                current = next_level
+            return result
+
+        nested_arguments = _build_nested_dict(1100)
+
+        context = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="deep_tool",
+            tool_arguments=nested_arguments,
+        )
+
+        result = await reactor.process_tool_call(context)
+
+        assert result is None
+
+        call_count = await history_tracker.get_call_count(
+            "test_session", "deep_tool", time_window_seconds=10
+        )
+        assert call_count == 1
+
+        async with history_tracker._lock:  # type: ignore[attr-defined]
+            stored_arguments = history_tracker._history["test_session"][0]["context"][
+                "tool_arguments"
+            ]
+
+        assert isinstance(stored_arguments, dict)
+        assert stored_arguments.get("__proxy_warning__") == "tool_arguments_snapshot_omitted"
+        assert stored_arguments.get("reason") == "depth_exceeded"
 
     @pytest.mark.asyncio
     async def test_process_tool_call_handler_can_handle_false(self, reactor):
