@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -159,3 +160,55 @@ async def test_responses_clears_identity_between_calls(
     assert observed_headers[1] is not None
     assert observed_headers[0].get("X-Test") == "one"
     assert "X-Test" not in observed_headers[1]
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_identity_is_isolated_concurrently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = AsyncMock()
+    connector = OpenAIConnector(client=client, config=AppConfig())
+    connector.api_key = "token"
+    connector.disable_health_check()
+
+    proceed = asyncio.Event()
+    observed_headers: dict[str, dict[str, str]] = {}
+
+    async def fake_handle(
+        self: OpenAIConnector,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+    ) -> ResponseEnvelope:
+        observed_headers[session_id] = dict(headers or {})
+        if session_id == "session-a":
+            await proceed.wait()
+        else:
+            proceed.set()
+        return ResponseEnvelope(content={}, headers={}, status_code=200)
+
+    monkeypatch.setattr(
+        OpenAIConnector,
+        "_handle_non_streaming_response",
+        fake_handle,
+    )
+
+    base_request = _build_request()
+    request_one = base_request.model_copy(update={"session_id": "session-a"})
+    request_two = base_request.model_copy(update={"session_id": "session-b"})
+
+    identity_one = DummyIdentity({"X-Test": "one"})
+    identity_two = DummyIdentity({"X-Test": "two"})
+
+    await asyncio.gather(
+        connector.chat_completions(
+            request_one, [], "gpt-4", identity=identity_one
+        ),
+        connector.chat_completions(
+            request_two, [], "gpt-4", identity=identity_two
+        ),
+    )
+
+    assert observed_headers["session-a"].get("X-Test") == "one"
+    assert observed_headers["session-b"].get("X-Test") == "two"
