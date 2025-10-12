@@ -2,8 +2,10 @@ import os
 import shutil
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 from src.core.domain.replacement_rule import ReplacementMode
+from src.core.config.app_config import RewritingConfig
 from src.core.services.content_rewriter_service import ContentRewriterService
 
 
@@ -212,6 +214,34 @@ class TestContentRewriterService(unittest.TestCase):
         reply = "This is an original reply."
         rewritten = service.rewrite_reply(reply)
         self.assertEqual(rewritten, "This is an rewritten reply.")
+
+    def test_app_config_overrides_default_config_path(self):
+        alternate_dir = os.path.join(self.test_config_dir, "app_config_rules")
+        os.makedirs(os.path.join(alternate_dir, "replies", "010_replace"), exist_ok=True)
+
+        with open(
+            os.path.join(alternate_dir, "replies", "010_replace", "SEARCH.txt"),
+            "w",
+        ) as handle:
+            handle.write("custom reply")
+
+        with open(
+            os.path.join(alternate_dir, "replies", "010_replace", "REPLACE.txt"),
+            "w",
+        ) as handle:
+            handle.write("rewritten custom reply")
+
+        app_config = SimpleNamespace(
+            rewriting=RewritingConfig(enabled=True, config_path=alternate_dir)
+        )
+
+        service = ContentRewriterService(app_config=app_config)
+
+        self.assertEqual(service.config_path, alternate_dir)
+        self.assertEqual(
+            service.rewrite_reply("custom reply"),
+            "rewritten custom reply",
+        )
 
     def test_rewrite_prompt_ignores_trailing_newline_in_search_rule(self):
         """Trailing newlines in SEARCH.txt should not prevent matches."""
