@@ -158,6 +158,19 @@ class SyncIterBytes:
         return chunk
 
 
+class ErrorAsyncIterBytes:
+    """Async iterator that raises a RequestError when consumed."""
+
+    def __init__(self, error: httpx.RequestError) -> None:
+        self.error = error
+
+    def __aiter__(self) -> ErrorAsyncIterBytes:
+        return self
+
+    async def __anext__(self) -> bytes:
+        raise self.error
+
+
 @pytest.fixture
 def connector(mocker: MockerFixture) -> OpenAIConnector:
     """Create a connector with a mock client, patching httpx.AsyncClient."""
@@ -534,6 +547,50 @@ async def test_streaming_response_request_error(
         )
 
     assert "connection boom" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_streaming_response_midstream_timeout(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Ensure mid-stream timeouts surface as ServiceUnavailableError."""
+
+    timeout_error = httpx.ReadTimeout(
+        "stream timed out", request=httpx.Request("POST", "https://example.com")
+    )
+    mock_response = MockResponse(status_code=200)
+    mock_response.aiter_bytes = lambda: ErrorAsyncIterBytes(timeout_error)
+
+    mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+    mocker.patch.object(
+        connector.translation_service,
+        "to_domain_stream_chunk",
+        side_effect=lambda chunk, _: chunk,
+    )
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
+    )
+
+    result = await connector.chat_completions(
+        request_data,
+        [{"role": "user", "content": "test"}],
+        "test-model",
+    )
+
+    from src.core.domain.responses import StreamingResponseEnvelope
+
+    assert isinstance(result, StreamingResponseEnvelope)
+
+    with pytest.raises(ServiceUnavailableError) as excinfo:
+        async for _ in result.content:
+            pass
+
+    assert "stream timed out" in str(excinfo.value)
 
 
 @pytest.mark.asyncio
