@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import inspect
 import logging
 
 logger = logging.getLogger(__name__)
@@ -501,10 +503,17 @@ class OpenAIConnector(LLMBackend):
         if status_code >= 400:
             # For backwards compatibility with existing error handlers, still use HTTPException here.
             # This will be replaced in a future update with domain exceptions.
+            close_callable = getattr(response, "aclose", None)
             try:
                 body = (await response.aread()).decode("utf-8")
             except Exception:
                 body = getattr(response, "text", "")
+            finally:
+                if callable(close_callable):
+                    with contextlib.suppress(Exception):
+                        maybe_awaitable = close_callable()
+                        if inspect.isawaitable(maybe_awaitable):
+                            await maybe_awaitable
             raise HTTPException(
                 status_code=status_code,
                 detail={
@@ -527,6 +536,10 @@ class OpenAIConnector(LLMBackend):
             try:
                 async for chunk in text_generator():
                     yield ProcessedResponse(content=chunk)
+            except httpx.HTTPError as exc:
+                raise ServiceUnavailableError(
+                    message=f"Streaming connection interrupted ({exc})"
+                ) from exc
             finally:
                 import contextlib
 
