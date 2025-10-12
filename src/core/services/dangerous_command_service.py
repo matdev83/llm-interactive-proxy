@@ -12,6 +12,11 @@ from src.core.domain.configuration.dangerous_command_config import (
 class DangerousCommandService:
     def __init__(self, config: DangerousCommandConfig):
         self.config = config
+        # Normalize tool names once so lookups remain case-insensitive while
+        # preserving the original configuration for external access.
+        self._normalized_tool_names: set[str] = {
+            tool_name.lower() for tool_name in self.config.tool_names
+        }
 
     def scan_tool_call(
         self, tool_call: ToolCall
@@ -121,7 +126,8 @@ class DangerousCommandService:
 
         Returns matched rule and reconstructed command string, or None.
         """
-        if tool_name not in self.config.tool_names:
+        normalized_tool_name = tool_name.lower() if isinstance(tool_name, str) else ""
+        if normalized_tool_name not in self._normalized_tool_names:
             return None
 
         command_to_check = self._extract_command_string(arguments)
