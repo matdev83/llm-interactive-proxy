@@ -192,10 +192,9 @@ class TestContentRewriterService(unittest.TestCase):
 
         # System prompt with REPLACE and PREPEND
         system_prompt = "This is an original system prompt."
-        rewritten = service.rewrite_prompt(system_prompt, "system")
-        # The order of execution is not guaranteed, so we check for both possibilities
+        rewritten_system = service.rewrite_prompt(system_prompt, "system")
         self.assertIn(
-            rewritten,
+            rewritten_system,
             [
                 "This is an prepended system: rewritten system prompt.",
                 "This is an rewritten system prompt.",
@@ -204,8 +203,24 @@ class TestContentRewriterService(unittest.TestCase):
 
         # User prompt with REPLACE and APPEND
         user_prompt = "This is an original user prompt."
-        rewritten = service.rewrite_prompt(user_prompt, "user")
-        self.assertEqual(rewritten, "This is an rewritten user prompt.")
+        rewritten_user = service.rewrite_prompt(user_prompt, "user")
+        self.assertEqual(rewritten_user, "This is an rewritten user prompt.")
+
+    def test_rewrite_prompt_for_developer_role(self):
+        """Developer role prompts should reuse system rewrite rules."""
+
+        service = ContentRewriterService(config_path=self.test_config_dir)
+
+        developer_prompt = "This is an original system prompt."
+        rewritten = service.rewrite_prompt(developer_prompt, "developer")
+
+        self.assertIn(
+            rewritten,
+            [
+                "This is an prepended system: rewritten system prompt.",
+                "This is an rewritten system prompt.",
+            ],
+        )
 
     def test_rewrite_reply(self):
         service = ContentRewriterService(config_path=self.test_config_dir)
