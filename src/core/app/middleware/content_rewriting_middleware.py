@@ -283,6 +283,18 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                         payload["output_text"][index] = rewritten_text
                         is_rewritten = True
 
+        elif isinstance(output_text, str):
+            if aggregated_texts and any(text is not None for text in aggregated_texts):
+                aggregated_combined = "".join(text or "" for text in aggregated_texts)
+                if aggregated_combined != output_text:
+                    payload["output_text"] = aggregated_combined
+                    is_rewritten = True
+            else:
+                rewritten_text = self.rewriter.rewrite_reply(output_text)
+                if rewritten_text != output_text:
+                    payload["output_text"] = rewritten_text
+                    is_rewritten = True
+
         return is_rewritten
 
     async def dispatch(
