@@ -197,6 +197,15 @@ class TestResponsesRequest:
         assert request.max_tokens is None
         assert request.temperature is None
 
+    def test_responses_request_without_response_format(self) -> None:
+        """Requests without response_format should be accepted."""
+        messages = [ChatMessage(role="user", content="Plain text response please")]
+
+        request = ResponsesRequest(model="gpt-4o", messages=messages)
+
+        assert request.model == "gpt-4o"
+        assert request.response_format is None
+
     def test_responses_request_empty_messages_validation(self) -> None:
         """Test that empty messages list raises ValidationError."""
         json_schema = JsonSchema(name="test", schema={"type": "string"})

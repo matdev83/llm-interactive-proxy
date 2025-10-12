@@ -98,8 +98,8 @@ class ResponsesRequest(ValueObject):
 
     model: str = Field(..., description="The model to use for generation")
     messages: list[ChatMessage] = Field(..., description="The conversation messages")
-    response_format: ResponseFormat = Field(
-        ..., description="The structured response format"
+    response_format: ResponseFormat | None = Field(
+        None, description="Optional structured response format"
     )
     max_tokens: int | None = Field(
         None, description="Maximum number of tokens to generate"

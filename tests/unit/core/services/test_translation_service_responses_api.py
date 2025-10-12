@@ -759,16 +759,19 @@ class TestResponsesApiErrorHandling:
             self.service.to_domain_request(invalid_request, "responses")
 
     def test_responses_to_domain_request_missing_response_format(self):
-        """Test error handling for missing response_format in request."""
-        invalid_request = {
+        """Requests without response_format should still translate successfully."""
+        request_without_schema = {
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "Test"}],
         }
 
-        with pytest.raises(
-            ValidationError
-        ):  # Should raise validation error for missing response_format
-            self.service.to_domain_request(invalid_request, "responses")
+        domain_request = self.service.to_domain_request(
+            request_without_schema, "responses"
+        )
+
+        assert domain_request.model == "gpt-4"
+        assert domain_request.messages[0].content == "Test"
+        assert not (domain_request.extra_body or {}).get("response_format")
 
     def test_validate_json_against_schema_exception_handling(self):
         """Test error handling in schema validation when exceptions occur."""
