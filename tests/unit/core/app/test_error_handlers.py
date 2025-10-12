@@ -96,7 +96,9 @@ def test_validation_exception_handler_defaults_missing_fields() -> None:
     ]
 
 
-def test_validation_exception_handler_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+def test_validation_exception_handler_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     request = make_request("/v1/test")
     exc = RequestValidationError(
         [
