@@ -45,9 +45,16 @@ async def test_client():
 
     # The config is already available from the test_app
     app_config = test_app.state.app_config
-    app_config.command_prefix = "!/"
+    new_config_dict = app_config.model_dump()
+    new_config_dict["command_prefix"] = "!/"
 
-    test_app.state.app_config = app_config
+    # Re-validate the new configuration dictionary into an AppConfig instance
+    # This ensures that any model-level validators are re-run
+    from src.core.config.app_config import AppConfig
+
+    new_config = AppConfig(**new_config_dict)
+
+    test_app.state.app_config = new_config
 
     with TestClient(test_app, headers={"Authorization": "Bearer test-key"}) as client:
         yield client
@@ -172,9 +179,7 @@ class TestToolCallLoopDetection:
     """Integration tests for tool call loop detection."""
 
     @pytest.mark.asyncio
-    async def test_break_mode_blocks_repeated_tool_calls(
-        self, test_client, mock_backend
-    ):
+    async def test_block_repeated_calls(self, test_client, mock_backend):
         """Test that break mode blocks repeated tool calls."""
         # Configure the mock to return a response with tool calls
         tool_calls = [
@@ -239,9 +244,7 @@ class TestToolCallLoopDetection:
         # Skip further assertions for tool call loop detection since we're using a mock
 
     @pytest.mark.asyncio
-    async def test_chance_then_break_mode_transparent_retry_success(
-        self, test_client, mock_backend
-    ):
+    async def test_retry_then_succeed(self, test_client, mock_backend):
         """Test chance_then_break performs a transparent retry that succeeds (different tool args)."""
         # This test was previously skipped, but we're restoring it now
         # Update the app config to use chance_then_break mode
@@ -314,9 +317,7 @@ class TestToolCallLoopDetection:
         )
 
     @pytest.mark.asyncio
-    async def test_chance_then_break_mode_transparent_retry_fail(
-        self, test_client, mock_backend
-    ):
+    async def test_retry_then_fail(self, test_client, mock_backend):
         """Test chance_then_break performs a transparent retry that fails (same tool args again)."""
         # This test was previously skipped, but we're restoring it now
         test_client.app.state.tool_loop_config = ToolCallLoopConfig(

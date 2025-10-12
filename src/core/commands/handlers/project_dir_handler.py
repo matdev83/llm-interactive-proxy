@@ -90,6 +90,13 @@ class ProjectDirCommandHandler(BaseCommandHandler):
         else:
             normalized_input = str(param_value)
 
+        if (
+            len(normalized_input) >= 2
+            and normalized_input[0] == normalized_input[-1]
+            and normalized_input[0] in {'"', "'"}
+        ):
+            normalized_input = normalized_input[1:-1].strip()
+
         if normalized_input == "":
             new_state = current_state.with_project_dir(None)
             return CommandHandlerResult(

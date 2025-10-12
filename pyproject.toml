@@ -82,6 +82,7 @@ dev = [
     "xenon",
     "radon",
     "types-pytz",
+    "pytest-testmon",
 
 ]
 
@@ -97,7 +98,7 @@ package-dir = {"" = "src"}
 [tool.pytest.ini_options]
 pythonpath = "."
 testpaths = ["tests"]
-addopts = "-v --asyncio-mode=auto -m \"not network and not loop_detection\" --ignore=tests/integration/test_phase2_integration.py --junit-xml=test-results.xml -W ignore -n 16 --dist=loadscope --max-worker-restart=3"
+addopts = "-v --asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n 7 --dist=loadfile --maxfail=10 -r fE"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "INFO"
@@ -382,3 +383,7 @@ ignore_names = [
     "_load_yaml_file",
     "_load_yaml_schema"
 ]
+
+[tool.testmon]
+run_variant_expression = "','.join(sorted(str(v) for v in [sys.version_info[:2], sys.platform]))"
+historian = "git"

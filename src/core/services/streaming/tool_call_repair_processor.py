@@ -10,6 +10,7 @@ from src.core.domain.streaming_response_processor import (
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
+from src.core.services.streaming.stream_utils import get_stream_id
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         else:
             self._max_buffer_bytes = 64 * 1024
 
-        self._buffer = ""  # Internal buffer for accumulating chunks
+        self._buffers: dict[str, str] = {}
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """
@@ -44,27 +45,37 @@ class ToolCallRepairProcessor(IStreamProcessor):
         if content.is_empty and not content.is_done:
             return content  # Nothing to process
 
-        incoming_text = content.content or ""
-        if incoming_text:
-            self._buffer += incoming_text
+        stream_id = get_stream_id(content)
+        buffer = self._buffers.get(stream_id, "")
+
+        buffer += content.content or ""
 
         repaired_content_parts: list[str] = []
 
-        if self._buffer:
+        if buffer:
             repaired_json = self.tool_call_repair_service.repair_tool_calls(
-                self._buffer
+                buffer
             )
             if repaired_json:
                 repaired_content_parts.append(json.dumps(repaired_json))
-                self._buffer = ""
+                buffer = ""
             else:
-                flushed = self._trim_buffer()
+                flushed = self._trim_buffer(buffer)
                 if flushed:
                     repaired_content_parts.append(flushed)
+                    buffer = buffer[len(flushed):]
 
-        if content.is_done and self._buffer:
-            repaired_content_parts.append(self._buffer)
-            self._buffer = ""
+        if content.is_done and buffer:
+            repaired_content_parts.append(buffer)
+            buffer = ""
+
+        if buffer:
+            self._buffers[stream_id] = buffer
+        else:
+            self._buffers.pop(stream_id, None)
+
+        if content.is_done or content.is_cancellation:
+            self._buffers.pop(stream_id, None)
 
         new_content_str = "".join(repaired_content_parts)
         if new_content_str or content.is_done:
@@ -82,13 +93,13 @@ class ToolCallRepairProcessor(IStreamProcessor):
             is_cancellation=content.is_cancellation,
         )  # Return empty if nothing to yield
 
-    def _trim_buffer(self) -> str:
+    def _trim_buffer(self, buffer: str) -> str:
         """Flush enough leading content to honor the buffer cap."""
 
-        if not self._buffer:
+        if not buffer:
             return ""
 
-        encoded_length = len(self._buffer.encode("utf-8"))
+        encoded_length = len(buffer.encode("utf-8"))
         if encoded_length <= self._max_buffer_bytes:
             return ""
 
@@ -96,7 +107,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         flushed_chars = []
         consumed = 0
 
-        for ch in self._buffer:
+        for ch in buffer:
             char_bytes = len(ch.encode("utf-8"))
             flushed_chars.append(ch)
             consumed += char_bytes
@@ -104,7 +115,6 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 break
 
         flush_text = "".join(flushed_chars)
-        self._buffer = self._buffer[len(flush_text) :]
 
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(

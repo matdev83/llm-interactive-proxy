@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from src.connectors.base import LLMBackend
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import (
@@ -78,3 +79,14 @@ class IBackendService(ABC):
             allow_failover=allow_failover,
             context=context,
         )
+
+    def get_backend(self, backend_type: str) -> LLMBackend:
+        """Get a backend instance synchronously (for testing purposes).
+
+        Args:
+            backend_type: The type of backend to get
+
+        Returns:
+            A backend instance
+        """
+        raise NotImplementedError("Subclasses must implement get_backend")

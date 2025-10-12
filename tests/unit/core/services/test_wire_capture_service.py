@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, LoggingConfig
 from src.core.domain.request_context import RequestContext
 from src.core.services.wire_capture_service import WireCapture
 
@@ -18,8 +18,7 @@ def _mk_ctx() -> RequestContext:
 @pytest.mark.asyncio
 async def test_wire_capture_writes_request_and_reply(tmp_path: Any) -> None:
     file_path = tmp_path / "capture.log"
-    cfg = AppConfig()
-    cfg.logging.capture_file = str(file_path)
+    cfg = AppConfig(logging=LoggingConfig(capture_file=str(file_path)))
     cap = WireCapture(cfg)
 
     assert cap.enabled() is True
@@ -57,8 +56,7 @@ async def test_wire_capture_writes_request_and_reply(tmp_path: Any) -> None:
 @pytest.mark.asyncio
 async def test_wire_capture_wraps_stream(tmp_path: Any) -> None:
     file_path = tmp_path / "capture_stream.log"
-    cfg = AppConfig()
-    cfg.logging.capture_file = str(file_path)
+    cfg = AppConfig(logging=LoggingConfig(capture_file=str(file_path)))
     cap = WireCapture(cfg)
 
     async def gen() -> AsyncIterator[bytes]:
@@ -92,11 +90,14 @@ async def test_wire_capture_wraps_stream(tmp_path: Any) -> None:
 async def test_wire_capture_rotation_and_truncate(tmp_path: Any) -> None:
     # Configure tiny max size and truncation for capture
     file_path = tmp_path / "rotate.log"
-    cfg = AppConfig()
-    cfg.logging.capture_file = str(file_path)
-    cfg.logging.capture_max_bytes = 100
-    cfg.logging.capture_truncate_bytes = 10
-    cfg.logging.capture_max_files = 2
+    cfg = AppConfig(
+        logging=LoggingConfig(
+            capture_file=str(file_path),
+            capture_max_bytes=100,
+            capture_truncate_bytes=10,
+            capture_max_files=2,
+        )
+    )
     cap = WireCapture(cfg)
 
     # Write a request longer than truncate threshold
@@ -146,11 +147,14 @@ async def test_wire_capture_rotation_and_truncate(tmp_path: Any) -> None:
         assert "[[truncated]]" in text
 
     # Add time-based rotation test
-    cfg2 = AppConfig()
     file_path2 = tmp_path / "time_rotate.log"
-    cfg2.logging.capture_file = str(file_path2)
-    cfg2.logging.capture_rotate_interval_seconds = 0
-    cfg2.logging.capture_max_files = 1
+    cfg2 = AppConfig(
+        logging=LoggingConfig(
+            capture_file=str(file_path2),
+            capture_rotate_interval_seconds=0,
+            capture_max_files=1,
+        )
+    )
     cap2 = WireCapture(cfg2)
     await cap2.capture_outbound_request(
         context=_mk_ctx(),
@@ -172,12 +176,15 @@ async def test_wire_capture_rotation_and_truncate(tmp_path: Any) -> None:
     assert file_path2.with_suffix(file_path2.suffix + ".1").exists()
 
     # Total cap test: ensure sizes do not exceed
-    cfg3 = AppConfig()
     file_path3 = tmp_path / "total_cap.log"
-    cfg3.logging.capture_file = str(file_path3)
-    cfg3.logging.capture_max_bytes = 20
-    cfg3.logging.capture_max_files = 5
-    cfg3.logging.capture_total_max_bytes = 60
+    cfg3 = AppConfig(
+        logging=LoggingConfig(
+            capture_file=str(file_path3),
+            capture_max_bytes=20,
+            capture_max_files=5,
+            capture_total_max_bytes=60,
+        )
+    )
     cap3 = WireCapture(cfg3)
     for i in range(6):
         await cap3.capture_outbound_request(

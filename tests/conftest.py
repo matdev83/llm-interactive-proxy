@@ -14,6 +14,18 @@ from src.core.interfaces.session_service_interface import ISessionService
 """Test fixtures and utilities."""
 
 
+def pytest_load_initial_conftests(args, early_config, parser):
+    # If user already set -n/--numprocesses, respect it
+    if "-n" in args or any(a.startswith("--numprocesses") for a in args):
+        return
+
+    # Simple heuristic: exactly one explicit nodeid like path::testname
+    nodeids = [a for a in args if "::" in a]
+    if len(nodeids) == 1:
+        # Prepend -n 1 so xdist sees it during option parsing
+        args[:0] = ["-n", "1"]
+
+
 # Provide env fixtures used by config tests
 @pytest.fixture
 def mock_env_vars(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:

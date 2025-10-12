@@ -3,6 +3,8 @@ Enhanced unit tests for Qwen OAuth connector's authentication mechanisms.
 
 These tests focus specifically on the OAuth authentication flow,
 token management, refresh mechanisms, and error handling.
+
+pytestmark = [pytest.mark.no_global_mock]
 """
 
 import json

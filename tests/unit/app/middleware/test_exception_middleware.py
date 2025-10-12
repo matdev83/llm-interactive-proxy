@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from src.core.app.middleware.exception_middleware import DomainExceptionMiddleware
 from src.core.common.exceptions import RateLimitExceededError
 

@@ -2,6 +2,7 @@ import os
 from unittest.mock import ANY, patch
 
 import pytest
+from src.core.config.app_config import AppConfig
 
 
 def test_cli_disable_auth_forces_localhost():
@@ -76,22 +77,21 @@ def test_auth_enabled_allows_custom_host():
 
 
 def test_config_disable_auth_forces_localhost():
-    """Test that config loading enforces localhost when disable_auth is true."""
-    from src.core.config.config_loader import ConfigLoader
+    """Test that CLI enforces localhost when disable_auth is true."""
+    from src.core.cli import _enforce_localhost_if_auth_disabled
+    from src.core.config.app_config import AuthConfig
 
-    with (
-        patch.dict(
-            os.environ,
-            {"DISABLE_AUTH": "true", "PROXY_HOST": "192.168.1.100"},
-            clear=True,
-        ),
-        patch("src.core.config.config_loader.logger") as mock_logger,
-    ):
-        loader = ConfigLoader()
-        config = loader.load_config()
-        assert config["proxy_host"] == "127.0.0.1"
-        assert config["disable_auth"]
-        mock_logger.warning.assert_called_once()
+    # Create a config with auth disabled and non-localhost host
+    auth_config = AuthConfig(disable_auth=True)
+    test_config = AppConfig(host="192.168.1.100", auth=auth_config)
+
+    # The enforcement function should force localhost
+    with patch("src.core.cli.logging") as mock_logging:
+        enforced_config = _enforce_localhost_if_auth_disabled(test_config)
+        assert enforced_config.host == "127.0.0.1"
+        assert enforced_config.auth.disable_auth
+        # Should have logged warnings
+        assert mock_logging.warning.call_count >= 2
 
 
 def test_security_documentation():

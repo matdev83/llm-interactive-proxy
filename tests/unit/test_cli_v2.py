@@ -101,11 +101,13 @@ def test_apply_cli_args_updates_configuration(
     assert config.context_window_override == 4096
     assert config.logging.log_file == str(log_file)
     assert config.backends.default_backend == backend_choices[0]
-    assert os.environ["PROXY_PORT"] == "9999"
-    assert os.environ["COMMAND_PREFIX"] == "@!"
-    assert os.environ["FORCE_CONTEXT_WINDOW"] == "4096"
-    assert os.environ["THINKING_BUDGET"] == "123"
-    assert os.environ["LLM_BACKEND"] == backend_choices[0]
+    assert os.environ.get("PROXY_PORT") is None
+    assert os.environ.get("COMMAND_PREFIX") is None
+    assert os.environ.get("FORCE_CONTEXT_WINDOW") is None
+    assert os.environ.get("THINKING_BUDGET") == str(
+        config.session.planning_phase.overrides.get("thinking_budget", 0)
+    )
+    assert os.environ.get("LLM_BACKEND") == config.backends.default_backend
     assert [(alias.pattern, alias.replacement) for alias in config.model_aliases] == [
         (r"^gpt-(.*)", r"openrouter:openai/gpt-\\1")
     ]

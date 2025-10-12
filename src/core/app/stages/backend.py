@@ -403,7 +403,16 @@ class BackendStage(InitializationStage):
                 # Replicating the logic from di/services.py's _backend_service_factory's manual creation
                 from src.core.services.backend_registry import BackendRegistry
 
-                httpx_client = provider.get_required_service(httpx.AsyncClient)
+                try:
+                    httpx_client = provider.get_required_service(httpx.AsyncClient)
+                except RuntimeError:
+                    # AsyncClient not available during validation (Infrastructure stage hasn't run yet)
+                    # Skip backend validation during this early stage
+                    logger.warning(
+                        "Skipping backend validation during early stage - infrastructure not ready"
+                    )
+                    return []
+
                 backend_registry_instance: BackendRegistry = (
                     provider.get_required_service(BackendRegistry)
                 )

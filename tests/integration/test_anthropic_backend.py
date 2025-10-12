@@ -33,12 +33,14 @@ MOCK_ANTHROPIC_RESPONSE = {
 @pytest.fixture
 def app():
     """Create a test app with Anthropic backend configuration."""
-    config = AppConfig()
+    from src.core.config.app_config import AuthConfig, BackendSettings
+
     # Configure for Anthropic backend
-    config.backends.default_backend = "anthropic"
-    config.backends["anthropic"] = BackendConfig(api_key=["test-key"])
-    # Disable authentication for tests
-    config.auth.disable_auth = True
+    anthropic_backend = BackendConfig(api_key=["test-key"])
+    backends = BackendSettings(default_backend="anthropic", anthropic=anthropic_backend)
+    auth_config = AuthConfig(disable_auth=True)
+
+    config = AppConfig(backends=backends, auth=auth_config)
     app = build_app(config=config)
     return app
 

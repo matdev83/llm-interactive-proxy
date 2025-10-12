@@ -54,10 +54,20 @@ class HelpCommandHandler(ICommandHandler):
 
         # Detailed mode using service methods
         if command.args:
-            cmd_name = command.args.get("command_name") or ""
-            if not cmd_name and command.args:
-                cmd_name = next(iter(command.args.keys()), "")
-            cmd_name = cmd_name.strip()
+            raw_cmd_name = command.args.get("command_name")
+            if not raw_cmd_name:
+                raw_cmd_name = command.args.get("command")
+
+            if not raw_cmd_name and command.args:
+                first_key, first_value = next(iter(command.args.items()))
+                if isinstance(first_value, str) and first_value.strip():
+                    raw_cmd_name = first_value
+                elif first_value:
+                    raw_cmd_name = str(first_value)
+                else:
+                    raw_cmd_name = first_key
+
+            cmd_name = str(raw_cmd_name).strip() if raw_cmd_name is not None else ""
             if cmd_name:
                 handler_class = await self._command_service.get_command_handler(cmd_name)  # type: ignore[attr-defined]
                 if handler_class is None:

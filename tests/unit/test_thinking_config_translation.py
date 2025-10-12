@@ -15,27 +15,37 @@ class TestThinkingConfigTranslation:
 
     def test_reasoning_effort_low_maps_to_512_tokens(self) -> None:
         """Test that 'low' effort maps to 512 token budget."""
-        service = TranslationService()
+        import os
 
-        request = ChatRequest(
-            model="gemini-2.5-pro",
-            messages=[{"role": "user", "content": "test"}],
-            reasoning_effort="low",
-        )
+        # Clear any THINKING_BUDGET environment variable that might interfere
+        original_thinking_budget = os.environ.pop("THINKING_BUDGET", None)
 
-        gemini_request = service.from_domain_to_gemini_request(request)
+        try:
+            service = TranslationService()
 
-        assert "generationConfig" in gemini_request
-        assert "thinkingConfig" in gemini_request["generationConfig"]
+            request = ChatRequest(
+                model="gemini-2.5-pro",
+                messages=[{"role": "user", "content": "test"}],
+                reasoning_effort="low",
+            )
 
-        thinking_config = gemini_request["generationConfig"]["thinkingConfig"]
+            gemini_request = service.from_domain_to_gemini_request(request)
 
-        # CRITICAL: Must use thinkingBudget (int), not reasoning_effort (string)
-        assert "thinkingBudget" in thinking_config
-        assert thinking_config["thinkingBudget"] == 512
+            assert "generationConfig" in gemini_request
+            assert "thinkingConfig" in gemini_request["generationConfig"]
 
-        # Should include thoughts in output
-        assert thinking_config.get("includeThoughts") is True
+            thinking_config = gemini_request["generationConfig"]["thinkingConfig"]
+
+            # CRITICAL: Must use thinkingBudget (int), not reasoning_effort (string)
+            assert "thinkingBudget" in thinking_config
+            assert thinking_config["thinkingBudget"] == 512
+
+            # Should include thoughts in output
+            assert thinking_config.get("includeThoughts") is True
+        finally:
+            # Restore original THINKING_BUDGET if it existed
+            if original_thinking_budget is not None:
+                os.environ["THINKING_BUDGET"] = original_thinking_budget
 
     def test_reasoning_effort_medium_maps_to_2048_tokens(self) -> None:
         """Test that 'medium' effort maps to 2048 token budget."""
