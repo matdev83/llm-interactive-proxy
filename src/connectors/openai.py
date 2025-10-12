@@ -71,8 +71,8 @@ class OpenAIConnector(LLMBackend):
             "DISABLE_HEALTH_CHECKS", "false"
         ).lower() in ("true", "1", "yes")
 
-        disable_health_checks_config = self.config.get(
-            "session.dangerous_command_prevention_enabled", False
+        disable_health_checks_config = bool(
+            getattr(self.config, "disable_health_checks", False)
         )
 
         # Enable health checks only when neither config nor env disable them
