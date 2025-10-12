@@ -58,6 +58,23 @@ async def test_ensure_command_service_wraps_async_callable() -> None:
     assert result.command_results == ["session"]
 
 
+@pytest.mark.asyncio
+async def test_ensure_command_service_wraps_sync_callable() -> None:
+    def handler(messages: list[str], session_id: str) -> ProcessedResult:
+        return ProcessedResult(
+            modified_messages=[value.upper() for value in messages],
+            command_executed=True,
+            command_results=[session_id],
+        )
+
+    validated_service = ensure_command_service(handler)
+
+    result = await validated_service.process_commands(["hello"], "session")
+    assert result.modified_messages == ["HELLO"]
+    assert result.command_executed is True
+    assert result.command_results == ["session"]
+
+
 def test_ensure_command_service_rejects_none() -> None:
     with pytest.raises(ValueError) as exc:
         ensure_command_service(None)
