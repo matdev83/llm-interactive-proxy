@@ -12,6 +12,7 @@ from src.connectors.openai import OpenAIConnector
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.responses import ResponseEnvelope
 from src.core.services.translation_service import TranslationService
 
 
@@ -43,6 +44,53 @@ async def test_openai_payload_contains_temperature_and_top_p(
 
     assert captured_payload.get("temperature") == 0.12
     assert captured_payload.get("top_p") == 0.34
+
+
+@pytest.mark.asyncio
+async def test_openai_connector_uses_per_call_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = httpx.AsyncClient()
+    connector = OpenAIConnector(
+        client, AppConfig(), translation_service=TranslationService()
+    )
+    connector.disable_health_check()
+    connector.api_key = None
+
+    observed_headers: list[dict[str, str] | None] = []
+
+    async def fake_handle(
+        self: OpenAIConnector,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+    ) -> ResponseEnvelope:
+        observed_headers.append(headers)
+        return ResponseEnvelope(content={}, status_code=200, headers={})
+
+    monkeypatch.setattr(
+        OpenAIConnector,
+        "_handle_non_streaming_response",
+        fake_handle,
+    )
+
+    request = ChatRequest(model="gpt-4o", messages=_messages(), stream=False)
+
+    try:
+        await connector.chat_completions(
+            request,
+            request.messages,
+            request.model,
+            api_key="per-call-token",
+        )
+    finally:
+        await client.aclose()
+
+    assert observed_headers and observed_headers[0] is not None
+    assert (
+        observed_headers[0].get("Authorization") == "Bearer per-call-token"
+    )
 
 
 @pytest.mark.asyncio

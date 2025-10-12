@@ -225,88 +225,100 @@ class OpenAIConnector(LLMBackend):
         processed_messages: list[Any],
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        api_key: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        # Allow callers to supply a one-off API key (e.g., multi-tenant flows).
+        # Temporarily replace the connector-level key for the duration of this
+        # call so that header construction and health checks use it.
+        original_api_key = self.api_key
+        if api_key is not None:
+            self.api_key = api_key
+
         # Perform health check if enabled (for subclasses that support it)
-        await self._ensure_healthy()
+        try:
+            await self._ensure_healthy()
 
-        # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
-        # (the frontend controller converts from frontend-specific format to domain format)
-        # Backends should ONLY convert FROM domain TO backend-specific format
-        # Type assertion: we know from architectural design that request_data is ChatRequest-like
-        from typing import cast
+            # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
+            # (the frontend controller converts from frontend-specific format to domain format)
+            # Backends should ONLY convert FROM domain TO backend-specific format
+            # Type assertion: we know from architectural design that request_data is ChatRequest-like
+            from typing import cast
 
-        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+            from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 
-        if not isinstance(request_data, ChatRequest):
-            raise TypeError(
-                f"Expected ChatRequest or CanonicalChatRequest, got {type(request_data).__name__}. "
-                "Backend connectors should only receive domain-format requests."
-            )
-        # Cast to CanonicalChatRequest for mypy compatibility with _prepare_payload signature
-        domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
-
-        # Ensure identity headers are scoped to the current request only.
-        self.identity = identity
-
-        # Prepare the payload using a helper so subclasses and tests can
-        # override or patch payload construction logic easily.
-        payload = await self._prepare_payload(
-            domain_request, processed_messages, effective_model
-        )
-        headers_override = kwargs.pop("headers_override", None)
-        headers: dict[str, str] | None = None
-
-        if headers_override is not None:
-            # Avoid mutating the caller-provided mapping while preserving any
-            # Authorization header we compute from the configured API key.
-            headers = dict(headers_override)
-
-            try:
-                base_headers = self.get_headers()
-            except Exception:
-                base_headers = None
-
-            if base_headers:
-                merged_headers = dict(base_headers)
-                merged_headers.update(headers)
-                headers = merged_headers
-        else:
-            try:
-                # Always update the cached identity so that per-request
-                # identity headers do not leak between calls. Downstream
-                # callers rely on identity-specific headers being scoped to
-                # a single request.
-                self.identity = identity
-                headers = self.get_headers()
-            except Exception:
-                headers = None
-
-        api_base = kwargs.get("openai_url") or self.api_base_url
-        url = f"{api_base.rstrip('/')}/chat/completions"
-
-        if domain_request.stream:
-            # Return a domain-level streaming envelope (raw bytes iterator)
-            try:
-                content_iterator = await self._handle_streaming_response(
-                    url,
-                    payload,
-                    headers,
-                    domain_request.session_id or "",
-                    "openai",
+            if not isinstance(request_data, ChatRequest):
+                raise TypeError(
+                    f"Expected ChatRequest or CanonicalChatRequest, got {type(request_data).__name__}. "
+                    "Backend connectors should only receive domain-format requests."
                 )
-            except AuthenticationError as e:
-                raise HTTPException(status_code=401, detail=str(e))
-            return StreamingResponseEnvelope(
-                content=content_iterator,
-                media_type="text/event-stream",
-                headers={},
+            # Cast to CanonicalChatRequest for mypy compatibility with _prepare_payload signature
+            domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
+
+            # Ensure identity headers are scoped to the current request only.
+            self.identity = identity
+
+            # Prepare the payload using a helper so subclasses and tests can
+            # override or patch payload construction logic easily.
+            payload = await self._prepare_payload(
+                domain_request, processed_messages, effective_model
             )
-        else:
-            # Return a domain ResponseEnvelope for non-streaming
-            return await self._handle_non_streaming_response(
-                url, payload, headers, domain_request.session_id or ""
-            )
+            headers_override = kwargs.pop("headers_override", None)
+            headers: dict[str, str] | None = None
+
+            if headers_override is not None:
+                # Avoid mutating the caller-provided mapping while preserving any
+                # Authorization header we compute from the configured API key.
+                headers = dict(headers_override)
+
+                try:
+                    base_headers = self.get_headers()
+                except Exception:
+                    base_headers = None
+
+                if base_headers:
+                    merged_headers = dict(base_headers)
+                    merged_headers.update(headers)
+                    headers = merged_headers
+            else:
+                try:
+                    # Always update the cached identity so that per-request
+                    # identity headers do not leak between calls. Downstream
+                    # callers rely on identity-specific headers being scoped to
+                    # a single request.
+                    self.identity = identity
+                    headers = self.get_headers()
+                except Exception:
+                    headers = None
+
+            api_base = kwargs.get("openai_url") or self.api_base_url
+            url = f"{api_base.rstrip('/')}/chat/completions"
+
+            if domain_request.stream:
+                # Return a domain-level streaming envelope (raw bytes iterator)
+                try:
+                    content_iterator = await self._handle_streaming_response(
+                        url,
+                        payload,
+                        headers,
+                        domain_request.session_id or "",
+                        "openai",
+                    )
+                except AuthenticationError as e:
+                    raise HTTPException(status_code=401, detail=str(e))
+                return StreamingResponseEnvelope(
+                    content=content_iterator,
+                    media_type="text/event-stream",
+                    headers={},
+                )
+            else:
+                # Return a domain ResponseEnvelope for non-streaming
+                return await self._handle_non_streaming_response(
+                    url, payload, headers, domain_request.session_id or ""
+                )
+        finally:
+            if api_key is not None:
+                self.api_key = original_api_key
 
     async def _prepare_payload(
         self,
