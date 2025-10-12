@@ -780,15 +780,17 @@ class BackendService(IBackendService):
     ) -> LLMBackend:
         """Get an existing backend or create a new one."""
 
-        cache_key = backend_type
-        if backend_type == "gemini-cli-acp":
-            cache_key = (
-                f"{backend_type}:{session_id}"
-                if session_id
-                else f"{backend_type}:default"
-            )
+        cache_key: str | None = backend_type
+        should_cache_backend = True
 
-        if cache_key in self._backends:
+        if backend_type == "gemini-cli-acp":
+            if session_id:
+                cache_key = f"{backend_type}:{session_id}"
+            else:
+                cache_key = None
+                should_cache_backend = False
+
+        if cache_key is not None and cache_key in self._backends:
             return self._backends[cache_key]
 
         try:
@@ -818,7 +820,8 @@ class BackendService(IBackendService):
             backend: LLMBackend = await self._factory.ensure_backend(
                 backend_type, app_config, provider_backend_config
             )
-            self._backends[cache_key] = backend
+            if should_cache_backend and cache_key is not None:
+                self._backends[cache_key] = backend
             return backend
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(

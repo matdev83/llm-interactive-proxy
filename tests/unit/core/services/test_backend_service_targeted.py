@@ -256,6 +256,29 @@ class TestBackendServiceTargeted:
         assert ensure_mock.await_count == 2
 
     @pytest.mark.asyncio
+    async def test_gemini_cli_acp_without_session_id_creates_fresh_backend(self):
+        """Anonymous gemini-cli-acp calls must not reuse cached connectors."""
+
+        service = create_backend_service()
+
+        backend_one = MockBackend(httpx.AsyncClient())
+        backend_two = MockBackend(httpx.AsyncClient())
+
+        ensure_mock = AsyncMock(side_effect=[backend_one, backend_two])
+
+        with patch.object(service._factory, "ensure_backend", ensure_mock):
+            first = await service._get_or_create_backend(
+                "gemini-cli-acp", session_id=None
+            )
+            second = await service._get_or_create_backend(
+                "gemini-cli-acp", session_id=None
+            )
+
+        assert first is backend_one
+        assert second is backend_two
+        assert ensure_mock.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_chat_completions_forwards_control_flags(self):
         """Ensure chat_completions forwards failover and context to call_completion."""
 
