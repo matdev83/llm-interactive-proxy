@@ -275,6 +275,50 @@ class TestToolCallReactorService:
         assert low_priority_handler.handle_call_count == 1
 
     @pytest.mark.asyncio
+    async def test_handler_cache_refresh_after_unregister(self, reactor):
+        """Handler ordering cache should refresh after unregister events."""
+
+        swallowing_result = ToolCallReactionResult(
+            should_swallow=True,
+            replacement_response="handled",
+        )
+        primary_handler = MockToolCallHandler(
+            "primary",
+            priority=100,
+            can_handle_return=True,
+            handle_result=swallowing_result,
+        )
+        secondary_handler = MockToolCallHandler(
+            "secondary",
+            priority=10,
+            can_handle_return=True,
+            handle_result=swallowing_result,
+        )
+
+        await reactor.register_handler(secondary_handler)
+        await reactor.register_handler(primary_handler)
+
+        context = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="test_tool",
+            tool_arguments={"arg": "value"},
+        )
+
+        result_first = await reactor.process_tool_call(context)
+        assert result_first is not None and result_first.should_swallow is True
+        assert primary_handler.handle_call_count == 1
+        assert secondary_handler.handle_call_count == 0
+
+        await reactor.unregister_handler(primary_handler.name)
+
+        result_second = await reactor.process_tool_call(context)
+        assert result_second is not None and result_second.should_swallow is True
+        assert secondary_handler.handle_call_count == 1
+
+    @pytest.mark.asyncio
     async def test_process_tool_call_handler_error_handling(self, reactor):
         """Test that handler errors don't crash the reactor."""
 

@@ -41,6 +41,7 @@ class ToolCallReactorService(IToolCallReactor):
         self._handlers: dict[str, IToolCallHandler] = {}
         self._history_tracker = history_tracker
         self._lock = asyncio.Lock()
+        self._handlers_cache: tuple[IToolCallHandler, ...] | None = None
 
     def register_handler_sync(self, handler: IToolCallHandler) -> None:
         """Register a tool call handler synchronously.
@@ -61,6 +62,7 @@ class ToolCallReactorService(IToolCallReactor):
             )
 
         self._handlers[handler.name] = handler
+        self._invalidate_handler_cache()
         logger.info(f"Registered tool call handler synchronously: {handler.name}")
 
     async def register_handler(self, handler: IToolCallHandler) -> None:
@@ -79,6 +81,7 @@ class ToolCallReactorService(IToolCallReactor):
                 )
 
             self._handlers[handler.name] = handler
+            self._invalidate_handler_cache()
             logger.info(f"Registered tool call handler: {handler.name}")
 
     async def unregister_handler(self, handler_name: str) -> None:
@@ -97,6 +100,7 @@ class ToolCallReactorService(IToolCallReactor):
                 )
 
             del self._handlers[handler_name]
+            self._invalidate_handler_cache()
             logger.info(f"Unregistered tool call handler: {handler_name}")
 
     async def process_tool_call(
@@ -139,11 +143,7 @@ class ToolCallReactorService(IToolCallReactor):
             )
 
         # Get handlers sorted by priority (highest first)
-        handlers = sorted(
-            self._handlers.values(),
-            key=lambda h: h.priority,
-            reverse=True,
-        )
+        handlers = self._get_handlers_by_priority()
 
         # Process through handlers
         for handler in handlers:
@@ -182,6 +182,24 @@ class ToolCallReactorService(IToolCallReactor):
             List of handler names.
         """
         return list(self._handlers.keys())
+
+    def _invalidate_handler_cache(self) -> None:
+        """Invalidate the cached handler ordering."""
+        self._handlers_cache = None
+
+    def _get_handlers_by_priority(self) -> tuple[IToolCallHandler, ...]:
+        """Return handlers sorted by priority, caching the order."""
+        cached_handlers = self._handlers_cache
+        if cached_handlers is None:
+            cached_handlers = tuple(
+                sorted(
+                    self._handlers.values(),
+                    key=lambda handler: handler.priority,
+                    reverse=True,
+                )
+            )
+            self._handlers_cache = cached_handlers
+        return cached_handlers
 
 
 class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
