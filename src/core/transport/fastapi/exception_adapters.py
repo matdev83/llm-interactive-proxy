@@ -29,6 +29,29 @@ from src.core.common.exceptions import (
 logger = logging.getLogger(__name__)
 
 
+def _safe_json_default(value: Any) -> str:
+    """Convert non-serializable objects to a safe string representation."""
+
+    try:
+        return str(value)
+    except Exception:  # pragma: no cover - extremely defensive
+        return repr(value)
+
+
+def _serialize_exception_detail(detail: Any) -> str:
+    """Serialize exception detail payloads without raising errors."""
+
+    try:
+        return json.dumps(detail, default=_safe_json_default)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Failed to serialize exception detail payload; falling back to string.",
+            exc_info=True,
+        )
+        fallback_payload = {"message": _safe_json_default(detail)}
+        return json.dumps(fallback_payload)
+
+
 def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
     """Compute a standards-compliant Retry-After header value."""
 
@@ -119,8 +142,9 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request, exc: LLMProxyError
     ) -> Response:
         http_exception = map_domain_exception_to_http_exception(exc)
+        serialized_detail = _serialize_exception_detail(http_exception.detail)
         return Response(
-            content=json.dumps(http_exception.detail),
+            content=serialized_detail,
             status_code=http_exception.status_code,
             media_type="application/json",
             headers=getattr(http_exception, "headers", None),

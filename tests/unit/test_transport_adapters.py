@@ -3,9 +3,11 @@ Tests for the transport adapters.
 """
 
 import json
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from src.core.common.exceptions import (
     AuthenticationError,
@@ -18,6 +20,7 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
+    register_exception_handlers,
 )
 from src.core.transport.fastapi.request_adapters import (
     fastapi_to_domain_request_context,
@@ -249,3 +252,23 @@ class TestExceptionAdapters:
         http_exc = map_domain_exception_to_http_exception(expired_rate_error)
         assert http_exc.status_code == 429
         assert http_exc.headers == {"Retry-After": "0"}
+
+    @pytest.mark.asyncio
+    async def test_domain_exception_handler_serializes_non_json_details(self):
+        """Ensure FastAPI handler can serialize complex detail payloads."""
+
+        app = FastAPI()
+        register_exception_handlers(app)
+
+        handler = app.exception_handlers[BackendError]
+        error = BackendError(
+            "backend exploded",
+            details={"when": datetime(2025, 1, 1, 12, 30, 15)},
+        )
+
+        response = await handler(MagicMock(), error)  # type: ignore[arg-type]
+
+        assert response.status_code == 502
+        payload = json.loads(response.body.decode("utf-8"))
+        assert payload["message"] == "backend exploded"
+        assert payload["details"]["when"].startswith("2025-01-01 12:30:15")
