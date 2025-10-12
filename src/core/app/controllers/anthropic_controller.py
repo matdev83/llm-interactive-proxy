@@ -543,6 +543,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                     session_manager,
                     backend_request_manager,
                     response_manager,
+                    app_state=app_state,
                 )
 
                 # Register it for future use
