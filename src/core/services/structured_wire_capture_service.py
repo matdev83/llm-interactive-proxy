@@ -8,7 +8,7 @@ import time
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.common.structlog_config import get_logger
@@ -19,6 +19,9 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.redaction_middleware import APIKeyRedactor
 
 logger = get_logger(__name__)
+
+MAX_REDACTION_DEPTH = 100
+REDACTION_DEPTH_PLACEHOLDER = "(redaction-depth-exceeded)"
 
 
 class StructuredWireCapture(IWireCapture):
@@ -261,15 +264,11 @@ class StructuredWireCapture(IWireCapture):
         return entry.model_dump()
 
     def _redact_payload(self, payload: Any) -> Any:
-        """Recursively redact sensitive information from payload."""
-        if isinstance(payload, dict):
-            return {k: self._redact_payload(v) for k, v in payload.items()}
-        elif isinstance(payload, list):
-            return [self._redact_payload(item) for item in payload]
-        elif isinstance(payload, str):
-            return self._redactor.redact(payload)
-        else:
-            return payload
+        """Redact sensitive information while guarding against malicious nesting."""
+
+        return _redact_payload_with_depth_limit(
+            payload, redact_str=self._redactor.redact
+        )
 
     def _extract_system_prompt(self, payload: Any) -> str | None:
         """Extract system prompt from payload if present."""
@@ -448,3 +447,48 @@ def _safe_json_dump(obj: Any) -> str:
                 exc_info=True,
             )
             return str(obj)
+
+
+def _redact_payload_with_depth_limit(
+    value: Any,
+    *,
+    redact_str: Callable[[str], str],
+    depth: int = 0,
+) -> Any:
+    """Redact nested payloads without exceeding Python's recursion limit."""
+
+    if depth >= MAX_REDACTION_DEPTH:
+        logger.warning(
+            "Maximum payload redaction depth (%d) exceeded; truncating nested structure",
+            MAX_REDACTION_DEPTH,
+        )
+        return REDACTION_DEPTH_PLACEHOLDER
+
+    if isinstance(value, dict):
+        return {
+            key: _redact_payload_with_depth_limit(
+                item, redact_str=redact_str, depth=depth + 1
+            )
+            for key, item in value.items()
+        }
+
+    if isinstance(value, list):
+        return [
+            _redact_payload_with_depth_limit(
+                item, redact_str=redact_str, depth=depth + 1
+            )
+            for item in value
+        ]
+
+    if isinstance(value, tuple):
+        return tuple(
+            _redact_payload_with_depth_limit(
+                item, redact_str=redact_str, depth=depth + 1
+            )
+            for item in value
+        )
+
+    if isinstance(value, str):
+        return redact_str(value)
+
+    return value
