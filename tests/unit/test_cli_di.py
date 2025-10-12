@@ -155,6 +155,28 @@ def test_cli_normalizes_backend_api_keys(monkeypatch: pytest.MonkeyPatch) -> Non
     assert cfg.backends.zai.api_key == ["zai-key"]
 
 
+def test_cli_planning_phase_overrides_merge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("THINKING_BUDGET", raising=False)
+    args = parse_cli_args(
+        [
+            "--thinking-budget",
+            "321",
+            "--planning-phase-temperature",
+            "0.42",
+        ]
+    )
+
+    cfg = apply_cli_args(args)
+    if isinstance(cfg, tuple):
+        cfg = cfg[0]
+
+    overrides = cfg.session.planning_phase.overrides
+    assert overrides.get("thinking_budget") == 321
+    assert overrides.get("temperature") == 0.42
+
+
 def test_cli_disable_interactive_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISABLE_INTERACTIVE_COMMANDS", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
