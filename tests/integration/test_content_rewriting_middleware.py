@@ -435,16 +435,24 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_outbound_responses_system_rewriting(self):
-        """Ensure the Responses API `system` field is rewritten."""
+    def test_outbound_responses_input_rewriting_updates_input_text(self):
+        """Ensure aggregated input_text stays in sync with rewritten inputs."""
 
         async def run_test():
             rewriter = ContentRewriterService(config_path=self.test_config_dir)
             middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
 
             payload = {
-                "system": "This is an original system prompt.",
                 "input": [
+                    {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "This is an original system prompt.",
+                            }
+                        ],
+                    },
                     {
                         "role": "user",
                         "content": [
@@ -453,7 +461,11 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                                 "text": "This is a user prompt.",
                             }
                         ],
-                    }
+                    },
+                ],
+                "input_text": [
+                    "This is an original system prompt.",
+                    "This is a user prompt.",
                 ],
             }
 
@@ -483,16 +495,16 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             await middleware.dispatch(request, call_next)
 
             call_next.assert_called_once()
-            forwarded_request = call_next.call_args[0][0]
+            new_request = call_next.call_args[0][0]
 
-            new_body = await forwarded_request.json()
+            new_body = await new_request.json()
 
             self.assertEqual(
-                new_body["system"],
+                new_body["input_text"][0],
                 "This is an rewritten system prompt.",
             )
             self.assertEqual(
-                new_body["input"][0]["content"][0]["text"],
+                new_body["input_text"][1],
                 "This is a user prompt.",
             )
 
