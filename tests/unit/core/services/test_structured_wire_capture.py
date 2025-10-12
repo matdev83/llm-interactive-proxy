@@ -1,12 +1,14 @@
 import json
 import os
 import tempfile
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
 from src.core.services.structured_wire_capture_service import StructuredWireCapture
+from src.security import APIKeyRedactor
 
 
 @pytest.fixture
@@ -351,3 +353,40 @@ def test_extract_system_prompt(structured_wire_capture):
     # No system prompt
     no_system_payload = {"messages": [{"role": "user", "content": "Hello"}]}
     assert structured_wire_capture._extract_system_prompt(no_system_payload) is None
+
+
+def _build_deeply_nested_payload(depth: int, secret: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {"layers": []}
+    current: list[Any] = payload["layers"]
+    for _ in range(depth):
+        next_level: dict[str, Any] = {"nest": []}
+        current.append(next_level)
+        current = next_level["nest"]
+    current.append(secret)
+    return payload
+
+
+def test_redact_payload_handles_deeply_nested_structures(structured_wire_capture):
+    """Structured capture redaction must survive deeply nested payloads."""
+
+    secret = "sk-deep-secret"
+    structured_wire_capture._redactor = APIKeyRedactor([secret])
+
+    payload = _build_deeply_nested_payload(1500, secret)
+
+    redacted = structured_wire_capture._redact_payload(payload)
+
+    stack: list[Any] = [redacted]
+    found_redaction = False
+    while stack:
+        current = stack.pop()
+        if isinstance(current, str):
+            assert secret not in current
+            if "(API_KEY_HAS_BEEN_REDACTED)" in current:
+                found_redaction = True
+        elif isinstance(current, dict):
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+
+    assert found_redaction, "Redacted placeholder was not found in payload"

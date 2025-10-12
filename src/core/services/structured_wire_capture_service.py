@@ -261,15 +261,71 @@ class StructuredWireCapture(IWireCapture):
         return entry.model_dump()
 
     def _redact_payload(self, payload: Any) -> Any:
-        """Recursively redact sensitive information from payload."""
-        if isinstance(payload, dict):
-            return {k: self._redact_payload(v) for k, v in payload.items()}
-        elif isinstance(payload, list):
-            return [self._redact_payload(item) for item in payload]
-        elif isinstance(payload, str):
+        """Redact sensitive information from payload data structures."""
+
+        if isinstance(payload, str):
             return self._redactor.redact(payload)
+
+        if isinstance(payload, dict):
+            redacted_root: dict[Any, Any] = {}
+            stack: list[tuple[Any, Any]] = [(payload, redacted_root)]
+        elif isinstance(payload, list):
+            redacted_root = []
+            stack = [(payload, redacted_root)]
         else:
             return payload
+
+        # Iterative traversal avoids hitting Python's recursion depth when
+        # attackers supply deeply nested structures. Using a stack also keeps
+        # memory usage bounded to the size of the payload we need to redact.
+        #
+        # Each stack entry is a pair of (source_container, target_container).
+        # Containers are either dicts or lists depending on the originating
+        # value. Strings are redacted immediately while other scalar values are
+        # copied as-is.
+        processed_ids: set[int] = set()
+
+        while stack:
+            source, target = stack.pop()
+
+            # Skip already processed containers to avoid infinite loops if we
+            # ever encounter cyclic references (these are not expected for JSON
+            # payloads but this guard keeps the middleware resilient).
+            source_id = id(source)
+            if source_id in processed_ids:
+                continue
+            processed_ids.add(source_id)
+
+            if isinstance(source, dict) and isinstance(target, dict):
+                for key, value in source.items():
+                    if isinstance(value, str):
+                        target[key] = self._redactor.redact(value)
+                    elif isinstance(value, dict):
+                        child: dict[Any, Any] = {}
+                        target[key] = child
+                        stack.append((value, child))
+                    elif isinstance(value, list):
+                        child_list: list[Any] = []
+                        target[key] = child_list
+                        stack.append((value, child_list))
+                    else:
+                        target[key] = value
+            elif isinstance(source, list) and isinstance(target, list):
+                for item in source:
+                    if isinstance(item, str):
+                        target.append(self._redactor.redact(item))
+                    elif isinstance(item, dict):
+                        child = {}
+                        target.append(child)
+                        stack.append((item, child))
+                    elif isinstance(item, list):
+                        child_list = []
+                        target.append(child_list)
+                        stack.append((item, child_list))
+                    else:
+                        target.append(item)
+
+        return redacted_root
 
     def _extract_system_prompt(self, payload: Any) -> str | None:
         """Extract system prompt from payload if present."""
