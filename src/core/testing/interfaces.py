@@ -68,11 +68,7 @@ class TestServiceValidator:
                     "properly configured MagicMock instead."
                 )
 
-            if inspect.iscoroutinefunction(method):
-                raise TypeError(
-                    f"Session service {type(service).__name__}.get_session is a coroutine "
-                    "function but should be synchronous. This will cause coroutine warnings."
-                )
+            is_coroutine = inspect.iscoroutinefunction(method)
 
             try:
                 result = method("test_session_id")
@@ -87,11 +83,25 @@ class TestServiceValidator:
                 if inspect.isawaitable(result):
                     close = getattr(result, "close", None)
                     if callable(close):
-                        close()
+                        try:
+                            close()
+                        except Exception:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Failed to close coroutine produced during validation",
+                                    exc_info=True,
+                                )
+
+                    if not is_coroutine:
+                        raise TypeError(
+                            f"Session service {type(service).__name__}.get_session() returns an "
+                            "awaitable but the method is not async. This will cause coroutine "
+                            "warnings."
+                        )
+                elif is_coroutine:
                     raise TypeError(
-                        f"Session service {type(service).__name__}.get_session() returns an "
-                        "awaitable but the method is not async. This will cause coroutine "
-                        "warnings."
+                        f"Session service {type(service).__name__}.get_session is async but "
+                        "returned a non-awaitable result when called."
                     )
 
             except (TypeError, AttributeError) as e:

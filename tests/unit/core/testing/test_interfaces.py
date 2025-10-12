@@ -72,19 +72,16 @@ class TestTestServiceValidator:
             TestServiceValidator.validate_session_service(mock_service)
 
     def test_validate_session_service_with_coroutine(self) -> None:
-        """Test validation with a service that returns coroutine function (should raise TypeError)."""
+        """Test validation with a proper coroutine implementation."""
         mock_service = MagicMock(spec=ISessionService)
 
-        async def bad_get_session(session_id: str) -> Session:
+        async def good_get_session(session_id: str) -> Session:
             return Session(session_id)
 
-        mock_service.get_session = bad_get_session
+        mock_service.get_session = good_get_session
 
-        # Should raise exception - coroutine functions cause coroutine warnings
-        with pytest.raises(
-            TypeError, match="is a coroutine function but should be synchronous"
-        ):
-            TestServiceValidator.validate_session_service(mock_service)
+        # Should not raise any exception for well-behaved coroutine implementations
+        TestServiceValidator.validate_session_service(mock_service)
 
     def test_validate_sync_method_with_async_mock(self) -> None:
         """Test validation of sync method that is AsyncMock."""
