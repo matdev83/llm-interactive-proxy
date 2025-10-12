@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator  # Added import
 import pytest
 from pytest_mock import MockerFixture
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.domain.streaming_content import StreamingContent
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
@@ -150,3 +151,29 @@ class TestStreamingToolCallRepairProcessor:
         )
         assert actual_calls[2].content == "World."
         assert actual_calls[3].is_done is True and actual_calls[3].content == ""
+
+
+class TestToolCallRepairProcessorBuffering:
+    @pytest.mark.asyncio
+    async def test_enforces_buffer_cap(self) -> None:
+        service = ToolCallRepairService(max_buffer_bytes=12)
+        processor = ToolCallRepairProcessor(service, max_buffer_bytes=12)
+
+        # Create StreamingContent with same stream_id to simulate same stream
+        from src.core.domain.streaming_content import StreamingContent
+        stream_metadata = {"stream_id": "test_stream"}
+
+        first = await processor.process(StreamingContent(content="A" * 8, metadata=stream_metadata))
+        assert first.content == ""
+
+        second = await processor.process(StreamingContent(content="B" * 8, metadata=stream_metadata))
+        # Buffer is now 16 bytes, cap is 12, so 4 bytes should be flushed
+        assert second.content == "AAAA"  # 4 bytes flushed to stay under 12 byte cap
+
+        third = await processor.process(StreamingContent(content="C" * 4, metadata=stream_metadata))
+        # Buffer is now 16 bytes again (4 A + 8 B + 4 C), exceeds 12 by 4, so 4 A's flushed
+        assert third.content == "AAAA"  # 4 remaining A's flushed
+
+        final = await processor.process(StreamingContent(content="", is_done=True, metadata=stream_metadata))
+        # End of stream flushes remaining buffer
+        assert final.content == "BBBBBBBBCCCC"  # Remaining 8 B's + 4 C's
