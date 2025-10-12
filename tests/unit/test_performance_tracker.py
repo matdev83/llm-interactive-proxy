@@ -197,3 +197,66 @@ def test_track_phase_ends_on_exception(monkeypatch):
         pass
 
     assert called == ["end"]
+
+
+def test_start_phase_switches_phases(monkeypatch: pytest.MonkeyPatch) -> None:
+    metrics = PerformanceMetrics()
+    metrics._current_phase = "command_processing"
+    metrics._markers["command_processing_start"] = 5.0
+
+    ended: list[str] = []
+
+    def fake_end_phase() -> None:
+        ended.append(metrics._current_phase or "")
+        metrics._current_phase = None
+
+    monkeypatch.setattr(metrics, "end_phase", fake_end_phase)
+    monkeypatch.setattr(performance_tracker.time, "time", lambda: 11.25)
+
+    metrics.start_phase("backend_selection")
+
+    assert ended == ["command_processing"]
+    assert metrics._current_phase == "backend_selection"
+    assert metrics._markers["backend_selection_start"] == pytest.approx(11.25)
+
+
+def test_end_phase_ignores_missing_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    metrics = PerformanceMetrics()
+    metrics._current_phase = "backend_call"
+
+    monkeypatch.setattr(performance_tracker.time, "time", lambda: 3.5)
+    metrics._markers.clear()
+
+    metrics.end_phase()
+
+    assert metrics.backend_call_time is None
+    assert metrics._current_phase is None
+
+
+def test_log_summary_finalizes_when_total_missing(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    time_stub = TimeStub([0.0, 4.0])
+    monkeypatch.setattr("src.performance_tracker.time.time", time_stub)
+
+    metrics = PerformanceMetrics(session_id="sess-1")
+    metrics.request_start = 0.0
+    metrics.backend_used = "backend-b"
+    metrics.model_used = "model-y"
+    metrics.command_processing_time = 1.5
+
+    called: list[bool] = []
+    original_finalize = metrics.finalize
+
+    def recording_finalize() -> None:
+        called.append(True)
+        original_finalize()
+
+    monkeypatch.setattr(metrics, "finalize", recording_finalize)
+
+    caplog.set_level(logging.INFO)
+    metrics.log_summary()
+
+    assert called == [True]
+    assert metrics.total_time == pytest.approx(4.0)
+    assert "PERF_SUMMARY session=sess-1" in caplog.text
