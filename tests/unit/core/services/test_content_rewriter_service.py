@@ -299,6 +299,24 @@ class TestContentRewriterService(unittest.TestCase):
         service = ContentRewriterService(config_path=self.test_config_dir)
         self.assertEqual(len(service.prompt_system_rules), 2)
 
+    def test_uses_app_config_path_when_provided(self):
+        """Service resolves configuration path from the app config when present."""
+
+        class DummyRewritingConfig:
+            def __init__(self, config_path: str) -> None:
+                self.config_path = config_path
+
+        class DummyAppConfig:
+            def __init__(self, config_path: str) -> None:
+                self.rewriting = DummyRewritingConfig(config_path)
+
+        service = ContentRewriterService(
+            app_config=DummyAppConfig(self.test_config_dir)
+        )
+
+        self.assertEqual(service.config_path, self.test_config_dir)
+        self.assertEqual(len(service.prompt_system_rules), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

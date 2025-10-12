@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from src.core.domain.replacement_rule import ReplacementMode, ReplacementRule
+
+if TYPE_CHECKING:
+    from src.core.config.app_config import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -9,8 +15,19 @@ logger = logging.getLogger(__name__)
 class ContentRewriterService:
     """Loads and applies content replacement rules."""
 
-    def __init__(self, config_path: str = "config/replacements"):
-        self.config_path = config_path
+    def __init__(
+        self,
+        config_path: str | None = None,
+        app_config: AppConfig | None = None,
+    ):
+        if config_path is not None:
+            resolved_path = config_path
+        elif app_config is not None:
+            resolved_path = app_config.rewriting.config_path
+        else:
+            resolved_path = "config/replacements"
+
+        self.config_path = resolved_path
         self.prompt_system_rules: list[ReplacementRule] = []
         self.prompt_user_rules: list[ReplacementRule] = []
         self.reply_rules: list[ReplacementRule] = []
