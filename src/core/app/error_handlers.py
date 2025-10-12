@@ -242,7 +242,19 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
     Returns:
         JSON response with error details
     """
-    logger.exception("Unhandled exception", exc_info=exc)
+    # Starlette calls exception handlers after it has already unwound the stack,
+    # so `sys.exc_info()` no longer contains the traceback for `exc`. Passing the
+    # exception object to `exc_info` does not help either because the logging
+    # module treats any non-tuple value as truthy and simply falls back to
+    # `sys.exc_info()`, which results in a `(None, None, None)` triple. This
+    # silently drops the traceback and makes debugging significantly harder.
+    #
+    # Instead, explicitly provide the exception info tuple so that the original
+    # traceback attached to the exception is preserved in the logs.
+    logger.exception(
+        "Unhandled exception",
+        exc_info=(type(exc), exc, getattr(exc, "__traceback__", None)),
+    )
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False
