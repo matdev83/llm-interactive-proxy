@@ -22,6 +22,8 @@ from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
         ("pytest some/test/path", False),
         ("pytest some/test/path::TestSuite::test_case", False),
         ("pytest tests.unit.test_example", False),
+        ("pytest test_module", False),
+        ("pytest -k slow", True),
         ("pytest .", True),
         ("pytest ./tests", False),
     ],
