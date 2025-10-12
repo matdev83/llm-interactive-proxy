@@ -10,16 +10,63 @@ This stage registers command-related services:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.command_settings_interface import ICommandSettingsService
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.state_provider_interface import (
+    ISecureStateAccess,
+    ISecureStateModification,
+)
 
 from .base import InitializationStage
 
 logger = logging.getLogger(__name__)
 
+
+class DefaultCommandStateService(ISecureStateAccess, ISecureStateModification):
+    """Lightweight state holder used when auto-registering domain commands."""
+
+    def __init__(self, settings_service: ICommandSettingsService) -> None:
+        self._settings = settings_service
+        self._routes: list[dict[str, Any]] = []
+        self._command_prefix_override: str | None = None
+        self._api_key_redaction_override: bool | None = None
+        self._disable_interactive_override: bool | None = None
+
+    def get_command_prefix(self) -> str:
+        if self._command_prefix_override is not None:
+            return self._command_prefix_override
+        return self._settings.get_command_prefix()
+
+    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+        return self._routes
+
+    def update_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+        self._routes = routes
+
+    def get_api_key_redaction_enabled(self) -> bool:
+        if self._api_key_redaction_override is not None:
+            return self._api_key_redaction_override
+        return self._settings.get_api_key_redaction_enabled()
+
+    def get_disable_interactive_commands(self) -> bool:
+        if self._disable_interactive_override is not None:
+            return self._disable_interactive_override
+        return self._settings.get_disable_interactive_commands()
+
+    def update_command_prefix(self, prefix: str) -> None:
+        if isinstance(prefix, str) and prefix:
+            self._command_prefix_override = prefix
+
+    def update_api_key_redaction(self, enabled: bool) -> None:
+        self._api_key_redaction_override = bool(enabled)
+
+    def update_interactive_commands(self, enabled: bool) -> None:
+        self._disable_interactive_override = bool(enabled)
 
 class CommandStage(InitializationStage):
     """
@@ -188,39 +235,7 @@ class CommandStage(InitializationStage):
                         ICommandSettingsService  # type: ignore[type-abstract]
                     )
 
-                    # Create a simple state service for commands
-                    class DefaultStateService(
-                        ISecureStateAccess, ISecureStateModification
-                    ):
-                        def __init__(self, settings_service):
-                            self._settings = settings_service
-                            self._routes = []
-
-                        def get_command_prefix(self):
-                            return self._settings.get_command_prefix()
-
-                        def get_failover_routes(self):
-                            return self._routes
-
-                        def update_failover_routes(self, routes):
-                            self._routes = routes
-
-                        def get_api_key_redaction_enabled(self):
-                            return self._settings.get_api_key_redaction_enabled()
-
-                        def get_disable_interactive_commands(self):
-                            return self._settings.get_disable_interactive_commands()
-
-                        def update_command_prefix(self, prefix: str) -> None:
-                            self._settings.command_prefix = prefix
-
-                        def update_api_key_redaction(self, enabled: bool) -> None:
-                            self._settings.api_key_redaction_enabled = enabled
-
-                        def update_interactive_commands(self, enabled: bool) -> None:
-                            pass
-
-                    state_service = DefaultStateService(settings_service)
+                    state_service = DefaultCommandStateService(settings_service)
 
                     # Auto-register all commands from the domain command registry
                     for (
