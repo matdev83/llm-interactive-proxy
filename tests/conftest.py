@@ -2,9 +2,9 @@ import asyncio
 import contextlib
 import importlib.util
 import inspect
-import warnings
 import sys
 import types
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -63,16 +63,17 @@ def _strip_option(args: list[str], option: str) -> None:
     while option in args:
         index = args.index(option)
         del args[index]
-        if option in {"-n", "--max-worker-restart", "--dist", "--asyncio-mode"}:
-            if index < len(args) and not args[index].startswith("-"):
-                del args[index]
+        if option in {"-n", "--max-worker-restart", "--dist", "--asyncio-mode"} and index < len(args) and not args[index].startswith("-"):
+            del args[index]
 
 
 def _ensure_option(args: list[str], option: str, value: str | None = None) -> None:
     """Append an option with an optional value when absent."""
 
     if any(
-        item == option or (value is not None and item == value) or item.startswith(f"{option}=")
+        item == option
+        or (value is not None and item == value)
+        or item.startswith(f"{option}=")
         for item in args
     ):
         return
