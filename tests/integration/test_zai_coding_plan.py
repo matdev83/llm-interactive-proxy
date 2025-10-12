@@ -18,11 +18,19 @@ async def app():
         ProcessorStage,
     )
     from src.core.app.test_builder import ApplicationTestBuilder
-    from src.core.config.app_config import AppConfig, BackendConfig
+    from src.core.config.app_config import (
+        AppConfig,
+        AuthConfig,
+        BackendConfig,
+        BackendSettings,
+    )
 
-    config = AppConfig()
-    config.auth.disable_auth = True
-    config.backends.zai_coding_plan = BackendConfig(api_key=["test-zai-key"])
+    # Create backend settings with zai configured
+    zai_backend = BackendConfig(api_key=["test-zai-key"])
+    backends = BackendSettings(zai_coding_plan=zai_backend)
+    auth_config = AuthConfig(disable_auth=True)
+
+    config = AppConfig(backends=backends, auth=auth_config)
 
     # Use ApplicationTestBuilder with real backends
     builder = ApplicationTestBuilder()

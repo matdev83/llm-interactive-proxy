@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from src.connectors.base import LLMBackend
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import (
@@ -53,7 +54,6 @@ class IBackendService(ABC):
             A tuple of (is_valid, error_message)
         """
 
-    @abstractmethod
     async def chat_completions(
         self,
         request: ChatRequest,
@@ -63,4 +63,30 @@ class IBackendService(ABC):
         context: RequestContext | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Alias for :meth:`call_completion` used by legacy callers."""
+        """Alias for :meth:`call_completion` used by legacy callers.
+
+        Implementers may override this method, but by default it simply
+        delegates to :meth:`call_completion` to avoid forcing duplicate
+        implementations when only the primary entry point is customised.
+        Additional keyword arguments are accepted for backward
+        compatibility, though they are ignored by the default
+        implementation.
+        """
+
+        return await self.call_completion(
+            request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
+
+    def get_backend(self, backend_type: str) -> LLMBackend:
+        """Get a backend instance synchronously (for testing purposes).
+
+        Args:
+            backend_type: The type of backend to get
+
+        Returns:
+            A backend instance
+        """
+        raise NotImplementedError("Subclasses must implement get_backend")

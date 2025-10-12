@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
@@ -60,7 +61,7 @@ def _extract_command(arguments: Any) -> str | None:
         command = arguments.get("command") or arguments.get("cmd")
         if isinstance(command, str) and command.strip():
             return command
-        if isinstance(command, (list, tuple)) and command:
+        if isinstance(command, list | tuple) and command:
             return " ".join(str(item) for item in command)
 
         for key in ("input", "body", "data"):
@@ -71,7 +72,7 @@ def _extract_command(arguments: Any) -> str | None:
                 sub = inner.get("command") or inner.get("cmd")
                 if isinstance(sub, str) and sub.strip():
                     return sub
-                if isinstance(sub, (list, tuple)) and sub:
+                if isinstance(sub, list | tuple) and sub:
                     return " ".join(str(item) for item in sub)
 
         args_list = arguments.get("args")
@@ -132,12 +133,32 @@ def _looks_like_full_suite(command: str) -> bool:
         # Strip trailing commas to handle cases like "pytest ,"
         stripped = token.strip(",")
 
+        # Treat plain current-directory invocations (".") as full-suite runs
+        if stripped in {".", "./", ".\\"}:
+            return True
+
         if "::" in stripped:
             return False
 
         if any(sep in stripped for sep in ("/", "\\")) or stripped.endswith(
             file_like_extensions
         ):
+            return False
+
+        candidate = stripped.rstrip("/\\")
+        if not candidate:
+            continue
+
+        # Detect directories passed as positional arguments (e.g. "pytest tests")
+        # which indicate a targeted run rather than the entire suite.
+        candidate_path = Path(candidate)
+        if candidate_path.is_dir():
+            return False
+
+        # Support module-style selectors such as "pytest tests.unit.test_example"
+        # by considering any dotted path that is not a Python file extension as
+        # a targeted run.
+        if "." in candidate and not candidate.endswith(file_like_extensions):
             return False
 
     return True

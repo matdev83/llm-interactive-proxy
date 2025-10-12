@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 import unittest
 
 from src.core.domain.replacement_rule import ReplacementMode
@@ -8,10 +9,8 @@ from src.core.services.content_rewriter_service import ContentRewriterService
 
 class TestContentRewriterService(unittest.TestCase):
     def setUp(self):
-        self.test_config_dir = "test_config"
-        # Clean up any previous test directories
-        if os.path.exists(self.test_config_dir):
-            shutil.rmtree(self.test_config_dir)
+        # Use a temporary directory to avoid Windows permission issues
+        self.test_config_dir = tempfile.mkdtemp(prefix="test_config_")
 
         # Create directories for different rule types
         os.makedirs(
@@ -127,7 +126,31 @@ class TestContentRewriterService(unittest.TestCase):
             f.write("rewritten reply")
 
     def tearDown(self):
-        shutil.rmtree(self.test_config_dir)
+        # More robust cleanup for Windows file systems
+        try:
+            shutil.rmtree(self.test_config_dir, ignore_errors=True)
+        except (OSError, PermissionError):
+            # Windows file system cleanup issues - try multiple times
+            import time
+
+            for attempt in range(3):
+                try:
+                    time.sleep(0.1)
+                    shutil.rmtree(self.test_config_dir, ignore_errors=True)
+                    break
+                except (OSError, PermissionError):
+                    if attempt == 2:
+                        # Final attempt - try to remove as much as possible
+                        try:
+                            import atexit
+
+                            atexit.register(
+                                lambda: shutil.rmtree(
+                                    self.test_config_dir, ignore_errors=True
+                                )
+                            )
+                        except:
+                            pass
 
     def test_load_rules(self):
         service = ContentRewriterService(config_path=self.test_config_dir)

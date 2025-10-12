@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
 
@@ -29,7 +27,16 @@ class _MockAsyncClient:
 async def test_health_check_uses_load_code_assist_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    backend = GeminiOAuthPersonalConnector(client=_MockAsyncClient(), config=SimpleNamespace(), translation_service=SimpleNamespace())  # type: ignore[arg-type]
+    from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
+
+    config = AppConfig()
+    translation_service = TranslationService()
+    backend = GeminiOAuthPersonalConnector(
+        client=_MockAsyncClient(),
+        config=config,
+        translation_service=translation_service,
+    )
     # Inject minimal state for OAuth
     backend._oauth_credentials = {"access_token": "token"}  # type: ignore[attr-defined]
     backend.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"  # type: ignore[attr-defined]

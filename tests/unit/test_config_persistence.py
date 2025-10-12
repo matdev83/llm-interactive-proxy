@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 
@@ -10,13 +12,13 @@ def functional_backend() -> str:
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
-from src.core.common.exceptions import ConfigurationError
+from src.core.common.exceptions import ConfigurationError, JSONParsingError
 from src.core.config.app_config import load_config
 from src.core.persistence import ConfigManager
 
 
 @pytest.fixture(autouse=True)
-def manage_env_vars(monkeypatch):
+def manage_env_vars(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-proxy-key")
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "dummy_or_key")
     monkeypatch.setenv("GEMINI_API_KEY_1", "dummy_gem_key")
@@ -27,7 +29,7 @@ def manage_env_vars(monkeypatch):
 
 
 def test_save_and_load_persistent_config(
-    tmp_path, monkeypatch, functional_backend: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, functional_backend: str
 ):
     cfg_path = tmp_path / "cfg.yaml"
     # Ensure a clean slate for keys that might be set by other tests or global env
@@ -41,15 +43,31 @@ def test_save_and_load_persistent_config(
     with TestClient(
         app
     ) as client:  # Auth headers not needed if client fixture handles it
-        client.app.state.app_config.failover_routes["r1"] = {  # type: ignore
+        # Create a modified config with updated values (config is frozen, so we use model_copy)
+
+        # Use model_copy to efficiently create updated configuration
+        updated_failover_routes = dict(client.app.state.app_config.failover_routes)
+        updated_failover_routes["r1"] = {
             "policy": "k",
             "elements": ["openrouter:model-a"],
         }
-        client.app.state.app_config.session.default_interactive_mode = True  # type: ignore
-        client.app.state.app_config.backends.default_backend = functional_backend  # type: ignore
-        client.app.state.app_config.auth.redact_api_keys_in_prompts = False  # type: ignore
-        client.app.state.app_config.command_prefix = "$/"  # type: ignore
-        client.app.state.app_config.save(cfg_path)  # type: ignore
+
+        updated_config = client.app.state.app_config.model_copy(
+            update={
+                "command_prefix": "$/",
+                "backends": client.app.state.app_config.backends.model_copy(
+                    update={"default_backend": functional_backend}
+                ),
+                "auth": client.app.state.app_config.auth.model_copy(
+                    update={"redact_api_keys_in_prompts": False}
+                ),
+                "session": client.app.state.app_config.session.model_copy(
+                    update={"default_interactive_mode": True}
+                ),
+                "failover_routes": updated_failover_routes,
+            }
+        )
+        updated_config.save(cfg_path)  # type: ignore
 
     import yaml
 
@@ -108,7 +126,9 @@ def test_save_and_load_persistent_config(
             )  # If no "r1" route, expected_elements should be empty
 
 
-def test_invalid_persisted_backend(tmp_path, monkeypatch, functional_backend: str):
+def test_invalid_persisted_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, functional_backend: str
+):
     cfg_path = tmp_path / "cfg.yaml"
     # Persist an invalid default_backend
     import yaml
@@ -142,6 +162,18 @@ def test_invalid_persisted_backend(tmp_path, monkeypatch, functional_backend: st
     monkeypatch.delenv("OPENROUTER_API_KEY_1", raising=False)  # Clean up
     monkeypatch.delenv("DEFAULT_BACKEND", raising=False)
     monkeypatch.delenv("LLM_BACKEND", raising=False)
+
+
+def test_load_rejects_non_object_json(tmp_path):
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text("[]", encoding="utf-8")
+
+    manager = ConfigManager(FastAPI(), str(cfg_path))
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        manager.load()
+
+    assert "JSON object" in str(exc_info.value)
 
 
 pytestmark = pytest.mark.filterwarnings(
@@ -193,3 +225,16 @@ def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
         "backend": "nonexistent",
         "functional_backends": ["openai"],
     }
+
+
+def test_load_raises_json_parsing_error_for_invalid_json(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text("{not: valid json}")
+
+    app = FastAPI()
+    manager = ConfigManager(app, path=str(cfg_path))
+
+    with pytest.raises(JSONParsingError) as exc_info:
+        manager.load()
+
+    assert "Failed to parse config file" in str(exc_info.value)

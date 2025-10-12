@@ -248,7 +248,7 @@ class TestMultimodalMessage:
         assert isinstance(result["parts"], list)
         assert len(result["parts"]) == 2
         assert "text" in result["parts"][0]
-        assert "inline_data" in result["parts"][1]
+        assert "file_data" in result["parts"][1]
 
     def test_backend_format_selection(self) -> None:
         """Test selecting the correct backend format."""

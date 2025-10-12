@@ -10,8 +10,63 @@ from typing import Any, cast
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from src.core.config.config_loader import _collect_api_keys
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
+
+
+def _collect_api_keys_from_env(
+    base_name: str,
+    env: Mapping[str, str],
+    resolution: ParameterResolution | None = None,
+) -> dict[str, str]:
+    """Collect API keys from environment variables with parameter resolution tracking."""
+    single_key = env.get(base_name)
+    numbered_keys: dict[str, str] = {}
+    numbered_key_names = []
+    for i in range(1, 21):
+        key_name = f"{base_name}_{i}"
+        key = env.get(key_name)
+        if key:
+            numbered_keys[key_name] = key
+            numbered_key_names.append(key_name)
+
+    if single_key and numbered_keys:
+        logger.warning(
+            "Both %s and %s_<n> environment variables are set. Prioritizing %s_<n> and ignoring %s.",
+            base_name,
+            base_name,
+            base_name,
+            base_name,
+        )
+        if resolution is not None:
+            resolution.record(
+                f"backends.{base_name.lower().replace('_', '')}.api_key",
+                list(numbered_keys.values()),
+                ParameterSource.ENVIRONMENT,
+                origin=",".join(numbered_key_names),
+            )
+        return numbered_keys
+
+    if single_key:
+        result = {base_name: single_key}
+        if resolution is not None:
+            resolution.record(
+                f"backends.{base_name.lower().replace('_', '')}.api_key",
+                list(result.values()),
+                ParameterSource.ENVIRONMENT,
+                origin=base_name,
+            )
+        return result
+
+    if resolution is not None and numbered_keys:
+        resolution.record(
+            f"backends.{base_name.lower().replace('_', '')}.api_key",
+            list(numbered_keys.values()),
+            ParameterSource.ENVIRONMENT,
+            origin=",".join(numbered_key_names),
+        )
+    return numbered_keys
+
+
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import (
     HeaderConfig,
@@ -168,6 +223,8 @@ class LogLevel(str, Enum):
 class BackendConfig(DomainModel):
     """Configuration for a backend service."""
 
+    model_config = ConfigDict(frozen=True)
+
     api_key: list[str] = Field(default_factory=list)
     api_url: str | None = None
     models: list[str] = Field(default_factory=list)
@@ -195,6 +252,8 @@ class BackendConfig(DomainModel):
 class AuthConfig(DomainModel):
     """Authentication configuration."""
 
+    model_config = ConfigDict(frozen=True)
+
     disable_auth: bool = False
     api_keys: list[str] = Field(default_factory=list)
     auth_token: str | None = None
@@ -208,6 +267,8 @@ class AuthConfig(DomainModel):
 class BruteForceProtectionConfig(DomainModel):
     """Configuration for brute-force protection on API authentication."""
 
+    model_config = ConfigDict(frozen=True)
+
     enabled: bool = True
     max_failed_attempts: int = 5
     ttl_seconds: int = 900
@@ -218,6 +279,8 @@ class BruteForceProtectionConfig(DomainModel):
 
 class LoggingConfig(DomainModel):
     """Logging configuration."""
+
+    model_config = ConfigDict(frozen=True)
 
     level: LogLevel = LogLevel.INFO
     request_logging: bool = False
@@ -257,6 +320,8 @@ class ToolCallReactorConfig(DomainModel):
     The Tool Call Reactor provides event-driven reactions to tool calls
     from LLMs, allowing custom handlers to monitor, modify, or replace responses.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     enabled: bool = True
     """Whether the Tool Call Reactor is enabled."""
@@ -301,6 +366,8 @@ class ToolCallReactorConfig(DomainModel):
 class PlanningPhaseConfig(DomainModel):
     """Configuration for planning phase model routing."""
 
+    model_config = ConfigDict(frozen=True)
+
     enabled: bool = False
     strong_model: str | None = None
     max_turns: int = 10
@@ -311,6 +378,8 @@ class PlanningPhaseConfig(DomainModel):
 
 class SessionConfig(DomainModel):
     """Session management configuration."""
+
+    model_config = ConfigDict(frozen=True)
 
     cleanup_enabled: bool = True
     cleanup_interval: int = 3600  # 1 hour
@@ -338,32 +407,47 @@ class SessionConfig(DomainModel):
     pytest_full_suite_steering_message: str | None = None
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
 
-    @model_validator(mode="after")
-    def _sync_pytest_full_suite_settings(self) -> SessionConfig:
+    @model_validator(mode="before")
+    @classmethod
+    def _sync_pytest_full_suite_settings(cls, values: dict[str, Any]) -> dict[str, Any]:
         """Keep pytest full-suite steering settings mirrored with reactor config."""
-        if self.pytest_full_suite_steering_enabled is not None:
-            self.tool_call_reactor.pytest_full_suite_steering_enabled = (
-                self.pytest_full_suite_steering_enabled
-            )
+        reactor_config = values.get("tool_call_reactor")
+
+        # Convert to dict if it's already a ToolCallReactorConfig instance
+        if isinstance(reactor_config, ToolCallReactorConfig):
+            reactor_config_dict = reactor_config.model_dump()
+        elif isinstance(reactor_config, dict):
+            reactor_config_dict = dict(reactor_config)
         else:
-            self.pytest_full_suite_steering_enabled = (
-                self.tool_call_reactor.pytest_full_suite_steering_enabled
+            reactor_config_dict = {}
+
+        enabled = values.get("pytest_full_suite_steering_enabled")
+        message = values.get("pytest_full_suite_steering_message")
+
+        # Update the dict instead of mutating frozen model
+        if enabled is not None:
+            reactor_config_dict["pytest_full_suite_steering_enabled"] = enabled
+        else:
+            values["pytest_full_suite_steering_enabled"] = reactor_config_dict.get(
+                "pytest_full_suite_steering_enabled", False
             )
 
-        if self.pytest_full_suite_steering_message is not None:
-            self.tool_call_reactor.pytest_full_suite_steering_message = (
-                self.pytest_full_suite_steering_message
-            )
+        if message is not None:
+            reactor_config_dict["pytest_full_suite_steering_message"] = message
         else:
-            self.pytest_full_suite_steering_message = (
-                self.tool_call_reactor.pytest_full_suite_steering_message
+            values["pytest_full_suite_steering_message"] = reactor_config_dict.get(
+                "pytest_full_suite_steering_message"
             )
 
-        return self
+        # Store the dict - Pydantic will convert it to ToolCallReactorConfig
+        values["tool_call_reactor"] = reactor_config_dict
+        return values
 
 
 class EmptyResponseConfig(DomainModel):
     """Configuration for empty response handling."""
+
+    model_config = ConfigDict(frozen=True)
 
     enabled: bool = True
     """Whether the empty response recovery is enabled."""
@@ -375,12 +459,16 @@ class EmptyResponseConfig(DomainModel):
 class ModelAliasRule(DomainModel):
     """A rule for rewriting a model name."""
 
+    model_config = ConfigDict(frozen=True)
+
     pattern: str
     replacement: str
 
 
 class RewritingConfig(DomainModel):
     """Configuration for content rewriting."""
+
+    model_config = ConfigDict(frozen=True)
 
     enabled: bool = False
     config_path: str = "config/replacements"
@@ -392,6 +480,8 @@ class EditPrecisionConfig(DomainModel):
     When enabled, detects agent edit-failure prompts and lowers sampling
     parameters for the next single call to improve precision.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     enabled: bool = True
     temperature: float = 0.1
@@ -413,14 +503,20 @@ from src.core.services.backend_registry import (
 
 
 class BackendSettings(DomainModel):
-    """Settings for all backends."""
+    """Settings for all backends.
+
+    Note: This class is intentionally not frozen because it needs to support
+    dynamic backend configurations that are added at runtime. Backend configs
+    are stored in __dict__ to allow attribute-style access (e.g., config.backends.openai)
+    without pre-defining all possible backends as fields.
+    """
+
+    model_config = ConfigDict(frozen=False, extra="allow")
 
     default_backend: str = "openai"
     static_route: str | None = (
         None  # Force all requests to backend:model (e.g., "gemini-cli-oauth-personal:gemini-2.5-pro")
     )
-    # Store backend configs as dynamic fields
-    model_config = ConfigDict(extra="allow")
 
     def __init__(self, **data: Any) -> None:
         # Extract backend configs from data before calling super().__init__
@@ -580,7 +676,7 @@ class BackendSettings(DomainModel):
 class AppConfig(DomainModel, IConfig):
     """Complete application configuration."""
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     host: str = "0.0.0.0"
     port: int = 8000
@@ -589,6 +685,9 @@ class AppConfig(DomainModel, IConfig):
     command_prefix: str = "!/"
     strict_command_detection: bool = False
     context_window_override: int | None = None  # Override context window for all models
+    gcp_project_id: str | None = None
+    gemini_credentials_path: str | None = None
+    disable_health_checks: bool = False
 
     # Rate limit settings
     default_rate_limit: int = 60
@@ -699,6 +798,33 @@ class AppConfig(DomainModel, IConfig):
         # Build configuration from environment
         config: dict[str, Any] = {
             # Server settings
+            "gcp_project_id": _get_env_value(
+                env,
+                "GOOGLE_CLOUD_PROJECT",
+                _get_env_value(
+                    env,
+                    "GCP_PROJECT_ID",
+                    None,
+                    path="gcp_project_id",
+                    resolution=resolution,
+                ),
+                path="gcp_project_id",
+                resolution=resolution,
+            ),
+            "gemini_credentials_path": _get_env_value(
+                env,
+                "GEMINI_CREDENTIALS_PATH",
+                None,
+                path="gemini_credentials_path",
+                resolution=resolution,
+            ),
+            "disable_health_checks": _env_to_bool(
+                "DISABLE_HEALTH_CHECKS",
+                False,
+                env,
+                path="disable_health_checks",
+                resolution=resolution,
+            ),
             "host": _get_env_value(
                 env,
                 "APP_HOST",
@@ -1317,7 +1443,9 @@ class AppConfig(DomainModel, IConfig):
         assert isinstance(config_backends, dict)
 
         # Collect and assign API keys for specific backends
-        openrouter_keys: dict[str, str] = _collect_api_keys("OPENROUTER_API_KEY")
+        openrouter_keys = _collect_api_keys_from_env(
+            "OPENROUTER_API_KEY", env, resolution
+        )
         if openrouter_keys:
             config_backends["openrouter"] = config_backends.get("openrouter", {})
             config_backends["openrouter"]["api_key"] = list(openrouter_keys.values())
@@ -1346,7 +1474,9 @@ class AppConfig(DomainModel, IConfig):
                     origin="OPENROUTER_API_KEY*",
                 )
 
-        gemini_keys: dict[str, str] = _collect_api_keys("GEMINI_API_KEY")
+        gemini_keys: dict[str, str] = _collect_api_keys_from_env(
+            "GEMINI_API_KEY", env, resolution
+        )
         if gemini_keys:
             config_backends["gemini"] = config_backends.get("gemini", {})
             config_backends["gemini"]["api_key"] = list(gemini_keys.values())
@@ -1375,7 +1505,9 @@ class AppConfig(DomainModel, IConfig):
                     origin="GEMINI_API_KEY*",
                 )
 
-        anthropic_keys: dict[str, str] = _collect_api_keys("ANTHROPIC_API_KEY")
+        anthropic_keys: dict[str, str] = _collect_api_keys_from_env(
+            "ANTHROPIC_API_KEY", env, resolution
+        )
         if anthropic_keys:
             config_backends["anthropic"] = config_backends.get("anthropic", {})
             config_backends["anthropic"]["api_key"] = list(anthropic_keys.values())
@@ -1404,7 +1536,9 @@ class AppConfig(DomainModel, IConfig):
                     origin="ANTHROPIC_API_KEY*",
                 )
 
-        zai_keys: dict[str, str] = _collect_api_keys("ZAI_API_KEY")
+        zai_keys: dict[str, str] = _collect_api_keys_from_env(
+            "ZAI_API_KEY", env, resolution
+        )
         if zai_keys:
             config_backends["zai"] = config_backends.get("zai", {})
             config_backends["zai"]["api_key"] = list(zai_keys.values())
@@ -1433,7 +1567,9 @@ class AppConfig(DomainModel, IConfig):
                     origin="ZAI_API_KEY*",
                 )
 
-        openai_keys: dict[str, str] = _collect_api_keys("OPENAI_API_KEY")
+        openai_keys: dict[str, str] = _collect_api_keys_from_env(
+            "OPENAI_API_KEY", env, resolution
+        )
         if openai_keys:
             config_backends["openai"] = config_backends.get("openai", {})
             config_backends["openai"]["api_key"] = list(openai_keys.values())
@@ -1506,6 +1642,10 @@ class AppConfig(DomainModel, IConfig):
         # For simplicity, we'll only handle top-level attributes
         # In a more complex implementation, we might want to handle nested attributes
         setattr(self, key, value)
+
+    def get_gcp_project_id(self) -> str | None:
+        """Return the GCP Project ID."""
+        return self.gcp_project_id
 
 
 def _merge_dicts(d1: dict[str, Any], d2: dict[str, Any]) -> dict[str, Any]:

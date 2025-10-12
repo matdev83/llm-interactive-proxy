@@ -88,4 +88,4 @@ async def test_streaming_response_converted_to_anthropic() -> None:
     assert third_payload["type"] == "message_delta"
     assert third_payload["delta"]["stop_reason"] == "end_turn"
 
-    assert chunks[3] == "data: [DONE]\n\n"
+    assert chunks[3] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'

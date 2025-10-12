@@ -797,6 +797,7 @@ class Translation(BaseTranslator):
             tool_choice = request.get("tool_choice")
             seed = request.get("seed")
             reasoning_effort = request.get("reasoning_effort")
+            reasoning_payload = request.get("reasoning")
         else:
             model = getattr(request, "model", None)
             messages = getattr(request, "messages", [])
@@ -810,6 +811,19 @@ class Translation(BaseTranslator):
             tool_choice = getattr(request, "tool_choice", None)
             seed = getattr(request, "seed", None)
             reasoning_effort = getattr(request, "reasoning_effort", None)
+            reasoning_payload = getattr(request, "reasoning", None)
+
+        if reasoning_effort in ("", None) and isinstance(reasoning_payload, dict):
+            raw_effort = reasoning_payload.get("effort")
+            if isinstance(raw_effort, str) and raw_effort.strip():
+                reasoning_effort = raw_effort
+
+        normalized_reasoning: dict[str, Any] | None = None
+        if reasoning_payload:
+            if isinstance(reasoning_payload, dict):
+                normalized_reasoning = dict(reasoning_payload)
+            elif hasattr(reasoning_payload, "model_dump"):
+                normalized_reasoning = reasoning_payload.model_dump()  # type: ignore[attr-defined]
 
         if not model:
             raise ValueError("Model not found in request")
@@ -835,6 +849,7 @@ class Translation(BaseTranslator):
             tool_choice=tool_choice,
             seed=seed,
             reasoning_effort=reasoning_effort,
+            reasoning=normalized_reasoning,
         )
 
     @staticmethod
@@ -929,7 +944,7 @@ class Translation(BaseTranslator):
             return Translation.openai_to_domain_response(response)
 
         # If the backend already returned OpenAI-style choices, reuse that logic.
-        if response.get("choices"):
+        if response.get("choices") and not response.get("output"):
             return Translation.openai_to_domain_response(response)
 
         output_items = response.get("output") or []
@@ -1726,6 +1741,29 @@ class Translation(BaseTranslator):
         if request.tool_choice is not None:
             payload["tool_choice"] = request.tool_choice
 
+        # Handle OpenAI reasoning configuration
+        reasoning_payload: dict[str, Any] | None = None
+        if request.reasoning is not None:
+            if isinstance(request.reasoning, dict):
+                reasoning_payload = dict(request.reasoning)
+            elif hasattr(request.reasoning, "model_dump"):
+                reasoning_payload = request.reasoning.model_dump()  # type: ignore[attr-defined]
+
+        effort_value = request.reasoning_effort
+        if isinstance(effort_value, str):
+            normalized_effort = effort_value.strip()
+        else:
+            normalized_effort = effort_value
+
+        if normalized_effort:
+            if reasoning_payload is None:
+                reasoning_payload = {}
+            if "effort" not in reasoning_payload:
+                reasoning_payload["effort"] = effort_value
+
+        if reasoning_payload:
+            payload["reasoning"] = reasoning_payload
+
         # Handle structured output for Responses API
         if request.extra_body and "response_format" in request.extra_body:
             response_format = request.extra_body["response_format"]
@@ -2373,6 +2411,19 @@ class Translation(BaseTranslator):
 
         # Convert choices to Responses API format
         choices = []
+        output_items: list[dict[str, Any]] = []
+        aggregated_output_text: list[str | None] = []
+
+        def _map_finish_reason_to_status(finish_reason: str | None) -> str:
+            if finish_reason in (None, "", "stop"):
+                return "completed"
+            if finish_reason == "length":
+                return "incomplete"
+            if finish_reason in {"tool_calls", "function_call"}:
+                return "requires_action"
+            if finish_reason == "content_filter":
+                return "blocked"
+            return "completed"
         for choice in response.choices:
             if choice.message:
                 # Try to parse the content as JSON for structured output
@@ -2461,6 +2512,49 @@ class Translation(BaseTranslator):
                 }
                 choices.append(response_choice)
 
+                # Build Responses API output structure (mirrors incoming payloads)
+                text_value = (
+                    message_payload.get("content")
+                    if isinstance(message_payload.get("content"), str)
+                    else None
+                )
+                if text_value:
+                    aggregated_output_text.append(text_value)
+                else:
+                    aggregated_output_text.append(None)
+
+                output_content_parts: list[dict[str, Any]] = []
+
+                if text_value:
+                    output_content_parts.append(
+                        {"type": "output_text", "text": text_value}
+                    )
+
+                if tool_calls_payload:
+                    for tool_call in tool_calls_payload:
+                        output_content_parts.append(
+                            {
+                                "type": "tool_call",
+                                "id": tool_call.get("id"),
+                                "function": tool_call.get("function"),
+                            }
+                        )
+
+                output_item = {
+                    "id": f"msg-{response.id}-{choice.index}",
+                    "type": "message",
+                    "role": choice.message.role,
+                    "status": _map_finish_reason_to_status(
+                        choice.finish_reason
+                    ),
+                    "content": output_content_parts,
+                }
+
+                if choice.finish_reason:
+                    output_item["finish_reason"] = choice.finish_reason
+
+                output_items.append(output_item)
+
         # Build the Responses API response
         responses_response = {
             "id": response.id,
@@ -2469,6 +2563,17 @@ class Translation(BaseTranslator):
             "model": response.model,
             "choices": choices,
         }
+
+        if output_items:
+            responses_response["output"] = output_items
+
+            # Only include output_text if we have any textual content
+            text_values = [text for text in aggregated_output_text if text is not None]
+            if text_values:
+                responses_response["output_text"] = [
+                    text if text is not None else ""
+                    for text in aggregated_output_text
+                ]
 
         # Add usage information if available
         if response.usage:

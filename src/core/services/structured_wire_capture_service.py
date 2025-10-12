@@ -14,6 +14,7 @@ from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.common.structlog_config import get_logger
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
+from src.core.domain.wire_capture import create_wire_capture_entry
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.redaction_middleware import APIKeyRedactor
 
@@ -214,15 +215,15 @@ class StructuredWireCapture(IWireCapture):
         """Create a structured JSON entry with all required fields."""
         # Get timestamp in both ISO and human-readable formats
         utc_now = datetime.now(timezone.utc)
-        iso_timestamp = utc_now.isoformat(timespec="milliseconds") + "Z"
+        utc_now.isoformat(timespec="milliseconds") + "Z"
 
         # Use local time for human-readable timestamp (based on system timezone)
         local_time = datetime.now()
-        human_timestamp = local_time.strftime("%Y-%m-%d %H:%M:%S")
+        local_time.strftime("%Y-%m-%d %H:%M:%S")
 
         # Extract source and destination info
-        client_host = getattr(context, "client_host", None) if context else None
-        agent = getattr(context, "agent", None) if context else None
+        getattr(context, "client_host", None) if context else None
+        getattr(context, "agent", None) if context else None
 
         # Calculate byte count if not provided
         if byte_count is None:
@@ -237,43 +238,27 @@ class StructuredWireCapture(IWireCapture):
             except Exception:
                 byte_count = -1
 
-        # Create the standard entry structure
-        entry = {
-            "timestamp": {
-                "iso": iso_timestamp,
-                "human_readable": human_timestamp,
-            },
-            "communication": {
-                "flow": flow,
-                "direction": direction,
-                "source": (
-                    client_host or "unknown"
-                    if flow == "frontend_to_backend"
-                    else backend
-                ),
-                "destination": (
-                    backend
-                    if flow == "frontend_to_backend"
-                    else client_host or "unknown"
-                ),
-            },
-            "metadata": {
-                "session_id": session_id,
-                "agent": agent,
-                "backend": backend,
-                "model": model,
-                "key_name": key_name,
-                "byte_count": byte_count,
-            },
-            "payload": self._redact_payload(payload),
-        }
+        # Create entry using Pydantic models
+        entry = create_wire_capture_entry(
+            flow=flow,
+            direction=direction,
+            context=context,
+            session_id=session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            payload=self._redact_payload(payload),
+            byte_count=byte_count,
+        )
 
         # Extract and include system prompts if present
         system_prompt = self._extract_system_prompt(payload)
         if system_prompt:
-            entry["metadata"]["system_prompt"] = system_prompt
+            entry_dict = entry.model_dump()
+            entry_dict["metadata"]["system_prompt"] = system_prompt
+            return entry_dict
 
-        return entry
+        return entry.model_dump()
 
     def _redact_payload(self, payload: Any) -> Any:
         """Recursively redact sensitive information from payload."""

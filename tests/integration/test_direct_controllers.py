@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from src.core.app.controllers import get_chat_controller_if_available
 from src.core.app.controllers.chat_controller import ChatController
+from src.core.services.translation_service import TranslationService
 
 
 @pytest.fixture
@@ -67,7 +68,10 @@ async def setup_app(app: FastAPI) -> AsyncGenerator[dict[str, Any], None]:
 
     mock_controller.handle_chat_completion = mock_handle_chat_completion
     # Use the real ChatController with our mock request processor
-    real_controller = ChatController(mock_request_processor)
+    translation_service = TranslationService()
+    real_controller = ChatController(
+        mock_request_processor, translation_service=translation_service
+    )
     mock_provider.get_service.side_effect = lambda cls: (
         real_controller if cls == ChatController else mock_request_processor
     )
