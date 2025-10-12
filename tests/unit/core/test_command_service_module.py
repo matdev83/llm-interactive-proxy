@@ -1,4 +1,5 @@
 import pytest
+
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service import ensure_command_service
 from src.core.interfaces.command_service_interface import ICommandService
@@ -44,6 +45,23 @@ async def test_ensure_command_service_wraps_async_callable() -> None:
 
     result = await validated_service.process_commands(["message"], "session")
     assert result.modified_messages == ["session:message"]
+    assert result.command_executed is True
+    assert result.command_results == ["session"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_command_service_wraps_sync_callable() -> None:
+    def handler(messages: list[str], session_id: str) -> ProcessedResult:
+        return ProcessedResult(
+            modified_messages=[value.upper() for value in messages],
+            command_executed=True,
+            command_results=[session_id],
+        )
+
+    validated_service = ensure_command_service(handler)
+
+    result = await validated_service.process_commands(["hello"], "session")
+    assert result.modified_messages == ["HELLO"]
     assert result.command_executed is True
     assert result.command_results == ["session"]
 

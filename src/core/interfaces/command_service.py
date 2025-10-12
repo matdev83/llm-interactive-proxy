@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -24,7 +25,18 @@ class FunctionCommandService(ICommandService):
     async def process_commands(
         self, messages: list[Any], session_id: str
     ) -> ProcessedResult:
-        return await self._handler(messages, session_id)
+        result = self._handler(messages, session_id)
+
+        if inspect.isawaitable(result):
+            return await result
+
+        if isinstance(result, ProcessedResult):
+            return result
+
+        raise TypeError(
+            "The command service handler must return a ProcessedResult or an awaitable"
+            " resolving to ProcessedResult."
+        )
 
 
 def ensure_command_service(
