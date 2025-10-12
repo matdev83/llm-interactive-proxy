@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator  # Added import
 
 import pytest
 from pytest_mock import MockerFixture
+from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
@@ -72,8 +73,6 @@ class TestStreamingToolCallRepairProcessor:
         streaming_processor: StreamingToolCallRepairProcessor,
         mocker: MockerFixture,
     ) -> None:
-        from src.core.domain.streaming_response_processor import StreamingContent
-
         # Mock the underlying ToolCallRepairProcessor's process method
         # This is where the actual repair logic is now encapsulated
         mock_tool_call_repair_processor_process = mocker.AsyncMock(
@@ -150,3 +149,47 @@ class TestStreamingToolCallRepairProcessor:
         )
         assert actual_calls[2].content == "World."
         assert actual_calls[3].is_done is True and actual_calls[3].content == ""
+
+
+class TestToolCallRepairProcessorBehavior:
+    @pytest.mark.asyncio
+    async def test_buffer_truncated_when_cap_exceeded(
+        self, mocker: MockerFixture
+    ) -> None:
+        service = ToolCallRepairService(max_buffer_bytes=32)
+        processor = ToolCallRepairProcessor(service)
+
+        stream_id = "stream-cap"
+        large_payload = "x" * 100
+
+        repair_mock = mocker.patch.object(
+            service, "repair_tool_calls", return_value=None
+        )
+
+        await processor.process(
+            StreamingContent(content=large_payload, metadata={"stream_id": stream_id})
+        )
+
+        stored_buffer = processor._buffers.get(stream_id, "")
+        assert len(stored_buffer.encode("utf-8")) <= service.max_buffer_bytes
+
+        repair_mock.assert_called_once()
+        processed_buffer = repair_mock.call_args[0][0]
+        assert len(processed_buffer.encode("utf-8")) <= service.max_buffer_bytes
+
+    @pytest.mark.asyncio
+    async def test_buffer_dropped_when_cap_zero(self, mocker: MockerFixture) -> None:
+        service = ToolCallRepairService(max_buffer_bytes=0)
+        processor = ToolCallRepairProcessor(service)
+
+        stream_id = "stream-zero"
+        repair_mock = mocker.patch.object(
+            service, "repair_tool_calls", return_value=None
+        )
+
+        await processor.process(
+            StreamingContent(content="payload", metadata={"stream_id": stream_id})
+        )
+
+        assert stream_id not in processor._buffers
+        repair_mock.assert_called_once_with("")

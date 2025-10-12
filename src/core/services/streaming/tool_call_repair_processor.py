@@ -24,6 +24,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
     def __init__(self, tool_call_repair_service: IToolCallRepairService) -> None:
         self.tool_call_repair_service = tool_call_repair_service
         self._buffers: dict[str, str] = {}
+        self._max_buffer_bytes = self._resolve_buffer_cap(tool_call_repair_service)
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """
@@ -36,6 +37,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         buffer = self._buffers.get(stream_id, "")
 
         buffer += content.content or ""
+        buffer = self._enforce_buffer_cap(stream_id, buffer)
 
         repaired_content_parts: list[str] = []
         remaining_buffer = buffer
@@ -101,3 +103,58 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 content="",
                 is_cancellation=content.is_cancellation,
             )  # Return empty if nothing to yield
+
+    def _resolve_buffer_cap(self, service: IToolCallRepairService) -> int:
+        """Determine the maximum buffer size supported by the repair service."""
+
+        default_cap = 64 * 1024
+        candidate = getattr(service, "max_buffer_bytes", default_cap)
+        try:
+            cap_value = int(candidate)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid tool call repair buffer cap %r; using default %d bytes",
+                candidate,
+                default_cap,
+            )
+            return default_cap
+        if cap_value < 0:
+            logger.warning(
+                "Negative tool call repair buffer cap %d received; treating as zero",
+                cap_value,
+            )
+            return 0
+        return cap_value
+
+    def _enforce_buffer_cap(self, stream_id: str, buffer: str) -> str:
+        """Ensure per-stream buffer usage stays within configured limits."""
+
+        cap = self._max_buffer_bytes
+        if cap == 0:
+            if buffer:
+                logger.warning(
+                    "Dropping streaming tool call buffer for stream %s because cap is 0",
+                    stream_id,
+                )
+            return ""
+
+        if cap < 0:
+            return buffer
+
+        if not buffer:
+            return buffer
+
+        buffer_bytes = buffer.encode("utf-8")
+        current_size = len(buffer_bytes)
+        if current_size <= cap:
+            return buffer
+
+        truncated_bytes = buffer_bytes[-cap:]
+        dropped = current_size - cap
+        logger.warning(
+            "Tool call repair buffer for stream %s exceeded %d bytes; dropping %d bytes",
+            stream_id,
+            cap,
+            dropped,
+        )
+        return truncated_bytes.decode("utf-8", errors="ignore")
