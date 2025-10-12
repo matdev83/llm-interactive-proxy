@@ -184,3 +184,25 @@ async def test_handler_allows_targeted_python_pytest_invocation() -> None:
     result = await handler.handle(context)
 
     assert result.should_swallow is False
+
+
+@pytest.mark.asyncio
+async def test_handler_ignores_pytest_installation_commands() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = _build_context("pip install pytest")
+
+    assert await handler.can_handle(context) is False
+    result = await handler.handle(context)
+
+    assert result.should_swallow is False
+
+
+@pytest.mark.asyncio
+async def test_handler_ignores_pytest_plugin_installation() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = _build_context("pip install pytest-cov")
+
+    assert await handler.can_handle(context) is False
+    result = await handler.handle(context)
+
+    assert result.should_swallow is False

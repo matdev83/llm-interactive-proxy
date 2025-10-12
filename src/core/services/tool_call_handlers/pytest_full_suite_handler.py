@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 # Matches commands invoking pytest (pytest, python -m pytest, py.test, etc.)
-_PYTEST_ROOT_PATTERN = re.compile(r"\b(pytest|py\.test)(?:\b|\.py\b)", re.IGNORECASE)
+_PYTEST_ROOT_PATTERN = re.compile(
+    r"^(pytest|py\.test)(?:$|\.py$|\.exe$|\.bat$)",
+    re.IGNORECASE,
+)
 
 
 DEFAULT_STEERING_MESSAGE = (
@@ -91,6 +95,56 @@ def _normalize_whitespace(command: str) -> str:
     return " ".join(command.strip().split())
 
 
+def _split_command_tokens(command: str) -> list[str]:
+    try:
+        return shlex.split(command, posix=True)
+    except ValueError:
+        return command.split()
+
+
+def _command_invokes_pytest(command: str) -> bool:
+    tokens = _split_command_tokens(command)
+    if not tokens:
+        return False
+
+    separators = {"&&", ";", "||", "|"}
+    last_separator_index = -1
+
+    for index, token in enumerate(tokens):
+        if token in separators:
+            last_separator_index = index
+            continue
+
+        if not _PYTEST_ROOT_PATTERN.fullmatch(token):
+            continue
+
+        segment_start = last_separator_index + 1
+        segment_tokens = tokens[segment_start : index + 1]
+
+        if _segment_represents_installation(segment_tokens[:-1]):
+            continue
+
+        return True
+
+    return False
+
+
+def _segment_represents_installation(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+
+    installation_keywords = {
+        "install",
+        "add",
+        "remove",
+        "uninstall",
+        "update",
+        "upgrade",
+    }
+
+    return any(token.lower() in installation_keywords for token in tokens)
+
+
 def _looks_like_full_suite(command: str) -> bool:
     """Determine if the pytest command targets the entire suite.
 
@@ -101,7 +155,7 @@ def _looks_like_full_suite(command: str) -> bool:
     """
 
     normalized = _normalize_whitespace(command)
-    if not _PYTEST_ROOT_PATTERN.search(normalized):
+    if not normalized:
         return False
 
     tokens = normalized.split()
@@ -110,7 +164,7 @@ def _looks_like_full_suite(command: str) -> bool:
     # Identify index where pytest command appears and inspect subsequent tokens.
     try:
         pytest_index = next(
-            i for i, tok in enumerate(tokens) if _PYTEST_ROOT_PATTERN.search(tok)
+            i for i, tok in enumerate(tokens) if _PYTEST_ROOT_PATTERN.fullmatch(tok)
         )
     except StopIteration:
         return False
@@ -254,14 +308,16 @@ class PytestFullSuiteHandler(IToolCallHandler):
 
         command = _extract_command(arguments)
 
-        if normalized_tool_name in shell_tools:
+        if command and normalized_tool_name in shell_tools:
+            if not _command_invokes_pytest(command):
+                return None
             return command
 
         # Some providers map pytest directly as function name
-        if _PYTEST_ROOT_PATTERN.search(tool_name):
+        if _PYTEST_ROOT_PATTERN.fullmatch(tool_name):
             return command or tool_name
 
-        if command and _PYTEST_ROOT_PATTERN.search(command):
+        if command and _command_invokes_pytest(command):
             prefix = tool_name
             if prefix:
                 return f"{prefix} {command}".strip()
