@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 from src.core.config.app_config import AppConfig
@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 _ORIGINAL_BACKEND_CALL_COMPLETION = _BackendService.call_completion
 
+
+if TYPE_CHECKING:
+    import httpx
 
 class MockBackendStage(InitializationStage):
     """
@@ -70,6 +73,22 @@ class MockBackendStage(InitializationStage):
         self._override_session_service_for_test_compatibility(services)
 
         logger.info("Mock backend services initialized successfully")
+
+    def _resolve_httpx_client(
+        self, services: ServiceCollection
+    ) -> "httpx.AsyncClient | None":
+        """Try to resolve a shared httpx.AsyncClient from the DI container."""
+        try:
+            import httpx
+        except ImportError:
+            return None
+
+        with contextlib.suppress(Exception):
+            provider = services.build_service_provider()
+            client = provider.get_service(httpx.AsyncClient)
+            if client is not None:
+                return client
+        return None
 
     def _register_backend_config_provider(self, services: ServiceCollection) -> None:
         """Register a mock backend configuration provider."""
@@ -421,8 +440,6 @@ class MockBackendStage(InitializationStage):
                     # Attempt to import Anthropic connector and call its method.
                     # If tests patched AnthropicBackend.chat_completions, their
                     # AsyncMock will be invoked here and awaited.
-                    import httpx
-
                     from src.connectors.anthropic import AnthropicBackend
                     from src.core.config.app_config import AppConfig
                     from src.core.services.translation_service import TranslationService
@@ -438,30 +455,16 @@ class MockBackendStage(InitializationStage):
                     except Exception:
                         translation_service = TranslationService()
 
-                    try:
-                        client = httpx.AsyncClient(
-                            http2=True,
-                            timeout=httpx.Timeout(
-                                connect=10.0, read=60.0, write=60.0, pool=60.0
-                            ),
-                            limits=httpx.Limits(
-                                max_connections=100, max_keepalive_connections=20
-                            ),
-                            trust_env=False,
-                        )
-                    except ImportError:
-                        client = httpx.AsyncClient(
-                            http2=False,
-                            timeout=httpx.Timeout(
-                                connect=10.0, read=60.0, write=60.0, pool=60.0
-                            ),
-                            limits=httpx.Limits(
-                                max_connections=100, max_keepalive_connections=20
-                            ),
-                            trust_env=False,
-                        )
+                    httpx_client = self._resolve_httpx_client(services)
+                    if httpx_client is None:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "No shared HTTP client available; using mock backend"
+                            )
+                        return await mock_chat_completions(*args, **kwargs)
+
                     real_backend = AnthropicBackend(
-                        client, AppConfig(), translation_service
+                        httpx_client, AppConfig(), translation_service
                     )
                     # Call connector using a minimal processed_messages list and
                     # the request.model as effective_model when available.
@@ -533,8 +536,6 @@ class MockBackendStage(InitializationStage):
                 # src.connectors.anthropic.AnthropicBackend.chat_completions).
                 try:
                     if backend_type == "anthropic":
-                        import httpx
-
                         from src.connectors.anthropic import AnthropicBackend
                         from src.core.config.app_config import AppConfig
                         from src.core.services.translation_service import (
@@ -552,30 +553,14 @@ class MockBackendStage(InitializationStage):
                         except Exception:
                             translation_service = TranslationService()
 
-                        try:
-                            client = httpx.AsyncClient(
-                                http2=True,
-                                timeout=httpx.Timeout(
-                                    connect=10.0, read=60.0, write=60.0, pool=60.0
-                                ),
-                                limits=httpx.Limits(
-                                    max_connections=100, max_keepalive_connections=20
-                                ),
-                                trust_env=False,
+                        httpx_client = self._resolve_httpx_client(services)
+                        if httpx_client is None:
+                            raise RuntimeError(
+                                "Shared HTTP client unavailable for backend instantiation"
                             )
-                        except ImportError:
-                            client = httpx.AsyncClient(
-                                http2=False,
-                                timeout=httpx.Timeout(
-                                    connect=10.0, read=60.0, write=60.0, pool=60.0
-                                ),
-                                limits=httpx.Limits(
-                                    max_connections=100, max_keepalive_connections=20
-                                ),
-                                trust_env=False,
-                            )
+
                         real_backend = AnthropicBackend(
-                            client, AppConfig(), translation_service
+                            httpx_client, AppConfig(), translation_service
                         )
                         # If the connector was patched in tests, its methods will
                         # already reflect the patch. Cache and return the real
@@ -644,31 +629,16 @@ class MockBackendStage(InitializationStage):
 
             # Add _client attribute to match real BackendFactory for tests
             # that directly access this attribute
-            import httpx
-
-            try:
-                httpx_client = httpx.AsyncClient(
-                    http2=True,
-                    timeout=httpx.Timeout(
-                        connect=10.0, read=60.0, write=60.0, pool=60.0
-                    ),
-                    limits=httpx.Limits(
-                        max_connections=100, max_keepalive_connections=20
-                    ),
-                    trust_env=False,
-                )
-            except ImportError:
-                httpx_client = httpx.AsyncClient(
-                    http2=False,
-                    timeout=httpx.Timeout(
-                        connect=10.0, read=60.0, write=60.0, pool=60.0
-                    ),
-                    limits=httpx.Limits(
-                        max_connections=100, max_keepalive_connections=20
-                    ),
-                    trust_env=False,
-                )
-            mock_factory._client = httpx_client
+            httpx_client = self._resolve_httpx_client(services)
+            if httpx_client is not None:
+                mock_factory._client = httpx_client
+            else:
+                try:
+                    import httpx
+                except ImportError:
+                    mock_factory._client = MagicMock(name="httpx_async_client")
+                else:
+                    mock_factory._client = MagicMock(spec=httpx.AsyncClient)
 
             # Always register the mock factory instance to ensure it overrides any
             # previously registered real factory.
