@@ -43,6 +43,7 @@ as opposed to the personal OAuth backend which is for development/testing.
 
 # mypy: disable-error-code="no-untyped-call,no-untyped-def,no-any-return,has-type,var-annotated"
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -836,6 +837,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Failed to validate project access: {e}", exc_info=True)
             raise
+        finally:
+            with contextlib.suppress(Exception):
+                auth_session.close()
 
     async def _resolve_gemini_api_config(
         self,
@@ -870,6 +874,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity with project."""
+        session = None
         try:
             # With ADC, token handling is internal; proceed to simple request
 
@@ -922,6 +927,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
                     f"Health check failed - unexpected error: {e}", exc_info=True
                 )
             return False
+        finally:
+            if session is not None:
+                with contextlib.suppress(Exception):
+                    session.close()
 
     def _generate_user_prompt_id(self, request_data: Any) -> str:
         """Generate a unique user_prompt_id for Code Assist requests."""
@@ -1045,9 +1054,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
         **kwargs: Any,
     ) -> ResponseEnvelope:
         """Handle non-streaming chat completions."""
+        auth_session = self._get_adc_authorized_session()
         try:
             # Use ADC for API calls (matches gemini CLI behavior for project-id auth)
-            auth_session = self._get_adc_authorized_session()
 
             # Ensure project is onboarded for standard-tier
             project_id = await self._ensure_project_onboarded(auth_session)
@@ -1194,6 +1203,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Unexpected error during API call: {e}", exc_info=True)
             raise BackendError(f"Unexpected error during API call: {e}")
+        finally:
+            with contextlib.suppress(Exception):
+                auth_session.close()
 
     async def _chat_completions_streaming(
         self,
@@ -1203,9 +1215,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
         **kwargs: Any,
     ) -> StreamingResponseEnvelope:
         """Handle streaming chat completions."""
+        auth_session = self._get_adc_authorized_session()
+        stream_prepared = False
         try:
             # Use ADC for streaming API calls
-            auth_session = self._get_adc_authorized_session()
 
             # Ensure project is onboarded for standard-tier
             project_id = await self._ensure_project_onboarded(auth_session)
@@ -1387,9 +1400,13 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 finally:
                     if response:  # Ensure response is defined before closing
                         response.close()  # Use synchronous close
+                    with contextlib.suppress(Exception):
+                        auth_session.close()
 
+            generator = stream_generator()
+            stream_prepared = True
             return StreamingResponseEnvelope(
-                content=stream_generator(),
+                content=generator,
                 media_type="text/event-stream",
                 headers={},
             )
@@ -1402,6 +1419,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
                     f"Unexpected error during streaming API call: {e}", exc_info=True
                 )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
+        finally:
+            if not stream_prepared:
+                with contextlib.suppress(Exception):
+                    auth_session.close()
 
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
         cfg: dict[str, Any] = {
