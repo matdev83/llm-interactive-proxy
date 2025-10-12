@@ -795,9 +795,34 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                         agent_response_formatter = AgentResponseFormatter()
 
                     session_manager = SessionManager(concrete_session, session_resolver)
-                    backend_request_manager = BackendRequestManager(
-                        backend_processor, concrete_response_proc
+                    backend_request_manager_service = service_provider.get_service(
+                        cast(type, IBackendRequestManager)
                     )
+                    if backend_request_manager_service is None:
+                        backend_request_manager_service = service_provider.get_service(
+                            BackendRequestManager
+                        )
+                    if backend_request_manager_service is None:
+                        from src.core.interfaces.wire_capture_interface import (
+                            IWireCapture,
+                        )
+
+                        wire_capture = service_provider.get_service(
+                            cast(type, IWireCapture)
+                        )
+                        backend_request_manager_service = BackendRequestManager(
+                            backend_processor,
+                            concrete_response_proc,
+                            wire_capture,
+                        )
+
+                    backend_request_manager = cast(
+                        IBackendRequestManager, backend_request_manager_service
+                    )
+                    if backend_request_manager is None:
+                        raise InitializationError(
+                            "Could not resolve BackendRequestManager"
+                        )
                     response_manager = ResponseManager(agent_response_formatter)
 
                     request_processor = RequestProcessor(
