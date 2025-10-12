@@ -314,6 +314,106 @@ class TestToolCallReactorService:
         assert "handler1" in handlers
         assert "handler2" in handlers
 
+    @pytest.mark.asyncio
+    async def test_handler_cache_invalidation_on_register(self, reactor):
+        """Registering a new handler should rebuild cached ordering."""
+
+        swallow_result = ToolCallReactionResult(should_swallow=True)
+        low_priority_handler = MockToolCallHandler(
+            "low_priority", priority=10, handle_result=swallow_result
+        )
+        await reactor.register_handler(low_priority_handler)
+
+        context = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="test_tool",
+            tool_arguments={"arg": "value"},
+        )
+
+        # Prime cached ordering with the existing handler
+        result = await reactor.process_tool_call(context)
+        assert result is not None
+        assert low_priority_handler.handle_call_count == 1
+
+        high_priority_handler = MockToolCallHandler(
+            "high_priority",
+            priority=100,
+            handle_result=ToolCallReactionResult(should_swallow=True),
+        )
+
+        await reactor.register_handler(high_priority_handler)
+
+        context2 = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="test_tool",
+            tool_arguments={"arg": "value"},
+        )
+
+        result2 = await reactor.process_tool_call(context2)
+
+        assert result2 is not None and result2.should_swallow is True
+        assert high_priority_handler.handle_call_count == 1
+        assert high_priority_handler.can_handle_call_count == 1
+        # High priority handler should swallow before low priority handler is invoked again
+        assert low_priority_handler.handle_call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_handler_cache_invalidation_on_unregister(self, reactor):
+        """Removing a handler should evict it from the cached ordering."""
+
+        high_priority_handler = MockToolCallHandler(
+            "high_priority",
+            priority=100,
+            handle_result=ToolCallReactionResult(should_swallow=True),
+        )
+        low_priority_handler = MockToolCallHandler(
+            "low_priority",
+            priority=10,
+            handle_result=ToolCallReactionResult(should_swallow=True),
+        )
+
+        await reactor.register_handler(low_priority_handler)
+        await reactor.register_handler(high_priority_handler)
+
+        context = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="test_tool",
+            tool_arguments={"arg": "value"},
+        )
+
+        # First call should be swallowed by the high priority handler
+        result = await reactor.process_tool_call(context)
+        assert result is not None and result.should_swallow is True
+        assert high_priority_handler.handle_call_count == 1
+        assert low_priority_handler.handle_call_count == 0
+
+        await reactor.unregister_handler("high_priority")
+
+        context2 = ToolCallContext(
+            session_id="test_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="test_tool",
+            tool_arguments={"arg": "value"},
+        )
+
+        result2 = await reactor.process_tool_call(context2)
+
+        assert result2 is not None and result2.should_swallow is True
+        # Low priority handler should now handle the call and high priority handler should not be invoked again
+        assert low_priority_handler.handle_call_count == 1
+        assert high_priority_handler.handle_call_count == 1
+
 
 class TestInMemoryToolCallHistoryTracker:
     """Test cases for InMemoryToolCallHistoryTracker."""
