@@ -139,6 +139,37 @@ def test_http_exception_handler_standard_response(
     }
 
 
+def test_http_exception_handler_includes_details_from_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("time.time", lambda: 1700000000)
+    request = make_request("/v1/models")
+    exc = HTTPException(
+        status_code=422,
+        detail={
+            "message": "Invalid payload",
+            "type": "ValidationError",
+            "details": {"field": "prompt"},
+            "hint": "Provide prompt text",
+        },
+    )
+
+    response = call_handler(http_exception_handler, request, exc)
+
+    assert response.status_code == 422
+    payload = parse_json_response(response)
+    assert payload == {
+        "detail": {
+            "error": {
+                "message": "Invalid payload",
+                "type": "ValidationError",
+                "status_code": 422,
+                "details": {"hint": "Provide prompt text", "field": "prompt"},
+            }
+        }
+    }
+
+
 def test_http_exception_handler_chat_completions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -156,6 +187,35 @@ def test_http_exception_handler_chat_completions(
         "message": "Try again later",
         "type": "HttpError",
         "status_code": 429,
+    }
+
+
+def test_http_exception_handler_chat_completions_with_structured_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("time.time", lambda: 1700000000)
+    request = make_request("/v1/chat/completions")
+    exc = HTTPException(
+        status_code=503,
+        detail={
+            "error": {
+                "message": "Upstream unavailable",
+                "type": "UpstreamError",
+                "details": {"backend": "alpha"},
+            }
+        },
+    )
+
+    response = call_handler(http_exception_handler, request, exc)
+
+    assert response.status_code == 503
+    payload = parse_json_response(response)
+    assert payload["choices"][0]["message"]["content"] == "Error: Upstream unavailable"
+    assert payload["error"] == {
+        "message": "Upstream unavailable",
+        "type": "UpstreamError",
+        "status_code": 503,
+        "details": {"backend": "alpha"},
     }
 
 
