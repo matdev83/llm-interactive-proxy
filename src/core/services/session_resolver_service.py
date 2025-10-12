@@ -97,21 +97,25 @@ class DefaultSessionResolver(ISessionResolver):
                         session_id = None
 
         if not session_id:
-            # Try to get session ID from context attribute populated by adapters/middleware
-            ctx_session_id = getattr(context, "session_id", None)
-            if isinstance(ctx_session_id, str) and ctx_session_id:
-                session_id = ctx_session_id
-
-        if not session_id:
             # Try to get session ID from headers
             header_value = context.headers.get("x-session-id")
             if isinstance(header_value, str) and header_value:
                 session_id = header_value
 
         # Try to get session ID from cookies
-        cookie_value = context.cookies.get("session_id")
-        if isinstance(cookie_value, str) and cookie_value:
-            session_id = cookie_value
+        if not session_id:
+            cookie_value = context.cookies.get("session_id")
+            if isinstance(cookie_value, str) and cookie_value:
+                session_id = cookie_value
+
+        # If we found a session_id from headers or cookies, use it
+        if session_id:
+            context.session_id = session_id
+            return session_id
+
+        if session_id:
+            context.session_id = session_id
+            return session_id
 
         # Fall back to configured default session ID if available
         if self._configured_default_id:

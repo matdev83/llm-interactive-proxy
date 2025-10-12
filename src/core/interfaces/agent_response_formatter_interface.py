@@ -1,5 +1,4 @@
-"""
-Agent response formatter interface.
+"""Agent response formatter interface.
 
 This module defines the interface for agent-specific response formatting.
 """

@@ -1,7 +1,7 @@
 import logging
 
 import pytest
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 
@@ -14,8 +14,11 @@ def test_logging_masks_secrets(
     caplog: pytest.LogCaptureFixture, logger_name: str
 ) -> None:
     resolution = ParameterResolution()
-    config = AppConfig()
-    config.backends.openrouter.api_key = ["NOT-A-REAL-API-KEY"]
+    config = AppConfig(
+        backends=BackendSettings(
+            openrouter=BackendConfig(api_key=["NOT-A-REAL-API-KEY"])
+        )
+    )
     resolution.record(
         "backends.openrouter.api_key",
         ["NOT-A-REAL-API-KEY"],

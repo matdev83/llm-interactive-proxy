@@ -177,12 +177,10 @@ def connector(mocker: MockerFixture) -> OpenAIConnector:
 
     mock_instance.send.return_value = default_mock_response
 
-    from src.core.config.app_config import AppConfig
+    from src.core.config.app_config import AppConfig, SessionConfig
     from src.core.services.translation_service import TranslationService
 
-    config = AppConfig()
-    # Disable JSON repair for streaming tests to test basic functionality
-    config.session.json_repair_enabled = False
+    config = AppConfig(session=SessionConfig(json_repair_enabled=False))
     # Pass translation_service to OpenAIConnector
     translation_service = TranslationService()
     connector = OpenAIConnector(

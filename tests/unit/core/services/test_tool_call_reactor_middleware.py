@@ -654,6 +654,48 @@ class TestToolCallReactorMiddleware:
         call_args = mock_reactor.process_tool_call.call_args[0][0]
         assert call_args.tool_name == "meta_tool"
 
+    @pytest.mark.asyncio
+    async def test_process_metadata_tool_calls_none_value(
+        self, middleware, mock_reactor
+    ):
+        """None-valued metadata entries should be replaced with normalized tool calls."""
+
+        tool_call_response = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_999",
+                                "type": "function",
+                                "function": {
+                                    "name": "meta_tool",
+                                    "arguments": '{"arg": "value"}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        response = ProcessedResponse(
+            content=json.dumps(tool_call_response), metadata={"tool_calls": None}
+        )
+
+        mock_reactor.process_tool_call.return_value = None
+
+        await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        assert isinstance(response.metadata["tool_calls"], list)
+        assert response.metadata["tool_calls"]
+        normalized_call = response.metadata["tool_calls"][0]
+        assert normalized_call["function"]["name"] == "meta_tool"
+
     def test_get_registered_handlers(self, middleware, mock_reactor):
         """Test getting registered handlers."""
         handlers = middleware.get_registered_handlers()

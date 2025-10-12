@@ -29,8 +29,7 @@ async def test_create_anthropic_app_registers_endpoints() -> None:
 @pytest.mark.asyncio
 async def test_main_raises_when_port_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     # Provide a config with no anthropic_port to trigger the error path
-    cfg = AppConfig()
-    cfg.anthropic_port = None
+    cfg = AppConfig(anthropic_port=None)
 
     monkeypatch.setattr("src.anthropic_server.AppConfig.from_env", lambda: cfg)
 
@@ -43,10 +42,11 @@ async def test_main_starts_server_when_port_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Build a minimal valid config
-    cfg = AppConfig()
-    cfg.anthropic_port = 9100
-    cfg.host = "127.0.0.1"
-    cfg.logging.level = LogLevel.ERROR
+    cfg = AppConfig(
+        anthropic_port=9100,
+        host="127.0.0.1",
+        logging=AppConfig().logging.model_copy(update={"level": LogLevel.ERROR}),
+    )
 
     monkeypatch.setattr("src.anthropic_server.AppConfig.from_env", lambda: cfg)
 

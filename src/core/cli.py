@@ -20,7 +20,7 @@ from src.command_prefix import validate_command_prefix
 from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.app.application_builder import ApplicationBuilder, build_app
 from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG
-from src.core.config.app_config import AppConfig, LogLevel, load_config
+from src.core.config.app_config import AppConfig, LogLevel, _merge_dicts, load_config
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 # Import backend connectors to ensure they register themselves
@@ -32,8 +32,34 @@ logger = logging.getLogger(__name__)
 
 def is_port_in_use(host: str, port: int) -> bool:
     """Check if a port is in use on a given host."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex((host, port)) == 0
+
+    try:
+        addr_infos = socket.getaddrinfo(
+            host,
+            port,
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        logger.debug("Failed to resolve host %s:%s: %s", host, port, exc)
+        return False
+
+    for family, socktype, proto, _, sockaddr in addr_infos:
+        try:
+            with socket.socket(family, socktype, proto) as sock:
+                sock.settimeout(0.1)
+                if sock.connect_ex(sockaddr) == 0:
+                    return True
+        except OSError as exc:
+            logger.debug(
+                "Port probe failed for %s:%s using family %s: %s",
+                host,
+                port,
+                family,
+                exc,
+            )
+            continue
+
+    return False
 
 
 def _normalize_api_key_value(value: str | Sequence[str]) -> list[str]:
@@ -501,25 +527,28 @@ def apply_cli_args(
     def record_cli(path: str, value: Any, flag: str) -> None:
         res.record(path, value, ParameterSource.CLI, origin=flag)
 
+    # Collect all CLI overrides in a dict to create a new config
+    cli_overrides: dict[str, Any] = {}
+
     # Basic server configuration
     if args.host is not None:
-        cfg.host = args.host
+        cli_overrides["host"] = args.host
         record_cli("host", args.host, "--host")
     if args.port is not None:
-        cfg.port = args.port
+        cli_overrides["port"] = args.port
         os.environ["PROXY_PORT"] = str(args.port)
         record_cli("port", args.port, "--port")
     if args.timeout is not None:
-        cfg.proxy_timeout = args.timeout
+        cli_overrides["proxy_timeout"] = args.timeout
         record_cli("proxy_timeout", args.timeout, "--timeout")
     if args.command_prefix is not None:
-        cfg.command_prefix = args.command_prefix
+        cli_overrides["command_prefix"] = args.command_prefix
         os.environ["COMMAND_PREFIX"] = args.command_prefix
         record_cli("command_prefix", args.command_prefix, "--command-prefix")
 
     # Context window override
     if args.force_context_window is not None:
-        cfg.context_window_override = args.force_context_window
+        cli_overrides["context_window_override"] = args.force_context_window
         os.environ["FORCE_CONTEXT_WINDOW"] = str(args.force_context_window)
         record_cli(
             "context_window_override",
@@ -529,13 +558,23 @@ def apply_cli_args(
 
     # Thinking budget override (for reasoning/thinking tokens)
     if args.thinking_budget is not None:
-        # Store in environment for the translation layer to pick up
+        if "session" not in cli_overrides:
+            cli_overrides["session"] = {}
+        session_overrides = cli_overrides.setdefault("session", {})
+        planning_phase_overrides = session_overrides.setdefault("planning_phase", {})
+        overrides = planning_phase_overrides.setdefault("overrides", {})
+        overrides["thinking_budget"] = args.thinking_budget
         os.environ["THINKING_BUDGET"] = str(args.thinking_budget)
-        record_cli("cli.thinking_budget", args.thinking_budget, "--thinking-budget")
+        record_cli(
+            "session.planning_phase.overrides.thinking_budget",
+            args.thinking_budget,
+            "--thinking-budget",
+        )
 
     # Logging configuration
+    logging_overrides: dict[str, Any] = {}
     if args.log_file is not None:
-        cfg.logging.log_file = args.log_file
+        logging_overrides["log_file"] = args.log_file
         record_cli("logging.log_file", args.log_file, "--log")
     elif cfg.logging.log_file is None:
         # Set default log file only if none specified in config or CLI
@@ -545,34 +584,34 @@ def apply_cli_args(
         # Ensure logs directory exists
         log_dir = Path(default_log_file).parent
         log_dir.mkdir(exist_ok=True)
-        cfg.logging.log_file = default_log_file
+        logging_overrides["log_file"] = default_log_file
     if args.log_level is not None:
-        cfg.logging.level = LogLevel[args.log_level]
-        record_cli("logging.level", cfg.logging.level.value, "--log-level")
+        logging_overrides["level"] = LogLevel[args.log_level]
+        record_cli("logging.level", LogLevel[args.log_level].value, "--log-level")
 
     # Wire capture configuration
     if getattr(args, "capture_file", None) is not None:
-        cfg.logging.capture_file = args.capture_file
+        logging_overrides["capture_file"] = args.capture_file
         record_cli("logging.capture_file", args.capture_file, "--capture-file")
     if getattr(args, "capture_max_bytes", None) is not None:
-        cfg.logging.capture_max_bytes = args.capture_max_bytes
+        logging_overrides["capture_max_bytes"] = args.capture_max_bytes
         record_cli(
             "logging.capture_max_bytes", args.capture_max_bytes, "--capture-max-bytes"
         )
     if getattr(args, "capture_truncate_bytes", None) is not None:
-        cfg.logging.capture_truncate_bytes = args.capture_truncate_bytes
+        logging_overrides["capture_truncate_bytes"] = args.capture_truncate_bytes
         record_cli(
             "logging.capture_truncate_bytes",
             args.capture_truncate_bytes,
             "--capture-truncate-bytes",
         )
     if getattr(args, "capture_max_files", None) is not None:
-        cfg.logging.capture_max_files = args.capture_max_files
+        logging_overrides["capture_max_files"] = args.capture_max_files
         record_cli(
             "logging.capture_max_files", args.capture_max_files, "--capture-max-files"
         )
     if getattr(args, "capture_rotate_interval_seconds", None) is not None:
-        cfg.logging.capture_rotate_interval_seconds = (
+        logging_overrides["capture_rotate_interval_seconds"] = (
             args.capture_rotate_interval_seconds
         )
         record_cli(
@@ -581,16 +620,22 @@ def apply_cli_args(
             "--capture-rotate-interval",
         )
     if getattr(args, "capture_total_max_bytes", None) is not None:
-        cfg.logging.capture_total_max_bytes = args.capture_total_max_bytes
+        logging_overrides["capture_total_max_bytes"] = args.capture_total_max_bytes
         record_cli(
             "logging.capture_total_max_bytes",
             args.capture_total_max_bytes,
             "--capture-total-max-bytes",
         )
 
+    # Add logging overrides to main overrides if any
+    if logging_overrides:
+        cli_overrides["logging"] = logging_overrides
+
     # Backend-specific configuration
+    backend_overrides: dict[str, Any] = {}
     if args.default_backend is not None:
-        cfg.backends.default_backend = args.default_backend
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["default_backend"] = args.default_backend
         os.environ["LLM_BACKEND"] = args.default_backend
         record_cli(
             "backends.default_backend", args.default_backend, "--default-backend"
@@ -598,7 +643,8 @@ def apply_cli_args(
 
     # Static route configuration
     if getattr(args, "static_route", None) is not None:
-        cfg.backends.static_route = args.static_route
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["static_route"] = args.static_route
         os.environ["STATIC_ROUTE"] = args.static_route
         record_cli("backends.static_route", args.static_route, "--static-route")
 
@@ -611,7 +657,7 @@ def apply_cli_args(
             ModelAliasRule(pattern=pattern, replacement=replacement)
             for pattern, replacement in args.model_aliases
         ]
-        cfg.model_aliases = cli_aliases
+        cli_overrides["model_aliases"] = cli_aliases
         record_cli(
             "model_aliases",
             [alias.model_dump() for alias in cli_aliases],
@@ -629,72 +675,91 @@ def apply_cli_args(
 
     # API keys and URLs
     if args.openrouter_api_key is not None:
-        cfg.backends["openrouter"].api_key = _normalize_api_key_value(
-            args.openrouter_api_key
-        )
+        normalized_key = _normalize_api_key_value(args.openrouter_api_key)
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        openrouter_overrides = backend_overrides.setdefault("openrouter", {})
+        openrouter_overrides["api_key"] = normalized_key
         record_cli(
             "backends.openrouter.api_key",
-            cfg.backends["openrouter"].api_key,
+            normalized_key,
             "--openrouter-api-key",
         )
     if args.openrouter_api_base_url is not None:
-        cfg.backends["openrouter"].api_url = args.openrouter_api_base_url
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        openrouter_overrides = backend_overrides.setdefault("openrouter", {})
+        openrouter_overrides["api_url"] = args.openrouter_api_base_url
         record_cli(
             "backends.openrouter.api_url",
             args.openrouter_api_base_url,
             "--openrouter-api-base-url",
         )
     if args.gemini_api_key is not None:
-        cfg.backends["gemini"].api_key = _normalize_api_key_value(args.gemini_api_key)
-        if cfg.backends["gemini"].api_key:
-            os.environ["GEMINI_API_KEY"] = cfg.backends["gemini"].api_key[0]
+        normalized_key = _normalize_api_key_value(args.gemini_api_key)
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        gemini_overrides = backend_overrides.setdefault("gemini", {})
+        gemini_overrides["api_key"] = normalized_key
+        if normalized_key:
+            os.environ["GEMINI_API_KEY"] = normalized_key[0]
         else:
             os.environ.pop("GEMINI_API_KEY", None)
         record_cli(
             "backends.gemini.api_key",
-            cfg.backends["gemini"].api_key,
+            normalized_key,
             "--gemini-api-key",
         )
     if args.gemini_api_base_url is not None:
-        cfg.backends["gemini"].api_url = args.gemini_api_base_url
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        gemini_overrides = backend_overrides.setdefault("gemini", {})
+        gemini_overrides["api_url"] = args.gemini_api_base_url
         record_cli(
             "backends.gemini.api_url",
             args.gemini_api_base_url,
             "--gemini-api-base-url",
         )
     if args.zai_api_key is not None:
-        cfg.backends["zai"].api_key = _normalize_api_key_value(args.zai_api_key)
+        normalized_key = _normalize_api_key_value(args.zai_api_key)
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        zai_overrides = backend_overrides.setdefault("zai", {})
+        zai_overrides["api_key"] = normalized_key
         record_cli(
             "backends.zai.api_key",
-            cfg.backends["zai"].api_key,
+            normalized_key,
             "--zai-api-key",
         )
 
     # Feature flags (inverted boolean logic)
     if args.disable_interactive_mode is not None:
-        cfg.session.default_interactive_mode = not args.disable_interactive_mode
+        session = cli_overrides.setdefault("session", {})
+        session["default_interactive_mode"] = not args.disable_interactive_mode
+        os.environ["DEFAULT_INTERACTIVE_MODE"] = (
+            "false" if args.disable_interactive_mode else "true"
+        )
         os.environ["DISABLE_INTERACTIVE_MODE"] = (
             "True" if args.disable_interactive_mode else "False"
         )
         record_cli(
             "session.default_interactive_mode",
-            cfg.session.default_interactive_mode,
+            not args.disable_interactive_mode,
             "--disable-interactive-mode",
         )
     if args.disable_auth is not None:
-        cfg.auth.disable_auth = args.disable_auth
+        auth_overrides = cli_overrides.setdefault("auth", {})
+        auth_overrides["disable_auth"] = args.disable_auth
         record_cli("auth.disable_auth", args.disable_auth, "--disable-auth")
     if getattr(args, "trusted_ips", None) is not None:
-        cfg.auth.trusted_ips = args.trusted_ips
+        auth_overrides = cli_overrides.setdefault("auth", {})
+        auth_overrides["trusted_ips"] = args.trusted_ips
         record_cli("auth.trusted_ips", args.trusted_ips, "--trusted-ip")
     if args.force_set_project is not None:
-        cfg.session.force_set_project = args.force_set_project
+        session = cli_overrides.setdefault("session", {})
+        session["force_set_project"] = args.force_set_project
         os.environ["FORCE_SET_PROJECT"] = "true" if args.force_set_project else "false"
         record_cli(
             "session.force_set_project", args.force_set_project, "--force-set-project"
         )
     if getattr(args, "project_dir_resolution_model", None) is not None:
-        cfg.session.project_dir_resolution_model = args.project_dir_resolution_model
+        session = cli_overrides.setdefault("session", {})
+        session["project_dir_resolution_model"] = args.project_dir_resolution_model
         record_cli(
             "session.project_dir_resolution_model",
             args.project_dir_resolution_model,
@@ -703,16 +768,18 @@ def apply_cli_args(
 
     # These still rely on environment variables for now
     if args.disable_redact_api_keys_in_prompts is not None:
-        cfg.auth.redact_api_keys_in_prompts = (
+        auth_overrides = cli_overrides.setdefault("auth", {})
+        auth_overrides["redact_api_keys_in_prompts"] = (
             not args.disable_redact_api_keys_in_prompts
         )
         record_cli(
             "auth.redact_api_keys_in_prompts",
-            cfg.auth.redact_api_keys_in_prompts,
+            not args.disable_redact_api_keys_in_prompts,
             "--disable-redact-api-keys-in-prompts",
         )
     if args.disable_interactive_commands is not None:
-        cfg.session.disable_interactive_commands = args.disable_interactive_commands
+        session = cli_overrides.setdefault("session", {})
+        session["disable_interactive_commands"] = args.disable_interactive_commands
         record_cli(
             "session.disable_interactive_commands",
             args.disable_interactive_commands,
@@ -726,66 +793,77 @@ def apply_cli_args(
             "cli.disable_accounting", args.disable_accounting, "--disable-accounting"
         )
     if getattr(args, "strict_command_detection", None) is not None:
-        cfg.strict_command_detection = args.strict_command_detection
+        cli_overrides["strict_command_detection"] = args.strict_command_detection
         record_cli(
             "strict_command_detection",
             args.strict_command_detection,
             "--strict-command-detection",
         )
 
-    brute_force_cfg = getattr(cfg.auth, "brute_force_protection", None)
-    if brute_force_cfg is not None:
-        if getattr(args, "brute_force_protection_enabled", None) is not None:
-            brute_force_cfg.enabled = bool(args.brute_force_protection_enabled)
-            record_cli(
-                "auth.brute_force_protection.enabled",
-                brute_force_cfg.enabled,
-                "--enable/disable-brute-force-protection",
-            )
-        if getattr(args, "auth_max_failed_attempts", None) is not None:
-            brute_force_cfg.max_failed_attempts = max(
-                1, int(args.auth_max_failed_attempts)
-            )
-            record_cli(
-                "auth.brute_force_protection.max_failed_attempts",
-                brute_force_cfg.max_failed_attempts,
-                "--auth-max-failed-attempts",
-            )
-        if getattr(args, "auth_brute_force_ttl", None) is not None:
-            brute_force_cfg.ttl_seconds = max(1, int(args.auth_brute_force_ttl))
-            record_cli(
-                "auth.brute_force_protection.ttl_seconds",
-                brute_force_cfg.ttl_seconds,
-                "--auth-brute-force-ttl",
-            )
-        if getattr(args, "auth_initial_block_seconds", None) is not None:
-            brute_force_cfg.initial_block_seconds = max(
-                1, int(args.auth_initial_block_seconds)
-            )
-            record_cli(
-                "auth.brute_force_protection.initial_block_seconds",
-                brute_force_cfg.initial_block_seconds,
-                "--auth-brute-force-initial-block",
-            )
-        if getattr(args, "auth_block_multiplier", None) is not None:
-            multiplier = float(args.auth_block_multiplier)
-            brute_force_cfg.block_multiplier = multiplier if multiplier > 1 else 1.0
-            record_cli(
-                "auth.brute_force_protection.block_multiplier",
-                brute_force_cfg.block_multiplier,
-                "--auth-brute-force-multiplier",
-            )
-        if getattr(args, "auth_max_block_seconds", None) is not None:
-            brute_force_cfg.max_block_seconds = max(1, int(args.auth_max_block_seconds))
-            record_cli(
-                "auth.brute_force_protection.max_block_seconds",
-                brute_force_cfg.max_block_seconds,
-                "--auth-brute-force-max-block",
-            )
+    # Brute force protection configuration (auth_overrides may already exist from earlier setdefault calls)
+    brute_force_overrides: dict[str, Any] = {}
+
+    if getattr(args, "brute_force_protection_enabled", None) is not None:
+        brute_force_overrides["enabled"] = bool(args.brute_force_protection_enabled)
+        record_cli(
+            "auth.brute_force_protection.enabled",
+            brute_force_overrides["enabled"],
+            "--enable/disable-brute-force-protection",
+        )
+    if getattr(args, "auth_max_failed_attempts", None) is not None:
+        brute_force_overrides["max_failed_attempts"] = max(
+            1, int(args.auth_max_failed_attempts)
+        )
+        record_cli(
+            "auth.brute_force_protection.max_failed_attempts",
+            brute_force_overrides["max_failed_attempts"],
+            "--auth-max-failed-attempts",
+        )
+    if getattr(args, "auth_brute_force_ttl", None) is not None:
+        brute_force_overrides["ttl_seconds"] = max(1, int(args.auth_brute_force_ttl))
+        record_cli(
+            "auth.brute_force_protection.ttl_seconds",
+            brute_force_overrides["ttl_seconds"],
+            "--auth-brute-force-ttl",
+        )
+    if getattr(args, "auth_initial_block_seconds", None) is not None:
+        brute_force_overrides["initial_block_seconds"] = max(
+            1, int(args.auth_initial_block_seconds)
+        )
+        record_cli(
+            "auth.brute_force_protection.initial_block_seconds",
+            brute_force_overrides["initial_block_seconds"],
+            "--auth-brute-force-initial-block",
+        )
+    if getattr(args, "auth_block_multiplier", None) is not None:
+        multiplier = float(args.auth_block_multiplier)
+        brute_force_overrides["block_multiplier"] = (
+            multiplier if multiplier > 1 else 1.0
+        )
+        record_cli(
+            "auth.brute_force_protection.block_multiplier",
+            brute_force_overrides["block_multiplier"],
+            "--auth-brute-force-multiplier",
+        )
+    if getattr(args, "auth_max_block_seconds", None) is not None:
+        brute_force_overrides["max_block_seconds"] = max(
+            1, int(args.auth_max_block_seconds)
+        )
+        record_cli(
+            "auth.brute_force_protection.max_block_seconds",
+            brute_force_overrides["max_block_seconds"],
+            "--auth-brute-force-max-block",
+        )
+
+    # Add brute force overrides to auth if any
+    if brute_force_overrides:
+        auth_overrides_dict = cli_overrides.setdefault("auth", {})
+        auth_overrides_dict["brute_force_protection"] = brute_force_overrides
 
     # Pytest compression flag
     if args.pytest_compression_enabled is not None:
-        cfg.session.pytest_compression_enabled = args.pytest_compression_enabled
+        session = cli_overrides.setdefault("session", {})
+        session["pytest_compression_enabled"] = args.pytest_compression_enabled
         record_cli(
             "session.pytest_compression_enabled",
             args.pytest_compression_enabled,
@@ -794,12 +872,16 @@ def apply_cli_args(
 
     # Pytest full-suite steering flag
     if getattr(args, "pytest_full_suite_steering_enabled", None) is not None:
-        cfg.session.pytest_full_suite_steering_enabled = (
+        session = cli_overrides.setdefault("session", {})
+        session["pytest_full_suite_steering_enabled"] = (
             args.pytest_full_suite_steering_enabled
         )
-        cfg.session.tool_call_reactor.pytest_full_suite_steering_enabled = (
+        # Also update tool_call_reactor
+        tool_call_reactor_overrides: dict[str, Any] = {}
+        tool_call_reactor_overrides["pytest_full_suite_steering_enabled"] = (
             args.pytest_full_suite_steering_enabled
         )
+        session["tool_call_reactor"] = tool_call_reactor_overrides
         record_cli(
             "session.pytest_full_suite_steering_enabled",
             args.pytest_full_suite_steering_enabled,
@@ -807,34 +889,36 @@ def apply_cli_args(
         )
 
     # Planning phase configuration
+    session = cli_overrides.setdefault("session", {})
+    planning_phase_overrides = session.setdefault("planning_phase", {})
     if getattr(args, "enable_planning_phase", None) is not None:
-        cfg.session.planning_phase.enabled = args.enable_planning_phase
+        planning_phase_overrides["enabled"] = args.enable_planning_phase
         record_cli(
             "session.planning_phase.enabled",
             args.enable_planning_phase,
             "--enable-planning-phase",
         )
     if getattr(args, "planning_phase_strong_model", None) is not None:
-        cfg.session.planning_phase.strong_model = args.planning_phase_strong_model
+        planning_phase_overrides["strong_model"] = args.planning_phase_strong_model
         record_cli(
             "session.planning_phase.strong_model",
             args.planning_phase_strong_model,
             "--planning-phase-strong-model",
         )
     if getattr(args, "planning_phase_max_turns", None) is not None:
-        cfg.session.planning_phase.max_turns = max(1, args.planning_phase_max_turns)
+        planning_phase_overrides["max_turns"] = max(1, args.planning_phase_max_turns)
         record_cli(
             "session.planning_phase.max_turns",
-            cfg.session.planning_phase.max_turns,
+            planning_phase_overrides["max_turns"],
             "--planning-phase-max-turns",
         )
     if getattr(args, "planning_phase_max_file_writes", None) is not None:
-        cfg.session.planning_phase.max_file_writes = max(
+        planning_phase_overrides["max_file_writes"] = max(
             1, args.planning_phase_max_file_writes
         )
         record_cli(
             "session.planning_phase.max_file_writes",
-            cfg.session.planning_phase.max_file_writes,
+            planning_phase_overrides["max_file_writes"],
             "--planning-phase-max-file-writes",
         )
 
@@ -849,11 +933,7 @@ def apply_cli_args(
     if getattr(args, "planning_phase_thinking_budget", None) is not None:
         overrides_updates["thinking_budget"] = args.planning_phase_thinking_budget
     if overrides_updates:
-        existing_overrides = cfg.session.planning_phase.overrides or {}
-        if not isinstance(existing_overrides, dict):
-            existing_overrides = {}
-        existing_overrides.update(overrides_updates)
-        cfg.session.planning_phase.overrides = existing_overrides
+        planning_phase_overrides["overrides"] = overrides_updates
         flag_mapping = {
             "temperature": "--planning-phase-temperature",
             "top_p": "--planning-phase-top-p",
@@ -868,54 +948,57 @@ def apply_cli_args(
             )
 
     # Edit-precision tuning configuration
+    edit_precision_overrides: dict[str, Any] = {}
     if getattr(args, "edit_precision_enabled", None) is not None:
-        cfg.edit_precision.enabled = args.edit_precision_enabled
+        edit_precision_overrides["enabled"] = args.edit_precision_enabled
         record_cli(
             "edit_precision.enabled",
             args.edit_precision_enabled,
             "--enable/disable-edit-precision",
         )
     if getattr(args, "edit_precision_temperature", None) is not None:
-        cfg.edit_precision.temperature = max(0.0, args.edit_precision_temperature)
+        edit_precision_overrides["temperature"] = max(
+            0.0, args.edit_precision_temperature
+        )
         record_cli(
             "edit_precision.temperature",
-            cfg.edit_precision.temperature,
+            edit_precision_overrides["temperature"],
             "--edit-precision-temperature",
         )
     if getattr(args, "edit_precision_min_top_p", None) is not None:
-        cfg.edit_precision.min_top_p = max(0.0, args.edit_precision_min_top_p)
+        edit_precision_overrides["min_top_p"] = max(0.0, args.edit_precision_min_top_p)
         record_cli(
             "edit_precision.min_top_p",
-            cfg.edit_precision.min_top_p,
+            edit_precision_overrides["min_top_p"],
             "--edit-precision-min-top-p",
         )
     if getattr(args, "edit_precision_override_top_p", None) is not None:
-        cfg.edit_precision.override_top_p = args.edit_precision_override_top_p
+        edit_precision_overrides["override_top_p"] = args.edit_precision_override_top_p
         record_cli(
             "edit_precision.override_top_p",
             args.edit_precision_override_top_p,
             "--edit-precision-override-top-p",
         )
     if getattr(args, "edit_precision_override_top_k", None) is not None:
-        cfg.edit_precision.override_top_k = args.edit_precision_override_top_k
+        edit_precision_overrides["override_top_k"] = args.edit_precision_override_top_k
         record_cli(
             "edit_precision.override_top_k",
             args.edit_precision_override_top_k,
             "--edit-precision-override-top-k",
         )
     if getattr(args, "edit_precision_target_top_k", None) is not None:
-        cfg.edit_precision.target_top_k = (
+        edit_precision_overrides["target_top_k"] = (
             args.edit_precision_target_top_k
             if args.edit_precision_target_top_k > 0
             else None
         )
         record_cli(
             "edit_precision.target_top_k",
-            cfg.edit_precision.target_top_k,
+            edit_precision_overrides["target_top_k"],
             "--edit-precision-target-top-k",
         )
     if getattr(args, "edit_precision_exclude_agents_regex", None) is not None:
-        cfg.edit_precision.exclude_agents_regex = (
+        edit_precision_overrides["exclude_agents_regex"] = (
             args.edit_precision_exclude_agents_regex
         )
         record_cli(
@@ -924,10 +1007,27 @@ def apply_cli_args(
             "--edit-precision-exclude-agents",
         )
 
+    # Add edit-precision overrides to main overrides if any
+    if edit_precision_overrides:
+        cli_overrides["edit_precision"] = edit_precision_overrides
+
+    # Add backend overrides to main overrides if any
+    if backend_overrides:
+        cli_overrides["backends"] = backend_overrides
+
+    # Create new config with CLI overrides if any
+    if cli_overrides:
+        # Get current config as dict
+        config_dict = cfg.model_dump()
+        # Apply CLI overrides
+        _merge_dicts(config_dict, cli_overrides)
+        # Create new config
+        cfg = AppConfig.model_validate(config_dict)
+
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)
     _apply_feature_flags(cfg)
-    _apply_security_flags(cfg)
+    cfg = _apply_security_flags(cfg)
     if return_resolution:
         return cfg, res
     return cfg
@@ -951,17 +1051,18 @@ def _apply_feature_flags(cfg: AppConfig) -> None:
     # These flags are now directly applied in apply_cli_args
 
 
-def _apply_security_flags(cfg: AppConfig) -> None:
+def _apply_security_flags(cfg: AppConfig) -> AppConfig:
     """Apply security-related configuration."""
     if not cfg.auth.disable_auth:
-        return
+        return cfg
     logging.warning("Client authentication is DISABLED")
     if cfg.host != "127.0.0.1":
         logging.warning(
             "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
             cfg.host,
         )
-        cfg.host = "127.0.0.1"
+        cfg = cfg.model_copy(update={"host": "127.0.0.1"})
+    return cfg
 
 
 def _check_privileges() -> None:
@@ -1034,17 +1135,18 @@ def _configure_logging(cfg: AppConfig) -> None:
     )
 
 
-def _enforce_localhost_if_auth_disabled(cfg: AppConfig) -> None:
+def _enforce_localhost_if_auth_disabled(cfg: AppConfig) -> AppConfig:
     """Enforce localhost binding when authentication is disabled."""
     if not cfg.auth.disable_auth:
-        return
+        return cfg
     logging.warning("Client authentication is DISABLED")
     if cfg.host != "127.0.0.1":
         logging.warning(
             "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
             cfg.host,
         )
-        cfg.host = "127.0.0.1"
+        cfg = cfg.model_copy(update={"host": "127.0.0.1"})
+    return cfg
 
 
 def _handle_application_build_error(error_msg: str) -> None:
@@ -1207,7 +1309,7 @@ def main(
         _check_privileges()
 
     # Enforce security constraints
-    _enforce_localhost_if_auth_disabled(cfg)
+    cfg = _enforce_localhost_if_auth_disabled(cfg)
 
     # Build application with comprehensive error handling
     app: FastAPI

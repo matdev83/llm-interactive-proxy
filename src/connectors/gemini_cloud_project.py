@@ -242,9 +242,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
 
         # GCP Project ID is REQUIRED for this backend (CLI uses GOOGLE_CLOUD_PROJECT)
         self.gcp_project_id = (
-            kwargs.get("gcp_project_id")
-            or os.getenv("GOOGLE_CLOUD_PROJECT")
-            or os.getenv("GCP_PROJECT_ID")
+            kwargs.get("gcp_project_id") or config.get_gcp_project_id()
         )
         if not self.gcp_project_id:
             if logger.isEnabledFor(logging.WARNING):
@@ -255,17 +253,12 @@ class GeminiCloudProjectConnector(GeminiBackend):
             self.is_functional = False
 
         # Optional: Allow custom credentials path
-        self.credentials_path = kwargs.get("credentials_path") or os.getenv(
-            "GEMINI_CREDENTIALS_PATH"
+        self.credentials_path = (
+            kwargs.get("credentials_path") or config.gemini_credentials_path
         )
 
         # Check if health checks should be disabled
-        disable_health_checks = os.getenv("DISABLE_HEALTH_CHECKS", "false").lower() in (
-            "true",
-            "1",
-            "yes",
-        )
-        self._health_checked: bool = disable_health_checks
+        self._health_checked: bool = config.disable_health_checks
 
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.

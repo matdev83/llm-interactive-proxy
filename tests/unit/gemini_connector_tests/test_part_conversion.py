@@ -106,3 +106,41 @@ async def test_system_message_filtered(
     payload = json.loads(request.content)
     assert len(payload["contents"]) == 1
     assert payload["contents"][0]["role"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_dict_processed_messages_are_supported(
+    gemini_backend: GeminiBackend, httpx_mock: HTTPXMock
+):
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[
+            ChatMessage(role="user", content="Hello"),
+        ],
+    )
+    processed_messages = [
+        {"role": "user", "parts": [{"text": "Hello"}]},
+    ]
+    httpx_mock.add_response(
+        url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:generateContent",
+        method="POST",
+        json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]},
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+        match_headers={"x-goog-api-key": "FAKE_KEY"},
+    )
+
+    await gemini_backend.chat_completions(
+        request_data=request_data,
+        processed_messages=processed_messages,
+        effective_model="test-model",
+        openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
+        openrouter_headers_provider=None,
+        key_name="x-goog-api-key",
+        api_key="FAKE_KEY",
+    )
+
+    request = httpx_mock.get_request()
+    assert request is not None
+    payload = json.loads(request.content)
+    assert payload["contents"][0]["parts"] == [{"text": "Hello"}]

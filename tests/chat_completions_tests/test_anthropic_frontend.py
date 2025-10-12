@@ -35,18 +35,25 @@ def anthropic_client():
             return_value=["claude-3-haiku-20240229"],
         ),
     ):
-        # Create a proper AppConfig object
-        config = AppConfig()
-        config.auth = AuthConfig(disable_auth=False, api_keys=["test-proxy-key"])
-        config.proxy_timeout = 10
-        config.session = SessionConfig(default_interactive_mode=False)
-        config.command_prefix = "!/"
-        config.backends = BackendSettings()
-        config.backends.anthropic = BackendConfig(
+        # Create a proper AppConfig object with all settings
+        auth_config = AuthConfig(disable_auth=False, api_keys=["test-proxy-key"])
+        session_config = SessionConfig(default_interactive_mode=False)
+
+        anthropic_backend = BackendConfig(
             api_key=["ant-key"], api_url="https://api.anthropic.com/v1"
         )
-        config.backends.default_backend = "anthropic"
-        config.logging = LoggingConfig()
+        backends_config = BackendSettings(
+            default_backend="anthropic", anthropic=anthropic_backend
+        )
+
+        config = AppConfig(
+            auth=auth_config,
+            proxy_timeout=10,
+            session=session_config,
+            command_prefix="!/",
+            backends=backends_config,
+            logging=LoggingConfig(),
+        )
 
         mock_cfg.return_value = config
         app = build_app()
@@ -202,6 +209,7 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
     ) as mock_process:
         # Create a streaming response that mimics OpenAI streaming format
         from src.core.domain.responses import StreamingResponseEnvelope
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
 
         async def mock_streaming_generator():
             # OpenAI-style streaming chunks that will be converted to Anthropic format
@@ -212,7 +220,7 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
                 "data: [DONE]\n\n",
             ]
             for chunk in chunks:
-                yield chunk.encode("utf-8")
+                yield ProcessedResponse(content=chunk)
 
         streaming_envelope = StreamingResponseEnvelope(
             content=mock_streaming_generator(),
@@ -242,6 +250,7 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
                 text += chunk
             # Check that we get Anthropic streaming format
             assert "content_block_delta" in text or "delta" in text
+            assert "event: message_stop" in text
             mock_process.assert_awaited_once()
 
 
