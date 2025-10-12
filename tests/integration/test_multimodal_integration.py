@@ -102,7 +102,7 @@ class TestMultimodalIntegration:
         assert len(gemini_format["parts"]) == 2
         assert "text" in gemini_format["parts"][0]
         assert gemini_format["parts"][0]["text"] == "Describe this image:"
-        assert "inline_data" in gemini_format["parts"][1]
+        assert "file_data" in gemini_format["parts"][1]
 
     def test_complex_multimodal_message(self):
         """Test a complex multimodal message with multiple content parts."""

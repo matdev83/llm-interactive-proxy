@@ -190,8 +190,9 @@ class TestIntegration:
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
         # Create a config with auth disabled
-        config = AppConfig()
-        config.auth.disable_auth = True
+        from src.core.config.app_config import AuthConfig
+
+        config = AppConfig(auth=AuthConfig(disable_auth=True))
 
         app = build_app(config=config)
 
@@ -203,8 +204,9 @@ class TestIntegration:
     def test_app_dependency_injection_works(self, monkeypatch):
         """Test that dependency injection is properly configured."""
         monkeypatch.setenv("DISABLE_AUTH", "true")
-        config = AppConfig()
-        config.auth.disable_auth = True
+        from src.core.config.app_config import AuthConfig
+
+        config = AppConfig(auth=AuthConfig(disable_auth=True))
 
         app = build_app(config=config)
 

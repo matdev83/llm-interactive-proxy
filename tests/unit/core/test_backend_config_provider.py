@@ -7,7 +7,7 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 
-from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 from src.core.services.backend_config_provider import BackendConfigProvider
 
@@ -18,10 +18,8 @@ class TestBackendConfigProvider:
     def test_get_backend_config_with_attribute_access(self) -> None:
         """Test getting a backend config using attribute access."""
         # Arrange
-        app_config = AppConfig()
-        # Set directly in __dict__ to ensure it's properly set
-        app_config.backends.__dict__["test_backend"] = BackendConfig(
-            api_key=["test-key"]
+        app_config = AppConfig(
+            backends=BackendSettings(test_backend=BackendConfig(api_key=["test-key"]))
         )
         provider = BackendConfigProvider(app_config)
 
@@ -36,8 +34,9 @@ class TestBackendConfigProvider:
     def test_get_backend_config_with_dict_access(self) -> None:
         """Test getting a backend config using dictionary access."""
         # Arrange
-        app_config = AppConfig()
-        app_config.backends = {"openai": {"api_key": ["test-key"]}}  # type: ignore
+        app_config = AppConfig(
+            backends=BackendSettings(openai=BackendConfig(api_key=["test-key"]))
+        )
         provider = BackendConfigProvider(app_config)
 
         # Act
@@ -65,8 +64,7 @@ class TestBackendConfigProvider:
     def test_get_backend_config_with_empty_backend(self) -> None:
         """Test getting a config for a backend with empty config."""
         # Arrange
-        app_config = AppConfig()
-        app_config.backends.openai = BackendConfig()
+        app_config = AppConfig(backends=BackendSettings(openai=BackendConfig()))
         provider = BackendConfigProvider(app_config)
 
         # Act
@@ -80,13 +78,11 @@ class TestBackendConfigProvider:
     def test_iter_backend_names(self) -> None:
         """Test iterating over backend names."""
         # Arrange
-        app_config = AppConfig()
-        # Directly set in __dict__ to ensure it's visible
-        app_config.backends.__dict__["test_backend1"] = BackendConfig(
-            api_key=["test-key"]
-        )
-        app_config.backends.__dict__["test_backend2"] = BackendConfig(
-            api_key=["test-key-2"]
+        app_config = AppConfig(
+            backends=BackendSettings(
+                test_backend1=BackendConfig(api_key=["test-key"]),
+                test_backend2=BackendConfig(api_key=["test-key-2"]),
+            )
         )
         provider = BackendConfigProvider(app_config)
 
@@ -100,24 +96,24 @@ class TestBackendConfigProvider:
     def test_iter_backend_names_includes_dict_backends(self) -> None:
         """Configured dictionary backends should be included in iteration."""
         # Arrange
-        app_config = AppConfig()
-        app_config.backends = {
-            "custom-backend": {"api_key": ["test-key"]},
-            "default_backend": "openai",
-        }  # type: ignore[assignment]
+        app_config = AppConfig(
+            backends=BackendSettings(
+                default_backend="openai",
+                custom_backend=BackendConfig(api_key=["test-key"]),
+            )
+        )
         provider = BackendConfigProvider(app_config)
 
         # Act
         backend_names = provider.iter_backend_names()
 
         # Assert
-        assert "custom-backend" in backend_names
+        assert "custom_backend" in backend_names
 
     def test_get_default_backend(self) -> None:
         """Test getting the default backend."""
         # Arrange
-        app_config = AppConfig()
-        app_config.backends.default_backend = "gemini"
+        app_config = AppConfig(backends=BackendSettings(default_backend="gemini"))
         provider = BackendConfigProvider(app_config)
 
         # Act
@@ -129,8 +125,7 @@ class TestBackendConfigProvider:
     def test_get_default_backend_fallback(self) -> None:
         """Test getting the default backend when not set."""
         # Arrange
-        app_config = AppConfig()
-        app_config.backends.default_backend = ""
+        app_config = AppConfig(backends=BackendSettings(default_backend=""))
         provider = BackendConfigProvider(app_config)
 
         # Act
@@ -142,12 +137,12 @@ class TestBackendConfigProvider:
     def test_functional_backends(self) -> None:
         """Test getting functional backends."""
         # Arrange
-        app_config = AppConfig()
-        # Set directly in __dict__ to ensure it's properly set
-        app_config.backends.__dict__["test_backend1"] = BackendConfig(
-            api_key=["test-key"]
+        app_config = AppConfig(
+            backends=BackendSettings(
+                test_backend1=BackendConfig(api_key=["test-key"]),
+                test_backend2=BackendConfig(),
+            )
         )
-        app_config.backends.__dict__["test_backend2"] = BackendConfig()  # No API key
         provider = BackendConfigProvider(app_config)
 
         # Act

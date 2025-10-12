@@ -2,11 +2,11 @@ from __future__ import annotations
 
 """Service for resolving project directories from the first user prompt."""
 
-import contextlib
 import logging
 import re
-import xml.etree.ElementTree as ET
 from typing import Any
+from xml.etree import ElementTree
+from xml.etree.ElementTree import ParseError
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -179,11 +179,11 @@ class ProjectDirectoryResolutionService:
     async def _persist_state(
         self, session: Session, *, directory: str | None, message: str
     ) -> None:
-        session_state = session.state
-        with contextlib.suppress(AttributeError):
-            session_state.project_dir_resolution_attempted = True
+        # Use Pydantic-style immutable updates from local
+        session_state = session.state.with_project_dir_resolution_attempted(True)
         if directory is not None:
-            session_state.project_dir = directory
+            session_state = session_state.with_project_dir(directory)
+        session.state = session_state
         try:
             await self._session_service.update_session(session)
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -197,7 +197,7 @@ class ProjectDirectoryResolutionService:
 
     async def _call_resolution_model(self, prompt_text: str) -> ResponseEnvelope:
         request = ChatRequest(
-            model=self._model_identifier,
+            model=self._model_identifier or "gpt-4",
             messages=[
                 ChatMessage(role="system", content=self._system_prompt),
                 ChatMessage(role="user", content=prompt_text),
@@ -333,8 +333,8 @@ class ProjectDirectoryResolutionService:
         self, response_text: str
     ) -> tuple[str | None, str | None]:
         try:
-            root = ET.fromstring(response_text.strip())
-        except ET.ParseError:
+            root = ElementTree.fromstring(response_text.strip())
+        except ParseError:
             return None, "invalid XML"
         if root.tag != "directory-resolution-response":
             return None, "unexpected root tag"
@@ -358,9 +358,7 @@ class ProjectDirectoryResolutionService:
             return True
         if value.startswith("\\\\"):
             return True
-        if self._WINDOWS_PATH_PATTERN.match(value):
-            return True
-        return False
+        return bool(self._WINDOWS_PATH_PATTERN.match(value))
 
 
 __all__ = ["ProjectDirectoryResolutionService"]

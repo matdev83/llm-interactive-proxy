@@ -14,18 +14,30 @@ async def app(monkeypatch: pytest.MonkeyPatch):
     app = build_app()
 
     # Manually set up services for testing since lifespan isn't called in tests
-    from src.core.config.app_config import AppConfig, BackendConfig
+    # Create backend configs
+    from src.core.config.app_config import (
+        AppConfig,
+        AuthConfig,
+        BackendConfig,
+        BackendSettings,
+    )
     from src.core.di.services import set_service_provider
 
-    # Ensure config exists
-    app_config = AppConfig()
-    app_config.auth.disable_auth = True
+    openai_backend = BackendConfig(api_key=["test-openai-key"])
+    openrouter_backend = BackendConfig(api_key=["test-openrouter-key"])
+    anthropic_backend = BackendConfig(api_key=["test-anthropic-key"])
+    gemini_backend = BackendConfig(api_key=["test-gemini-key"])
 
-    # Configure backends with test API keys
-    app_config.backends.openai = BackendConfig(api_key=["test-openai-key"])
-    app_config.backends.openrouter = BackendConfig(api_key=["test-openrouter-key"])
-    app_config.backends.anthropic = BackendConfig(api_key=["test-anthropic-key"])
-    app_config.backends.gemini = BackendConfig(api_key=["test-gemini-key"])
+    backends = BackendSettings(
+        openai=openai_backend,
+        openrouter=openrouter_backend,
+        anthropic=anthropic_backend,
+        gemini=gemini_backend,
+    )
+    auth_config = AuthConfig(disable_auth=True)
+
+    # Create complete config
+    app_config = AppConfig(backends=backends, auth=auth_config)
 
     # Store minimal config in app.state
     app.state.app_config = app_config

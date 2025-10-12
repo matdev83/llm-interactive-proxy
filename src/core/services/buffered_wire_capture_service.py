@@ -559,23 +559,17 @@ class BufferedWireCapture(IWireCapture):
 
         task = self._flush_task
         if task is not None:
+            # Don't try to get the loop or schedule cancellation if loop might be closed
+            # Just cancel the task directly if it's not done
             try:
-                task_loop = (
-                    task.get_loop()
-                )  # Works even if loop is not currently running
-            except RuntimeError:
-                task_loop = None
-
-            if task_loop is not None and not task_loop.is_closed():
-
-                def _cancel_task() -> None:
-                    if not task.done():
-                        task.cancel()
-
-                task_loop.call_soon_threadsafe(_cancel_task)
-            else:
                 if not task.done():
                     task.cancel()
+            except RuntimeError:
+                # Event loop is closed, can't cancel - just clear the reference
+                pass
+            except Exception:
+                # Any other exception during cancellation, ignore
+                pass
 
             self._flush_task = None
 

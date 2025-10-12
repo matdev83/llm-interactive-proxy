@@ -69,6 +69,7 @@ class ResponsesController:
                 if isinstance(request_data, ResponsesRequest)
                 else ResponsesRequest.model_validate(request_data)
             )
+            responses_request = cast(ResponsesRequest, responses_request)
         except ValidationError as exc:
             raise self._map_validation_error(exc) from exc
 
@@ -235,6 +236,8 @@ class ResponsesController:
                                     chunk_payload = chunk_content
                             elif isinstance(chunk, str):
                                 chunk_content = chunk
+                            elif isinstance(chunk, bytes):
+                                chunk_content = chunk.decode("utf-8")
                             else:
                                 chunk_content = str(chunk)
 
@@ -382,10 +385,8 @@ class ResponsesController:
 
                     # If it's already a ChatResponse, use TranslationService to convert
                     if isinstance(content, ChatResponse):
-                        converted_response = (
-                            translation_service.from_domain_to_responses_response(
-                                content
-                            )
+                        converted_response = translation_service.from_domain_response(
+                            content, target_format="responses"
                         )
                         logger.debug(
                             f"Response converted via TranslationService - request_id={request_id}"
@@ -397,8 +398,8 @@ class ResponsesController:
                         try:
                             chat_response = ChatResponse(**content)
                             converted_response = (
-                                translation_service.from_domain_to_responses_response(
-                                    chat_response
+                                translation_service.from_domain_response(
+                                    chat_response, target_format="responses"
                                 )
                             )
                             logger.debug(
@@ -633,9 +634,9 @@ class ResponsesController:
         schema_type_raw = schema["type"]
         if isinstance(schema_type_raw, str):
             schema_types = [schema_type_raw]
-        elif isinstance(schema_type_raw, (list, tuple, set)):
+        elif isinstance(schema_type_raw, list | tuple | set):
             schema_types = [
-                str(t) for t in schema_type_raw if isinstance(t, (str, bytes))
+                str(t) for t in schema_type_raw if isinstance(t, str | bytes)
             ]
         else:
             schema_types = [str(schema_type_raw)]
@@ -704,7 +705,7 @@ class ResponsesController:
                 raise ValueError("Array schemas must have an 'items' field")
 
             items_schema = schema["items"]
-            if not isinstance(items_schema, (dict, list, tuple, bool)):
+            if not isinstance(items_schema, dict | list | tuple | bool):
                 raise ValueError("Items schema must be a dictionary, list, or boolean")
 
         primitive_types = {"string", "number", "integer", "boolean", "null"}
@@ -716,7 +717,7 @@ class ResponsesController:
         # Validate additional properties if present
         if "additionalProperties" in schema:
             additional_props = schema["additionalProperties"]
-            if not isinstance(additional_props, (bool, dict)):
+            if not isinstance(additional_props, bool | dict):
                 raise ValueError("additionalProperties must be a boolean or schema")
 
         # Validate required fields if present
@@ -725,13 +726,19 @@ class ResponsesController:
             if not isinstance(required, list):
                 raise ValueError("Required field must be a list")
 
-            if "object" in schema_types and "properties" in schema:
-                properties = schema["properties"]
-                for req_field in required:
-                    if req_field not in properties:
-                        raise ValueError(
-                            f"Required field '{req_field}' not found in properties"
-                        )
+            # Check if required fields are defined (either directly or via composition)
+            if "object" in schema_types:
+                # Skip validation if schema uses composition keywords that may define fields
+                composition_keywords = {"allOf", "anyOf", "oneOf", "$ref"}
+                has_composition = any(key in schema for key in composition_keywords)
+
+                if not has_composition and "properties" in schema:
+                    properties = schema["properties"]
+                    for req_field in required:
+                        if req_field not in properties:
+                            raise ValueError(
+                                f"Required field '{req_field}' not found in properties"
+                            )
 
         # Validate enum if present
         if "enum" in schema:

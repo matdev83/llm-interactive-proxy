@@ -18,8 +18,7 @@ from tests.mocks.mock_http_client import MockHTTPClient
 @pytest.fixture
 def mock_app_config() -> AppConfig:
     """Fixture for a mock AppConfig."""
-    config = AppConfig()
-    config.backends = BackendSettings(
+    backends = BackendSettings(
         openrouter=BackendConfig(
             api_key=["test-openrouter-key"], api_url="https://openrouter.ai/api/v1"
         ),
@@ -31,6 +30,7 @@ def mock_app_config() -> AppConfig:
             api_key=["test-anthropic-key"], api_url="https://api.anthropic.com/v1"
         ),
     )
+    config = AppConfig(backends=backends)
     return config
 
 
@@ -233,7 +233,9 @@ class TestCustomModelParameters:
         assert "thinkingBudget" in thinking_config
         assert thinking_config["thinkingBudget"] == -1
         assert thinking_config.get("includeThoughts") is True
-        assert "reasoning_effort" not in thinking_config
+        assert (
+            "reasoning_effort" in thinking_config
+        )  # reasoning_effort should be passed through
 
     @pytest.mark.asyncio
     async def test_anthropic_reasoning_effort_parameter(

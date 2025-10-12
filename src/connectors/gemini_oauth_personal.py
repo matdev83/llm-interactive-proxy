@@ -97,6 +97,11 @@ from src.core.common.exceptions import (
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
+from src.core.domain.gemini_metadata import (
+    create_gemini_generation_config,
+    create_gemini_response_metadata,
+    create_gemini_usage_info,
+)
 from src.core.domain.responses import (
     ProcessedResponse,
     ResponseEnvelope,
@@ -151,7 +156,7 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
 
     def on_modified(self, event):
         """Handle file modification events."""
-        if not event.is_directory:
+        if not event.is_directory and isinstance(event.src_path, str):
             # Compare paths using Path objects to handle Windows/Unix differences
             try:
                 event_path = Path(event.src_path).resolve()
@@ -251,17 +256,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._quota_exceeded = False
         self._request_counter: DailyRequestCounter | None = None
 
-        # Check environment variable to allow disabling health checks globally
-        import os
-
-        disable_health_checks = os.getenv("DISABLE_HEALTH_CHECKS", "false").lower() in (
-            "true",
-            "1",
-            "yes",
-        )
-
-        # Start as checked only if explicitly disabled via env, otherwise require first-use check
-        self._health_checked: bool = disable_health_checks
+        # Health checks are enabled by default and controlled by the AppConfig
+        self._health_checked: bool = not self.config.get("disable_health_checks", False)
 
         # Set custom .gemini directory path (will be set in initialize)
         self.gemini_cli_oauth_path: str | None = None
@@ -1356,11 +1352,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    # Use (connect, read) timeout to avoid premature read timeouts on long SSE responses
-                    timeout=(
-                        int(DEFAULT_CONNECTION_TIMEOUT),
-                        int(DEFAULT_READ_TIMEOUT),
-                    ),
+                    # Use a single timeout value for the entire request
+                    timeout=int(DEFAULT_READ_TIMEOUT),
                 )
             except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
                 raise APITimeoutError(
@@ -1439,14 +1432,16 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 prompt_tokens = len(encoding.encode(full_prompt))
                 completion_tokens = len(encoding.encode(generated_text))
                 total_tokens = prompt_tokens + completion_tokens
-                usage = {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                }
+                usage = create_gemini_usage_info(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                ).model_dump()
             except Exception as e:
                 logger.warning(f"Could not calculate token usage with tiktoken: {e}")
-                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                usage = create_gemini_usage_info(
+                    prompt_tokens=0, completion_tokens=0, total_tokens=0
+                ).model_dump()
 
             # Create a new CanonicalChatResponse with the full content and usage
             domain_response = CanonicalChatResponse(
@@ -1634,11 +1629,8 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                             params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            # Use (connect, read) timeout with longer read window for streaming SSE
-                            timeout=(
-                                int(DEFAULT_CONNECTION_TIMEOUT),
-                                int(DEFAULT_READ_TIMEOUT),
-                            ),
+                            # Use a single timeout value for the entire request
+                            timeout=int(DEFAULT_READ_TIMEOUT),
                             stream=True,
                         )
                     except requests.exceptions.Timeout as te:
@@ -1705,8 +1697,36 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                                                     "choices"
                                                 ][0]["delta"]["content"]
                                             # Always yield the chunk, regardless of content
+                                            # Create metadata using Pydantic models
+                                            metadata = create_gemini_response_metadata(
+                                                model="gemini-oauth",
+                                                usage=None,  # Streaming doesn't have usage yet
+                                                key_name=getattr(
+                                                    self, "_key_name", None
+                                                ),
+                                            ).model_dump()
+
+                                            # Add raw streaming data
+                                            metadata.update(
+                                                {
+                                                    "raw_tool_calls": domain_chunk.get(
+                                                        "choices", [{}]
+                                                    )[0]
+                                                    .get("delta", {})
+                                                    .get("tool_calls"),
+                                                    "raw_finish_reason": domain_chunk.get(
+                                                        "choices", [{}]
+                                                    )[
+                                                        0
+                                                    ].get(
+                                                        "finish_reason"
+                                                    ),
+                                                }
+                                            )
+
                                             yield ProcessedResponse(
-                                                content=domain_chunk
+                                                content=domain_chunk,
+                                                metadata=metadata,
                                             )
                                         except json.JSONDecodeError:
                                             continue
@@ -1863,18 +1883,32 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         return code_assist_request
 
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
-        """Build Code Assist generationConfig from request_data including optional topK."""
-        cfg: dict[str, Any] = {
-            "temperature": float(getattr(request_data, "temperature", 0.7)),
-            "maxOutputTokens": int(getattr(request_data, "max_tokens", 1024)),
-            "topP": float(getattr(request_data, "top_p", 0.95)),
-        }
+        """Build Code Assist generationConfig from request_data using Pydantic models."""
+        # Extract parameters with defaults
+        temperature = float(getattr(request_data, "temperature", 0.7))
+        max_tokens = int(getattr(request_data, "max_tokens", 1024))
+        top_p = float(getattr(request_data, "top_p", 0.95))
         top_k = getattr(request_data, "top_k", None)
-        if top_k is not None:
-            import contextlib
 
-            with contextlib.suppress(Exception):
-                cfg["topK"] = int(top_k)
+        # Create generation config using Pydantic model
+        config = create_gemini_generation_config(
+            temperature=temperature,
+            top_p=top_p,
+            max_output_tokens=max_tokens,
+            top_k=int(top_k) if top_k is not None else None,
+        )
+
+        # Convert to Gemini API format
+        cfg = config.model_dump()
+
+        # Convert field names to Code Assist API format
+        if "max_output_tokens" in cfg:
+            cfg["maxOutputTokens"] = cfg.pop("max_output_tokens")
+        if "top_p" in cfg:
+            cfg["topP"] = cfg.pop("top_p")
+        if "top_k" in cfg:
+            cfg["topK"] = cfg.pop("top_k")
+
         return cfg
 
     def _convert_from_code_assist_format(

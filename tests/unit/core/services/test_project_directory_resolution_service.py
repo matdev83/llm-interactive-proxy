@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session
@@ -12,11 +12,9 @@ from src.core.services.project_directory_resolution_service import (
 
 @pytest.fixture()
 def app_config() -> AppConfig:
-    cfg = AppConfig()
-    cfg.session = cfg.session.model_copy(
-        update={"project_dir_resolution_model": "openai:gpt-4o-mini"}
+    return AppConfig(
+        session=SessionConfig(project_dir_resolution_model="openai:gpt-4o-mini")
     )
-    return cfg
 
 
 @pytest.mark.asyncio()
@@ -108,8 +106,7 @@ async def test_handles_invalid_directory_response(app_config: AppConfig) -> None
 
 @pytest.mark.asyncio()
 async def test_no_call_when_feature_disabled() -> None:
-    cfg = AppConfig()
-    cfg.session = cfg.session.model_copy(update={"project_dir_resolution_model": None})
+    cfg = AppConfig(session=SessionConfig(project_dir_resolution_model=None))
 
     backend_service = MagicMock()
     backend_service.call_completion = AsyncMock()

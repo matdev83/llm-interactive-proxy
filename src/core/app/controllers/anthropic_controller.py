@@ -18,7 +18,10 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessagesRequest
-from src.core.common.exceptions import InitializationError, LLMProxyError
+from src.core.common.exceptions import (
+    InitializationError,
+    LLMProxyError,
+)
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.session_resolver_interface import ISessionResolver
@@ -441,7 +444,39 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                         ApplicationStateService,
                     )
 
-                    app_state = ApplicationStateService()
+                    # Prefer resolving the concrete implementation from the provider
+                    app_state = service_provider.get_service(ApplicationStateService)
+
+                    if app_state is None:
+                        # Fall back to the global provider if available. This preserves
+                        # singleton semantics for application state even when scoped
+                        # providers do not expose the interface binding.
+                        try:
+                            from src.core.di.services import get_service_provider
+
+                            global_provider = get_service_provider()
+                        except Exception:  # pragma: no cover - diagnostics only
+                            global_provider = None
+                        else:
+                            if (
+                                global_provider is not None
+                                and global_provider is not service_provider
+                            ):
+                                app_state = global_provider.get_service(
+                                    cast(type, IApplicationState)
+                                )
+                                if app_state is None:
+                                    app_state = global_provider.get_service(
+                                        ApplicationStateService
+                                    )
+
+                    if app_state is None:
+                        # As a last resort, rely on DI to construct the singleton.
+                        # This avoids creating ad-hoc instances that bypass lifecycle
+                        # management and ensures downstream services share state.
+                        app_state = service_provider.get_required_service(
+                            ApplicationStateService
+                        )
                 backend_processor: BackendProcessor = BackendProcessor(
                     backend, session, app_state
                 )
