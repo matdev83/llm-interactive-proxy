@@ -78,6 +78,20 @@ class TestOpenAIResponsesTranslation:
         assert result.extra_body is not None
         assert "response_format" in result.extra_body
 
+    def test_responses_to_domain_request_without_response_format(self):
+        """Requests without response_format should still translate successfully."""
+
+        request_dict = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+
+        result = Translation.responses_to_domain_request(request_dict)
+
+        assert isinstance(result, CanonicalChatRequest)
+        assert result.model == "gpt-4o-mini"
+        assert result.extra_body == {}
+
     def test_from_domain_to_responses_request(self):
         """Test converting a domain request to Responses API request format."""
         extra_body = {
