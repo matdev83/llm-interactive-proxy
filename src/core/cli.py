@@ -1024,6 +1024,9 @@ def apply_cli_args(
         # Create new config
         cfg = AppConfig.model_validate(config_dict)
 
+    # Fill in derived defaults that are not provided by explicit sources
+    cfg = _ensure_anthropic_port(cfg, res)
+
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)
     _apply_feature_flags(cfg)
@@ -1063,6 +1066,32 @@ def _apply_security_flags(cfg: AppConfig) -> AppConfig:
         )
         cfg = cfg.model_copy(update={"host": "127.0.0.1"})
     return cfg
+
+
+def _ensure_anthropic_port(
+    cfg: AppConfig, resolution: ParameterResolution
+) -> AppConfig:
+    """Ensure the Anthropic compatibility port follows the main port when implied."""
+
+    explicit_sources: dict[str, Any] = {}
+    for source in (
+        ParameterSource.CONFIG_FILE,
+        ParameterSource.ENVIRONMENT,
+        ParameterSource.CLI,
+    ):
+        explicit_sources.update(resolution.latest_by_source(source))
+
+    if "anthropic_port" in explicit_sources:
+        return cfg
+
+    if cfg.anthropic_port is not None and cfg.anthropic_port > 0:
+        return cfg
+
+    derived_port = cfg.port + 1
+    resolution.record(
+        "anthropic_port", derived_port, ParameterSource.DERIVED, origin="port+1"
+    )
+    return cfg.model_copy(update={"anthropic_port": derived_port})
 
 
 def _check_privileges() -> None:

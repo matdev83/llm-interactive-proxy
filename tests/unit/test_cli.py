@@ -1,11 +1,13 @@
 import argparse
 import os
 import socket
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
 from src.core.config.app_config import AppConfig, ParameterResolution
+from src.core.config.parameter_resolution import ParameterSource
 
 # Make sure all connectors are imported and registered
 from src.core.services import backend_imports  # noqa: F401
@@ -221,6 +223,65 @@ def test_cli_context_window_override_environment_variable() -> None:
                 os.environ["FORCE_CONTEXT_WINDOW"] = original_env
             elif "FORCE_CONTEXT_WINDOW" in os.environ:
                 del os.environ["FORCE_CONTEXT_WINDOW"]
+
+
+def test_apply_cli_args_derives_anthropic_port_when_missing() -> None:
+    """Anthropic compatibility port should default to main port + 1."""
+
+    def fake_load_config(
+        _config_path: Any | None = None,
+        *,
+        resolution: ParameterResolution | None = None,
+        environ: Any | None = None,
+    ) -> AppConfig:
+        assert resolution is not None
+        return AppConfig()
+
+    with patch("src.core.cli.load_config", side_effect=fake_load_config):
+        args = parse_cli_args([])
+        config = _unwrap_config(apply_cli_args(args))
+        assert config.anthropic_port == config.port + 1
+
+
+def test_apply_cli_args_updates_derived_anthropic_port_with_port_override() -> None:
+    """Port overrides should update the implied Anthropic compatibility port."""
+
+    def fake_load_config(
+        _config_path: Any | None = None,
+        *,
+        resolution: ParameterResolution | None = None,
+        environ: Any | None = None,
+    ) -> AppConfig:
+        assert resolution is not None
+        return AppConfig()
+
+    with patch("src.core.cli.load_config", side_effect=fake_load_config):
+        args = parse_cli_args(["--port", "9100"])
+        config = _unwrap_config(apply_cli_args(args))
+        assert config.port == 9100
+        assert config.anthropic_port == 9101
+
+
+def test_apply_cli_args_preserves_explicit_anthropic_port() -> None:
+    """Explicit Anthropic port configuration must not be overridden."""
+
+    def fake_load_config(
+        _config_path: Any | None = None,
+        *,
+        resolution: ParameterResolution | None = None,
+        environ: Any | None = None,
+    ) -> AppConfig:
+        assert resolution is not None
+        resolution.record(
+            "anthropic_port", 1234, ParameterSource.CONFIG_FILE, origin="test-config"
+        )
+        return AppConfig(anthropic_port=1234)
+
+    with patch("src.core.cli.load_config", side_effect=fake_load_config):
+        args = parse_cli_args(["--port", "9100"])
+        config = _unwrap_config(apply_cli_args(args))
+        assert config.port == 9100
+        assert config.anthropic_port == 1234
 
 
 def test_cli_pytest_compression_flags() -> None:
