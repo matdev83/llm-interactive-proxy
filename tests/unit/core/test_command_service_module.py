@@ -48,6 +48,20 @@ async def test_ensure_command_service_wraps_async_callable() -> None:
     assert result.command_results == ["session"]
 
 
+def test_ensure_command_service_rejects_sync_callable() -> None:
+    def handler(messages: list[str], session_id: str) -> ProcessedResult:
+        return ProcessedResult(
+            modified_messages=messages,
+            command_executed=False,
+            command_results=[session_id],
+        )
+
+    with pytest.raises(TypeError) as exc:
+        ensure_command_service(handler)
+
+    assert "async" in str(exc.value).lower()
+
+
 def test_ensure_command_service_rejects_none() -> None:
     with pytest.raises(ValueError) as exc:
         ensure_command_service(None)

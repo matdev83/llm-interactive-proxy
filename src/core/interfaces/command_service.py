@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from inspect import iscoroutinefunction
 from typing import Any
 
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service_interface import ICommandService
 
 CommandServiceHandler = Callable[[list[Any], str], Awaitable[ProcessedResult]]
+
+
+def _is_async_callable(candidate: Any) -> bool:
+    """Return ``True`` when *candidate* is an awaitable callable."""
+
+    if iscoroutinefunction(candidate):  # Fast path for async callables
+        return True
+
+    call_method = getattr(candidate, "__call__", None)
+    return bool(call_method and iscoroutinefunction(call_method))
 
 
 class FunctionCommandService(ICommandService):
@@ -19,6 +30,10 @@ class FunctionCommandService(ICommandService):
             )
         if not callable(handler):
             raise TypeError("The command service handler must be callable.")
+        if not _is_async_callable(handler):
+            raise TypeError(
+                "The command service handler must be an async callable that returns an awaitable result."
+            )
         self._handler = handler
 
     async def process_commands(
@@ -51,6 +66,10 @@ def ensure_command_service(
         return service
 
     if callable(service):
+        if not _is_async_callable(service):
+            raise TypeError(
+                "The command service handler must be an async callable that returns an awaitable result."
+            )
         return FunctionCommandService(service)  # type: ignore[arg-type]
 
     raise TypeError("The provided command service is not valid.")
