@@ -533,8 +533,39 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                     agent_response_formatter = AgentResponseFormatter()
 
                 session_manager = SessionManager(session, session_resolver)
+                wire_capture = None
+                try:
+                    from src.core.interfaces.wire_capture_interface import (
+                        IWireCapture as _IWireCapture,
+                    )
+
+                    wire_capture = service_provider.get_service(
+                        cast(type, _IWireCapture)
+                    )
+                except Exception:
+                    wire_capture = None
+
+                if wire_capture is None:
+                    try:
+                        from src.core.di.services import get_service_provider
+
+                        global_provider = get_service_provider()
+                    except Exception:
+                        global_provider = None
+                    else:
+                        if (
+                            global_provider is not None
+                            and global_provider is not service_provider
+                        ):
+                            try:
+                                wire_capture = global_provider.get_service(
+                                    cast(type, _IWireCapture)
+                                )
+                            except Exception:
+                                wire_capture = None
+
                 backend_request_manager = BackendRequestManager(
-                    backend_processor, response_proc
+                    backend_processor, response_proc, wire_capture
                 )
                 response_manager = ResponseManager(agent_response_formatter)
 
