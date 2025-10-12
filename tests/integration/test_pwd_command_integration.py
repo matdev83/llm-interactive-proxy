@@ -1,10 +1,10 @@
-"""
-Integration tests for the PWD command in the new SOLID architecture.
-"""
+"""Integration tests for the PWD command in the SOLID architecture."""
 
 import pytest
-import pytest_asyncio
+from tests.utils import require_pytest_asyncio
 from src.core.app.test_builder import build_test_app as build_app
+
+pytest_asyncio = require_pytest_asyncio()
 
 
 @pytest_asyncio.fixture

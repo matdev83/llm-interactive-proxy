@@ -7,9 +7,12 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from tests.utils import require_pytest_asyncio
 from src.core.app.controllers import get_chat_controller_if_available
 from src.core.app.controllers.chat_controller import ChatController
 from src.core.services.translation_service import TranslationService
+
+pytest_asyncio = require_pytest_asyncio()
 
 
 @pytest.fixture
@@ -18,11 +21,6 @@ def app() -> Generator[FastAPI, None, None]:
     app = FastAPI()
     app.state.config = {"command_prefix": "!/"}
     yield app
-
-
-import pytest_asyncio
-
-
 @pytest_asyncio.fixture
 async def setup_app(app: FastAPI) -> AsyncGenerator[dict[str, Any], None]:
     """Set up the app with necessary services for testing."""

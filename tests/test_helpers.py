@@ -12,8 +12,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-import respx
+from tests.utils import require_respx
 from src.core.domain.session import Session, SessionState
+
+
+respx = require_respx()
 
 
 def generate_random_id(prefix: str = "", length: int = 8) -> str:

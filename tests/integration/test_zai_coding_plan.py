@@ -1,9 +1,12 @@
 import pytest
 from httpx import Response
-from respx import MockRouter
 from starlette.testclient import TestClient
+from tests.utils import require_respx
 
 pytestmark = [pytest.mark.no_global_mock]
+
+
+MockRouter = require_respx().MockRouter
 
 
 @pytest.fixture

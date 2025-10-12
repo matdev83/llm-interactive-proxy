@@ -2,10 +2,9 @@ import json
 
 import httpx
 import pytest
-import pytest_asyncio
+from tests.utils import require_pytest_asyncio, require_pytest_httpx
 
 # from fastapi import HTTPException # F401: Removed
-from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
@@ -14,6 +13,10 @@ from src.core.domain.responses import ResponseEnvelope
 TEST_OPENROUTER_API_BASE_URL = (
     "https://openrouter.ai/api/v1"  # Real one for realistic requests
 )
+
+
+pytest_asyncio = require_pytest_asyncio()
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:

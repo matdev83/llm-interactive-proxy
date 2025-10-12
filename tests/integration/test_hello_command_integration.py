@@ -9,8 +9,10 @@ import pytest
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
-import pytest_asyncio
 from fastapi.testclient import TestClient
+from tests.utils import require_pytest_asyncio
+
+pytest_asyncio = require_pytest_asyncio()
 
 
 @pytest_asyncio.fixture

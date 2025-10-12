@@ -1,15 +1,17 @@
 import re
 import uuid
-
 import pytest
 from fastapi.testclient import TestClient
-from pytest_httpx import HTTPXMock
+from tests.utils import require_pytest_httpx
 from src.core.app.test_builder import build_httpx_mock_test_app
 
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
+
+
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 @pytest.fixture
@@ -131,3 +133,5 @@ def test_rate_limit_memory(
             # Skip assertion if we can't parse the JSON or it's not in the expected format
             # This is a temporary workaround for the coroutine serialization issue
             pass
+HTTPXMock = require_pytest_httpx().HTTPXMock
+

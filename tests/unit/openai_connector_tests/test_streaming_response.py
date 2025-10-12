@@ -16,8 +16,11 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from fastapi import HTTPException
+from tests.utils import require_pytest_mock
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import ServiceUnavailableError
+
+require_pytest_mock()
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture

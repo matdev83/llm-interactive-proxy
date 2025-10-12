@@ -4,12 +4,15 @@ import asyncio
 
 import httpx
 import pytest
-from pytest_httpx import HTTPXMock
+from tests.utils import require_pytest_httpx
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.config.app_config import AppConfig, get_openrouter_headers
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import HeaderConfig, HeaderOverrideMode
+
+
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 def test_openrouter_headers_provider_accepts_config_dict() -> None:
@@ -91,3 +94,4 @@ async def test_chat_completions_supports_config_dict_headers(
     assert req.headers.get("Authorization") == "Bearer integration-key"
     assert req.headers.get("HTTP-Referer") == "https://example.invalid/test"
     assert req.headers.get("X-Title") == "ExampleProxy"
+

@@ -2,8 +2,7 @@ import json
 
 import httpx
 import pytest
-import pytest_asyncio
-from pytest_httpx import HTTPXMock
+from tests.utils import require_pytest_asyncio, require_pytest_httpx
 from src.connectors.gemini import GeminiBackend
 from src.core.domain.chat import (
     ChatMessage,
@@ -14,6 +13,10 @@ from src.core.domain.chat import (
 )
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
+
+
+pytest_asyncio = require_pytest_asyncio()
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 @pytest_asyncio.fixture(name="gemini_backend")

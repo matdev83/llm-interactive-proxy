@@ -2,7 +2,7 @@ import json
 from collections.abc import AsyncGenerator  # Added import
 
 import pytest
-from pytest_mock import MockerFixture
+from tests.utils import require_pytest_mock
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
@@ -11,6 +11,9 @@ from src.core.services.streaming_tool_call_repair_processor import (
     StreamingToolCallRepairProcessor,
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
+
+
+MockerFixture = require_pytest_mock().MockerFixture
 
 
 @pytest.fixture

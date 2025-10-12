@@ -5,8 +5,11 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.utils import require_pytest_asyncio
 from src.core.app.test_builder import ApplicationTestBuilder
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
+
+pytest_asyncio = require_pytest_asyncio()
 
 
 @pytest.fixture
@@ -18,11 +21,6 @@ def test_env() -> Generator[None, None, None]:
     yield
     os.environ.clear()
     os.environ.update(old_env)
-
-
-import pytest_asyncio
-
-
 @pytest_asyncio.fixture
 async def app_client(test_env: None) -> TestClient:
     """Create a test client with the application."""

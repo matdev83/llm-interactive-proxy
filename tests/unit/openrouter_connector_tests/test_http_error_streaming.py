@@ -2,7 +2,7 @@
 
 import httpx
 import pytest
-import pytest_asyncio
+from tests.utils import require_pytest_asyncio
 from src.connectors.openrouter import OpenRouterBackend
 
 # from pytest_httpx import HTTPXMock # F401: Removed
@@ -26,6 +26,9 @@ def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
         "HTTP-Referer": mock_config["app_site_url"],
         "X-Title": mock_config["app_x_title"],
     }
+
+
+pytest_asyncio = require_pytest_asyncio()
 
 
 @pytest_asyncio.fixture(name="openrouter_backend")

@@ -9,8 +9,7 @@ from collections.abc import AsyncGenerator
 
 import httpx
 import pytest
-import pytest_asyncio
-from pytest_httpx import HTTPXMock
+from tests.utils import require_pytest_asyncio, require_pytest_httpx
 from src.connectors.anthropic import (
     ANTHROPIC_DEFAULT_BASE_URL,
     ANTHROPIC_VERSION_HEADER,
@@ -24,6 +23,10 @@ from src.core.domain.chat import (
 )
 
 TEST_ANTHROPIC_API_BASE_URL = ANTHROPIC_DEFAULT_BASE_URL
+
+
+pytest_asyncio = require_pytest_asyncio()
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 @pytest_asyncio.fixture(name="anthropic_backend")

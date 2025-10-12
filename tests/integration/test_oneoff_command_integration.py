@@ -7,12 +7,15 @@ from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.utils import require_pytest_asyncio
 from src.core.config.app_config import AppConfig
 from src.core.domain.commands.oneoff_command import OneoffCommand
 from src.core.interfaces.backend_service_interface import IBackendService
+
+
+pytest_asyncio = require_pytest_asyncio()
 
 
 @pytest_asyncio.fixture

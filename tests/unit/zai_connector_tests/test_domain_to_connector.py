@@ -9,8 +9,7 @@ from collections.abc import AsyncGenerator
 
 import httpx
 import pytest
-import pytest_asyncio
-from pytest_httpx import HTTPXMock
+from tests.utils import require_pytest_asyncio, require_pytest_httpx
 from src.connectors.zai import ZAIConnector
 from src.core.domain.chat import (
     ChatMessage,
@@ -20,6 +19,10 @@ from src.core.domain.chat import (
 )
 
 TEST_ZAI_API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+
+
+pytest_asyncio = require_pytest_asyncio()
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 @pytest_asyncio.fixture(name="zai_backend")

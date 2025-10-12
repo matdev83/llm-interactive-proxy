@@ -1,13 +1,14 @@
 import httpx
 import pytest
-import pytest_asyncio
-from pytest_httpx import HTTPXMock
+from tests.utils import require_pytest_asyncio, require_pytest_httpx
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 
 def mock_headers_provider(_: str, api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+pytest_asyncio = require_pytest_asyncio()
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 @pytest_asyncio.fixture(name="openrouter_backend")

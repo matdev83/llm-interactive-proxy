@@ -8,7 +8,7 @@ import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
-from pytest_mock import MockerFixture
+from tests.utils import require_pytest_mock
 from src.core.domain.streaming_response_processor import (
     LoopDetectionProcessor,
     StreamingContent,
@@ -16,6 +16,9 @@ from src.core.domain.streaming_response_processor import (
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.loop_detection.analyzer import LoopDetectionEvent
 from src.loop_detection.hybrid_detector import HybridLoopDetector
+
+
+MockerFixture = require_pytest_mock().MockerFixture
 
 
 class TestLoopDetectionStreaming:

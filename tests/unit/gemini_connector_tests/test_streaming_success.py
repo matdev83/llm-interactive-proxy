@@ -4,16 +4,15 @@ from typing import Any
 
 import httpx
 import pytest
-import pytest_asyncio
-
-try:  # pragma: no cover - optional test dependency
-    from pytest_httpx import HTTPXMock
-except ModuleNotFoundError:  # pragma: no cover - optional test dependency
-    HTTPXMock = None  # type: ignore[assignment]
+from tests.utils import require_pytest_asyncio, require_pytest_httpx
 from src.connectors.gemini import GeminiBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
+
+
+pytest_asyncio = require_pytest_asyncio()
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 @pytest_asyncio.fixture(name="gemini_backend")
@@ -41,7 +40,6 @@ def sample_processed_messages() -> list[ChatMessage]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(HTTPXMock is None, reason="pytest_httpx not installed")
 async def test_chat_completions_streaming_success(
     gemini_backend: GeminiBackend,
     httpx_mock: HTTPXMock,

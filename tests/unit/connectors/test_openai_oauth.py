@@ -6,13 +6,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-import pytest_asyncio
-from pytest_httpx import HTTPXMock
+from tests.utils import require_pytest_asyncio, require_pytest_httpx
 from src.connectors.openai_oauth import (
     OpenAICredentialsFileHandler,
     OpenAIOAuthConnector,
 )
 from src.core.domain.chat import ChatMessage, ChatRequest
+
+
+pytest_asyncio = require_pytest_asyncio()
+HTTPXMock = require_pytest_httpx().HTTPXMock
 
 
 @pytest_asyncio.fixture(name="auth_dir")
