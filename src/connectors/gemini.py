@@ -261,12 +261,8 @@ class GeminiBackend(LLMBackend):
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:streamGenerateContent"
         try:
-            response = await self.client.post(
-                url,
-                json=payload,
-                headers=headers,
-                stream=True,
-            )
+            request = self.client.build_request("POST", url, json=payload, headers=headers)
+            response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
