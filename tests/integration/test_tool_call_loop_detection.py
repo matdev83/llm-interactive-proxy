@@ -179,9 +179,7 @@ class TestToolCallLoopDetection:
     """Integration tests for tool call loop detection."""
 
     @pytest.mark.asyncio
-    async def test_block_repeated_calls(
-        self, test_client, mock_backend
-    ):
+    async def test_block_repeated_calls(self, test_client, mock_backend):
         """Test that break mode blocks repeated tool calls."""
         # Configure the mock to return a response with tool calls
         tool_calls = [
@@ -246,9 +244,7 @@ class TestToolCallLoopDetection:
         # Skip further assertions for tool call loop detection since we're using a mock
 
     @pytest.mark.asyncio
-    async def test_retry_then_succeed(
-        self, test_client, mock_backend
-    ):
+    async def test_retry_then_succeed(self, test_client, mock_backend):
         """Test chance_then_break performs a transparent retry that succeeds (different tool args)."""
         # This test was previously skipped, but we're restoring it now
         # Update the app config to use chance_then_break mode
@@ -321,9 +317,7 @@ class TestToolCallLoopDetection:
         )
 
     @pytest.mark.asyncio
-    async def test_retry_then_fail(
-        self, test_client, mock_backend
-    ):
+    async def test_retry_then_fail(self, test_client, mock_backend):
         """Test chance_then_break performs a transparent retry that fails (same tool args again)."""
         # This test was previously skipped, but we're restoring it now
         test_client.app.state.tool_loop_config = ToolCallLoopConfig(

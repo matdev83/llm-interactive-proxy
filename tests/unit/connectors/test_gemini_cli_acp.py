@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+
+# Ensure all gemini-cli-acp tests run sequentially to prevent port conflicts
+pytestmark = pytest.mark.xdist_group("gemini_cli_acp_integration")
 from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
 from src.core.common.exceptions import (
     APITimeoutError,

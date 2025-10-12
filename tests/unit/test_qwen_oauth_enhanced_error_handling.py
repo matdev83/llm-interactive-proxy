@@ -11,7 +11,10 @@ pytestmark = [
     pytest.mark.filterwarnings(
         "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
     ),
-    pytest.mark.xdist_group("qwen_oauth_error_handling"),
+    pytest.mark.xdist_group(
+        "qwen_oauth_enhanced_error_handling_isolated"
+    ),  # Unique group name
+    pytest.mark.no_global_mock,
 ]
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
@@ -31,6 +34,10 @@ class TestQwenOAuthEnhancedErrorHandling:
 
         config = AppConfig()
         connector = QwenOAuthConnector(mock_client, config=config)
+        # Reset connector state to ensure test isolation
+        connector._oauth_credentials = None
+        connector.is_functional = False
+        connector._initialization_failed = False
         return connector
 
     @pytest.mark.asyncio
@@ -104,7 +111,7 @@ class TestQwenOAuthEnhancedErrorHandling:
             ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._handle_non_streaming_response",
                 side_effect=Exception("Test error"),
             ),
             pytest.raises(BackendError) as exc_info,
@@ -137,7 +144,7 @@ class TestQwenOAuthEnhancedErrorHandling:
             ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._handle_non_streaming_response",
                 AsyncMock(
                     return_value=ResponseEnvelope(content={"id": "test"}, headers={})
                 ),
@@ -151,11 +158,10 @@ class TestQwenOAuthEnhancedErrorHandling:
                 effective_model="qwen-oauth:qwen3-coder-plus",
             )
 
-            # Verify that the model name was properly modified
+            # Verify that the model name was properly modified in the payload sent to parent
             call_args = mock_parent.call_args
-            assert call_args[1]["effective_model"] == "qwen3-coder-plus"
-            sent_request = call_args[1]["request_data"]
-            assert sent_request.model == "qwen3-coder-plus"
+            sent_payload = call_args[0][1]  # Second positional argument is the payload
+            assert sent_payload["model"] == "qwen3-coder-plus"
 
     @pytest.mark.asyncio
     async def test_http_exception_passthrough(self, connector):
@@ -174,7 +180,7 @@ class TestQwenOAuthEnhancedErrorHandling:
             ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._handle_non_streaming_response",
                 side_effect=http_exception,
             ),
         ):
