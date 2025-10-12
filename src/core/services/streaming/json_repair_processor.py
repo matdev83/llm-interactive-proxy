@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 import src.core.services.metrics_service as metrics
-from src.core.common.exceptions import JSONParsingError
+from src.core.common.exceptions import JSONParsingError, ValidationError
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
@@ -164,6 +164,8 @@ class JsonRepairProcessor(IStreamProcessor):
                 success = True
         except Exception as e:  # pragma: no cover - strict mode rethrow
             if self._strict_mode:
+                if isinstance(e, (JSONParsingError, ValidationError)):
+                    raise
                 raise JSONParsingError(
                     message=f"JSON repair failed in strict mode: {e}",
                     details={"original_buffer": self._buffer},
