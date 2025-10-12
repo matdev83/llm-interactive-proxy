@@ -1025,7 +1025,7 @@ def apply_cli_args(
         cfg = AppConfig.model_validate(config_dict)
 
     # Validate and apply configurations
-    _validate_and_apply_prefix(cfg)
+    cfg = _validate_and_apply_prefix(cfg)
     _apply_feature_flags(cfg)
     cfg = _apply_security_flags(cfg)
     if return_resolution:
@@ -1033,16 +1033,16 @@ def apply_cli_args(
     return cfg
 
 
-def _validate_and_apply_prefix(cfg: AppConfig) -> None:
-    """Validate and apply command prefix configuration."""
+def _validate_and_apply_prefix(cfg: AppConfig) -> AppConfig:
+    """Validate command prefix configuration and apply defaults safely."""
     if cfg.command_prefix is None:
-        cfg.command_prefix = DEFAULT_COMMAND_PREFIX
-        return
+        return cfg.model_copy(update={"command_prefix": DEFAULT_COMMAND_PREFIX})
 
     prefix = str(cfg.command_prefix)
     err = validate_command_prefix(prefix)
     if err:
         raise ValueError(f"Invalid command prefix: {err}")
+    return cfg
 
 
 def _apply_feature_flags(cfg: AppConfig) -> None:
