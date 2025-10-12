@@ -307,6 +307,50 @@ class TestToolCallReactorMiddleware:
         assert result.metadata["tool_call_reactor"]["handler"] == "test_handler"
 
     @pytest.mark.asyncio
+    async def test_process_with_empty_replacement(self, middleware, mock_reactor):
+        """Handlers should be able to swallow calls with empty steering content."""
+
+        tool_call_response = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_321",
+                                "type": "function",
+                                "function": {
+                                    "name": "test_tool",
+                                    "arguments": '{"arg": "value"}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        response = ProcessedResponse(content=json.dumps(tool_call_response))
+
+        swallow_result = ToolCallReactionResult(
+            should_swallow=True,
+            replacement_response="",
+            metadata={"handler": "test_handler"},
+        )
+
+        mock_reactor.process_tool_call.return_value = swallow_result
+
+        result = await middleware.process(
+            response=response,
+            session_id="test_session",
+            context={"backend_name": "test", "model_name": "test"},
+        )
+
+        assert isinstance(result, ProcessedResponse)
+        assert result is not response
+        assert result.content == ""
+        assert result.metadata["tool_call_swallowed"] is True
+
+    @pytest.mark.asyncio
     async def test_process_with_tool_calls_swallowed_merges_metadata(
         self, middleware, mock_reactor
     ):
