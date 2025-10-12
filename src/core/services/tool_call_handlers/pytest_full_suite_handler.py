@@ -124,12 +124,56 @@ def _looks_like_full_suite(command: str) -> bool:
     allowed_flag_prefixes = {"-", "--"}
     file_like_extensions = (".py", ".pyi")
 
+    skip_next_value = False
+    flags_requiring_value = {
+        "-k",
+        "-m",
+        "-c",
+        "-p",
+        "-o",
+        "-n",
+        "--maxfail",
+        "--deselect",
+        "--lfnf",
+        "--ffnf",
+        "--max-worker-restart",
+        "--max-workers",
+        "--dist",
+        "--tx",
+        "--cov",
+        "--cov-report",
+        "--rootdir",
+        "--basetemp",
+        "--junitxml",
+        "--resultlog",
+        "--log-cli-level",
+        "--log-cli-format",
+        "--log-cli-date-format",
+        "--log-file",
+        "--log-file-level",
+        "--log-file-format",
+        "--log-file-date-format",
+        "--durations",
+        "--max-slave-restart",
+        "--pdbcls",
+        "--pastebin",
+        "--reruns",
+        "--reruns-delay",
+        "--stepwise-skip",
+    }
+
     for token in tail:
+        if skip_next_value:
+            skip_next_value = False
+            continue
+
         if not token:
             continue
 
         if any(token.startswith(prefix) for prefix in allowed_flag_prefixes):
-            # Flags do not imply file selection; continue scanning
+            flag_name, _, _ = token.partition("=")
+            if flag_name in flags_requiring_value and not token.endswith("="):
+                skip_next_value = True
             continue
 
         # Strip trailing commas to handle cases like "pytest ,"
@@ -161,6 +205,9 @@ def _looks_like_full_suite(command: str) -> bool:
         # by considering any dotted path that is not a Python file extension as
         # a targeted run.
         if "." in candidate and not candidate.endswith(file_like_extensions):
+            return False
+
+        if re.fullmatch(r"[A-Za-z0-9_]+", candidate):
             return False
 
     return True
