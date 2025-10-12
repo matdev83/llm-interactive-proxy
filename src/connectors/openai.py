@@ -527,6 +527,10 @@ class OpenAIConnector(LLMBackend):
             try:
                 async for chunk in text_generator():
                     yield ProcessedResponse(content=chunk)
+            except httpx.HTTPError as exc:
+                raise ServiceUnavailableError(
+                    message=f"Streaming connection interrupted ({exc})"
+                ) from exc
             finally:
                 import contextlib
 
