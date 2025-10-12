@@ -617,17 +617,19 @@ class TestUsageTrackingService:
         self, service: UsageTrackingService, mock_repository: IUsageRepository
     ) -> None:
         """Test get_recent_usage with edge cases."""
-        # Test with empty session_id (should use get_all)
+        # Test with empty session_id (should not leak global usage data)
         mock_repository.get_all.return_value = []
-        await service.get_recent_usage(session_id="")
+        result = await service.get_recent_usage(session_id="")
 
-        assert mock_repository.get_all.call_count == 1
+        assert result == []
+        assert mock_repository.get_all.call_count == 0
+        assert mock_repository.get_by_session_id.call_count == 0
 
         # Test with very large limit
         mock_repository.get_all.return_value = []
         await service.get_recent_usage(limit=1000000)
 
-        assert mock_repository.get_all.call_count == 2
+        assert mock_repository.get_all.call_count == 1
 
     @pytest.mark.asyncio
     async def test_track_usage_special_model_names(

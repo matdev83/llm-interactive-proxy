@@ -341,10 +341,20 @@ class UsageTrackingService(IUsageTrackingService):
         Returns:
             List of usage data entities
         """
-        if session_id:
-            data = await self._repository.get_by_session_id(session_id)
-        else:
+        # Normalize session identifier to avoid leaking global usage data when
+        # clients accidentally (or maliciously) submit blank values. Prior to
+        # this guard, passing an empty string would fall through to the
+        # repository's ``get_all`` path and expose usage information for every
+        # session.
+        if session_id is None:
             data = await self._repository.get_all()
+        else:
+            normalized_session_id = session_id.strip()
+
+            if not normalized_session_id:
+                return []
+
+            data = await self._repository.get_by_session_id(normalized_session_id)
 
         # Sort by timestamp (newest first) and limit
         sorted_data = sorted(data, key=lambda x: x.timestamp, reverse=True)
