@@ -9,7 +9,12 @@ from collections.abc import AsyncGenerator
 
 import httpx
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_asyncio", reason="ZAI connector tests need pytest-asyncio")
 import pytest_asyncio
+require_module("pytest_httpx", reason="ZAI connector tests need pytest-httpx")
 from pytest_httpx import HTTPXMock
 from src.connectors.zai import ZAIConnector
 from src.core.domain.chat import (

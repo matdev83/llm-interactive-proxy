@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from src.core.app.test_builder import ApplicationTestBuilder
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
 
+from tests.utils.optional_dependencies import require_module
+
 
 @pytest.fixture
 def test_env() -> Generator[None, None, None]:
@@ -20,6 +22,7 @@ def test_env() -> Generator[None, None, None]:
     os.environ.update(old_env)
 
 
+require_module("pytest_asyncio", reason="Backend probing tests need pytest-asyncio")
 import pytest_asyncio
 
 

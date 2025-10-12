@@ -7,6 +7,10 @@ from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_asyncio", reason="Integration tests need pytest-asyncio")
 import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

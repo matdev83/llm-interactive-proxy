@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,15 @@ pytestmark = [
         "ignore:.*Construction of dict of EntryPoints is deprecated.*:DeprecationWarning"
     ),
 ]
+
+
+@dataclass
+class DependencyCheckResult:
+    """Structured result returned by :meth:`DependencyValidator.validate_dependencies`."""
+
+    installed: list[str]
+    missing_required: list[str]
+    missing_optional: list[str]
 
 
 class DependencyValidator:
@@ -142,27 +152,31 @@ class DependencyValidator:
         with open(self.pyproject_path, "rb") as f:
             return tomli.load(f)
 
-    def _extract_dependencies(self, pyproject_data: dict[str, Any]) -> list[str]:
-        """Extract all dependencies from pyproject.toml.
+    def _extract_dependencies(
+        self, pyproject_data: dict[str, Any]
+    ) -> list[tuple[str, str | None]]:
+        """Extract dependencies and record whether they are optional extras.
 
         Args:
-            pyproject_data: The parsed pyproject.toml content
+            pyproject_data: The parsed pyproject.toml content.
 
         Returns:
-            List of all dependency specifications (main + optional dev dependencies)
+            A list of ``(requirement, group_name)`` tuples where ``group_name`` is
+            ``None`` for required dependencies and contains the optional group name
+            for extras (e.g. ``"dev"``).
         """
-        dependencies = []
+        dependencies: list[tuple[str, str | None]] = []
 
         # Extract main dependencies
         project_deps = pyproject_data.get("project", {}).get("dependencies", [])
-        dependencies.extend(project_deps)
+        dependencies.extend((dep, None) for dep in project_deps)
 
         # Extract optional dependencies (like dev dependencies)
         optional_deps = pyproject_data.get("project", {}).get(
             "optional-dependencies", {}
         )
-        for dep_group in optional_deps.values():
-            dependencies.extend(dep_group)
+        for group_name, dep_group in optional_deps.items():
+            dependencies.extend((dep, group_name) for dep in dep_group)
 
         return dependencies
 
@@ -282,27 +296,38 @@ class DependencyValidator:
 
         return False
 
-    def validate_dependencies(self) -> tuple[list[str], list[str]]:
+    def validate_dependencies(self) -> DependencyCheckResult:
         """Validate all dependencies from pyproject.toml.
 
         Returns:
-            A tuple of (installed_dependencies, missing_dependencies)
+            A :class:`DependencyCheckResult` with installed and missing packages
+            separated into required dependencies and optional extras.
         """
         pyproject_data = self._load_pyproject_toml()
         dependencies = self._extract_dependencies(pyproject_data)
 
-        installed = []
-        missing = []
+        installed: list[str] = []
+        missing_required: list[str] = []
+        missing_optional: list[str] = []
 
-        for dep_spec in dependencies:
+        for dep_spec, group_name in dependencies:
             package_name = self._normalize_package_name(dep_spec)
 
             if self._is_package_installed(package_name):
                 installed.append(dep_spec)
             else:
-                missing.append(dep_spec)
+                if group_name is None:
+                    missing_required.append(dep_spec)
+                else:
+                    missing_optional.append(
+                        f"{dep_spec} (optional group: {group_name})"
+                    )
 
-        return installed, missing
+        return DependencyCheckResult(
+            installed=installed,
+            missing_required=missing_required,
+            missing_optional=missing_optional,
+        )
 
 
 class TestDependencyValidation:
@@ -328,16 +353,25 @@ class TestDependencyValidation:
         2. Check if each dependency is installed and importable
         3. Fail with an informative message listing any missing dependencies
         """
-        installed, missing = validator.validate_dependencies()
+        result = validator.validate_dependencies()
 
-        # Create informative error message if any dependencies are missing
-        if missing:
-            missing_list = "\n  - ".join(missing)
-            total_deps = len(installed) + len(missing)
+        # If optional dependencies are missing but required ones are present, skip with context
+        if result.missing_optional and not result.missing_required:
+            missing_optional_list = "\n  - ".join(result.missing_optional)
+            pytest.skip(
+                "Optional development dependencies are not installed in this "
+                "environment:\n  - " + missing_optional_list
+            )
+
+        # Create informative error message if any required dependencies are missing
+        if result.missing_required:
+            missing_list = "\n  - ".join(result.missing_required)
+            total_deps = len(result.installed) + len(result.missing_required)
 
             error_msg = (
-                f"Missing dependencies detected!\n\n"
-                f"Found {len(missing)} missing dependencies out of {total_deps} total:\n"
+                f"Missing required dependencies detected!\n\n"
+                f"Found {len(result.missing_required)} missing required dependencies "
+                f"out of {total_deps} required packages:\n"
                 f"  - {missing_list}\n\n"
                 f"To fix this issue, run:\n"
                 f"  ./.venv/Scripts/python.exe -m pip install -e .[dev]\n\n"
@@ -347,9 +381,11 @@ class TestDependencyValidation:
             )
             pytest.fail(error_msg)
 
-        # If we get here, all dependencies are installed
-        assert len(missing) == 0, "All dependencies should be installed"
-        assert len(installed) > 0, "Should have found some installed dependencies"
+        # If we get here, all required dependencies are installed
+        assert not result.missing_required, "All required dependencies should be installed"
+        assert (
+            len(result.installed) > 0
+        ), "Should have found some installed dependencies"
 
     def test_pyproject_toml_exists_and_is_valid(
         self, validator: DependencyValidator

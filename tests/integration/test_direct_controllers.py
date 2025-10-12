@@ -11,6 +11,8 @@ from src.core.app.controllers import get_chat_controller_if_available
 from src.core.app.controllers.chat_controller import ChatController
 from src.core.services.translation_service import TranslationService
 
+from tests.utils.optional_dependencies import require_module
+
 
 @pytest.fixture
 def app() -> Generator[FastAPI, None, None]:
@@ -20,6 +22,7 @@ def app() -> Generator[FastAPI, None, None]:
     yield app
 
 
+require_module("pytest_asyncio", reason="Integration tests need pytest-asyncio")
 import pytest_asyncio
 
 

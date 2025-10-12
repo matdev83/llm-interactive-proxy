@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("hypothesis", reason="Backend service tests need Hypothesis")
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from src.connectors.base import LLMBackend

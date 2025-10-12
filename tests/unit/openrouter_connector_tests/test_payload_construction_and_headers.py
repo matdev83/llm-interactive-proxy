@@ -2,9 +2,14 @@ import json
 
 import httpx
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_asyncio", reason="OpenRouter connector tests need pytest-asyncio")
 import pytest_asyncio
 
 # from fastapi import HTTPException # F401: Removed
+require_module("pytest_httpx", reason="OpenRouter connector tests need pytest-httpx")
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 

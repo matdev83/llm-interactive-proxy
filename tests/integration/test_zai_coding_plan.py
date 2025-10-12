@@ -1,5 +1,9 @@
 import pytest
 from httpx import Response
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("respx", reason="ZAI integration tests need respx for HTTP mocking")
 from respx import MockRouter
 from starlette.testclient import TestClient
 

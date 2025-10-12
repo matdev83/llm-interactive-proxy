@@ -12,6 +12,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("respx", reason="Test helpers rely on respx for HTTP mocking")
 import respx
 from src.core.domain.session import Session, SessionState
 

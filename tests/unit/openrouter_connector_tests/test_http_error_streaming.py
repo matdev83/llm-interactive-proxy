@@ -2,6 +2,10 @@
 
 import httpx
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_asyncio", reason="OpenRouter connector tests need pytest-asyncio")
 import pytest_asyncio
 from src.connectors.openrouter import OpenRouterBackend
 

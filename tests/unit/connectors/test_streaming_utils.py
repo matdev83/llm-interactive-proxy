@@ -4,10 +4,13 @@ Tests for the streaming utilities module using Hypothesis for property-based tes
 
 import pytest
 
+from tests.utils.optional_dependencies import require_module
+
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
+require_module("hypothesis", reason="Streaming utility tests need Hypothesis")
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import composite

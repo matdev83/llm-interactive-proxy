@@ -3,6 +3,10 @@ Integration tests for the PWD command in the new SOLID architecture.
 """
 
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_asyncio", reason="Integration tests need pytest-asyncio")
 import pytest_asyncio
 from src.core.app.test_builder import build_test_app as build_app
 

@@ -3,6 +3,10 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_httpx", reason="Chat completion tests need pytest-httpx")
 from pytest_httpx import HTTPXMock
 from src.core.app.test_builder import build_httpx_mock_test_app
 

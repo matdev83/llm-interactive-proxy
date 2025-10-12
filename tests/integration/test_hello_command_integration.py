@@ -6,9 +6,12 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.utils.optional_dependencies import require_module
+
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
+require_module("pytest_asyncio", reason="Integration tests need pytest-asyncio")
 import pytest_asyncio
 from fastapi.testclient import TestClient
 

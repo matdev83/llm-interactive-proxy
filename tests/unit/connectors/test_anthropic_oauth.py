@@ -3,7 +3,12 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_asyncio", reason="Anthropic connector tests need pytest-asyncio")
 import pytest_asyncio
+require_module("pytest_httpx", reason="Anthropic connector tests need pytest-httpx")
 from pytest_httpx import HTTPXMock
 from src.connectors.anthropic import (
     ANTHROPIC_DEFAULT_BASE_URL,

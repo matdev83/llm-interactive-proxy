@@ -8,6 +8,10 @@ import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_mock", reason="Loop detection tests need pytest-mock")
 from pytest_mock import MockerFixture
 from src.core.domain.streaming_response_processor import (
     LoopDetectionProcessor,

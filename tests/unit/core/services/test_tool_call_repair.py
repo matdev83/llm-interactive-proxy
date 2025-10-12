@@ -2,6 +2,10 @@ import json
 from collections.abc import AsyncGenerator  # Added import
 
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_mock", reason="Tool call repair tests need pytest-mock")
 from pytest_mock import MockerFixture
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.streaming.tool_call_repair_processor import (

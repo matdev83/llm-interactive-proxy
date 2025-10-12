@@ -4,6 +4,10 @@ import asyncio
 
 import httpx
 import pytest
+
+from tests.utils.optional_dependencies import require_module
+
+require_module("pytest_httpx", reason="OpenRouter connector tests need pytest-httpx")
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.config.app_config import AppConfig, get_openrouter_headers
