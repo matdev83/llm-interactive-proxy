@@ -395,10 +395,15 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         if isinstance(response, StreamingResponse):
 
             async def new_iterator():
-                response_body = b""
+                # StreamingResponse.body_iterator yields immutable bytes objects.
+                # Using += on bytes forces Python to allocate a brand-new object for
+                # every chunk, resulting in quadratic time/memory behaviour for
+                # long streams. Collect the chunks in a mutable buffer instead and
+                # only coerce to bytes once before rewriting.
+                buffer = bytearray()
                 async for chunk in response.body_iterator:
-                    response_body += chunk
-                rewritten_body = self.rewriter.rewrite_reply(response_body.decode())
+                    buffer.extend(chunk)
+                rewritten_body = self.rewriter.rewrite_reply(buffer.decode())
                 yield rewritten_body.encode("utf-8")
 
             background = response.background
