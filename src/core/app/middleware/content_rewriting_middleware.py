@@ -182,9 +182,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         if isinstance(instructions, dict):
             text_value = instructions.get("text")
             if isinstance(text_value, str):
-                rewritten_text = self.rewriter.rewrite_prompt(
-                    text_value, "system"
-                )
+                rewritten_text = self.rewriter.rewrite_prompt(text_value, "system")
                 if rewritten_text != text_value:
                     instructions["text"] = rewritten_text
                     return True
@@ -195,9 +193,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             for index, block in enumerate(instructions):
                 if not isinstance(block, dict):
                     if isinstance(block, str):
-                        rewritten_text = self.rewriter.rewrite_prompt(
-                            block, "system"
-                        )
+                        rewritten_text = self.rewriter.rewrite_prompt(block, "system")
                         if rewritten_text != block:
                             instructions[index] = rewritten_text
                             is_rewritten = True
@@ -207,9 +203,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                 if not isinstance(text_value, str):
                     continue
 
-                rewritten_text = self.rewriter.rewrite_prompt(
-                    text_value, "system"
-                )
+                rewritten_text = self.rewriter.rewrite_prompt(text_value, "system")
                 if rewritten_text != text_value:
                     block["text"] = rewritten_text
                     is_rewritten = True

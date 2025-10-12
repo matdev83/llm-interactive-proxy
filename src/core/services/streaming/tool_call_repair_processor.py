@@ -53,9 +53,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         repaired_content_parts: list[str] = []
 
         if buffer:
-            repaired_json = self.tool_call_repair_service.repair_tool_calls(
-                buffer
-            )
+            repaired_json = self.tool_call_repair_service.repair_tool_calls(buffer)
             if repaired_json:
                 repaired_content_parts.append(json.dumps(repaired_json))
                 buffer = ""
@@ -63,7 +61,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 flushed = self._trim_buffer(buffer)
                 if flushed:
                     repaired_content_parts.append(flushed)
-                    buffer = buffer[len(flushed):]
+                    buffer = buffer[len(flushed) :]
 
         if content.is_done and buffer:
             repaired_content_parts.append(buffer)

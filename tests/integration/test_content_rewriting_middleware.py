@@ -331,9 +331,7 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             instructions = data["instructions"]
             self.assertIsInstance(instructions, list)
             self.assertEqual(instructions[0]["text"], "rewritten system guidance")
-            self.assertEqual(
-                instructions[1]["image_url"]["url"], "https://example.com"
-            )
+            self.assertEqual(instructions[1]["image_url"]["url"], "https://example.com")
             return Response(
                 content=json.dumps({"ok": True}), media_type="application/json"
             )
