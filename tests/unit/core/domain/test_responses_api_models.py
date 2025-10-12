@@ -11,9 +11,12 @@ import time
 
 import pytest
 from pydantic import ValidationError
+from typing import cast
 from src.core.domain.chat import ChatMessage
 from src.core.domain.responses_api import (
     JsonSchema,
+    MAX_SCHEMA_COLLECTION_ITEMS,
+    MAX_SCHEMA_DEPTH,
     ResponseChoice,
     ResponseFormat,
     ResponseMessage,
@@ -108,6 +111,34 @@ class TestJsonSchema:
         assert json_schema.description == "Test description"
         assert json_schema.schema == {"type": "boolean"}
         assert json_schema.strict is False
+
+    def test_json_schema_rejects_excessive_depth(self) -> None:
+        """Overly deep schemas should fail validation to prevent DoS."""
+
+        schema: dict[str, object] = {"type": "object", "properties": {}}
+        cursor = cast(dict[str, object], schema["properties"])
+        for level in range(MAX_SCHEMA_DEPTH + 1):
+            next_layer = {"type": "object", "properties": {}}
+            cursor[f"layer_{level}"] = next_layer
+            cursor = cast(dict[str, object], next_layer["properties"])
+
+        with pytest.raises(ValidationError) as exc_info:
+            JsonSchema(name="too_deep", schema=schema)
+
+        assert "maximum allowed depth" in str(exc_info.value)
+
+    def test_json_schema_rejects_excessive_width(self) -> None:
+        """Schemas with too many sibling entries should fail validation."""
+
+        properties: dict[str, object] = {}
+        schema = {"type": "object", "properties": properties}
+        for index in range(MAX_SCHEMA_COLLECTION_ITEMS + 1):
+            properties[f"field_{index}"] = {"type": "string"}
+
+        with pytest.raises(ValidationError) as exc_info:
+            JsonSchema(name="too_wide", schema=schema)
+
+        assert "cannot contain more than" in str(exc_info.value)
 
 
 class TestResponseFormat:

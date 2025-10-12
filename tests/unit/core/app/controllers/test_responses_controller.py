@@ -1,6 +1,7 @@
 """Unit tests for the ResponsesController front-end logic."""
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,7 +14,13 @@ from src.core.domain.chat import (
     ChatResponse,
 )
 from src.core.domain.responses import ResponseEnvelope
-from src.core.domain.responses_api import JsonSchema, ResponseFormat, ResponsesRequest
+from src.core.domain.responses_api import (
+    JsonSchema,
+    MAX_SCHEMA_COLLECTION_ITEMS,
+    MAX_SCHEMA_DEPTH,
+    ResponseFormat,
+    ResponsesRequest,
+)
 
 
 class StubTranslationService:
@@ -149,6 +156,30 @@ class TestResponsesControllerSchemaValidation:
 
         # Should not raise a TypeError or validation error
         ResponsesController._validate_json_schema(schema)
+
+    def test_validate_json_schema_rejects_excessive_depth(self) -> None:
+        """Schemas that exceed the supported nesting depth should be rejected."""
+
+        schema: dict[str, object] = {"type": "object", "properties": {}}
+        cursor = cast(dict[str, object], schema["properties"])
+        for level in range(MAX_SCHEMA_DEPTH + 1):
+            next_layer: dict[str, object] = {"type": "object", "properties": {}}
+            cursor[f"layer_{level}"] = next_layer
+            cursor = cast(dict[str, object], next_layer["properties"])
+
+        with pytest.raises(ValueError, match="maximum allowed depth"):
+            ResponsesController._validate_json_schema(schema)  # type: ignore[arg-type]
+
+    def test_validate_json_schema_rejects_excessive_width(self) -> None:
+        """Schemas with too many peer keys should be rejected early."""
+
+        properties: dict[str, object] = {}
+        schema = {"type": "object", "properties": properties}
+        for index in range(MAX_SCHEMA_COLLECTION_ITEMS + 1):
+            properties[f"field_{index}"] = {"type": "string"}
+
+        with pytest.raises(ValueError, match="cannot contain more than"):
+            ResponsesController._validate_json_schema(schema)
 
 
 @pytest.mark.asyncio
