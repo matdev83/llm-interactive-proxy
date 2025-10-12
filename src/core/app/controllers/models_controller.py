@@ -1,5 +1,4 @@
-"""
-Models Controller
+"""Models Controller.
 
 Handles model-related endpoints for the application.
 """
