@@ -7,6 +7,7 @@ from src.core.commands.handlers.failover_command_handler import FailoverCommandH
 from src.core.commands.parser import CommandParser
 from src.core.commands.pipeline import CommandMatchFilter, CommandTailExtractor
 from src.core.commands.registry import get_all_commands, get_command_handler
+from src.core.common.env_utils import get_env_flag
 from src.core.config.app_config import AppConfig
 from src.core.domain import chat as models
 from src.core.domain.chat import ChatMessage
@@ -76,6 +77,10 @@ class NewCommandService(ICommandService):
         """
         self.session_service = session_service
         self.command_parser = command_parser
+        if not strict_command_detection:
+            strict_command_detection = get_env_flag(
+                "STRICT_COMMAND_DETECTION", False
+            )
         self.strict_command_detection = strict_command_detection
         self._app_state = app_state
         if command_state_service is None:

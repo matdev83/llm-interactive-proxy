@@ -1,8 +1,7 @@
-"""
-Tests for the configuration module.
-"""
+"""Tests for the configuration module."""
 
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from src.core.config.app_config import (
@@ -50,6 +49,26 @@ def test_app_config_from_env(mock_env_vars: dict[str, str]) -> None:
     assert config.backends.openai.api_key
     assert len(config.backends.openrouter.api_key) > 0
     assert config.auth.disable_auth is True
+
+
+def test_command_service_respects_strict_command_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Command service should enable strict mode via environment flag."""
+    from src.core.commands.parser import CommandParser
+    from src.core.commands.service import NewCommandService
+
+    monkeypatch.setenv("STRICT_COMMAND_DETECTION", "true")
+
+    service = NewCommandService(
+        session_service=Mock(),
+        command_parser=CommandParser(),
+        strict_command_detection=False,
+    )
+
+    assert service.strict_command_detection is True
+
+    monkeypatch.delenv("STRICT_COMMAND_DETECTION")
 
 
 # def test_legacy_config_loader():
