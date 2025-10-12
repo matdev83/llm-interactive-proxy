@@ -43,12 +43,67 @@ from src.core.constants import (
 
 # Import domain models for type annotations
 from src.core.domain.chat import ChatRequest as DomainChatRequest
+from src.core.domain.request_context import RequestContext
 
 # Using SOLID architecture directly with DI-managed services
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.session_resolver_interface import ISessionResolver
+from src.core.transport.fastapi.request_adapters import (
+    fastapi_to_domain_request_context,
+)
 
 logger = logging.getLogger(__name__)
+
+
+async def _attach_session_context(
+    service_provider: IServiceProvider,
+    request: Request,
+    domain_request: DomainChatRequest,
+) -> tuple[DomainChatRequest, RequestContext]:
+    """Resolve and attach session context information to a chat request."""
+
+    ctx = fastapi_to_domain_request_context(request, attach_original=True)
+    with contextlib.suppress(Exception):
+        ctx.domain_request = domain_request  # type: ignore[attr-defined]
+
+    session_resolver = service_provider.get_required_service(ISessionResolver)
+
+    session_id_candidate = getattr(domain_request, "session_id", None)
+    if isinstance(session_id_candidate, str):
+        session_id_candidate = session_id_candidate.strip() or None
+    else:
+        session_id_candidate = None
+
+    extra_body_source = (
+        domain_request.extra_body
+        if isinstance(domain_request.extra_body, dict)
+        else {}
+    )
+    if not session_id_candidate:
+        extra_candidate = extra_body_source.get("session_id")
+        if isinstance(extra_candidate, str):
+            session_id_candidate = extra_candidate.strip() or None
+
+    if session_id_candidate:
+        ctx.session_id = session_id_candidate
+
+    resolved_session_id = await session_resolver.resolve_session_id(ctx)
+    ctx.session_id = resolved_session_id
+
+    updated_extra_body = dict(extra_body_source)
+    updated_extra_body["session_id"] = resolved_session_id
+    domain_request = domain_request.model_copy(
+        update={
+            "session_id": resolved_session_id,
+            "extra_body": updated_extra_body,
+        }
+    )
+
+    with contextlib.suppress(Exception):
+        ctx.domain_request = domain_request  # type: ignore[attr-defined]
+
+    return domain_request, ctx
 
 
 def _get_strict_controller_errors() -> bool:
@@ -467,8 +522,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
 
             # Try to call the backend - if it fails, provide fallback response
             try:
-                # Check if there's a mock backend on app.state (test scenario)
                 app_state = request.app.state
+                domain_request, ctx = await _attach_session_context(
+                    service_provider, request, domain_request
+                )
+
                 if (
                     hasattr(app_state, "openrouter_backend")
                     and app_state.openrouter_backend
@@ -490,48 +548,31 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     )
 
                     return canonical_response_to_gemini_response(mock_content)
-                else:
-                    # Call the backend service using the public call_completion method
-                    result = await backend_service.call_completion(domain_request)
 
-                    # Convert the domain response to Gemini format
-                    if hasattr(result, "content"):
-                        if isinstance(result.content, dict):
-                            # Convert OpenAI format response to Gemini format
-                            from src.core.domain.gemini_translation import (
-                                canonical_response_to_gemini_response,
-                            )
+                # Call the backend service using the public call_completion method
+                result = await backend_service.call_completion(
+                    domain_request,
+                    stream=bool(domain_request.stream),
+                    context=ctx,
+                )
 
-                            return canonical_response_to_gemini_response(result.content)
-                        else:
-                            # For other response types, provide a basic Gemini response
-                            response_text = str(result.content)
-                            return {
-                                "candidates": [
-                                    {
-                                        "content": {
-                                            "parts": [{"text": response_text}],
-                                            "role": "model",
-                                        },
-                                        "finishReason": "STOP",
-                                        "index": 0,
-                                    }
-                                ],
-                                "usageMetadata": {
-                                    "promptTokenCount": 10,
-                                    "candidatesTokenCount": 20,
-                                    "totalTokenCount": 30,
-                                },
-                            }
+                # Convert the domain response to Gemini format
+                if hasattr(result, "content"):
+                    if isinstance(result.content, dict):
+                        # Convert OpenAI format response to Gemini format
+                        from src.core.domain.gemini_translation import (
+                            canonical_response_to_gemini_response,
+                        )
+
+                        return canonical_response_to_gemini_response(result.content)
                     else:
-                        # Fallback for unexpected response format
+                        # For other response types, provide a basic Gemini response
+                        response_text = str(result.content)
                         return {
                             "candidates": [
                                 {
                                     "content": {
-                                        "parts": [
-                                            {"text": "Response processed successfully."}
-                                        ],
+                                        "parts": [{"text": response_text}],
                                         "role": "model",
                                     },
                                     "finishReason": "STOP",
@@ -544,6 +585,27 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                 "totalTokenCount": 30,
                             },
                         }
+                else:
+                    # Fallback for unexpected response format
+                    return {
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [
+                                        {"text": "Response processed successfully."}
+                                    ],
+                                    "role": "model",
+                                },
+                                "finishReason": "STOP",
+                                "index": 0,
+                            }
+                        ],
+                        "usageMetadata": {
+                            "promptTokenCount": 10,
+                            "candidatesTokenCount": 20,
+                            "totalTokenCount": 30,
+                        },
+                    }
             except Exception as e:
                 # Check if it's an HTTPException that should be re-raised
                 if isinstance(e, HTTPException):
@@ -638,11 +700,17 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             # Get backend service
             backend_service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
 
+            domain_request, ctx = await _attach_session_context(
+                service_provider, request, domain_request
+            )
+
             async def generate_stream() -> AsyncGenerator[bytes, None]:
 
                 try:
                     # Call the backend service
-                    result = await backend_service.call_completion(domain_request)
+                    result = await backend_service.call_completion(
+                        domain_request, stream=True, context=ctx
+                    )
 
                     if hasattr(result, "content") and hasattr(
                         result.content, "__aiter__"

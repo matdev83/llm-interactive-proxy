@@ -7,6 +7,7 @@ refactored to use proper dependency injection instead of direct app.state access
 
 import json
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -16,9 +17,12 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 from fastapi.testclient import TestClient
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.session_resolver_interface import ISessionResolver
+from src.core.services.translation_service import TranslationService
 from src.rate_limit import RateLimitRegistry
 
 from tests.utils.test_di_utils import (
@@ -234,6 +238,84 @@ class TestGeminiGenerateContent:
                 assert "message" in data["error"]
                 assert "Model not found" in data["error"]["message"]
 
+    def test_generate_content_resolves_session_context(
+        self, gemini_client, monkeypatch
+    ) -> None:
+        """Gemini compatibility endpoint should isolate sessions via resolver."""
+
+        backend_service = get_required_service_from_app(
+            gemini_client.app, IBackendService
+        )
+        backend_service.call_completion = AsyncMock(
+            return_value=SimpleNamespace(content="ok")
+        )
+
+        session_resolver = AsyncMock(spec=ISessionResolver)
+        session_resolver.resolve_session_id.return_value = "resolved-session"
+        service_provider = gemini_client.app.state.service_provider
+
+        original_get_required = service_provider.get_required_service
+        original_get_service = service_provider.get_service
+
+        def _get_required(service_type: type[Any]) -> Any:
+            if service_type is ISessionResolver:
+                return session_resolver
+            return original_get_required(service_type)
+
+        def _get_service(service_type: type[Any]) -> Any:
+            if service_type is ISessionResolver:
+                return session_resolver
+            return original_get_service(service_type)
+
+        monkeypatch.setattr(service_provider, "get_required_service", _get_required)
+        monkeypatch.setattr(service_provider, "get_service", _get_service)
+
+        gemini_client.app.state.openrouter_backend = None
+
+        translation_service = service_provider.get_required_service(TranslationService)
+
+        def _to_domain_request(
+            data: dict[str, Any], source_format: str = "gemini"
+        ) -> ChatRequest:
+            return ChatRequest(
+                model="gemini-pro",
+                messages=[ChatMessage(role="user", content="Tell me a joke")],
+                stream=bool(data.get("stream")),
+                extra_body={},
+            )
+
+        monkeypatch.setattr(translation_service, "to_domain_request", _to_domain_request)
+
+        request_data = {
+            "contents": [
+                {
+                    "parts": [{"text": "Tell me a joke"}],
+                    "role": "user",
+                }
+            ],
+            "generationConfig": {"temperature": 0.5},
+        }
+
+        response = gemini_client.post(
+            "/v1beta/models/gemini-pro:generateContent", json=request_data
+        )
+
+        assert response.status_code == 200
+        assert session_resolver.resolve_session_id.await_count == 1
+
+        call = backend_service.call_completion.await_args
+        ctx = call.kwargs.get("context")
+        assert ctx is not None
+        assert ctx.session_id == "resolved-session"
+
+        request_arg = call.args[0]
+        assert request_arg.session_id == "resolved-session"
+        assert request_arg.extra_body is not None
+        assert request_arg.extra_body.get("session_id") == "resolved-session"
+
+        resolver_context = session_resolver.resolve_session_id.await_args.args[0]
+        assert resolver_context is ctx
+
 
 class TestGeminiStreamGenerateContent:
     """Test the Gemini streaming content generation endpoint."""
@@ -355,6 +437,95 @@ class TestGeminiStreamGenerateContent:
             assert data["candidates"]
             first_part = data["candidates"][0]["content"]["parts"][0]
             assert first_part["text"] == "Hello"
+
+    def test_stream_generate_content_resolves_session_context(
+        self, gemini_client, monkeypatch
+    ) -> None:
+        """Streaming endpoint should also resolve session context."""
+
+        backend_service = get_required_service_from_app(
+            gemini_client.app, IBackendService
+        )
+
+        async def stream_chunks():
+            yield ProcessedResponse(content="chunk")
+
+        backend_service.call_completion = AsyncMock(
+            return_value=SimpleNamespace(content=stream_chunks())
+        )
+
+        session_resolver = AsyncMock(spec=ISessionResolver)
+        session_resolver.resolve_session_id.return_value = "stream-session"
+        service_provider = gemini_client.app.state.service_provider
+
+        original_get_required = service_provider.get_required_service
+        original_get_service = service_provider.get_service
+
+        def _get_required(service_type: type[Any]) -> Any:
+            if service_type is ISessionResolver:
+                return session_resolver
+            return original_get_required(service_type)
+
+        def _get_service(service_type: type[Any]) -> Any:
+            if service_type is ISessionResolver:
+                return session_resolver
+            return original_get_service(service_type)
+
+        monkeypatch.setattr(service_provider, "get_required_service", _get_required)
+        monkeypatch.setattr(service_provider, "get_service", _get_service)
+
+        gemini_client.app.state.openrouter_backend = None
+
+        translation_service = service_provider.get_required_service(TranslationService)
+
+        def _to_domain_request(
+            data: dict[str, Any], source_format: str = "gemini"
+        ) -> ChatRequest:
+            return ChatRequest(
+                model="gemini-pro",
+                messages=[
+                    ChatMessage(role="user", content="Stream context please")
+                ],
+                stream=bool(data.get("stream")),
+                extra_body={},
+            )
+
+        monkeypatch.setattr(translation_service, "to_domain_request", _to_domain_request)
+
+        request_data = {
+            "contents": [
+                {
+                    "parts": [{"text": "Stream context please"}],
+                    "role": "user",
+                }
+            ],
+            "generationConfig": {"temperature": 0.1},
+            "stream": True,
+        }
+
+        with gemini_client.stream(
+            "POST",
+            "/v1beta/models/gemini-pro:streamGenerateContent",
+            json=request_data,
+        ) as response:
+            assert response.status_code == 200
+            list(response.iter_lines())
+
+        assert session_resolver.resolve_session_id.await_count == 1
+
+        call = backend_service.call_completion.await_args
+        ctx = call.kwargs.get("context")
+        assert ctx is not None
+        assert ctx.session_id == "stream-session"
+        assert call.kwargs.get("stream") is True
+
+        request_arg = call.args[0]
+        assert request_arg.session_id == "stream-session"
+        assert request_arg.extra_body is not None
+        assert request_arg.extra_body.get("session_id") == "stream-session"
+
+        resolver_context = session_resolver.resolve_session_id.await_args.args[0]
+        assert resolver_context is ctx
 
 
 class TestGeminiAuthentication:
