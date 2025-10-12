@@ -233,14 +233,14 @@ def test_end_phase_ignores_missing_start(monkeypatch: pytest.MonkeyPatch) -> Non
     assert metrics._current_phase is None
 
 
-@pytest.mark.skip(reason="Test has timing issues - needs investigation")
 def test_log_summary_finalizes_when_total_missing(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    time_values = _time_sequence(0.0, 4.0)
-    monkeypatch.setattr(performance_tracker.time, "time", time_values)
+    time_stub = TimeStub([0.0, 4.0])
+    monkeypatch.setattr("src.performance_tracker.time.time", time_stub)
 
-    metrics = PerformanceMetrics(session_id="sess-1", request_start=0.0)
+    metrics = PerformanceMetrics(session_id="sess-1")
+    metrics.request_start = 0.0
     metrics.backend_used = "backend-b"
     metrics.model_used = "model-y"
     metrics.command_processing_time = 1.5
