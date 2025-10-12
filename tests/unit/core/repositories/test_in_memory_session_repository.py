@@ -80,6 +80,7 @@ class TestInMemorySessionRepository:
         """Test repository initialization."""
         assert repository._sessions == {}
         assert repository._user_sessions == {}
+        assert repository._session_to_user == {}
 
     @pytest.mark.asyncio
     async def test_get_by_id_empty_repository(
@@ -111,6 +112,9 @@ class TestInMemorySessionRepository:
         # Check user tracking
         assert "user-456" in repository._user_sessions
         assert sample_session.session_id in repository._user_sessions["user-456"]
+        assert (
+            repository._session_to_user[sample_session.session_id] == "user-456"
+        )
 
     @pytest.mark.asyncio
     async def test_add_session_without_user_id(
@@ -124,6 +128,7 @@ class TestInMemorySessionRepository:
 
         # Should not create user tracking for sessions without user_id
         assert repository._user_sessions == {}
+        assert repository._session_to_user == {}
 
     @pytest.mark.asyncio
     async def test_get_by_id_existing_session(
@@ -179,6 +184,7 @@ class TestInMemorySessionRepository:
             "user-456", []
         )
         assert repository._user_sessions.get("user-789") == [sample_session.session_id]
+        assert repository._session_to_user[sample_session.session_id] == "user-789"
 
     @pytest.mark.asyncio
     async def test_update_session_removes_user_tracking_when_user_cleared(
@@ -197,6 +203,7 @@ class TestInMemorySessionRepository:
             sample_session.session_id not in sessions
             for sessions in repository._user_sessions.values()
         )
+        assert sample_session.session_id not in repository._session_to_user
 
     @pytest.mark.asyncio
     async def test_update_nonexistent_session(
@@ -220,7 +227,9 @@ class TestInMemorySessionRepository:
         assert sample_session.session_id not in repository._sessions
 
         # Check user tracking cleanup
-        assert sample_session.session_id not in repository._user_sessions["user-456"]
+        user_sessions = repository._user_sessions.get("user-456")
+        assert not user_sessions or sample_session.session_id not in user_sessions
+        assert sample_session.session_id not in repository._session_to_user
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_session(
@@ -357,7 +366,9 @@ class TestInMemorySessionRepository:
         await repository.delete(sample_session.session_id)
 
         # Verify user tracking is cleaned up
-        assert sample_session.session_id not in repository._user_sessions["user-456"]
+        user_sessions = repository._user_sessions.get("user-456")
+        assert not user_sessions or sample_session.session_id not in user_sessions
+        assert sample_session.session_id not in repository._session_to_user
 
     @pytest.mark.asyncio
     async def test_get_all_returns_copy(

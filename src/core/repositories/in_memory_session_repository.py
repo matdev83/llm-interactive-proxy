@@ -22,6 +22,8 @@ class InMemorySessionRepository(ISessionRepository):
         self._sessions: dict[str, Session] = {}
         self._user_sessions: dict[str, list[str]] = {}
         self._last_accessed: dict[str, float] = {}
+        # Track owning user for each session to avoid costly scans during updates
+        self._session_to_user: dict[str, str] = {}
 
     async def get_by_id(self, id: str) -> Session | None:
         """Get a session by its ID."""
@@ -41,9 +43,13 @@ class InMemorySessionRepository(ISessionRepository):
 
         # Track by user if available
         if hasattr(entity, "user_id") and entity.user_id:
-            if entity.user_id not in self._user_sessions:
-                self._user_sessions[entity.user_id] = []
-            self._user_sessions[entity.user_id].append(entity.id)
+            user_id = entity.user_id
+            self._session_to_user[entity.id] = user_id
+            if user_id not in self._user_sessions:
+                self._user_sessions[user_id] = []
+            self._user_sessions[user_id].append(entity.id)
+        else:
+            self._session_to_user.pop(entity.id, None)
 
         return entity
 
@@ -53,15 +59,8 @@ class InMemorySessionRepository(ISessionRepository):
         if existing_session is None:
             return await self.add(entity)
 
-        previous_user_id = next(
-            (
-                user_id
-                for user_id, session_ids in self._user_sessions.items()
-                if entity.id in session_ids
-            ),
-            None,
-        )
-        new_user_id = getattr(entity, "user_id", None)
+        previous_user_id = self._session_to_user.get(entity.id)
+        new_user_id = getattr(entity, "user_id", None) or None
 
         self._sessions[entity.id] = entity
         self._last_accessed[entity.id] = time.time()
@@ -72,11 +71,15 @@ class InMemorySessionRepository(ISessionRepository):
                 tracked_sessions.remove(entity.id)
                 if not tracked_sessions:
                     del self._user_sessions[previous_user_id]
+            self._session_to_user.pop(entity.id, None)
 
         if new_user_id:
             tracked_sessions = self._user_sessions.setdefault(new_user_id, [])
             if entity.id not in tracked_sessions:
                 tracked_sessions.append(entity.id)
+            self._session_to_user[entity.id] = new_user_id
+        else:
+            self._session_to_user.pop(entity.id, None)
 
         return entity
 
@@ -93,11 +96,14 @@ class InMemorySessionRepository(ISessionRepository):
                     and id in self._user_sessions[user_id]
                 ):
                     self._user_sessions[user_id].remove(id)
+                if not self._user_sessions.get(user_id):
+                    self._user_sessions.pop(user_id, None)
 
             # Remove from main collections
             del self._sessions[id]
             if id in self._last_accessed:
                 del self._last_accessed[id]
+            self._session_to_user.pop(id, None)
 
             return True
         return False
