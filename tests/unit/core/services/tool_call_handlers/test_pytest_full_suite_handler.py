@@ -105,6 +105,21 @@ async def test_handler_allows_second_session_immediately() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handler_handles_missing_session_id_without_state_leak() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    first = _build_context("pytest", session_id="")
+    second = _build_context("pytest", session_id="")
+
+    assert await handler.can_handle(first) is True
+    first_result = await handler.handle(first)
+    assert first_result.should_swallow is True
+
+    assert await handler.can_handle(second) is True
+    second_result = await handler.handle(second)
+    assert second_result.should_swallow is True
+
+
+@pytest.mark.asyncio
 async def test_handler_passes_through_targeted_pytest() -> None:
     handler = PytestFullSuiteHandler(enabled=True)
     context = _build_context("pytest tests/unit/test_example.py")

@@ -198,7 +198,14 @@ class PytestFullSuiteHandler(IToolCallHandler):
         if not _looks_like_full_suite(normalized):
             return False
 
-        state = self._session_state.get(context.session_id)
+        session_key = context.session_id.strip() if context.session_id else None
+        if not session_key:
+            # Without a stable session identifier we cannot track per-session
+            # steering state. Treat the command as new so that we do not leak
+            # steering behaviour across unrelated requests.
+            return True
+
+        state = self._session_state.get(session_key)
         return not (state and state.last_command == normalized)
 
     async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
@@ -213,7 +220,28 @@ class PytestFullSuiteHandler(IToolCallHandler):
         if not _looks_like_full_suite(normalized):
             return ToolCallReactionResult(should_swallow=False)
 
-        state = self._session_state.setdefault(context.session_id, _SessionState())
+        session_key = context.session_id.strip() if context.session_id else None
+
+        if session_key is None:
+            # Without a reliable session identifier we cannot remember previous
+            # steering decisions. Swallow this invocation but avoid mutating the
+            # global state dictionary so that other requests are unaffected.
+            logger.info(
+                "Steering full-suite pytest command without session id: %s",
+                normalized,
+            )
+            return ToolCallReactionResult(
+                should_swallow=True,
+                replacement_response=self._message,
+                metadata={
+                    "handler": self.name,
+                    "tool_name": context.tool_name,
+                    "command": normalized,
+                    "source": "pytest_full_suite_steering",
+                },
+            )
+
+        state = self._session_state.setdefault(session_key, _SessionState())
         if state.last_command == normalized:
             return ToolCallReactionResult(should_swallow=False)
 
@@ -221,7 +249,7 @@ class PytestFullSuiteHandler(IToolCallHandler):
 
         logger.info(
             "Steering full-suite pytest command in session %s: %s",
-            context.session_id,
+            session_key,
             normalized,
         )
 
