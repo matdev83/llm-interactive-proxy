@@ -537,6 +537,56 @@ async def test_streaming_response_request_error(
 
 
 @pytest.mark.asyncio
+async def test_streaming_response_stream_failure() -> None:
+    """Test that streaming transport errors are surfaced as ServiceUnavailableError."""
+
+    mock_response = MockResponse(status_code=200)
+
+    async def failing_stream() -> Any:
+        raise httpx.ReadError(
+            "stream boom", request=httpx.Request("POST", "https://example.com")
+        )
+        yield  # pragma: no cover
+
+    mock_response.aiter_text = MagicMock(return_value=failing_stream())
+
+    fake_request = object()
+    client = MagicMock(spec=httpx.AsyncClient)
+    client.build_request.return_value = fake_request
+    client.send = AsyncMock(return_value=mock_response)
+
+    from src.core.config.app_config import AppConfig, SessionConfig
+    from src.core.domain.chat import ChatMessage, ChatRequest
+    from src.core.services.translation_service import TranslationService
+
+    connector = OpenAIConnector(
+        client,
+        config=AppConfig(session=SessionConfig(json_repair_enabled=False)),
+        translation_service=TranslationService(),
+    )
+    connector.api_key = "test-api-key"
+
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
+    )
+
+    result = await connector.chat_completions(
+        request_data,
+        [{"role": "user", "content": "test"}],
+        "test-model",
+    )
+
+    with pytest.raises(ServiceUnavailableError) as excinfo:
+        async for _ in result.content:
+            pass
+
+    assert "stream boom" in str(excinfo.value)
+    assert mock_response.closed
+
+
+@pytest.mark.asyncio
 async def test_streaming_response_no_auth(connector: OpenAIConnector) -> None:
     """Test handling a streaming response with no auth."""
     # Create a mock ChatRequest with streaming enabled
