@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, cast
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
-from src.core.config.app_config import AppConfig, BackendConfig
-from src.core.config.config_loader import _collect_api_keys
+from src.core.config.app_config import (
+    AppConfig,
+    BackendConfig,
+    _collect_api_keys_from_env,
+)
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -1219,7 +1223,7 @@ class BackendService(IBackendService):
             }.get(backend_type)
             if not env_base:
                 return backend_type
-            mapping = _collect_api_keys(env_base)
+            mapping = _collect_api_keys_from_env(env_base, os.environ)
             for name, value in mapping.items():
                 if value == api_key_value:
                     return name

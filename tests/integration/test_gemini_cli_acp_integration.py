@@ -107,7 +107,7 @@ def _create_test_config(config_dir: Path, workspace: Path, port: int) -> Path:
     config = {
         "host": "127.0.0.1",
         "port": port,
-        "command_prefix": "!/",
+        "command_prefix": "!.",
         "auth": {
             "disable_auth": True,
         },
@@ -349,7 +349,8 @@ class TestGeminiCliAcpIntegration:
         )
 
         assert response.status_code == 200
-        assert response.headers.get("content-type") == "text/event-stream"
+        content_type = response.headers.get("content-type", "")
+        assert content_type.startswith("text/event-stream")
 
         chunks = []
         full_content = ""

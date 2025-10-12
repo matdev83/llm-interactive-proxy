@@ -13,6 +13,22 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 
+def get_openrouter_headers(cfg: dict[str, str], api_key: str) -> dict[str, str]:
+    """Construct headers for OpenRouter requests.
+
+    Be tolerant of minimal cfg dicts provided by tests by falling back to
+    sensible defaults when optional keys are absent.
+    """
+    referer: str = cfg.get("app_site_url", "http://localhost:8000")
+    x_title: str = cfg.get("app_x_title", "InterceptorProxy")
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": referer,
+        "X-Title": x_title,
+    }
+
+
 def _collect_api_keys_from_env(
     base_name: str,
     env: Mapping[str, str],

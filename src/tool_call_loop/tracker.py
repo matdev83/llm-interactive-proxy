@@ -96,7 +96,7 @@ class ToolCallSignature(InternalDTO):
     @classmethod
     def _canonicalize_arguments(cls, arguments: Any) -> str:
         """Produce a stable string signature for tool call arguments."""
-
+        MAX_ARG_LENGTH = 1024
         if isinstance(arguments, str):
             try:
                 repaired_arguments = repair_json(arguments)
@@ -109,9 +109,12 @@ class ToolCallSignature(InternalDTO):
                 return arguments
 
             try:
-                return json.dumps(
+                result = json.dumps(
                     parsed_arguments, sort_keys=True, ensure_ascii=False, default=str
                 )
+                if len(result) > MAX_ARG_LENGTH:
+                    return cls._hash_fallback(result)
+                return result
             except (TypeError, ValueError, RecursionError):
                 return cls._hash_fallback(arguments)
 
@@ -120,18 +123,24 @@ class ToolCallSignature(InternalDTO):
             and not isinstance(arguments, bytes | bytearray | str)
         ):
             try:
-                return json.dumps(
+                result = json.dumps(
                     arguments,
                     sort_keys=True,
                     ensure_ascii=False,
                     default=str,
                 )
+                if len(result) > MAX_ARG_LENGTH:
+                    return cls._hash_fallback(result)
+                return result
             except (TypeError, ValueError, RecursionError):
                 raw_value = cls._stringify_raw_arguments(arguments)
                 return cls._hash_fallback(raw_value)
 
         try:
-            return str(arguments)
+            result = str(arguments)
+            if len(result) > MAX_ARG_LENGTH:
+                return cls._hash_fallback(result)
+            return result
         except RecursionError:
             return cls._hash_fallback("<unrepresentable>")
 

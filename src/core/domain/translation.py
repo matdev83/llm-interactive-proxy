@@ -1750,10 +1750,11 @@ class Translation(BaseTranslator):
                 reasoning_payload = request.reasoning.model_dump()  # type: ignore[attr-defined]
 
         effort_value = request.reasoning_effort
+        normalized_effort: str | None
         if isinstance(effort_value, str):
             normalized_effort = effort_value.strip()
         else:
-            normalized_effort = effort_value
+            normalized_effort = str(effort_value) if effort_value is not None else None
 
         if normalized_effort:
             if reasoning_payload is None:
@@ -2532,12 +2533,15 @@ class Translation(BaseTranslator):
                     )
 
                 if tool_calls_payload:
-                    for tool_call in tool_calls_payload:
+                    for tool_call in tool_calls_payload:  # type: ignore[assignment]
+                        tool_call_dict: dict[str, Any] = (
+                            tool_call if isinstance(tool_call, dict) else {}
+                        )
                         output_content_parts.append(
                             {
                                 "type": "tool_call",
-                                "id": tool_call.get("id"),
-                                "function": tool_call.get("function"),
+                                "id": tool_call_dict.get("id", ""),
+                                "function": tool_call_dict.get("function", {}),
                             }
                         )
 

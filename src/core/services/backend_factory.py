@@ -115,7 +115,7 @@ class BackendFactory:
         if backend_type == "anthropic":
             init_config["key_name"] = backend_type
         elif backend_type == "openrouter":
-            from src.core.config.config_loader import get_openrouter_headers
+            from src.core.config.app_config import get_openrouter_headers
 
             init_config["key_name"] = backend_type
             init_config["openrouter_headers_provider"] = get_openrouter_headers

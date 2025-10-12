@@ -43,7 +43,7 @@ def test_initialization_with_persistence_file(
     with open(persistence_path, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
-    # Patch needs to be active during the entire initialization
+    # Patch needs to be active during the entire test
     with patch(
         "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
         return_value="2023-01-01",
