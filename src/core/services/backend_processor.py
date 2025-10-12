@@ -65,11 +65,23 @@ class BackendProcessor(IBackendProcessor):
 
         try:
             # Include any app-level failover routes if available
-            extra_body_dict = {}
-            if hasattr(request, "model_dump"):
-                extra_body_dict = request.model_dump()
-            elif isinstance(request, dict):  # type: ignore[unreachable]  # type: ignore[unreachable]
-                extra_body_dict = request  # type: ignore[unreachable]
+            extra_body_dict: dict[str, Any] = {}
+            extra_body_attr = getattr(request, "extra_body", None)
+            if isinstance(extra_body_attr, dict):
+                extra_body_dict = extra_body_attr.copy()
+            elif hasattr(request, "model_dump"):
+                try:
+                    model_dump = request.model_dump()
+                except Exception:
+                    model_dump = {}
+                if isinstance(model_dump, dict):
+                    extra_body_candidate = model_dump.get("extra_body")
+                    if isinstance(extra_body_candidate, dict):
+                        extra_body_dict = extra_body_candidate.copy()
+            elif isinstance(request, dict):  # type: ignore[unreachable]
+                extra_body_candidate = request.get("extra_body")  # type: ignore[unreachable]
+                if isinstance(extra_body_candidate, dict):  # type: ignore[unreachable]
+                    extra_body_dict = extra_body_candidate.copy()  # type: ignore[unreachable]
             else:
                 # Best effort conversion
                 extra_body_dict = {

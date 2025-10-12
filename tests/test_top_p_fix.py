@@ -3,86 +3,86 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.session import Session
+from src.core.services.backend_processor import BackendProcessor
+from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 
 
 @pytest.mark.asyncio
 async def test_top_p_fix_with_actual_request() -> None:
-    """Test that demonstrates our fix works with a real request that includes top_p."""
+    """Ensure top_p stays on the main request and is not copied into extra_body."""
 
-    # Create mocks for dependencies
-    from src.core.interfaces.command_processor_interface import ICommandProcessor
-
-    mock_command_processor = MagicMock(spec=ICommandProcessor)
-    mock_session_manager = AsyncMock()
-    mock_backend_request_manager = AsyncMock()
-    mock_response_manager = AsyncMock()
-
-    # Configure session manager to return a real session object
-    from src.core.domain.session import Session
-
-    test_session = Session(session_id="test_session")
-    mock_session_manager.resolve_session_id.return_value = "test_session"
-    mock_session_manager.get_session.return_value = test_session
-    mock_session_manager.update_session_agent.return_value = test_session
-
-    # Configure mock_command_processor.process_messages as an AsyncMock
-    mock_command_processor.process_messages = AsyncMock(
-        return_value=MagicMock(
-            modified_messages=[ChatMessage(role="user", content="Hello")],
-            command_executed=False,
-            command_results=[],
+    # Backend processor wired with a fake backend service so we exercise the real code path
+    backend_service = AsyncMock()
+    backend_service.call_completion = AsyncMock(
+        return_value=ResponseEnvelope(
+            content=None, headers={}, status_code=200, media_type="application/json"
         )
     )
+    session_service = AsyncMock()
+    test_session = Session(session_id="test_session")
+    session_service.get_session.return_value = test_session
+    app_state = MagicMock()
+    app_state.get_failover_routes.return_value = None
 
-    # Configure mock_backend_request_manager to capture the request it receives
-    captured_request = None
+    backend_processor = BackendProcessor(backend_service, session_service, app_state)
+    response_processor = AsyncMock()
+    backend_request_manager = BackendRequestManager(
+        backend_processor=backend_processor,
+        response_processor=response_processor,
+    )
 
-    async def capture_request(*args: Any, **kwargs: Any) -> ResponseEnvelope:
-        nonlocal captured_request
-        captured_request = args[0] if args else kwargs.get("request")
-        # Return a dummy response envelope
-        return ResponseEnvelope(
-            content={}, headers={}, status_code=200, media_type="application/json"
-        )
+    # Command processor returns no-op processing result so backend path is taken
+    command_processor = AsyncMock()
+    command_processor.process_messages.return_value = ProcessedResult(
+        modified_messages=[], command_executed=False, command_results=[]
+    )
 
-    mock_backend_request_manager.process_backend_request.side_effect = capture_request
+    # Session manager resolves and returns the session we prepared above
+    session_manager = AsyncMock()
+    session_manager.resolve_session_id.return_value = "test_session"
+    session_manager.get_session.return_value = test_session
+    session_manager.update_session_agent.return_value = test_session
+    session_manager.record_command_in_session.return_value = None
+    session_manager.update_session_history.return_value = None
 
-    # This is a request that would have triggered the original error
-    # It includes top_p which would have been added to extra_body before our fix
+    response_manager = AsyncMock()
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+    )
+
     request_data = ChatRequest(
         model="anthropic:claude-3-haiku-20240229",
         max_tokens=128,
-        top_p=0.9,  # This would have caused the error before our fix
+        top_p=0.9,
         messages=[ChatMessage(role="user", content="Hello")],
+        extra_body={"metadata": {"foo": "bar"}},
     )
 
-    mock_backend_request_manager.prepare_backend_request.return_value = (
-        request_data  # Return the original request
-    )
+    context = MagicMock()
+    context.session_id = "test_session"
 
-    processor = RequestProcessor(
-        mock_command_processor,
-        mock_session_manager,
-        mock_backend_request_manager,
-        mock_response_manager,
-    )
+    await processor.process_request(context, request_data)
 
-    # Call the process_request method
-    await processor.process_request(MagicMock(), request_data)
+    await_count = backend_service.call_completion.await_count
+    assert await_count == 1
+    call_args = backend_service.call_completion.await_args_list[0]
+    forwarded_request = call_args.kwargs["request"]
 
-    # Verify that the backend_processor received the correct ChatRequest
-    assert captured_request is not None
-    assert isinstance(captured_request, ChatRequest)
+    # Ensure we exercised the real backend path and received a ChatRequest instance
+    assert isinstance(forwarded_request, ChatRequest)
+    assert forwarded_request.top_p == 0.9
 
-    # Verify that top_p is in the main ChatRequest fields
-    assert captured_request.top_p == 0.9
+    extra_body: dict[str, Any] = forwarded_request.extra_body or {}
+    assert extra_body.get("session_id") == "test_session"
+    assert extra_body.get("metadata") == {"foo": "bar"}
 
-    # Most importantly, verify that top_p is NOT in extra_body
-    # This is the key fix that prevents the duplicate keyword argument error
-    assert "top_p" not in (captured_request.extra_body or {})
-
-    # Verify other parameters are correctly handled
-    assert captured_request.model == "anthropic:claude-3-haiku-20240229"
-    assert captured_request.max_tokens == 128
+    # The regression we guard against: top_p must not leak into extra_body
+    assert "top_p" not in extra_body
