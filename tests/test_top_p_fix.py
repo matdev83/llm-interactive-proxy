@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
+from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 
 
@@ -16,7 +17,14 @@ async def test_top_p_fix_with_actual_request() -> None:
 
     mock_command_processor = MagicMock(spec=ICommandProcessor)
     mock_session_manager = AsyncMock()
-    mock_backend_request_manager = AsyncMock()
+    mock_backend_processor = MagicMock()
+    mock_backend_processor.process_backend_request = AsyncMock()
+    mock_response_processor = AsyncMock()
+    mock_response_processor.process_response = AsyncMock()
+    backend_request_manager = BackendRequestManager(
+        backend_processor=mock_backend_processor,
+        response_processor=mock_response_processor,
+    )
     mock_response_manager = AsyncMock()
 
     # Configure session manager to return a real session object
@@ -37,17 +45,18 @@ async def test_top_p_fix_with_actual_request() -> None:
     )
 
     # Configure mock_backend_request_manager to capture the request it receives
-    captured_request = None
+    captured_request: ChatRequest | None = None
 
     async def capture_request(*args: Any, **kwargs: Any) -> ResponseEnvelope:
         nonlocal captured_request
-        captured_request = args[0] if args else kwargs.get("request")
-        # Return a dummy response envelope
+        captured_request = kwargs.get("request")
+        if captured_request is None and args:
+            captured_request = args[0]
         return ResponseEnvelope(
-            content={}, headers={}, status_code=200, media_type="application/json"
+            content=None, headers={}, status_code=200, media_type="application/json"
         )
 
-    mock_backend_request_manager.process_backend_request.side_effect = capture_request
+    mock_backend_processor.process_backend_request.side_effect = capture_request
 
     # This is a request that would have triggered the original error
     # It includes top_p which would have been added to extra_body before our fix
@@ -58,14 +67,10 @@ async def test_top_p_fix_with_actual_request() -> None:
         messages=[ChatMessage(role="user", content="Hello")],
     )
 
-    mock_backend_request_manager.prepare_backend_request.return_value = (
-        request_data  # Return the original request
-    )
-
     processor = RequestProcessor(
         mock_command_processor,
         mock_session_manager,
-        mock_backend_request_manager,
+        backend_request_manager,
         mock_response_manager,
     )
 
