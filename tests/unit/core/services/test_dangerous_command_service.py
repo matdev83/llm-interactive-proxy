@@ -103,6 +103,25 @@ def test_scan_tool_call_ignores_commands_with_safe_tool_names(
     assert result is None
 
 
+def test_scan_tool_call_handles_mixed_case_tool_names(
+    dangerous_command_service: DangerousCommandService,
+) -> None:
+    """Ensure detection works when tool names differ only by case."""
+    tool_call = ToolCall(
+        id="call_123",
+        function=FunctionCall(
+            name="Execute_Command", arguments="git reset --hard"
+        ),
+        type="function",
+    )
+
+    result = dangerous_command_service.scan_tool_call(tool_call)
+
+    assert result is not None
+    matched_rule, _ = result
+    assert matched_rule.name == "git-reset-hard"
+
+
 def test_scan_tool_call_extracts_command_from_json_arguments(
     dangerous_command_service: DangerousCommandService,
 ):
