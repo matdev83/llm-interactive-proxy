@@ -144,6 +144,24 @@ async def test_handler_detects_list_based_command() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handler_detects_tuple_arguments_root_level() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = ToolCallContext(
+        session_id="session-tuple",
+        backend_name="backend",
+        model_name="model",
+        full_response={},
+        tool_name="bash",
+        tool_arguments=("pytest", "-q"),
+    )
+
+    assert await handler.can_handle(context) is True
+    result = await handler.handle(context)
+
+    assert result.should_swallow is True
+
+
+@pytest.mark.asyncio
 async def test_handler_enabled_flag_controls_behavior() -> None:
     handler = PytestFullSuiteHandler(enabled=False)
     context = _build_context("pytest")
