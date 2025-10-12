@@ -40,11 +40,21 @@ def test_repair_and_validate_json_schema_failure_best_effort(
         "required": ["a"],
     }
 
-    repaired = json_repair_service.repair_and_validate_json(
+    result = json_repair_service.repair_and_validate_json(
         '{"a": "text"}', schema=schema, strict=False
     )
 
-    assert repaired is None
+    assert result.success is False
+    assert result.content == {"a": "text"}
+
+
+def test_repair_and_validate_json_allows_null_payload(
+    json_repair_service: JsonRepairService,
+) -> None:
+    result = json_repair_service.repair_and_validate_json("null")
+
+    assert result.success is True
+    assert result.content is None
 
 
 def test_repair_and_validate_json_schema_failure_strict(

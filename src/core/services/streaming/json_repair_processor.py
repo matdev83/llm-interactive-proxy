@@ -10,7 +10,7 @@ from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
 )
-from src.core.services.json_repair_service import JsonRepairService
+from src.core.services.json_repair_service import JsonRepairResult, JsonRepairService
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +67,9 @@ class JsonRepairProcessor(IStreamProcessor):
             else:
                 i = self._process_json_character(text, i)
                 if self._is_json_complete():
-                    repaired_json, success = self._handle_json_completion()
-                    if success:
-                        out_parts.append(json.dumps(repaired_json))
+                    repair_result = self._handle_json_completion()
+                    if repair_result.success:
+                        out_parts.append(json.dumps(repair_result.content))
                     else:
                         out_parts.append(self._buffer)
                     self._reset_state()
@@ -151,17 +151,13 @@ class JsonRepairProcessor(IStreamProcessor):
     def _is_json_complete(self) -> bool:
         return self._json_started and self._brace_level == 0 and not self._in_string
 
-    def _handle_json_completion(self) -> tuple[Any, bool]:
-        repaired = None
-        success = False
+    def _handle_json_completion(self) -> JsonRepairResult:
         try:
-            repaired = self._service.repair_and_validate_json(
+            result = self._service.repair_and_validate_json(
                 self._buffer,
                 schema=self._schema,
                 strict=self._strict_mode,
             )
-            if repaired is not None:
-                success = True
         except Exception as e:  # pragma: no cover - strict mode rethrow
             if self._strict_mode:
                 raise JSONParsingError(
@@ -169,8 +165,9 @@ class JsonRepairProcessor(IStreamProcessor):
                     details={"original_buffer": self._buffer},
                 ) from e
             logger.warning("JSON repair raised error: %s", e)
+            return JsonRepairResult(success=False, content=None)
 
-        if repaired is not None:
+        if result.success:
             metrics.inc(
                 "json_repair.streaming.strict_success"
                 if self._strict_mode
@@ -185,7 +182,7 @@ class JsonRepairProcessor(IStreamProcessor):
             logger.warning(
                 "JSON block detected but failed to repair. Flushing raw buffer."
             )
-        return repaired, success
+        return result
 
     def _log_buffer_capacity_warning(self) -> None:
         if self._json_started and len(self._buffer) > self._buffer_cap_bytes:
@@ -199,16 +196,16 @@ class JsonRepairProcessor(IStreamProcessor):
             if not self._in_string and buf.rstrip().endswith(":"):
                 buf = buf + " null"
                 self._buffer = buf
-            repaired_final = self._service.repair_and_validate_json(
+            repair_result = self._service.repair_and_validate_json(
                 buf, schema=self._schema, strict=self._strict_mode
             )
-            if repaired_final is not None:
+            if repair_result.success:
                 metrics.inc(
                     "json_repair.streaming.strict_success"
                     if self._strict_mode
                     else "json_repair.streaming.best_effort_success"
                 )
-                return json.dumps(repaired_final)
+                return json.dumps(repair_result.content)
             else:
                 metrics.inc(
                     "json_repair.streaming.strict_fail"

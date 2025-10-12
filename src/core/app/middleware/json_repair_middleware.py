@@ -9,7 +9,10 @@ from src.core.config.app_config import AppConfig
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
 )
-from src.core.services.json_repair_service import JsonRepairService
+from src.core.services.json_repair_service import (
+    JsonRepairResult,
+    JsonRepairService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,23 +72,25 @@ class JsonRepairMiddleware(IResponseMiddleware):
             )
 
             try:
-                repaired_json = self.json_repair_service.repair_and_validate_json(
-                    response.content,
-                    schema=self.config.session.json_repair_schema,
-                    strict=strict_effective,
+                repair_result: JsonRepairResult = (
+                    self.json_repair_service.repair_and_validate_json(
+                        response.content,
+                        schema=self.config.session.json_repair_schema,
+                        strict=strict_effective,
+                    )
                 )
-                if repaired_json is not None:
-                    metrics.inc(
-                        "json_repair.non_streaming.strict_success"
-                        if strict_effective
-                        else "json_repair.non_streaming.best_effort_success"
+                metric_suffix = (
+                    "strict_success"
+                    if strict_effective and repair_result.success
+                    else (
+                        "best_effort_success"
+                        if repair_result.success
+                        else (
+                            "strict_fail" if strict_effective else "best_effort_fail"
+                        )
                     )
-                else:
-                    metrics.inc(
-                        "json_repair.non_streaming.strict_fail"
-                        if strict_effective
-                        else "json_repair.non_streaming.best_effort_fail"
-                    )
+                )
+                metrics.inc(f"json_repair.non_streaming.{metric_suffix}")
             except Exception:
                 metrics.inc(
                     "json_repair.non_streaming.strict_fail"
@@ -93,10 +98,10 @@ class JsonRepairMiddleware(IResponseMiddleware):
                     else "json_repair.non_streaming.best_effort_fail"
                 )
                 raise
-            if repaired_json is not None:
+            if repair_result.success:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(f"JSON detected and repaired for session {session_id}")
-                response.content = json.dumps(repaired_json)
+                response.content = json.dumps(repair_result.content)
                 response.metadata["repaired"] = True
 
         return response

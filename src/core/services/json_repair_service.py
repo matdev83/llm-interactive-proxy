@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, cast
+from dataclasses import dataclass
+from typing import Any
 
 from json_repair import repair_json
 from jsonschema import ValidationError as JsonSchemaValidationError
@@ -11,6 +12,14 @@ from jsonschema import validate
 from src.core.common.exceptions import JSONParsingError, ValidationError
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class JsonRepairResult:
+    """Represents the outcome of a JSON repair attempt."""
+
+    success: bool
+    content: Any | None
 
 
 class JsonRepairService:
@@ -25,7 +34,7 @@ class JsonRepairService:
         json_string: str,
         schema: dict[str, Any] | None = None,
         strict: bool = False,
-    ) -> dict[str, Any] | None:
+    ) -> JsonRepairResult:
         """
         Repairs a JSON string and optionally validates it against a schema.
 
@@ -35,13 +44,13 @@ class JsonRepairService:
             strict: If True, raises an error if the JSON is invalid after repair.
 
         Returns:
-            The repaired and validated JSON object, or None if repair fails.
+            JsonRepairResult describing whether repair succeeded and the content.
         """
         try:
             repaired_json = self.repair_json(json_string)
-            if schema:
+            if schema is not None:
                 self.validate_json(repaired_json, schema)
-            return repaired_json
+            return JsonRepairResult(success=True, content=repaired_json)
         except JsonSchemaValidationError as e:
             if strict:
                 raise ValidationError(
@@ -57,7 +66,7 @@ class JsonRepairService:
                     },
                 ) from e
             logger.warning("JSON schema validation failed: %s", e)
-            return None
+            return JsonRepairResult(success=False, content=repaired_json)
         except (ValueError, TypeError) as e:
             if strict:
                 raise JSONParsingError(
@@ -67,10 +76,10 @@ class JsonRepairService:
                         "error_message": str(e),
                     },
                 ) from e
-            logger.warning(f"Failed to repair or validate JSON: {e}")
-            return None
+            logger.warning("Failed to repair or validate JSON: %s", e)
+            return JsonRepairResult(success=False, content=None)
 
-    def repair_json(self, json_string: str) -> dict[str, Any]:
+    def repair_json(self, json_string: str) -> Any:
         """
         Repairs a JSON string.
 
@@ -81,7 +90,7 @@ class JsonRepairService:
             The repaired JSON object.
         """
         repaired_string = repair_json(json_string)
-        return cast(dict[str, Any], json.loads(repaired_string))
+        return json.loads(repaired_string)
 
     def validate_json(
         self, json_object: dict[str, Any], schema: dict[str, Any]

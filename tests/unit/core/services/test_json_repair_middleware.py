@@ -73,6 +73,18 @@ async def test_process_response_empty_object(
     assert processed_response.metadata.get("repaired") is True
 
 
+async def test_process_response_null_payload(
+    json_repair_middleware: JsonRepairMiddleware,
+) -> None:
+    response = ProcessedResponse(content="null")
+    processed_response = await json_repair_middleware.process(
+        response, "session_id", {}
+    )
+
+    assert processed_response.content == "null"
+    assert processed_response.metadata.get("repaired") is True
+
+
 async def test_process_response_best_effort_failure_metrics(
     json_repair_middleware: JsonRepairMiddleware,
     monkeypatch: pytest.MonkeyPatch,
