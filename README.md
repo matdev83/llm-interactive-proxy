@@ -97,7 +97,7 @@ This project is a swiss-army knife for anyone working with language models and a
 
 - **Model Name Rewrites**: Powerful regex-based model name transformation with configurable rules and precedence
 - In-chat switching: change back-end and model on the fly with `!/backend(...)` and `!/model(...)`
-- Force model override: static CLI parameter (`--force-model`) to override all client-requested models without modifying client code
+- Force model override: route every request through a fixed backend/model using `--static-route BACKEND:MODEL`
 
 ### Observability
 
@@ -229,7 +229,7 @@ Useful flags
 - `--config config/config.example.yaml` to load a saved config
 - `--capture-file wire.log` to record requests/replies (see Debugging)
 - `--disable-auth` for local only (forces host=127.0.0.1)
-- `--force-model MODEL_NAME` to override all client-requested models (e.g., `--force-model gemini-2.5-pro`)
+- `--static-route BACKEND:MODEL` to pin every request to a specific backend/model combination (e.g., `--static-route gemini-cli-oauth-personal:gemini-2.5-pro`)
 - `--force-context-window TOKENS` to override context window size for all models (e.g., `--force-context-window 8000`)
 - `--strict-command-detection` to enable strict command detection (only process commands on last non-blank line)
 - `--enable-edit-precision` / `--disable-edit-precision` to control automated edit-precision tuning
@@ -978,7 +978,7 @@ export GEMINI_CLI_WORKSPACE="/path/to/project"
 
 ### Force a specific model across all requests
 
-Use `--force-model` to override whatever model the client requests, useful for:
+Use `--static-route` to override whatever model the client requests by specifying both the backend and model to use. This is useful for:
 
 - Testing a specific model with any client/agent without modifying client code
 - Enforcing a particular model across different sessions
@@ -988,8 +988,7 @@ Example:
 
 ```bash
 python -m src.core.cli \
-  --default-backend gemini-cli-oauth-personal \
-  --force-model gemini-2.5-pro \
+  --static-route gemini-cli-oauth-personal:gemini-2.5-pro \
   --disable-auth \
   --port 8000
 ```
