@@ -12,7 +12,11 @@ def functional_backend() -> str:
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
-from src.core.common.exceptions import ConfigurationError, JSONParsingError
+from src.core.common.exceptions import (
+    ConfigurationError,
+    JSONParsingError,
+    ServiceResolutionError,
+)
 from src.core.config.app_config import load_config
 from src.core.persistence import ConfigManager
 
@@ -225,6 +229,34 @@ def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
         "backend": "nonexistent",
         "functional_backends": ["openai"],
     }
+
+
+def test_apply_default_backend_strict_errors_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """STRICT_PERSISTENCE_ERRORS should force DI resolution failures to raise."""
+
+    class _StrictAppState(_DummyAppState):
+        def set_backend_type(self, backend_type: str | None) -> None:  # type: ignore[override]
+            self.backend_type = backend_type
+
+    class _FailingProvider:
+        def get_required_service(self, _service_type):  # type: ignore[no-untyped-def]
+            raise ServiceResolutionError("boom")
+
+    monkeypatch.setenv("STRICT_PERSISTENCE_ERRORS", "true")
+
+    manager = ConfigManager(
+        FastAPI(),
+        path=str(tmp_path / "config.json"),
+        service_provider=_FailingProvider(),
+        app_state=_StrictAppState(),
+    )
+
+    with pytest.raises(ServiceResolutionError):
+        manager._apply_default_backend("openai")
+
+    monkeypatch.delenv("STRICT_PERSISTENCE_ERRORS", raising=False)
 
 
 def test_load_raises_json_parsing_error_for_invalid_json(tmp_path: Path) -> None:

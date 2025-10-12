@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,9 @@ class ConfigManager:
 
     def _should_raise_strict_errors(self) -> bool:
         """Check if strict error handling is enabled via config."""
+        env_value = os.getenv("STRICT_PERSISTENCE_ERRORS", "false").lower()
+        if env_value in {"true", "1", "yes"}:
+            return True
         if self.config:
             value = self.config.get("session.dangerous_command_prevention_enabled")
             return bool(value) if value is not None else False
