@@ -1712,12 +1712,31 @@ class Translation(BaseTranslator):
         """
         Translate a CanonicalChatRequest to an OpenAI request.
         """
+        messages_payload: list[dict[str, Any]] = []
+        for message in request.messages:
+            if hasattr(message, "to_dict"):
+                message_dict = message.to_dict()
+                # Preserve explicit `content: None` semantics expected by the
+                # OpenAI API when tool_calls are present.
+                if "content" not in message_dict:
+                    message_dict["content"] = None
+            else:
+                message_dict = {
+                    "role": getattr(message, "role", "assistant"),
+                    "content": getattr(message, "content", None),
+                }
+                tool_calls = getattr(message, "tool_calls", None)
+                if tool_calls is not None:
+                    message_dict["tool_calls"] = tool_calls
+                tool_call_id = getattr(message, "tool_call_id", None)
+                if tool_call_id is not None:
+                    message_dict["tool_call_id"] = tool_call_id
+
+            messages_payload.append(message_dict)
+
         payload: dict[str, Any] = {
             "model": request.model,
-            "messages": [
-                {"role": message.role, "content": message.content}
-                for message in request.messages
-            ],
+            "messages": messages_payload,
         }
 
         # Add all supported parameters

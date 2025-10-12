@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 
 import pytest
-from src.core.domain.chat import ImageURL, MessageContentPartImage
+from src.core.domain.chat import (
+    CanonicalChatRequest,
+    ChatMessage,
+    ImageURL,
+    MessageContentPartImage,
+    MessageContentPartText,
+)
 from src.core.domain.translation import Translation
 
 
@@ -47,6 +53,39 @@ class TestTranslationEdgeCases:
         result = Translation.gemini_to_domain_stream_chunk("not a dict")
 
         assert result == {"error": "Invalid chunk format: expected a dictionary"}
+
+    def test_from_domain_to_openai_request_serializes_multimodal_content(self):
+        """Ensure OpenAI payloads include plain multimodal structures."""
+
+        request = CanonicalChatRequest(
+            model="gpt-4o-mini",
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content=[
+                        MessageContentPartText(text="Describe this image"),
+                        MessageContentPartImage(
+                            image_url=ImageURL(url="https://example.com/cat.png")
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        payload = Translation.from_domain_to_openai_request(request)
+
+        assert payload["model"] == "gpt-4o-mini"
+        assert len(payload["messages"]) == 1
+        message_payload = payload["messages"][0]
+
+        assert isinstance(message_payload["content"], list)
+        assert message_payload["content"][0] == {
+            "type": "text",
+            "text": "Describe this image",
+        }
+        image_part = message_payload["content"][1]
+        assert image_part["type"] == "image_url"
+        assert image_part["image_url"]["url"] == "https://example.com/cat.png"
 
     @pytest.mark.parametrize(
         "args_input, expected_output_str",
