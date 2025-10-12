@@ -40,7 +40,7 @@ class JsonRepairMiddleware(IResponseMiddleware):
             return response
 
         # Skip for streaming chunks; handled by JsonRepairProcessor in pipeline
-        if context.get("response_type") == "stream":
+        if is_streaming or context.get("response_type") == "stream":
             return response
 
         if isinstance(response.content, str):
