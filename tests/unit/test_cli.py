@@ -17,7 +17,7 @@ def clean_cli_environment():
     """Ensure clean environment for CLI tests to prevent contamination."""
     # Store original values
     original_env = {}
-    env_vars_to_clean = ["COMMAND_PREFIX", "MODEL_ALIASES"]
+    env_vars_to_clean = ["COMMAND_PREFIX", "MODEL_ALIASES", "STATIC_ROUTE"]
 
     for var in env_vars_to_clean:
         original_env[var] = os.environ.get(var)
@@ -221,6 +221,18 @@ def test_cli_context_window_override_environment_variable() -> None:
                 os.environ["FORCE_CONTEXT_WINDOW"] = original_env
             elif "FORCE_CONTEXT_WINDOW" in os.environ:
                 del os.environ["FORCE_CONTEXT_WINDOW"]
+
+
+def test_cli_force_model_argument_parsing() -> None:
+    """Test that the --force-model CLI argument forces static routing to the specified model."""
+
+    with patch("src.core.config.app_config.load_config", return_value=AppConfig()):
+        args = parse_cli_args(["--force-model", "gemini-2.5-pro"])
+        assert args.force_model == "gemini-2.5-pro"
+
+        config = _unwrap_config(apply_cli_args(args))
+        assert config.backends.static_route == "gemini-2.5-pro"
+        assert os.environ.get("STATIC_ROUTE") == "gemini-2.5-pro"
 
 
 def test_cli_pytest_compression_flags() -> None:

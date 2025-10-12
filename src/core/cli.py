@@ -93,11 +93,18 @@ def build_cli_parser() -> argparse.ArgumentParser:
         choices=registered_backends,  # Dynamically populated
         help=argparse.SUPPRESS,
     )
-    parser.add_argument(
+    route_group = parser.add_mutually_exclusive_group()
+    route_group.add_argument(
         "--static-route",
         dest="static_route",
         metavar="BACKEND:MODEL",
         help="Force all requests to use this backend:model combination (e.g., gemini-cli-oauth-personal:gemini-2.5-pro)",
+    )
+    route_group.add_argument(
+        "--force-model",
+        dest="force_model",
+        metavar="MODEL",
+        help="Force all requests to use this model while keeping the backend unchanged (alias for --static-route MODEL)",
     )
 
     def validate_model_alias(value: str) -> tuple[str, str]:
@@ -647,6 +654,11 @@ def apply_cli_args(
         backend_overrides["static_route"] = args.static_route
         os.environ["STATIC_ROUTE"] = args.static_route
         record_cli("backends.static_route", args.static_route, "--static-route")
+    elif getattr(args, "force_model", None) is not None:
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["static_route"] = args.force_model
+        os.environ["STATIC_ROUTE"] = args.force_model
+        record_cli("backends.static_route", args.force_model, "--force-model")
 
     # Model aliases configuration (CLI overrides config file)
     if getattr(args, "model_aliases", None) is not None:

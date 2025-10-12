@@ -7,6 +7,8 @@ from src.core.config.app_config import AppConfig, BackendSettings
 from src.core.domain.chat import ChatRequest
 from src.core.services.backend_service import BackendService
 
+from tests.unit.test_cli import _unwrap_config
+
 
 class TestStaticRoute:
     """Test suite for static_route override functionality."""
@@ -206,10 +208,12 @@ class TestStaticRouteCLI:
             )
             assert config.backends.default_backend == "openai"
 
-    def test_cli_rejects_force_model(self):
-        """Test that --force-model is rejected (removed parameter)."""
-        from src.core.cli import parse_cli_args
+    def test_cli_accepts_force_model_alias(self):
+        """Test that --force-model is accepted as an alias for static routing."""
+        from src.core.cli import apply_cli_args, parse_cli_args
 
-        # Should raise SystemExit because --force-model is not a valid argument
-        with pytest.raises(SystemExit):
-            parse_cli_args(["--force-model", "gemini-2.5-pro"])
+        args = parse_cli_args(["--force-model", "gemini-2.5-pro"])
+        assert args.force_model == "gemini-2.5-pro"
+
+        config = _unwrap_config(apply_cli_args(args))
+        assert config.backends.static_route == "gemini-2.5-pro"

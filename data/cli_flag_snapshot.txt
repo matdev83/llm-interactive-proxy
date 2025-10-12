@@ -36,6 +36,7 @@
 --enable-pytest-compression
 --enable-pytest-full-suite-steering
 --force-context-window
+--force-model
 --force-set-project
 --gemini-api-base-url
 --gemini-api-key
