@@ -2517,8 +2517,11 @@ class Translation(BaseTranslator):
             responses_request = ResponsesRequest(**request_payload)
 
         # Prepare extra_body with response format
-        extra_body = responses_request.extra_body or {}
-        extra_body["response_format"] = responses_request.response_format.model_dump()
+        extra_body = dict(responses_request.extra_body or {})
+        if responses_request.response_format is not None:
+            extra_body["response_format"] = (
+                responses_request.response_format.model_dump()
+            )
 
         # Convert to CanonicalChatRequest
         canonical_request = CanonicalChatRequest(
