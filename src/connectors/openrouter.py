@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 import httpx
@@ -58,6 +58,22 @@ class OpenRouterBackend(OpenAIConnector):
 
         return {"app_site_url": referer, "app_x_title": title}
 
+    @staticmethod
+    def _authorization_includes_api_key(
+        headers: Mapping[str, str], api_key: str | None
+    ) -> bool:
+        """Check whether the Authorization header contains the expected API key."""
+
+        if not api_key:
+            return True
+
+        for header_name, value in headers.items():
+            if header_name.lower() == "authorization" and isinstance(value, str):
+                if api_key in value:
+                    return True
+
+        return False
+
     def _resolve_headers_from_provider(self) -> dict[str, str]:
         """Call the configured headers provider with appropriate arguments."""
         if not self.headers_provider or not self.api_key:
@@ -69,26 +85,57 @@ class OpenRouterBackend(OpenAIConnector):
         provider = self.headers_provider
         errors: list[Exception] = []
 
-        if self.key_name is not None:
+        def _try_provider_call(*args: Any) -> dict[str, str] | None:
             try:
-                return provider(self.key_name, self.api_key)
+                result = provider(*args)
             except (AttributeError, TypeError) as exc:
                 errors.append(exc)
+                return None
+            except Exception as exc:
+                errors.append(exc)
+                return None
+
+            if not isinstance(result, Mapping):
+                errors.append(
+                    TypeError("OpenRouter headers provider must return a mapping."),
+                )
+                return None
+
+            headers = dict(result)
+            if not self._authorization_includes_api_key(headers, self.api_key):
+                errors.append(
+                    ValueError(
+                        "OpenRouter headers provider did not include API key in Authorization header.",
+                    )
+                )
+                return None
+
+            return headers
+
+        if self.key_name is not None:
+            headers = _try_provider_call(self.key_name, self.api_key)
+            if headers is not None:
+                return headers
+
+            headers = _try_provider_call(self.api_key, self.key_name)
+            if headers is not None:
+                return headers
 
         context = self._build_openrouter_header_context()
-        try:
-            return provider(context, self.api_key)
-        except Exception as exc:  # pragma: no cover - should not happen in normal flow
-            if errors:
-                logger.debug(
-                    "Headers provider rejected key_name input: %s",
-                    errors[-1],
-                    exc_info=True,
-                )
-            raise AuthenticationError(
-                message="OpenRouter headers provider failed to produce headers.",
-                code="missing_credentials",
-            ) from exc
+        headers = _try_provider_call(context, self.api_key)
+        if headers is not None:
+            return headers
+
+        if errors:
+            logger.debug(
+                "Headers provider attempts failed: %s",
+                errors[-1],
+                exc_info=True,
+            )
+        raise AuthenticationError(
+            message="OpenRouter headers provider failed to produce headers.",
+            code="missing_credentials",
+        )
 
     def get_headers(self) -> dict[str, str]:
         if not self.headers_provider or not self.api_key:
