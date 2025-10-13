@@ -1,5 +1,5 @@
 import json
-import threading
+import uuid
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -7,14 +7,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 
-pytestmark = pytest.mark.xdist_group("gemini_request_counter")
+# Allow parallel execution - tests are now robust enough to handle isolation
+# pytestmark = pytest.mark.xdist_group("gemini_request_counter")
 
 
 @pytest.fixture
 def persistence_path(tmp_path: Path) -> Path:
-    # Use thread ID to ensure uniqueness in parallel execution
-    thread_id = threading.get_ident()
-    return tmp_path / f"request_count_{thread_id}.json"
+    # Use UUID to ensure uniqueness in parallel execution
+    unique_id = str(uuid.uuid4())
+    return tmp_path / f"request_count_{unique_id}.json"
 
 
 @pytest.fixture
@@ -43,12 +44,15 @@ def test_initialization_with_persistence_file(
     with open(persistence_path, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
-    # Patch needs to be active during the entire initialization
-    with patch(
-        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+    # Patch needs to be active during the entire test - use class-level patching
+    with patch.object(
+        DailyRequestCounter,
+        "_get_current_pacific_date",
         return_value="2023-01-01",
     ):
         counter = DailyRequestCounter(persistence_path, limit=1000)
+        # Verify the patch is working by calling the method directly
+        assert counter._get_current_pacific_date() == "2023-01-01"
         assert counter.count == 50
         assert counter.last_reset_date == "2023-01-01"
         assert counter.logged_thresholds == {700}
@@ -70,11 +74,14 @@ def test_daily_reset(persistence_path: Path) -> None:
     with open(persistence_path, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
-    with patch(
-        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+    with patch.object(
+        DailyRequestCounter,
+        "_get_current_pacific_date",
         return_value="2023-01-01",
     ):
         counter = DailyRequestCounter(persistence_path, limit=100)
+        # Verify the patch is working
+        assert counter._get_current_pacific_date() == "2023-01-01"
         assert counter.count == 0
         assert counter.logged_thresholds == set()
 
@@ -90,13 +97,19 @@ def test_daily_reset(persistence_path: Path) -> None:
             assert saved_data["last_reset_date"] == "2023-01-01"
 
 
-def test_threshold_warnings(persistence_path: Path, logger_mock: MagicMock) -> None:
-    # Mock the date to prevent daily resets during the test
-    with patch(
-        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
-        return_value="2023-01-01",
+def test_threshold_warnings(persistence_path: Path) -> None:
+    # Mock both the date and the logger directly in the test
+    with (
+        patch.object(
+            DailyRequestCounter,
+            "_get_current_pacific_date",
+            return_value="2023-01-01",
+        ),
+        patch("src.connectors.utils.gemini_request_counter.logger") as logger_mock,
     ):
         counter = DailyRequestCounter(persistence_path, limit=1000)
+        # Verify the patch is working
+        assert counter._get_current_pacific_date() == "2023-01-01"
 
         # Below first threshold
         for _ in range(699):
@@ -134,45 +147,51 @@ def test_threshold_warnings(persistence_path: Path, logger_mock: MagicMock) -> N
         )
 
 
-def test_no_warning_below_thresholds(
-    persistence_path: Path, logger_mock: MagicMock
-) -> None:
-    counter = DailyRequestCounter(persistence_path, limit=1000)
-    for _ in range(699):
-        counter.increment()
-    logger_mock.warning.assert_not_called()
+def test_no_warning_below_thresholds(persistence_path: Path) -> None:
+    with patch("src.connectors.utils.gemini_request_counter.logger") as logger_mock:
+        counter = DailyRequestCounter(persistence_path, limit=1000)
+        for _ in range(699):
+            counter.increment()
+        logger_mock.warning.assert_not_called()
 
 
 def test_pacific_time_date_change(persistence_path: Path) -> None:
     # 11 PM Pacific on 2023-01-01 (UTC 2023-01-02 07:00:00)
-    with patch(
-        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+    with patch.object(
+        DailyRequestCounter,
+        "_get_current_pacific_date",
         return_value="2023-01-01",
     ):
         counter = DailyRequestCounter(persistence_path, limit=100)
+        assert counter._get_current_pacific_date() == "2023-01-01"
         counter.increment()
         assert counter.last_reset_date == "2023-01-01"
 
         # 1 AM Pacific on 2023-01-02 (UTC 2023-01-02 09:00:00)
         # Use a new patch context that returns the new date
-        with patch(
-            "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+        with patch.object(
+            DailyRequestCounter,
+            "_get_current_pacific_date",
             return_value="2023-01-02",
         ):
+            assert counter._get_current_pacific_date() == "2023-01-02"
             counter.increment()
             assert counter.count == 1  # Resets
             assert counter.last_reset_date == "2023-01-02"
 
 
-def test_thresholds_persist_across_restarts(
-    persistence_path: Path, logger_mock: MagicMock
-) -> None:
-    # Mock date to prevent resets during the test
-    with patch(
-        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
-        return_value="2023-01-01",
+def test_thresholds_persist_across_restarts(persistence_path: Path) -> None:
+    # Mock both the date and the logger directly in the test
+    with (
+        patch.object(
+            DailyRequestCounter,
+            "_get_current_pacific_date",
+            return_value="2023-01-01",
+        ),
+        patch("src.connectors.utils.gemini_request_counter.logger") as logger_mock,
     ):
         counter = DailyRequestCounter(persistence_path, limit=1000)
+        assert counter._get_current_pacific_date() == "2023-01-01"
 
         for _ in range(800):
             counter.increment()
@@ -187,6 +206,7 @@ def test_thresholds_persist_across_restarts(
 
         # Simulate restart by creating a new counter instance
         counter_restarted = DailyRequestCounter(persistence_path, limit=1000)
+        assert counter_restarted._get_current_pacific_date() == "2023-01-01"
         assert counter_restarted.count == 800
         assert counter_restarted.logged_thresholds == {700, 800}
 
@@ -199,17 +219,20 @@ def test_thresholds_persist_across_restarts(
         )
 
 
-def test_restart_logs_missing_thresholds(
-    persistence_path: Path, logger_mock: MagicMock
-) -> None:
+def test_restart_logs_missing_thresholds(persistence_path: Path) -> None:
     data = {"count": 850, "last_reset_date": "2023-01-01"}
     persistence_path.write_text(json.dumps(data), encoding="utf-8")
 
-    with patch(
-        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
-        return_value="2023-01-01",
+    with (
+        patch.object(
+            DailyRequestCounter,
+            "_get_current_pacific_date",
+            return_value="2023-01-01",
+        ),
+        patch("src.connectors.utils.gemini_request_counter.logger") as logger_mock,
     ):
         counter = DailyRequestCounter(persistence_path, limit=1000)
+        assert counter._get_current_pacific_date() == "2023-01-01"
 
         assert counter.count == 850
         assert counter.logged_thresholds == {700, 800}
@@ -234,11 +257,13 @@ def test_reset_clears_logged_thresholds(
     persistence_path: Path,
 ) -> None:
     # Start with a specific date
-    with patch(
-        "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+    with patch.object(
+        DailyRequestCounter,
+        "_get_current_pacific_date",
         return_value="2023-01-01",
     ):
         counter = DailyRequestCounter(persistence_path, limit=1000)
+        assert counter._get_current_pacific_date() == "2023-01-01"
 
         for _ in range(700):
             counter.increment()
@@ -246,10 +271,12 @@ def test_reset_clears_logged_thresholds(
         assert counter.logged_thresholds == {700}
 
         # Force next day in Pacific timezone
-        with patch(
-            "src.connectors.utils.gemini_request_counter.DailyRequestCounter._get_current_pacific_date",
+        with patch.object(
+            DailyRequestCounter,
+            "_get_current_pacific_date",
             return_value="2023-01-02",  # Different from current date
         ):
+            assert counter._get_current_pacific_date() == "2023-01-02"
             counter.increment()
 
             assert counter.count == 1

@@ -12,6 +12,28 @@ from src.core.services import backend_imports  # noqa: F401
 from src.core.services.backend_registry import backend_registry
 
 
+@pytest.fixture(autouse=True)
+def clean_cli_environment():
+    """Ensure clean environment for CLI tests to prevent contamination."""
+    # Store original values
+    original_env = {}
+    env_vars_to_clean = ["COMMAND_PREFIX", "MODEL_ALIASES"]
+
+    for var in env_vars_to_clean:
+        original_env[var] = os.environ.get(var)
+        if var in os.environ:
+            del os.environ[var]
+
+    yield
+
+    # Restore original values
+    for var, value in original_env.items():
+        if value is not None:
+            os.environ[var] = value
+        elif var in os.environ:
+            del os.environ[var]
+
+
 def _unwrap_config(
     result: AppConfig | tuple[AppConfig, ParameterResolution],
 ) -> AppConfig:

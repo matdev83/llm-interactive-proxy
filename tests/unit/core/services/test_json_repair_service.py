@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 from src.core.common.exceptions import JSONParsingError, ValidationError
-from src.core.services.json_repair_service import JsonRepairService
+from src.core.services.json_repair_service import (
+    MAX_SCHEMA_COLLECTION_ITEMS,
+    MAX_SCHEMA_PROPERTIES,
+    JsonRepairService,
+    enforce_schema_size_limits,
+)
 
 
 @pytest.fixture
@@ -69,3 +74,36 @@ def test_repair_and_validate_json_parse_failure_strict(
 ) -> None:
     with pytest.raises(JSONParsingError):
         json_repair_service.repair_and_validate_json("not-json", strict=True)
+
+
+def test_enforce_schema_size_limits_rejects_excessive_properties() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            f"field_{i}": {"type": "string"}
+            for i in range(MAX_SCHEMA_PROPERTIES + 1)
+        },
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        enforce_schema_size_limits(schema)
+
+    assert "too many properties" in str(exc_info.value)
+
+
+def test_enforce_schema_size_limits_rejects_large_collections() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "numbers": {
+                "type": "array",
+                "items": {"type": "number"},
+                "enum": list(range(MAX_SCHEMA_COLLECTION_ITEMS + 1)),
+            }
+        },
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        enforce_schema_size_limits(schema)
+
+    assert "collection" in str(exc_info.value)
