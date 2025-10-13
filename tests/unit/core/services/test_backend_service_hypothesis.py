@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-from tests.utils import require_hypothesis
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.domain.backend_type import BackendType
@@ -17,6 +16,8 @@ from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
+
+from tests.utils import require_hypothesis
 
 require_hypothesis()
 from hypothesis import HealthCheck, given, settings
