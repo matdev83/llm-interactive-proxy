@@ -544,6 +544,7 @@ class Translation(BaseTranslator):
         _seen.add(obj_id)
         try:
             sanitized: dict[str, Any] = {}
+            sanitized_value: Any = None
             for key, value in data.items():
                 if key is not None and not isinstance(key, (str, int, float, bool)):
                     continue
