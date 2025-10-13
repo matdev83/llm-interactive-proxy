@@ -336,6 +336,16 @@ class GeminiBackend(LLMBackend):
                         done_chunk, source_format="gemini"
                     )
                 )
+            except httpx.RequestError as stream_error:
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Request error while streaming from Gemini: %s",
+                        stream_error,
+                        exc_info=True,
+                    )
+                raise ServiceUnavailableError(
+                    message=f"Gemini streaming connection error ({stream_error})"
+                ) from stream_error
             finally:
                 if hasattr(response, "aclose"):
                     await response.aclose()
