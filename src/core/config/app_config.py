@@ -422,6 +422,7 @@ class SessionConfig(DomainModel):
     pytest_full_suite_steering_enabled: bool | None = None
     pytest_full_suite_steering_message: str | None = None
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
+    max_per_session_backends: int = 32
 
     @model_validator(mode="before")
     @classmethod

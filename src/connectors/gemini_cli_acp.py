@@ -744,6 +744,14 @@ class GeminiCliAcpConnector(GeminiBackend):
             "gemini-1.5-pro",
         ]
 
+    async def shutdown(self) -> None:
+        """Release resources owned by the connector."""
+        for future in list(self._pending_responses.values()):
+            if not future.done():
+                future.cancel()
+        self._pending_responses.clear()
+        await self._kill_process()
+
     async def __aenter__(self) -> "GeminiCliAcpConnector":
         """Async context manager entry."""
         return self
