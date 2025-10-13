@@ -3,6 +3,7 @@ Tests for the streaming utilities module using Hypothesis for property-based tes
 """
 
 import pytest
+
 from tests.utils import require_hypothesis
 
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
