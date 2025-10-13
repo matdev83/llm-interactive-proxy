@@ -248,9 +248,11 @@ class BackendStage(InitializationStage):
                 BackendService, implementation_factory=backend_service_factory
             )
 
-            services.add_singleton(
+            services.add_singleton_factory(
                 cast(type, IBackendService),
-                implementation_factory=backend_service_factory,
+                implementation_factory=lambda provider: provider.get_required_service(
+                    BackendService
+                ),
             )
 
             if logger.isEnabledFor(logging.DEBUG):
@@ -403,7 +405,16 @@ class BackendStage(InitializationStage):
                 # Replicating the logic from di/services.py's _backend_service_factory's manual creation
                 from src.core.services.backend_registry import BackendRegistry
 
-                httpx_client = provider.get_required_service(httpx.AsyncClient)
+                try:
+                    httpx_client = provider.get_required_service(httpx.AsyncClient)
+                except RuntimeError:
+                    # AsyncClient not available during validation (Infrastructure stage hasn't run yet)
+                    # Skip backend validation during this early stage
+                    logger.warning(
+                        "Skipping backend validation during early stage - infrastructure not ready"
+                    )
+                    return []
+
                 backend_registry_instance: BackendRegistry = (
                     provider.get_required_service(BackendRegistry)
                 )

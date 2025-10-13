@@ -2,6 +2,8 @@
 Unit tests for Qwen OAuth connector tool calling functionality.
 
 These tests mock external dependencies and verify tool calling logic.
+
+pytestmark = [pytest.mark.no_global_mock]
 """
 
 import time

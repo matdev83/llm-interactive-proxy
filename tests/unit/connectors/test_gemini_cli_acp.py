@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+
+# Ensure all gemini-cli-acp tests run sequentially to prevent port conflicts
+pytestmark = pytest.mark.xdist_group("gemini_cli_acp_integration")
 from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
 from src.core.common.exceptions import (
     APITimeoutError,
@@ -157,11 +160,17 @@ class TestGeminiCliAcpConnectorProcessManagement:
             await connector.initialize(project_dir=str(temp_workspace))
 
         mock_process = MagicMock()
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
         connector._process = mock_process
 
         await connector._kill_process()
 
         mock_process.terminate.assert_called_once()
+        mock_process.stdin.close.assert_called_once()
+        mock_process.stdout.close.assert_called_once()
+        mock_process.stderr.close.assert_called_once()
         assert connector._process is None
 
     async def test_kill_process_force_kill_on_timeout(self, connector, temp_workspace):
@@ -171,12 +180,42 @@ class TestGeminiCliAcpConnectorProcessManagement:
 
         mock_process = MagicMock()
         mock_process.wait.side_effect = subprocess.TimeoutExpired("gemini", 5)
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
         connector._process = mock_process
 
         await connector._kill_process()
 
         mock_process.terminate.assert_called_once()
         mock_process.kill.assert_called_once()
+        mock_process.stdin.close.assert_called_once()
+        mock_process.stdout.close.assert_called_once()
+        mock_process.stderr.close.assert_called_once()
+
+    async def test_spawn_process_failure_closes_streams(
+        self, connector, temp_workspace
+    ):
+        """Process failure should close pipes to avoid leaks."""
+        with patch.object(connector, "_check_gemini_cli_available", return_value=True):
+            await connector.initialize(project_dir=str(temp_workspace))
+
+        mock_process = MagicMock()
+        mock_process.poll.return_value = 1
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
+        mock_process.stderr.read.return_value = b"failure"
+
+        with (
+            patch("subprocess.Popen", return_value=mock_process),
+            pytest.raises(BackendError),
+        ):
+            await connector._spawn_gemini_cli_process()
+
+        mock_process.stdin.close.assert_called_once()
+        mock_process.stdout.close.assert_called_once()
+        mock_process.stderr.close.assert_called_once()
 
 
 class TestGeminiCliAcpConnectorProjectDirControl:
@@ -349,6 +388,104 @@ class TestGeminiCliAcpConnectorChatCompletions:
                 )
 
             mock_change.assert_called_once_with(str(new_workspace))
+
+
+class TestGeminiCliAcpConnectorMessageExtraction:
+    """Test message extraction for ACP protocol."""
+
+    async def test_extract_user_message_simple_dict(self, connector):
+        """Test extracting user message from simple dict format."""
+        processed_messages = [
+            {"role": "system", "content": "System message"},
+            {"role": "user", "content": "Hello world"},
+            {"role": "assistant", "content": "Response"},
+        ]
+
+        result = connector._extract_user_message_as_string(processed_messages)
+        assert result == "Hello world"
+
+    async def test_extract_user_message_with_parts(self, connector):
+        """Test extracting user message from dict with parts structure."""
+        processed_messages = [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": "Hello"},
+                    {"text": "world"},
+                ],
+            }
+        ]
+
+        result = connector._extract_user_message_as_string(processed_messages)
+        assert result == "Hello world"
+
+    async def test_extract_user_message_with_list_content(self, connector):
+        """Test extracting user message from dict with list content."""
+        processed_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "Hello"},
+                    {"content": "world"},
+                ],
+            }
+        ]
+
+        result = connector._extract_user_message_as_string(processed_messages)
+        assert result == "Hello world"
+
+    async def test_extract_user_message_string_message(self, connector):
+        """Test extracting user message from string format."""
+        processed_messages = ["Simple string message"]
+
+        result = connector._extract_user_message_as_string(processed_messages)
+        assert result == "Simple string message"
+
+    async def test_extract_user_message_complex_structure(self, connector):
+        """Test extracting user message from complex nested structure."""
+        processed_messages = [
+            {"role": "system", "content": "Ignore this"},
+            {
+                "role": "user",
+                "content": [
+                    {"text": "Part 1"},
+                    "Simple string",
+                    {"content": "Part 2"},
+                ],
+            },
+            {"role": "assistant", "content": "Response"},
+        ]
+
+        result = connector._extract_user_message_as_string(processed_messages)
+        assert result == "Part 1 Simple string Part 2"
+
+    async def test_extract_user_message_no_user_message(self, connector):
+        """Test extracting when no user message exists."""
+        processed_messages = [
+            {"role": "system", "content": "System message"},
+            {"role": "assistant", "content": "Assistant message"},
+        ]
+
+        result = connector._extract_user_message_as_string(processed_messages)
+        assert result == ""
+
+    async def test_extract_user_message_empty_list(self, connector):
+        """Test extracting from empty message list."""
+        processed_messages = []
+
+        result = connector._extract_user_message_as_string(processed_messages)
+        assert result == ""
+
+    async def test_extract_user_message_prioritizes_last_user(self, connector):
+        """Test that last user message is extracted when multiple exist."""
+        processed_messages = [
+            {"role": "user", "content": "First message"},
+            {"role": "assistant", "content": "Response"},
+            {"role": "user", "content": "Second message"},
+        ]
+
+        result = connector._extract_user_message_as_string(processed_messages)
+        assert result == "Second message"
 
 
 class TestGeminiCliAcpConnectorStreaming:

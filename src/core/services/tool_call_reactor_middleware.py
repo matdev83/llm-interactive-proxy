@@ -116,7 +116,11 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                 existing_calls = response.metadata.get("tool_calls")
 
                 replace_metadata_calls = False
-                if not isinstance(existing_calls, list) or not existing_calls or not all(isinstance(item, dict) for item in existing_calls):
+                if (
+                    not isinstance(existing_calls, list)
+                    or not existing_calls
+                    or not all(isinstance(item, dict) for item in existing_calls)
+                ):
                     replace_metadata_calls = True
 
                 if replace_metadata_calls:
@@ -191,7 +195,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     )
 
                     # Create a new response with the replacement content
-                    if result.replacement_response:
+                    if result.replacement_response is not None:
                         replacement_response = self._create_replacement_response(
                             response,
                             result.replacement_response,
