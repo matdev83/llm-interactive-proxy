@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
+from types import SimpleNamespace
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
@@ -569,6 +570,87 @@ class TestBackendServiceCompletions:
             assert "Backend call failed" in str(exc_info.value)
             assert "API error" in str(exc_info.value)
             # Note: The backend type may not be included in the error message in all implementations
+
+    @pytest.mark.asyncio
+    async def test_retry_429_preserves_backend_kwargs(
+        self, service, chat_request
+    ) -> None:
+        """Ensure retrying a 429 keeps backend kwargs like session and project."""
+
+        class TrackingBackend(LLMBackend):
+            def __init__(self) -> None:
+                self.calls: list[dict[str, Any]] = []
+                self._responses: list[object] = [
+                    BackendError(
+                        "Rate limited",
+                        backend_name=BackendType.OPENAI,
+                        status_code=429,
+                        details={"error": {"message": "Too Many Requests"}},
+                    ),
+                    ResponseEnvelope(content={"ok": True}, headers={}),
+                ]
+
+            async def initialize(self, **kwargs: Any) -> None:  # pragma: no cover - unused in test
+                return None
+
+            def get_available_models(self) -> list[str]:
+                return ["model1"]
+
+            async def chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list,
+                effective_model: str,
+                identity: Any = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
+                self.calls.append(dict(kwargs))
+                next_response = self._responses.pop(0)
+                if isinstance(next_response, Exception):
+                    raise next_response
+                return next_response  # type: ignore[return-value]
+
+        backend = TrackingBackend()
+        service._get_or_create_backend = AsyncMock(return_value=backend)
+
+        session = SimpleNamespace(
+            state=SimpleNamespace(
+                project="proj-alpha",
+                project_dir="/tmp/proj",
+                backend_config=None,
+            )
+        )
+        service._session_service.get_session = AsyncMock(return_value=session)
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=SimpleNamespace(),
+            app_state=SimpleNamespace(),
+            client_host="127.0.0.1",
+            session_id="sess-123",
+        )
+
+        request_with_session = chat_request.model_copy(
+            update={
+                "extra_body": {
+                    "backend_type": BackendType.OPENAI,
+                    "session_id": "sess-123",
+                }
+            }
+        )
+
+        response = await service.call_completion(
+            request_with_session, context=context, allow_failover=False
+        )
+
+        assert isinstance(response, ResponseEnvelope)
+        assert backend.calls and len(backend.calls) == 2
+        first_call, second_call = backend.calls
+        assert first_call == second_call
+        assert first_call.get("session_id") == "sess-123"
+        assert first_call.get("project") == "proj-alpha"
+        assert first_call.get("project_dir") == "/tmp/proj"
 
     @pytest.mark.asyncio
     async def test_call_completion_invalid_response(self, service, chat_request):
