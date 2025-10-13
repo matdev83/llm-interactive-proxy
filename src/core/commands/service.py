@@ -21,6 +21,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class CommandResultWrapper:
+    """Lightweight wrapper around command handler results.
+
+    Historically the wrapper was defined inside ``process_commands`` which meant
+    every invocation created a brand new class object.  Instances produced in
+    separate calls therefore had different types which broke identity-based
+    checks and made it impossible to import the wrapper for typing or
+    isinstance() checks.  By hoisting the class to module scope we ensure the
+    wrapper has a single, stable definition while keeping the behaviour
+    identical to the previous implementation.
+    """
+
+    def __init__(self, command_name: str, result: Any) -> None:
+        self.name = command_name
+        self.message = result.message
+        self.success = result.success
+        self.new_state = getattr(result, "new_state", None)
+        self._original_result = result
+
+    @property
+    def result(self) -> Any:
+        """Expose the original command result for callers that need it."""
+
+        return self._original_result
+
+
 class NewCommandService(ICommandService):
     """
     A service for processing and executing commands using the new architecture.
@@ -249,14 +275,6 @@ class NewCommandService(ICommandService):
             result = await handler.handle(command, session)
 
             # Wrap the result with command name for proper response formatting
-            class CommandResultWrapper:
-                def __init__(self, command_name: str, result):
-                    self.name = command_name
-                    self.message = result.message
-                    self.success = result.success
-                    self.new_state = getattr(result, "new_state", None)
-                    self._original_result = result
-
             executed_command_name = command.name
             wrapped_result = CommandResultWrapper(executed_command_name, result)
             command_executed = True
