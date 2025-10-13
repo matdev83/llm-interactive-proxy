@@ -1,0 +1,9 @@
+reviews:
+  auto_review:
+    enabled: true                 # keep auto reviews on
+    auto_incremental_review: true # review each push to the PR
+    # Review PRs whose BASE/TARGET branch matches these patterns
+    base_branches:
+      - '^codex/.*$'
+      - '^feat/.*$'
+      - '^bugfix/.*$'
