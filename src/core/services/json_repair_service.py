@@ -73,9 +73,9 @@ def enforce_schema_size_limits(
                             },
                         )
                     queue.extend(value.values())
-                elif isinstance(value, (dict, list, tuple)):
+                elif isinstance(value, dict | list | tuple):
                     queue.append(value)
-        elif isinstance(current, (list, tuple)):
+        elif isinstance(current, list | tuple):
             nodes_seen += 1
             if nodes_seen > max_nodes:
                 raise ValidationError(
@@ -95,7 +95,7 @@ def enforce_schema_size_limits(
                 )
 
             for item in current:
-                if isinstance(item, (dict, list, tuple)):
+                if isinstance(item, dict | list | tuple):
                     queue.append(item)
 
 

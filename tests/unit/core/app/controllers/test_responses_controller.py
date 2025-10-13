@@ -15,9 +15,9 @@ from src.core.domain.chat import (
 )
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.responses_api import (
-    JsonSchema,
     MAX_SCHEMA_COLLECTION_ITEMS,
     MAX_SCHEMA_DEPTH,
+    JsonSchema,
     ResponseFormat,
     ResponsesRequest,
 )
@@ -229,6 +229,7 @@ class TestResponsesControllerSchemaValidation:
         }
 
         ResponsesController._validate_json_schema(schema)
+
 
 @pytest.mark.asyncio
 async def test_handle_responses_request_uses_injected_translation_service() -> None:
