@@ -189,6 +189,8 @@ class TestOpenAIResponsesTranslation:
         assert result["created"] == 1234567890
         assert result["model"] == "gpt-4"
         assert len(result["choices"]) == 1
+        assert "output" in result
+        assert len(result["output"]) == 1
 
         choice = result["choices"][0]
         assert choice["index"] == 0
@@ -196,6 +198,14 @@ class TestOpenAIResponsesTranslation:
         assert choice["message"]["content"] == '{"name": "John Doe"}'
         assert choice["message"]["parsed"] == {"name": "John Doe"}
         assert choice["finish_reason"] == "stop"
+
+        output_item = result["output"][0]
+        assert output_item["role"] == "assistant"
+        assert output_item["status"] == "completed"
+        assert output_item["content"] == [
+            {"type": "output_text", "text": '{"name": "John Doe"}'}
+        ]
+        assert result["output_text"] == ['{"name": "John Doe"}']
 
         assert result["usage"] == {
             "prompt_tokens": 10,
@@ -228,6 +238,10 @@ class TestOpenAIResponsesTranslation:
         assert choice["message"]["content"] == '{"name": "John Doe"}'
         assert choice["message"]["parsed"] == {"name": "John Doe"}
 
+        output_item = result["output"][0]
+        assert output_item["content"][0]["text"] == '{"name": "John Doe"}'
+        assert result["output_text"] == ['{"name": "John Doe"}']
+
     def test_from_domain_to_responses_response_with_invalid_json(self):
         """Test converting a domain response with invalid JSON content."""
         domain_response = ChatResponse(
@@ -252,6 +266,10 @@ class TestOpenAIResponsesTranslation:
         choice = result["choices"][0]
         assert choice["message"]["content"] == "This is not JSON content"
         assert choice["message"]["parsed"] is None
+
+        output_item = result["output"][0]
+        assert output_item["content"][0]["text"] == "This is not JSON content"
+        assert result["output_text"] == ["This is not JSON content"]
 
     def test_from_domain_to_responses_response_with_embedded_json(self):
         """Test converting a domain response with JSON embedded in text."""
@@ -278,6 +296,10 @@ class TestOpenAIResponsesTranslation:
         choice = result["choices"][0]
         assert choice["message"]["content"] == '{"name": "John Doe"}'
         assert choice["message"]["parsed"] == {"name": "John Doe"}
+
+        output_item = result["output"][0]
+        assert output_item["content"][0]["text"] == '{"name": "John Doe"}'
+        assert result["output_text"] == ['{"name": "John Doe"}']
 
     def test_responses_to_domain_response_output_text_fallback(self):
         """Test handling Responses API payloads that only provide output_text."""

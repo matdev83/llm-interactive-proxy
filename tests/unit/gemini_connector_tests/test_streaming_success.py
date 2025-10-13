@@ -107,8 +107,8 @@ class _StubStreamResponse:
     def aiter_text(self) -> Any:
         async def _gen() -> Any:
             yield (
-                "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": "
-                "\"Hello chunk\"}]}}]}\n\n"
+                'data: {"candidates": [{"content": {"parts": [{"text": '
+                '"Hello chunk"}]}}]}\n\n'
             )
 
         return _gen()
@@ -142,8 +142,31 @@ class _StubAsyncClient:
         }
         return self.last_request
 
-    async def send(self, request: dict[str, Any], stream: bool = False) -> _StubStreamResponse:
+    async def send(
+        self, request: dict[str, Any], stream: bool = False
+    ) -> _StubStreamResponse:
         self.last_stream_flag = stream
+        response = _StubStreamResponse()
+        self.last_response = response
+        return response
+
+    async def post(
+        self,
+        url: str,
+        *,
+        json: Any | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> _StubStreamResponse:
+        # Store request info for assertions
+        self.last_request = {
+            "method": "POST",
+            "url": url,
+            "json": json,
+            "headers": headers or {},
+        }
+        # For streaming requests, set stream flag to True
+        is_streaming = url.endswith(":streamGenerateContent")
+        self.last_stream_flag = is_streaming
         response = _StubStreamResponse()
         self.last_response = response
         return response

@@ -59,6 +59,7 @@ class TranslationService:
         ] = {
             "openai": self.from_domain_to_openai_response,
             "openai-responses": self.from_domain_to_responses_response,
+            "responses": self.from_domain_to_responses_response,
             "anthropic": self.from_domain_to_anthropic_response,
             "gemini": self.from_domain_to_gemini_response,
         }
@@ -301,23 +302,78 @@ class TranslationService:
 
     def from_domain_to_openai_stream_chunk(self, chunk: Any) -> dict[str, Any]:
         """Translates a domain stream chunk to an OpenAI stream format."""
-        # Basic implementation that assumes chunk contains delta or content
-        content = getattr(chunk, "content", None) or getattr(chunk, "delta", {}).get(
-            "content", ""
-        )
+        # Normalize chunk dictionary to inspect delta/tool_calls/content values
+        if isinstance(chunk, dict):
+            chunk_dict = chunk
+        else:
+            dumped = getattr(chunk, "model_dump", lambda: None)()
+            if isinstance(dumped, dict):
+                chunk_dict = dumped
+            else:
+                chunk_dict = {
+                    "id": getattr(chunk, "id", "chatcmpl-stream"),
+                    "object": getattr(chunk, "object", "chat.completion.chunk"),
+                    "created": getattr(
+                        chunk, "created", int(__import__("time").time())
+                    ),
+                    "model": getattr(chunk, "model", "unknown"),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": getattr(chunk, "delta", {}) or {},
+                            "finish_reason": getattr(chunk, "finish_reason", None),
+                        }
+                    ],
+                }
 
-        return {
-            "id": getattr(chunk, "id", "chatcmpl-stream"),
-            "object": "chat.completion.chunk",
-            "created": getattr(chunk, "created", int(__import__("time").time())),
-            "model": getattr(chunk, "model", "unknown"),
-            "choices": [
+        choices: list[dict[str, Any]] = []
+        if isinstance(chunk_dict.get("choices"), list):
+            raw_choices = chunk_dict.get("choices", [])
+            choices = [c for c in raw_choices if isinstance(c, dict)]
+        if not choices:
+            choices = [
                 {
                     "index": 0,
-                    "delta": {"content": content},
+                    "delta": getattr(chunk, "delta", {}) or {},
                     "finish_reason": getattr(chunk, "finish_reason", None),
                 }
-            ],
+            ]
+
+        first_choice = choices[0] or {}
+        delta = first_choice.get("delta") or {}
+
+        # Ensure we honor tool_calls semantics: no duplicate content alongside tool_calls
+        tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
+        if tool_calls:
+            delta = dict(delta)
+            delta["tool_calls"] = tool_calls
+            delta.pop("content", None)
+        else:
+            content = delta.get("content")
+            if content is None:
+                content = getattr(chunk, "content", None)
+            if content is not None:
+                delta = dict(delta)
+                delta["content"] = content
+
+        normalized_choice = {
+            "index": first_choice.get("index", 0),
+            "delta": delta,
+            "finish_reason": first_choice.get(
+                "finish_reason", getattr(chunk, "finish_reason", None)
+            ),
+        }
+
+        return {
+            "id": chunk_dict.get("id", getattr(chunk, "id", "chatcmpl-stream")),
+            "object": chunk_dict.get(
+                "object", getattr(chunk, "object", "chat.completion.chunk")
+            ),
+            "created": chunk_dict.get(
+                "created", getattr(chunk, "created", int(__import__("time").time()))
+            ),
+            "model": chunk_dict.get("model", getattr(chunk, "model", "unknown")),
+            "choices": [normalized_choice],
         }
 
     def from_domain_to_anthropic_stream_chunk(self, chunk: Any) -> dict[str, Any]:
@@ -349,29 +405,42 @@ class TranslationService:
 
     def from_domain_to_openai_response(self, response: ChatResponse) -> dict[str, Any]:
         """Translates a domain ChatResponse to an OpenAI response format."""
-        return {
-            "id": response.id,
-            "object": "chat.completion",
-            "created": response.created,
-            "model": response.model,
-            "choices": [
-                {
-                    "index": choice.index,
-                    "message": {
-                        "role": choice.message.role,
-                        "content": choice.message.content,
-                        **(
-                            {"tool_calls": choice.message.tool_calls}
-                            if choice.message.tool_calls
-                            else {}
-                        ),
-                    },
-                    "finish_reason": choice.finish_reason,
-                }
-                for choice in response.choices
-            ],
-            "usage": response.usage,
-        }
+        from src.core.domain.chat import (
+            ChatCompletionChoice,
+            ChatCompletionChoiceMessage,
+            ChatResponse,
+        )
+
+        # Create choices using Pydantic models
+        openai_choices = []
+        for choice in response.choices:
+            # Create the message using Pydantic model
+            message = ChatCompletionChoiceMessage(
+                role=choice.message.role,
+                content=choice.message.content,
+                tool_calls=(
+                    choice.message.tool_calls if choice.message.tool_calls else None
+                ),
+            )
+
+            # Create the choice using Pydantic model
+            openai_choice = ChatCompletionChoice(
+                index=choice.index,
+                message=message,
+                finish_reason=choice.finish_reason,
+            )
+            openai_choices.append(openai_choice)
+
+        # Create the response using Pydantic model
+        openai_response = ChatResponse(
+            id=response.id,
+            created=response.created,
+            model=response.model,
+            choices=openai_choices,
+            usage=response.usage,
+        )
+
+        return openai_response.model_dump()
 
     def from_domain_to_anthropic_response(
         self, response: ChatResponse
@@ -465,17 +534,23 @@ class TranslationService:
             ),
         }
 
-    def from_domain_response(self, response: ChatResponse, target_format: str) -> Any:
+    def from_domain_response(
+        self, response: ChatResponse, target_format: str = "openai"
+    ) -> Any:
         """
         Translates an internal domain ChatResponse to a specific API format.
 
         Args:
             response: The internal ChatResponse object.
-            target_format: The target API format (e.g., "anthropic", "gemini").
+            target_format: The target API format (e.g., "anthropic", "gemini", "responses").
 
         Returns:
             The response object in the target format.
         """
+        # Handle special case for responses format
+        if target_format == "responses":
+            return self.from_domain_to_responses_response(response)
+
         converter = self._from_domain_response_converters.get(target_format)
         if not converter:
             raise NotImplementedError(

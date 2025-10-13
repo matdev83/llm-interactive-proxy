@@ -3,6 +3,8 @@ Meta test to protect against test suite regression.
 
 This test ensures that the number of tests in the suite does not decrease
 over time, which would indicate that tests have been removed.
+
+Note to LLM agents: You are **NOT ALLOWED** to skip, disable, mute or alter this test unless EXPLICITLY INSTRUCTED BY HUMAN OPERATOR.
 """
 
 import json
@@ -20,6 +22,8 @@ class TestSuiteProtection:
 
     STATE_FILE_PATH = Path(__file__).parent.parent / "data" / "test_suite_state.json"
 
+    EXPECTED_MIN_COUNT = 3000
+
     @classmethod
     def get_stored_test_count(cls) -> int | None:
         """Get the stored test count from the state file."""
@@ -27,7 +31,9 @@ class TestSuiteProtection:
             if cls.STATE_FILE_PATH.exists():
                 with open(cls.STATE_FILE_PATH) as f:
                     data = json.load(f)
-                    return data.get("test_count")
+                    test_count = data.get("test_count")
+                    if isinstance(test_count, int):
+                        return test_count
         except (OSError, json.JSONDecodeError) as e:
             print(f"Warning: Could not read state file: {e}")
         return None
@@ -57,6 +63,14 @@ class TestSuiteProtection:
         # Get current test count by collecting all tests
         test_count = self._collect_test_count()
 
+        if test_count < self.EXPECTED_MIN_COUNT:
+            pytest.fail(
+                "Test suite regression detected! "
+                f"Current count ({test_count}) is less than expected minimum "
+                f"({self.EXPECTED_MIN_COUNT}). "
+                "This indicates that tests may have been removed."
+            )
+
         # Get stored test count
         stored_count = self.get_stored_test_count()
 
@@ -75,6 +89,7 @@ class TestSuiteProtection:
                     f"Test suite regression detected! "
                     f"Current count ({test_count}) is less than stored count ({stored_count}). "
                     f"This indicates that {abs(difference)} test(s) have been removed."
+                    f"Do not NEVER EVER, try to mute this message or disable this check."
                 )
             elif difference > 0:
                 print(
@@ -95,7 +110,6 @@ class TestSuiteProtection:
 
             # Run pytest collection with minimal configuration to avoid circular imports
             env = os.environ.copy()
-            env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
 
             result = subprocess.run(
                 [
@@ -124,16 +138,21 @@ class TestSuiteProtection:
                     print(f"Parsed test count from pytest summary: {count}")
                     return count
 
+                alt_match = re.search(r"(\d+)\s+tests\s+collected", combined_output)
+                if alt_match:
+                    count = int(alt_match.group(1))
+                    print(
+                        f"Parsed test count from pytest summary (alt format): {count}"
+                    )
+                    return count
+
                 # Fallback: count test items from the collection output
                 test_count = 0
                 for line in combined_output.split("\n"):
                     if (
-                        "<Function" in line
-                        and "test_" in line
-                        or "<Coroutine" in line
-                        and "test_" in line
-                        or "<TestCaseFunction" in line
-                        and "test_" in line
+                        ("<Function" in line and "test_" in line)
+                        or ("<Coroutine" in line and "test_" in line)
+                        or ("<TestCaseFunction" in line and "test_" in line)
                     ):
                         test_count += 1
 

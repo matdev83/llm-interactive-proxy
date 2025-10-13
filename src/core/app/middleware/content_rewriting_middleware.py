@@ -56,6 +56,47 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
 
         return is_rewritten
 
+    def _update_responses_input_text(
+        self, payload: dict[str, Any], aggregated_texts: list[str | None]
+    ) -> bool:
+        """Synchronize the optional ``input_text`` field with rewritten content."""
+
+        if not aggregated_texts or not any(
+            text is not None for text in aggregated_texts
+        ):
+            return False
+
+        input_text = payload.get("input_text")
+        if input_text is None:
+            return False
+
+        updated = False
+        aggregated_combined = "".join(text or "" for text in aggregated_texts)
+
+        if isinstance(input_text, list):
+            if len(input_text) != len(aggregated_texts):
+                return False
+
+            for index, aggregated_text in enumerate(aggregated_texts):
+                if aggregated_text is None:
+                    continue
+
+                original_value = input_text[index]
+                if not isinstance(original_value, str):
+                    continue
+
+                if aggregated_text != original_value:
+                    payload["input_text"][index] = aggregated_text
+                    updated = True
+
+            return updated
+
+        if isinstance(input_text, str) and aggregated_combined != input_text:
+            payload["input_text"] = aggregated_combined
+            return True
+
+        return False
+
     def _rewrite_responses_input(self, payload: dict[str, Any]) -> bool:
         """Rewrite OpenAI Responses API input payloads in-place."""
 
@@ -64,52 +105,112 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             return False
 
         is_rewritten = False
+        aggregated_texts: list[str | None] = []
 
         if isinstance(inputs, str):
             rewritten = self.rewriter.rewrite_prompt(inputs, "user")
+            aggregated_texts.append(rewritten)
             if rewritten != inputs:
                 payload["input"] = rewritten
+                is_rewritten = True
+
+        elif isinstance(inputs, list):
+            for item in inputs:
+                if not isinstance(item, dict):
+                    aggregated_texts.append(None)
+                    continue
+
+                role = item.get("role")
+                content = item.get("content")
+
+                if isinstance(content, str):
+                    rewritten = self.rewriter.rewrite_prompt(
+                        content, role if isinstance(role, str) else ""
+                    )
+                    aggregated_texts.append(rewritten)
+                    if rewritten != content:
+                        item["content"] = rewritten
+                        is_rewritten = True
+                    continue
+
+                if not isinstance(content, list):
+                    aggregated_texts.append(None)
+                    continue
+
+                aggregated_parts: list[str] = []
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+
+                    text_value = block.get("text")
+                    if not isinstance(text_value, str):
+                        continue
+
+                    rewritten_text = self.rewriter.rewrite_prompt(
+                        text_value, role if isinstance(role, str) else ""
+                    )
+                    if rewritten_text != text_value:
+                        block["text"] = rewritten_text
+                        is_rewritten = True
+                    aggregated_parts.append(rewritten_text)
+
+                aggregated_texts.append(
+                    "".join(aggregated_parts) if aggregated_parts else None
+                )
+        else:
+            return False
+
+        if self._update_responses_input_text(payload, aggregated_texts):
+            is_rewritten = True
+
+        return is_rewritten
+
+    def _rewrite_responses_instructions(self, payload: dict[str, Any]) -> bool:
+        """Rewrite OpenAI Responses API instructions in-place."""
+
+        instructions = payload.get("instructions")
+        if instructions is None:
+            return False
+
+        if isinstance(instructions, str):
+            rewritten = self.rewriter.rewrite_prompt(instructions, "system")
+            if rewritten != instructions:
+                payload["instructions"] = rewritten
                 return True
             return False
 
-        if not isinstance(inputs, list):
+        if isinstance(instructions, dict):
+            text_value = instructions.get("text")
+            if isinstance(text_value, str):
+                rewritten_text = self.rewriter.rewrite_prompt(text_value, "system")
+                if rewritten_text != text_value:
+                    instructions["text"] = rewritten_text
+                    return True
             return False
 
-        for item in inputs:
-            if not isinstance(item, dict):
-                continue
-
-            role = item.get("role")
-            content = item.get("content")
-
-            if isinstance(content, str):
-                rewritten = self.rewriter.rewrite_prompt(
-                    content, role if isinstance(role, str) else ""
-                )
-                if rewritten != content:
-                    item["content"] = rewritten
-                    is_rewritten = True
-                continue
-
-            if not isinstance(content, list):
-                continue
-
-            for block in content:
+        if isinstance(instructions, list):
+            is_rewritten = False
+            for index, block in enumerate(instructions):
                 if not isinstance(block, dict):
+                    if isinstance(block, str):
+                        rewritten_text = self.rewriter.rewrite_prompt(block, "system")
+                        if rewritten_text != block:
+                            instructions[index] = rewritten_text
+                            is_rewritten = True
                     continue
 
                 text_value = block.get("text")
                 if not isinstance(text_value, str):
                     continue
 
-                rewritten_text = self.rewriter.rewrite_prompt(
-                    text_value, role if isinstance(role, str) else ""
-                )
+                rewritten_text = self.rewriter.rewrite_prompt(text_value, "system")
                 if rewritten_text != text_value:
                     block["text"] = rewritten_text
                     is_rewritten = True
 
-        return is_rewritten
+            return is_rewritten
+
+        return False
 
     def _rewrite_chat_response(self, payload: dict[str, Any]) -> bool:
         """Rewrite OpenAI chat completion responses in-place."""
@@ -129,13 +230,29 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                 continue
 
             original_content = message.get("content")
-            if not isinstance(original_content, str):
+
+            if isinstance(original_content, str):
+                rewritten_content = self.rewriter.rewrite_reply(original_content)
+                if original_content != rewritten_content:
+                    message["content"] = rewritten_content
+                    is_rewritten = True
                 continue
 
-            rewritten_content = self.rewriter.rewrite_reply(original_content)
-            if original_content != rewritten_content:
-                message["content"] = rewritten_content
-                is_rewritten = True
+            if not isinstance(original_content, list):
+                continue
+
+            for block in original_content:
+                if not isinstance(block, dict):
+                    continue
+
+                text_value = block.get("text")
+                if not isinstance(text_value, str):
+                    continue
+
+                rewritten_text = self.rewriter.rewrite_reply(text_value)
+                if rewritten_text != text_value:
+                    block["text"] = rewritten_text
+                    is_rewritten = True
 
         return is_rewritten
 
@@ -232,6 +349,9 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                     is_rewritten = True
 
                 if self._rewrite_responses_input(data):
+                    is_rewritten = True
+
+                if self._rewrite_responses_instructions(data):
                     is_rewritten = True
 
                 if is_rewritten:

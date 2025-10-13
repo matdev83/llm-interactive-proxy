@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.services.translation_service import TranslationService
 
 
 @pytest.fixture
@@ -153,7 +154,13 @@ async def initialized_app(app: FastAPI):
                     # Also create ChatController and register it
                     from src.core.app.controllers.chat_controller import ChatController
 
-                    chat_controller = ChatController(request_processor)
+                    translation_service = provider.get_service(TranslationService)
+                    if translation_service is None:
+                        translation_service = TranslationService()
+                    chat_controller = ChatController(
+                        request_processor,
+                        translation_service=translation_service,
+                    )
                     provider._singleton_instances[ChatController] = chat_controller
                 except Exception as e:
                     print(f"Error creating RequestProcessor or ChatController: {e}")

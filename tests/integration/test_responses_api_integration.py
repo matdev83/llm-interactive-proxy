@@ -24,16 +24,18 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def app_config() -> AppConfig:
     """Create an AppConfig for testing."""
+    # Create auth config with disabled authentication
+    auth_config = AuthConfig(
+        disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+    )
+
+    # Create complete config with all settings
     config = AppConfig(
         host="localhost",
         port=8000,
         command_prefix="!/",
         backends=BackendSettings(default_backend="mock"),
-    )
-
-    # Disable authentication for tests
-    config.auth = AuthConfig(
-        disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+        auth=auth_config,
     )
 
     return config
@@ -381,16 +383,18 @@ class TestResponsesAPIBackendCompatibility:
     @pytest.fixture
     def app_config(self) -> AppConfig:
         """Create an AppConfig for testing."""
+        # Create auth config with disabled authentication
+        auth_config = AuthConfig(
+            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+        )
+
+        # Create complete config with all settings
         config = AppConfig(
             host="localhost",
             port=8000,
             command_prefix="!/",
             backends=BackendSettings(default_backend="mock"),
-        )
-
-        # Disable authentication for tests
-        config.auth = AuthConfig(
-            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+            auth=auth_config,
         )
 
         return config
@@ -552,15 +556,18 @@ class TestResponsesAPIErrorHandling:
     @pytest.fixture
     def app_config(self) -> AppConfig:
         """Create an AppConfig for testing."""
+        # Create auth config with disabled authentication
+        auth_config = AuthConfig(
+            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+        )
+
+        # Create complete config with all settings
         config = AppConfig(
             host="localhost",
             port=8000,
             command_prefix="!/",
             backends=BackendSettings(default_backend="mock"),
-        )
-
-        config.auth = AuthConfig(
-            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+            auth=auth_config,
         )
 
         return config
@@ -720,15 +727,18 @@ class TestResponsesAPIMultimodal:
     @pytest.fixture
     def app_config(self) -> AppConfig:
         """Create an AppConfig for testing."""
+        # Create auth config with disabled authentication
+        auth_config = AuthConfig(
+            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+        )
+
+        # Create complete config with all settings
         config = AppConfig(
             host="localhost",
             port=8000,
             command_prefix="!/",
             backends=BackendSettings(default_backend="mock"),
-        )
-
-        config.auth = AuthConfig(
-            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+            auth=auth_config,
         )
 
         return config
@@ -906,15 +916,18 @@ class TestResponsesAPIStreaming:
     @pytest.fixture
     def app_config(self) -> AppConfig:
         """Create an AppConfig for testing."""
+        # Create auth config with disabled authentication
+        auth_config = AuthConfig(
+            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+        )
+
+        # Create complete config with all settings
         config = AppConfig(
             host="localhost",
             port=8000,
             command_prefix="!/",
             backends=BackendSettings(default_backend="mock"),
-        )
-
-        config.auth = AuthConfig(
-            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+            auth=auth_config,
         )
 
         return config
@@ -1000,15 +1013,18 @@ class TestResponsesAPIProxyFeatures:
     @pytest.fixture
     def app_config(self) -> AppConfig:
         """Create an AppConfig for testing."""
+        # Create auth config with disabled authentication
+        auth_config = AuthConfig(
+            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+        )
+
+        # Create complete config with all settings
         config = AppConfig(
             host="localhost",
             port=8000,
             command_prefix="!/",
             backends=BackendSettings(default_backend="mock"),
-        )
-
-        config.auth = AuthConfig(
-            disable_auth=True, api_keys=[], redact_api_keys_in_prompts=False
+            auth=auth_config,
         )
 
         return config

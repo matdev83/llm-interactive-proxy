@@ -179,15 +179,14 @@ class UnsetCommand(StatefulCommandBase, BaseCommand):
     def _unset_command_prefix(
         self, state: ISessionState, context: Any
     ) -> tuple[CommandResult, ISessionState]:
-        # Update state through secure DI interface
-        self.update_state_setting("command_prefix", "!/")
+        updated_state = state.with_command_prefix_override(None)
 
         result = CommandResult(
             success=True,
             message="Command prefix reset to default (!/)",
             data={"command-prefix": "!/"},
         )
-        return result, state  # No state change in session
+        return result, updated_state
 
     def _unset_project(
         self, state: ISessionState, context: Any

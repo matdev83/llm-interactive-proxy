@@ -71,3 +71,21 @@ async def test_help_command_handler_with_arg(mock_command_service: MagicMock):
     assert "Examples:" in result.message
     assert "hello" in result.message
     mock_command_service.get_command_handler.assert_called_once_with("hello")
+
+
+@pytest.mark.asyncio
+async def test_help_command_handler_with_generic_arg_key(
+    mock_command_service: MagicMock,
+):
+    """Help handler should accept arbitrary argument names containing the command."""
+
+    handler = HelpCommandHandler(mock_command_service)
+    command = Command(name="help", args={"command": "hello"})
+    session_state = SessionState()
+    session = Session(session_id="test_session", state=session_state)
+
+    result = await handler.handle(command, session)
+
+    assert result.success
+    assert "hello - Greets the user." in result.message
+    mock_command_service.get_command_handler.assert_called_once_with("hello")

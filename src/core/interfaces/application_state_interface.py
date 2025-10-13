@@ -47,6 +47,14 @@ class IApplicationState(ABC):
         """
 
     @abstractmethod
+    def set_default_api_key_redaction_enabled(self, enabled: bool) -> None:
+        """Set the default for whether API key redaction is enabled.
+
+        Args:
+            enabled: Whether API key redaction is enabled by default
+        """
+
+    @abstractmethod
     def get_disable_interactive_commands(self) -> bool:
         """Get whether interactive commands are disabled.
 

@@ -52,6 +52,7 @@ class TestGeminiOAuthPersonalQuotaDetection:
 
     def test_quota_exceeded_detection_condition_matches(self) -> None:
         """Test that the quota exceeded detection condition correctly identifies quota errors."""
+
         def condition_matches(status_code: int, error_detail: dict) -> bool:
             message = error_detail.get("error", {}).get("message", "")
             message_lower = message.lower()

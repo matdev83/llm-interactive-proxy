@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
 import httpx
 import pytest
-from types import SimpleNamespace
 from src.core.app.controllers.models_controller import get_backend_factory_service
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.config.app_config import AppConfig
@@ -68,7 +68,9 @@ async def test_backend_factory_fallback_uses_di_translation_service(
     assert converter(None) is sentinel
 
 
-def test_get_config_service_handles_service_resolution_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_config_service_handles_service_resolution_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from src.core.app.controllers import models_controller
 
     class FailingProvider:

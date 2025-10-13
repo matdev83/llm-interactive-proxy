@@ -18,7 +18,7 @@ from src.core.persistence import ConfigManager
 
 
 @pytest.fixture(autouse=True)
-def manage_env_vars(monkeypatch):
+def manage_env_vars(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-proxy-key")
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "dummy_or_key")
     monkeypatch.setenv("GEMINI_API_KEY_1", "dummy_gem_key")
@@ -29,7 +29,7 @@ def manage_env_vars(monkeypatch):
 
 
 def test_save_and_load_persistent_config(
-    tmp_path, monkeypatch, functional_backend: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, functional_backend: str
 ):
     cfg_path = tmp_path / "cfg.yaml"
     # Ensure a clean slate for keys that might be set by other tests or global env
@@ -43,15 +43,31 @@ def test_save_and_load_persistent_config(
     with TestClient(
         app
     ) as client:  # Auth headers not needed if client fixture handles it
-        client.app.state.app_config.failover_routes["r1"] = {  # type: ignore
+        # Create a modified config with updated values (config is frozen, so we use model_copy)
+
+        # Use model_copy to efficiently create updated configuration
+        updated_failover_routes = dict(client.app.state.app_config.failover_routes)
+        updated_failover_routes["r1"] = {
             "policy": "k",
             "elements": ["openrouter:model-a"],
         }
-        client.app.state.app_config.session.default_interactive_mode = True  # type: ignore
-        client.app.state.app_config.backends.default_backend = functional_backend  # type: ignore
-        client.app.state.app_config.auth.redact_api_keys_in_prompts = False  # type: ignore
-        client.app.state.app_config.command_prefix = "$/"  # type: ignore
-        client.app.state.app_config.save(cfg_path)  # type: ignore
+
+        updated_config = client.app.state.app_config.model_copy(
+            update={
+                "command_prefix": "$/",
+                "backends": client.app.state.app_config.backends.model_copy(
+                    update={"default_backend": functional_backend}
+                ),
+                "auth": client.app.state.app_config.auth.model_copy(
+                    update={"redact_api_keys_in_prompts": False}
+                ),
+                "session": client.app.state.app_config.session.model_copy(
+                    update={"default_interactive_mode": True}
+                ),
+                "failover_routes": updated_failover_routes,
+            }
+        )
+        updated_config.save(cfg_path)  # type: ignore
 
     import yaml
 
@@ -110,7 +126,9 @@ def test_save_and_load_persistent_config(
             )  # If no "r1" route, expected_elements should be empty
 
 
-def test_invalid_persisted_backend(tmp_path, monkeypatch, functional_backend: str):
+def test_invalid_persisted_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, functional_backend: str
+):
     cfg_path = tmp_path / "cfg.yaml"
     # Persist an invalid default_backend
     import yaml

@@ -1,12 +1,38 @@
 import logging
 from collections import deque
 
+import pytest
 from src import performance_tracker
 from src.performance_tracker import (
     PerformanceMetrics,
     track_phase,
     track_request_performance,
 )
+
+
+class TimeStub:
+    def __init__(self, values: list[float]) -> None:
+        self._iterator = iter(values)
+        self._last = values[-1]
+
+    def __call__(self) -> float:
+        from contextlib import suppress
+
+        with suppress(StopIteration):
+            self._last = next(self._iterator)
+        return self._last
+
+
+class DummyMetrics:
+    def __init__(self) -> None:
+        self.started: list[str] = []
+        self.ended = 0
+
+    def start_phase(self, phase_name: str) -> None:
+        self.started.append(phase_name)
+
+    def end_phase(self) -> None:
+        self.ended += 1
 
 
 def _time_sequence(*values: float):
@@ -20,87 +46,80 @@ def _time_sequence(*values: float):
     return _next_time
 
 
-def test_log_summary_includes_breakdown_and_overhead(monkeypatch, caplog):
-    import time as original_time
+def test_performance_metrics_phase_tracking_and_finalize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    time_stub = TimeStub([1.0, 4.0, 5.0])
+    monkeypatch.setattr("src.performance_tracker.time.time", time_stub)
 
-    time_values = _time_sequence(100.1, 100.4, 100.5, 101.0, 101.6, 101.7)
-    monkeypatch.setattr(performance_tracker.time, "time", time_values)
-    # Also patch the logging time to avoid running out of values
-    monkeypatch.setattr(original_time, "time", time_values)
+    metrics = PerformanceMetrics()
+    metrics.request_start = 0.0
 
-    metrics = PerformanceMetrics(request_start=100.0)
-    metrics.session_id = "session-123"
+    metrics.start_phase("command_processing")
+    metrics.end_phase()
+    metrics.finalize()
+
+    assert metrics.command_processing_time == pytest.approx(3.0)
+    assert metrics.total_time == pytest.approx(5.0)
+    assert metrics._current_phase is None
+
+
+def test_performance_metrics_log_summary_logs_breakdown_and_overhead(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    time_stub = TimeStub([2.0, 5.0, 8.0])
+    monkeypatch.setattr("src.performance_tracker.time.time", time_stub)
+
+    metrics = PerformanceMetrics(session_id="session-123")
+    metrics.request_start = 0.0
+    metrics.command_processing_time = 1.0
+    metrics.backend_selection_time = None
+    metrics.response_processing_time = 1.5
     metrics.backend_used = "backend-a"
-    metrics.model_used = "model-b"
-    metrics.commands_processed = True
+    metrics.model_used = "model-x"
     metrics.streaming = True
+    metrics.commands_processed = True
 
-    metrics.start_phase("command_processing")
-    metrics.end_phase()
-    metrics.start_phase("backend_selection")
-    metrics.end_phase()
+    metrics.start_phase("backend_call")
 
     caplog.set_level(logging.INFO)
     metrics.log_summary()
 
-    assert len(caplog.records) == 1
-    message = caplog.records[0].message
-    assert "PERF_SUMMARY session=session-123" in message
-    assert "total=1.600s" in message
-    assert "backend=backend-a" in message
-    assert "model=model-b" in message
-    assert "streaming=True" in message
-    assert "commands=True" in message
-    assert "breakdown=[cmd_proc=0.300s, backend_sel=0.500s]" in message
-    assert "overhead=0.800s" in message
+    assert "PERF_SUMMARY session=session-123" in caplog.text
+    assert "total=8.000s" in caplog.text
+    assert "backend=backend-a" in caplog.text
+    assert "model=model-x" in caplog.text
+    assert "breakdown=[cmd_proc=1.000s" in caplog.text
+    assert "backend_call=3.000s" in caplog.text
+    assert "resp_proc=1.500s" in caplog.text
+    assert "overhead=2.500s" in caplog.text
 
 
-def test_log_summary_reports_overhead_without_phase_timings(monkeypatch, caplog):
-    import time as original_time
-
-    time_values = _time_sequence(51.0, 52.0)
-    monkeypatch.setattr(performance_tracker.time, "time", time_values)
-    monkeypatch.setattr(original_time, "time", time_values)
-
-    metrics = PerformanceMetrics(request_start=50.0)
-
-    caplog.set_level(logging.INFO)
-    metrics.log_summary()
-
-    assert len(caplog.records) == 1
-    message = caplog.records[0].message
-    assert "total=1.000s" in message
-    assert "breakdown=[" not in message
-    assert "overhead=1.000s" in message
-
-
-def test_end_phase_handles_zero_start_time(monkeypatch):
-    time_values = _time_sequence(0.0, 1.5)
-    monkeypatch.setattr(performance_tracker.time, "time", time_values)
-
-    metrics = PerformanceMetrics(request_start=0.0)
-    metrics.start_phase("command_processing")
-    metrics.end_phase()
-
-    assert metrics.command_processing_time == 1.5
-
-
-def test_track_request_performance_finalizes(monkeypatch):
-    calls: list[PerformanceMetrics] = []
+def test_track_request_performance_context_manager_logs_on_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: list[PerformanceMetrics] = []
 
     def fake_log_summary(self: PerformanceMetrics) -> None:
-        self.commands_processed = True
-        calls.append(self)
+        called.append(self)
 
     monkeypatch.setattr(PerformanceMetrics, "log_summary", fake_log_summary)
 
     with track_request_performance(session_id="abc") as metrics:
         assert isinstance(metrics, PerformanceMetrics)
         assert metrics.session_id == "abc"
-        metrics.backend_used = "backend"
 
-    assert calls == [metrics]
-    assert metrics.commands_processed is True
+    assert called and called[0] is metrics
+
+
+def test_track_phase_context_manager_ensures_end_called_on_exception() -> None:
+    dummy = DummyMetrics()
+
+    with pytest.raises(RuntimeError), track_phase(dummy, "phase-one"):
+        raise RuntimeError("boom")
+
+    assert dummy.started == ["phase-one"]
+    assert dummy.ended == 1
 
 
 def test_track_phase_wraps_start_and_end(monkeypatch):
@@ -124,3 +143,57 @@ def test_track_phase_wraps_start_and_end(monkeypatch):
         ("inside", None),
         ("end", None),
     ]
+
+
+def test_finalize_completes_active_phase(monkeypatch):
+    time_values = _time_sequence(10.0, 12.5, 15.0)
+    monkeypatch.setattr(performance_tracker.time, "time", time_values)
+
+    metrics = PerformanceMetrics(request_start=5.0)
+    metrics.start_phase("backend_call")
+
+    metrics.finalize()
+
+    assert metrics.backend_call_time == 2.5
+    assert metrics.total_time == 10.0
+
+
+def test_summary_helpers_include_defaults():
+    metrics = PerformanceMetrics()
+    metrics.total_time = 2.3456
+    metrics.command_processing_time = 0.123
+    metrics.response_processing_time = 0.456
+
+    summary_prefix = metrics._format_summary_prefix()
+    assert summary_prefix == [
+        "PERF_SUMMARY session=unknown",
+        "total=2.346s",
+        "backend=unknown",
+        "model=unknown",
+        "streaming=False",
+        "commands=False",
+    ]
+
+    timing_parts = metrics._format_timing_parts()
+    assert timing_parts == [
+        "cmd_proc=0.123s",
+        "resp_proc=0.456s",
+    ]
+
+
+def test_track_phase_ends_on_exception(monkeypatch):
+    metrics = PerformanceMetrics()
+    called: list[str] = []
+
+    def fake_end_phase() -> None:
+        called.append("end")
+
+    monkeypatch.setattr(metrics, "end_phase", fake_end_phase)
+
+    try:
+        with track_phase(metrics, "response_processing"):
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+
+    assert called == ["end"]
