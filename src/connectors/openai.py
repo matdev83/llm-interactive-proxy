@@ -503,7 +503,6 @@ class OpenAIConnector(LLMBackend):
             # For backwards compatibility with existing error handlers, still use HTTPException here.
             # This will be replaced in a future update with domain exceptions.
             body: str = ""
-            close_callable = getattr(response, "aclose", None)
             try:
                 body_bytes = await response.aread()
             except Exception:

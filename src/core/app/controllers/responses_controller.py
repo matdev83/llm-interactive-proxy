@@ -785,7 +785,7 @@ class ResponsesController:
                                 regex_key,
                                 f"{location}.patternProperties[{regex_key}]",
                             )
-                        if isinstance(sub_schema, (dict, list)):
+                        if isinstance(sub_schema, dict | list):
                             stack.append(
                                 (
                                     sub_schema,
@@ -796,12 +796,12 @@ class ResponsesController:
                 for key, value in node.items():
                     if key == "patternProperties":
                         continue
-                    if isinstance(value, (dict, list)):
+                    if isinstance(value, dict | list):
                         stack.append((value, f"{location}.{key}"))
 
             elif isinstance(node, list):
                 for index, item in enumerate(node):
-                    if isinstance(item, (dict, list)):
+                    if isinstance(item, dict | list):
                         stack.append((item, f"{location}[{index}]"))
 
     @staticmethod
