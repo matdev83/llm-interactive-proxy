@@ -1,12 +1,17 @@
 import json
 import os
 import tempfile
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
-from src.core.services.structured_wire_capture_service import StructuredWireCapture
+from src.core.services.structured_wire_capture_service import (
+    MAX_REDACTION_DEPTH,
+    REDACTION_DEPTH_PLACEHOLDER,
+    StructuredWireCapture,
+)
 
 
 @pytest.fixture
@@ -351,3 +356,26 @@ def test_extract_system_prompt(structured_wire_capture):
     # No system prompt
     no_system_payload = {"messages": [{"role": "user", "content": "Hello"}]}
     assert structured_wire_capture._extract_system_prompt(no_system_payload) is None
+
+
+def test_redact_payload_handles_deeply_nested_payload(structured_wire_capture):
+    """Ensure deep nesting cannot trigger a RecursionError during redaction."""
+
+    payload: dict[str, Any] = {}
+    current: dict[str, Any] = payload
+    for _ in range(MAX_REDACTION_DEPTH + 1024):
+        next_level: dict[str, Any] = {}
+        current["nest"] = next_level
+        current = next_level
+
+    redacted = structured_wire_capture._redact_payload(payload)
+
+    depth = 0
+    current_level = redacted
+    while isinstance(current_level, dict):
+        assert "nest" in current_level
+        current_level = current_level["nest"]
+        depth += 1
+        assert depth <= MAX_REDACTION_DEPTH
+
+    assert current_level == REDACTION_DEPTH_PLACEHOLDER
