@@ -12,7 +12,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from src.core.common.exceptions import InitializationError, LLMProxyError
-from src.core.domain.responses_api import ResponsesRequest
+from src.core.domain.responses_api import (
+    ResponsesRequest,
+    enforce_json_schema_limits,
+)
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -755,6 +758,8 @@ class ResponsesController:
             enum_values = schema["enum"]
             if not isinstance(enum_values, list) or len(enum_values) == 0:
                 raise ValueError("Enum must be a non-empty list")
+
+        enforce_json_schema_limits(schema)
 
     @staticmethod
     def _ensure_safe_regex_patterns(schema: dict[str, Any]) -> None:

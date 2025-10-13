@@ -10,6 +10,52 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+MAX_SCHEMA_DEPTH = 64
+MAX_SCHEMA_NODES = 4096
+MAX_SCHEMA_COLLECTION_ITEMS = 256
+MAX_SCHEMA_STRING_LENGTH = 65536
+
+
+def enforce_json_schema_limits(schema: dict[str, Any]) -> None:
+    """Enforce upper bounds on JSON schema size and complexity."""
+
+    stack: list[tuple[Any, int]] = [(schema, 1)]
+    visited_nodes = 0
+
+    while stack:
+        node, depth = stack.pop()
+        visited_nodes += 1
+
+        if visited_nodes > MAX_SCHEMA_NODES:
+            raise ValueError("JSON schema is too large (exceeds maximum allowed nodes)")
+
+        if depth > MAX_SCHEMA_DEPTH:
+            raise ValueError("JSON schema nesting exceeds maximum allowed depth")
+
+        if isinstance(node, dict):
+            if len(node) > MAX_SCHEMA_COLLECTION_ITEMS:
+                raise ValueError(
+                    "JSON schema objects cannot contain more than "
+                    f"{MAX_SCHEMA_COLLECTION_ITEMS} keys"
+                )
+
+            for value in node.values():
+                stack.append((value, depth + 1))
+
+        elif isinstance(node, (list, tuple)):
+            if len(node) > MAX_SCHEMA_COLLECTION_ITEMS:
+                raise ValueError(
+                    "JSON schema arrays cannot contain more than "
+                    f"{MAX_SCHEMA_COLLECTION_ITEMS} items"
+                )
+
+            for item in node:
+                stack.append((item, depth + 1))
+
+        elif isinstance(node, str) and len(node) > MAX_SCHEMA_STRING_LENGTH:
+            raise ValueError("JSON schema string value exceeds maximum allowed length")
+
+
 from pydantic import ConfigDict, Field, field_validator
 
 from src.core.domain.base import ValueObject
@@ -46,6 +92,8 @@ class JsonSchema(DomainModel):
 
         if "type" not in v:
             raise ValueError("Schema must have a 'type' field")
+
+        enforce_json_schema_limits(v)
 
         return deepcopy(v)
 
