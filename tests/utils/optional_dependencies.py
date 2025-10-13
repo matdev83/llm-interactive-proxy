@@ -42,6 +42,7 @@ def _require_module(module_name: str, package_name: str) -> ModuleType:
             ),
             allow_module_level=True,
         )
+        # Unreachable: pytest.skip raises. Present for type checker.
         raise RuntimeError from exc
 
 

@@ -19,8 +19,8 @@ from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
 
 require_hypothesis()
-from hypothesis import HealthCheck, given, settings  # type: ignore[missing-import]
-from hypothesis import strategies as st  # type: ignore[missing-import]
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 
 class MockBackend(LLMBackend):
