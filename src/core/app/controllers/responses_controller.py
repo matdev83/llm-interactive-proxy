@@ -829,43 +829,49 @@ class ResponsesController:
     ) -> bool:
         """Detect nested unbounded repeats within a parsed regex pattern."""
 
-        for token in subpattern:
+        # sre_parse.SubPattern is iterable but mypy can't understand this
+        for token in cast(list[tuple[Any, Any]], subpattern):  # type: ignore[arg-type]
             operator, argument = token
 
             if operator in {sre_parse.MAX_REPEAT, sre_parse.MIN_REPEAT}:
-                min_repeat, max_repeat, nested = argument
+                # unpack with type ignore due to mypy not understanding sre_parse tuple structure
+                min_repeat, max_repeat, nested = cast(tuple, argument)  # type: ignore[misc]
                 is_unbounded = max_repeat == MAXREPEAT
 
                 if inside_unbounded and is_unbounded:
                     return True
 
                 if ResponsesController._contains_nested_unbounded_repeat(
-                    nested, inside_unbounded=is_unbounded or inside_unbounded
+                    cast(sre_parse.SubPattern, nested), inside_unbounded=is_unbounded or inside_unbounded
                 ):
                     return True
 
                 continue
 
             if operator == sre_parse.SUBPATTERN:
-                nested = argument[-1]
+                # argument is a tuple, nested pattern is the last element
+                nested = cast(tuple, argument)[-1]  # type: ignore[index]
                 if ResponsesController._contains_nested_unbounded_repeat(
-                    nested, inside_unbounded=inside_unbounded
+                    cast(sre_parse.SubPattern, nested), inside_unbounded=inside_unbounded
                 ):
                     return True
                 continue
 
             if operator == sre_parse.BRANCH:
-                _, branches = argument
-                for branch in branches:
+                # argument is a tuple, second element is list of branches
+                _, branches = cast(tuple, argument)  # type: ignore[misc]
+                for branch in cast(list, branches):
                     if ResponsesController._contains_nested_unbounded_repeat(
-                        branch, inside_unbounded=inside_unbounded
+                        cast(sre_parse.SubPattern, branch), inside_unbounded=inside_unbounded
                     ):
                         return True
                 continue
 
             if operator in {sre_parse.ASSERT, sre_parse.ASSERT_NOT}:
+                # argument is a tuple, second element is the nested pattern
+                nested = cast(tuple, argument)[1]  # type: ignore[index]
                 if ResponsesController._contains_nested_unbounded_repeat(
-                    argument[1], inside_unbounded=inside_unbounded
+                    cast(sre_parse.SubPattern, nested), inside_unbounded=inside_unbounded
                 ):
                     return True
 
