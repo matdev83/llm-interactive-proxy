@@ -103,8 +103,8 @@ class TestContentRewritingMiddleware(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_inbound_reply_rewriting_ignores_non_string_content(self):
-        """Ensure non-string replies are forwarded unchanged."""
+    def test_inbound_reply_rewriting_handles_multimodal_content(self):
+        """Ensure text blocks inside multimodal replies are rewritten."""
 
         os.makedirs(os.path.join(self.test_config_dir, "replies", "001"), exist_ok=True)
         with open(
@@ -125,7 +125,11 @@ class TestContentRewritingMiddleware(unittest.TestCase):
                     "message": {
                         "role": "assistant",
                         "content": [
-                            {"type": "text", "text": "This is an original reply."}
+                            {"type": "text", "text": "This is an original reply."},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "https://example.com"},
+                            },
                         ],
                     }
                 }
@@ -160,9 +164,16 @@ class TestContentRewritingMiddleware(unittest.TestCase):
         async def run_test():
             response = await middleware.dispatch(request, call_next)
             new_body = json.loads(response.body)
+            rewritten_blocks = new_body["choices"][0]["message"]["content"]
             self.assertEqual(
-                new_body["choices"][0]["message"]["content"],
-                [{"type": "text", "text": "This is an original reply."}],
+                rewritten_blocks,
+                [
+                    {"type": "text", "text": "This is an rewritten reply."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "https://example.com"},
+                    },
+                ],
             )
 
         import asyncio
@@ -208,6 +219,119 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             data = await request.json()
             content_blocks = data["messages"][0]["content"]
             self.assertEqual(content_blocks[0]["text"], "rewritten user text")
+            return Response(
+                content=json.dumps({"ok": True}), media_type="application/json"
+            )
+
+        async def receive():
+            return {
+                "type": "http.request",
+                "body": json.dumps(request_payload).encode("utf-8"),
+                "more_body": False,
+            }
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "headers": Headers({"content-type": "application/json"}).raw,
+                "http_version": "1.1",
+                "server": ("testserver", 80),
+                "client": ("testclient", 123),
+                "scheme": "http",
+                "root_path": "",
+                "path": "/test",
+                "raw_path": b"/test",
+                "query_string": b"",
+            },
+            receive=receive,
+        )
+
+        async def run_test():
+            response = await middleware.dispatch(request, call_next)
+            self.assertEqual(response.status_code, 200)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_request_rewriting_responses_instructions_string(self):
+        """Ensure Responses API instructions strings are rewritten."""
+
+        rewriter = ContentRewriterService(config_path=self.test_config_dir)
+        middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+        request_payload = {
+            "instructions": "original system guidance",  # matches rule in setUp
+            "input": "user input",
+        }
+
+        async def call_next(request):
+            data = await request.json()
+            self.assertEqual(data["instructions"], "rewritten system guidance")
+            return Response(
+                content=json.dumps({"ok": True}), media_type="application/json"
+            )
+
+        async def receive():
+            return {
+                "type": "http.request",
+                "body": json.dumps(request_payload).encode("utf-8"),
+                "more_body": False,
+            }
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "headers": Headers({"content-type": "application/json"}).raw,
+                "http_version": "1.1",
+                "server": ("testserver", 80),
+                "client": ("testclient", 123),
+                "scheme": "http",
+                "root_path": "",
+                "path": "/test",
+                "raw_path": b"/test",
+                "query_string": b"",
+            },
+            receive=receive,
+        )
+
+        async def run_test():
+            response = await middleware.dispatch(request, call_next)
+            self.assertEqual(response.status_code, 200)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_request_rewriting_responses_instructions_blocks(self):
+        """Ensure Responses API instruction content blocks are rewritten."""
+
+        rewriter = ContentRewriterService(config_path=self.test_config_dir)
+        middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+        request_payload = {
+            "instructions": [
+                {"type": "text", "text": "original system guidance"},
+                {"type": "image", "image_url": {"url": "https://example.com"}},
+            ],
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "This should remain unchanged."}
+                    ],
+                }
+            ],
+        }
+
+        async def call_next(request):
+            data = await request.json()
+            instructions = data["instructions"]
+            self.assertIsInstance(instructions, list)
+            self.assertEqual(instructions[0]["text"], "rewritten system guidance")
+            self.assertEqual(instructions[1]["image_url"]["url"], "https://example.com")
             return Response(
                 content=json.dumps({"ok": True}), media_type="application/json"
             )
@@ -428,6 +552,83 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             # The user content should remain untouched
             self.assertEqual(
                 new_body["input"][1]["content"][0]["text"],
+                "This is a user prompt.",
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_outbound_responses_input_rewriting_updates_input_text(self):
+        """Ensure aggregated input_text stays in sync with rewritten inputs."""
+
+        async def run_test():
+            rewriter = ContentRewriterService(config_path=self.test_config_dir)
+            middleware = ContentRewritingMiddleware(app=None, rewriter=rewriter)
+
+            payload = {
+                "input": [
+                    {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "This is an original system prompt.",
+                            }
+                        ],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "This is a user prompt.",
+                            }
+                        ],
+                    },
+                ],
+                "input_text": [
+                    "This is an original system prompt.",
+                    "This is a user prompt.",
+                ],
+            }
+
+            async def get_body():
+                return json.dumps(payload).encode("utf-8")
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "headers": Headers({"content-type": "application/json"}).raw,
+                    "http_version": "1.1",
+                    "server": ("testserver", 80),
+                    "client": ("testclient", 123),
+                    "scheme": "http",
+                    "root_path": "",
+                    "path": "/test",
+                    "raw_path": b"/test",
+                    "query_string": b"",
+                }
+            )
+            request._body = await get_body()
+
+            call_next = AsyncMock()
+            call_next.return_value = Response("OK")
+
+            await middleware.dispatch(request, call_next)
+
+            call_next.assert_called_once()
+            new_request = call_next.call_args[0][0]
+
+            new_body = await new_request.json()
+
+            self.assertEqual(
+                new_body["input_text"][0],
+                "This is an rewritten system prompt.",
+            )
+            self.assertEqual(
+                new_body["input_text"][1],
                 "This is a user prompt.",
             )
 

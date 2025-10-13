@@ -27,8 +27,11 @@ def temp_capture_file():
 @pytest.fixture
 def mock_app_config(temp_capture_file):
     """Create a mock AppConfig with capture enabled."""
-    config = AppConfig.from_env()
-    config.logging.capture_file = temp_capture_file
+    from src.core.config.app_config import LoggingConfig
+
+    base_config = AppConfig.from_env()
+    logging_config = LoggingConfig(capture_file=temp_capture_file)
+    config = base_config.model_copy(update={"logging": logging_config})
     return config
 
 

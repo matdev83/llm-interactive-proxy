@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,11 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
-from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
+from src.core.common.exceptions import (
+    AuthenticationError,
+    ServiceResolutionError,
+    ServiceUnavailableError,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -48,11 +53,11 @@ class OpenAIConnector(LLMBackend):
     ) -> None:
         super().__init__(config, response_processor)
         self.client = client
-        # Allow callers/tests to omit TranslationService; create a default instance
+        # Allow callers/tests to omit TranslationService; resolve through DI for consistency
         self.translation_service = (
             translation_service
             if translation_service is not None
-            else TranslationService()
+            else self._resolve_translation_service()
         )
         self.config = config  # Stored config
         self.available_models: list[str] = []
@@ -62,17 +67,35 @@ class OpenAIConnector(LLMBackend):
 
         # Health check attributes
         self._health_checked: bool = False
-        # Check environment variable to allow disabling health checks globally
         import os
 
-        disable_health_checks = os.getenv("DISABLE_HEALTH_CHECKS", "false").lower() in (
-            "true",
-            "1",
-            "yes",
+        disable_health_checks_env = os.getenv(
+            "DISABLE_HEALTH_CHECKS", "false"
+        ).lower() in ("true", "1", "yes")
+
+        disable_health_checks_config = self.config.get(
+            "session.dangerous_command_prevention_enabled", False
         )
 
-        # Health checks enabled by default unless explicitly disabled via env
-        self._health_check_enabled: bool = not disable_health_checks
+        # Enable health checks only when neither config nor env disable them
+        self._health_check_enabled = not (
+            disable_health_checks_env or disable_health_checks_config
+        )
+
+    @staticmethod
+    def _resolve_translation_service() -> TranslationService:
+        """Resolve TranslationService from the DI container."""
+
+        from src.core.di.services import get_or_build_service_provider
+
+        provider = get_or_build_service_provider()
+        service = provider.get_service(TranslationService)
+        if service is None:
+            raise ServiceResolutionError(
+                "TranslationService is not registered in the service provider",
+                service_name="TranslationService",
+            )
+        return service
 
     def get_headers(self) -> dict[str, str]:
         """Return request headers including API key and per-request identity."""
@@ -334,9 +357,9 @@ class OpenAIConnector(LLMBackend):
 
                 for message in processed_messages:
                     if hasattr(message, "model_dump") and callable(message.model_dump):
-                        normalized_messages.append(
-                            dict(message.model_dump(exclude_none=False))
-                        )
+                        dumped = message.model_dump(exclude_none=False)
+                        if isinstance(dumped, dict):
+                            normalized_messages.append(dumped)
                         continue
 
                     msg: dict[str, Any]
@@ -481,6 +504,7 @@ class OpenAIConnector(LLMBackend):
             # For backwards compatibility with existing error handlers, still use HTTPException here.
             # This will be replaced in a future update with domain exceptions.
             body: str = ""
+            close_callable = getattr(response, "aclose", None)
             try:
                 body_bytes = await response.aread()
             except Exception:
@@ -520,6 +544,10 @@ class OpenAIConnector(LLMBackend):
             try:
                 async for chunk in text_generator():
                     yield ProcessedResponse(content=chunk)
+            except httpx.HTTPError as exc:
+                raise ServiceUnavailableError(
+                    message=f"Streaming connection interrupted ({exc})"
+                ) from exc
             finally:
                 import contextlib
 
@@ -572,9 +600,9 @@ class OpenAIConnector(LLMBackend):
                 for m in processed_messages:
                     # If the message is a pydantic model, use model_dump
                     if hasattr(m, "model_dump") and callable(m.model_dump):
-                        normalized_messages.append(
-                            dict(m.model_dump(exclude_none=False))
-                        )
+                        dumped = m.model_dump(exclude_none=False)
+                        if isinstance(dumped, dict):
+                            normalized_messages.append(dumped)
                         continue
 
                     # Fallback: build a minimal dict

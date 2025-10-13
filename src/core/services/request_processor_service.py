@@ -21,9 +21,6 @@ from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
-from src.core.services.project_directory_resolution_service import (
-    ProjectDirectoryResolutionService,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +35,6 @@ class RequestProcessor(IRequestProcessor):
         backend_request_manager: IBackendRequestManager,
         response_manager: IResponseManager,
         app_state: IApplicationState | None = None,
-        project_dir_resolution_service: ProjectDirectoryResolutionService | None = None,
     ) -> None:
         """Initialize the request processor with decomposed services."""
         self._command_processor = command_processor
@@ -46,7 +42,6 @@ class RequestProcessor(IRequestProcessor):
         self._backend_request_manager = backend_request_manager
         self._response_manager = response_manager
         self._app_state = app_state
-        self._project_dir_resolution_service = project_dir_resolution_service
 
     async def process_request(
         self, context: RequestContext, request_data: Any
@@ -64,18 +59,6 @@ class RequestProcessor(IRequestProcessor):
         session = await self._session_manager.update_session_agent(
             session, request_data.agent
         )
-
-        if self._project_dir_resolution_service is not None:
-            try:
-                await self._project_dir_resolution_service.maybe_resolve_project_directory(
-                    session, request_data
-                )
-            except Exception:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Project directory auto-detection failed during request handling",
-                        exc_info=True,
-                    )
 
         logger.debug(f"Resolved session_id: {session_id}")
         logger.debug(
@@ -175,7 +158,7 @@ class RequestProcessor(IRequestProcessor):
                     if md is None:
                         continue
                     # Accept either a ModelDefaults instance or a plain dict-like
-                    if isinstance(md, (ModelDefaults, dict)):
+                    if isinstance(md, ModelDefaults | dict):
                         model_defaults = md
                         break
 
@@ -348,6 +331,10 @@ class RequestProcessor(IRequestProcessor):
         # Apply request redaction middleware (API keys and proxy commands)
         # just before calling the backend, so both original and command-modified
         # messages are covered.
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Redaction check: backend_request is not None = {backend_request is not None}"
+            )
         if backend_request is not None:
             try:
                 from src.core.common.logging_utils import (
@@ -372,7 +359,7 @@ class RequestProcessor(IRequestProcessor):
                         session_override = getattr(
                             session_state, "api_key_redaction_enabled", None
                         )
-                        if not isinstance(session_override, (bool, type(None))):
+                        if not isinstance(session_override, bool | type(None)):
                             session_override = None
                 except Exception:
                     session_override = None
@@ -392,19 +379,43 @@ class RequestProcessor(IRequestProcessor):
                 if should_redact:
                     api_keys = discover_api_keys_from_config_and_env(app_config)
                     # Command prefix can be None; RedactionMiddleware has a default
-                    command_prefix = None
-                    if self._app_state is not None:
+                    command_prefix: str | None = None
+
+                    # Check for session-level command prefix override first
+                    try:
+                        session_state = getattr(session, "state", None)
+                        if session_state is not None:
+                            session_prefix = getattr(
+                                session_state, "command_prefix_override", None
+                            )
+                            if isinstance(session_prefix, str) and session_prefix.strip():
+                                command_prefix = session_prefix.strip()
+                    except Exception:
+                        pass
+
+                    # Fall back to app state command prefix if no session override
+                    if not command_prefix and self._app_state is not None:
                         try:
-                            command_prefix = self._app_state.get_command_prefix()
+                            candidate_prefix = self._app_state.get_command_prefix()
                         except AttributeError:
+                            candidate_prefix = None
+                        if isinstance(candidate_prefix, str):
+                            stripped_prefix = candidate_prefix.strip()
+                            command_prefix = stripped_prefix or None
+                        else:
                             command_prefix = None
+
+                    # Fall back to config command prefix if still not found
                     if not command_prefix:
                         try:
-                            command_prefix = (
+                            config_prefix = (
                                 app_config.command_prefix
                                 if app_config is not None
                                 else None
                             )
+                            if isinstance(config_prefix, str):
+                                stripped_prefix = config_prefix.strip()
+                                command_prefix = stripped_prefix or None
                         except (AttributeError, TypeError):
                             command_prefix = None
 
@@ -423,16 +434,51 @@ class RequestProcessor(IRequestProcessor):
                         command_prefix=command_prefix or "!/",
                     )
                     redaction_context = {"commands_disabled": commands_disabled}
+
+                    # Debug logging before redaction
+                    if (
+                        logger.isEnabledFor(logging.DEBUG)
+                        and backend_request
+                        and backend_request.messages
+                    ):
+                        original_content = (
+                            getattr(backend_request.messages[0], "content", "")
+                            if backend_request.messages
+                            else ""
+                        )
+                        if original_content is None:
+                            original_content = ""
+                        logger.debug(
+                            f"Content before redaction: {original_content[:100]}..."
+                        )
+
                     backend_request = await redaction.process(
                         backend_request, redaction_context
                     )
-            except (AttributeError, TypeError, ValueError):
+
+                    # Debug logging after redaction
+                    if (
+                        logger.isEnabledFor(logging.DEBUG)
+                        and backend_request
+                        and backend_request.messages
+                    ):
+                        redacted_content = (
+                            getattr(backend_request.messages[0], "content", "")
+                            if backend_request.messages
+                            else ""
+                        )
+                        if redacted_content is None:
+                            redacted_content = ""
+                        logger.debug(
+                            f"Content after redaction: {redacted_content[:100]}..."
+                        )
+            except Exception as e:
                 # Redaction is best-effort; never block requests on failure
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Request redaction middleware failed; proceeding without redaction",
-                        exc_info=True,
-                    )
+                logger.warning(
+                    "Request redaction middleware failed; proceeding without redaction: %s",
+                    e,
+                    exc_info=True,
+                )
 
         # Apply edit-precision tuning middleware if enabled and we still have a backend request
         if backend_request is not None:

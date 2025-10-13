@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, EditPrecisionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -33,11 +33,11 @@ async def test_e2e_stream_detection_flags_next_call_and_tunes_request() -> None:
     app_state = ApplicationStateService()
 
     # Configure edit-precision settings
-    app_config = AppConfig()
-    app_config.edit_precision.enabled = True
-    app_config.edit_precision.temperature = 0.15
-    app_config.edit_precision.override_top_p = True
-    app_config.edit_precision.min_top_p = 0.35
+    app_config = AppConfig(
+        edit_precision=EditPrecisionConfig(
+            enabled=True, temperature=0.15, override_top_p=True, min_top_p=0.35
+        )
+    )
     app_state.set_setting("app_config", app_config)
 
     session_id = "e2e-sess"

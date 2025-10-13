@@ -512,26 +512,30 @@ class TestGeminiOAuthPersonalConnector:
             mock_client.get.assert_awaited_once()
             mock_client.post.assert_not_called()
 
-    @patch.object(
-        GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
-    )
-    @patch.object(
-        GeminiOAuthPersonalConnector, "_perform_health_check", new_callable=AsyncMock
-    )
-    async def test_ensure_healthy_first_time(
-        self, mock_health_check, mock_refresh, connector
-    ):
+    async def test_ensure_healthy_first_time(self, connector):
         """Test that _ensure_healthy performs health check on first call."""
-        # Setup
-        mock_refresh.return_value = True
-        mock_health_check.return_value = True
+        # Ensure _health_checked is not set
+        if hasattr(connector, "_health_checked"):
+            delattr(connector, "_health_checked")
 
-        # Test - first call should perform health check
-        await connector._ensure_healthy()
+        # Setup - patch on the instance
+        with (
+            patch.object(
+                connector, "_refresh_token_if_needed", new_callable=AsyncMock
+            ) as mock_refresh,
+            patch.object(
+                connector, "_perform_health_check", new_callable=AsyncMock
+            ) as mock_health_check,
+        ):
+            mock_refresh.return_value = True
+            mock_health_check.return_value = True
 
-        assert connector._health_checked is True
-        mock_refresh.assert_called_once()
-        mock_health_check.assert_called_once()
+            # Test - first call should perform health check
+            await connector._ensure_healthy()
+
+            assert connector._health_checked is True
+            mock_refresh.assert_called_once()
+            mock_health_check.assert_called_once()
 
     @patch.object(
         GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
@@ -554,49 +558,57 @@ class TestGeminiOAuthPersonalConnector:
         mock_refresh.assert_not_called()
         mock_health_check.assert_not_called()
 
-    @patch.object(
-        GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
-    )
-    @patch.object(
-        GeminiOAuthPersonalConnector, "_perform_health_check", new_callable=AsyncMock
-    )
-    async def test_ensure_healthy_token_refresh_failure(
-        self, mock_health_check, mock_refresh, connector
-    ):
+    async def test_ensure_healthy_token_refresh_failure(self, connector):
         """Test that _ensure_healthy raises error when token refresh fails."""
         from src.core.common.exceptions import BackendError
 
-        # Setup
-        mock_refresh.return_value = False
-        mock_health_check.return_value = True
+        # Ensure _health_checked is not set
+        if hasattr(connector, "_health_checked"):
+            delattr(connector, "_health_checked")
 
-        # Test
-        with pytest.raises(BackendError, match="Failed to refresh OAuth token"):
+        # Setup - patch on the instance
+        with (
+            patch.object(
+                connector, "_refresh_token_if_needed", new_callable=AsyncMock
+            ) as mock_refresh,
+            patch.object(
+                connector, "_perform_health_check", new_callable=AsyncMock
+            ) as mock_health_check,
+        ):
+            mock_refresh.return_value = False
+            mock_health_check.return_value = True
+
+            # Test
+            with pytest.raises(BackendError, match="Failed to refresh OAuth token"):
+                await connector._ensure_healthy()
+
+            mock_refresh.assert_called_once()
+            mock_health_check.assert_not_called()
+
+    async def test_ensure_healthy_health_check_failure(self, connector):
+        """Test that _ensure_healthy continues with warning when health check fails."""
+        # Ensure _health_checked is not set
+        if hasattr(connector, "_health_checked"):
+            delattr(connector, "_health_checked")
+
+        # Setup - patch on the instance
+        with (
+            patch.object(
+                connector, "_refresh_token_if_needed", new_callable=AsyncMock
+            ) as mock_refresh,
+            patch.object(
+                connector, "_perform_health_check", new_callable=AsyncMock
+            ) as mock_health_check,
+        ):
+            mock_refresh.return_value = True
+            mock_health_check.return_value = False
+
+            # Test - should not raise, just log warning
             await connector._ensure_healthy()
 
-        mock_refresh.assert_called_once()
-        mock_health_check.assert_not_called()
-
-    @patch.object(
-        GeminiOAuthPersonalConnector, "_refresh_token_if_needed", new_callable=AsyncMock
-    )
-    @patch.object(
-        GeminiOAuthPersonalConnector, "_perform_health_check", new_callable=AsyncMock
-    )
-    async def test_ensure_healthy_health_check_failure(
-        self, mock_health_check, mock_refresh, connector
-    ):
-        """Test that _ensure_healthy continues with warning when health check fails."""
-        # Setup
-        mock_refresh.return_value = True
-        mock_health_check.return_value = False
-
-        # Test - should not raise, just log warning
-        await connector._ensure_healthy()
-
-        # Verify both refresh and health check were called
-        mock_refresh.assert_called_once()
-        mock_health_check.assert_called_once()
+            # Verify both refresh and health check were called
+            mock_refresh.assert_called_once()
+            mock_health_check.assert_called_once()
 
         # Verify backend is marked as healthy despite failed health check
         assert connector._health_checked

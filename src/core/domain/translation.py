@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 from typing import Any
+
+_MAX_SANITIZE_DEPTH = 100
 
 from src.core.domain.base_translator import BaseTranslator
 from src.core.domain.chat import (
@@ -15,6 +18,8 @@ from src.core.domain.chat import (
     FunctionCall,
     ToolCall,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Translation(BaseTranslator):
@@ -457,48 +462,186 @@ class Translation(BaseTranslator):
         return "{}"
 
     @staticmethod
-    def _sanitize_dict_for_json(data: dict[str, Any]) -> dict[str, Any]:
-        """Sanitize a dictionary by removing or converting non-JSON-serializable values."""
-        sanitized = {}
-        for key, value in data.items():
+    def _is_json_serializable(
+        value: Any,
+        *,
+        max_depth: int,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> bool:
+        """Best-effort check to determine if a value can be JSON-serialized."""
+
+        if _depth > max_depth:
+            return False
+
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return True
+
+        if isinstance(value, (list, tuple)):
+            if _seen is None:
+                _seen = set()
+            obj_id = id(value)
+            if obj_id in _seen:
+                return False
+            _seen.add(obj_id)
             try:
-                # Test if the value is JSON serializable
-                json.dumps(value)
-                sanitized[key] = value
-            except TypeError:
-                # Handle non-serializable values
-                if isinstance(value, dict):
-                    sanitized[key] = Translation._sanitize_dict_for_json(value)
-                elif isinstance(value, list | tuple):
-                    sanitized[key] = Translation._sanitize_list_for_json(list(value))
-                elif isinstance(value, str | int | float | bool) or value is None:
-                    sanitized[key] = value
-                else:
-                    # For complex objects, skip them to maintain valid tool arguments
-                    continue
-        return sanitized
+                return all(
+                    Translation._is_json_serializable(
+                        item,
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                        _seen=_seen,
+                    )
+                    for item in value
+                )
+            finally:
+                _seen.remove(obj_id)
+
+        if isinstance(value, dict):
+            if _seen is None:
+                _seen = set()
+            obj_id = id(value)
+            if obj_id in _seen:
+                return False
+            _seen.add(obj_id)
+            try:
+                for key, item in value.items():
+                    if key is not None and not isinstance(key, (str, int, float, bool)):
+                        return False
+                    if not Translation._is_json_serializable(
+                        item,
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                        _seen=_seen,
+                    ):
+                        return False
+            finally:
+                _seen.remove(obj_id)
+            return True
+
+        return False
 
     @staticmethod
-    def _sanitize_list_for_json(data: list[Any]) -> list[Any]:
+    def _sanitize_dict_for_json(
+        data: dict[str, Any],
+        *,
+        max_depth: int = _MAX_SANITIZE_DEPTH,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> dict[str, Any]:
+        """Sanitize a dictionary by removing or converting non-JSON-serializable values."""
+
+        if _depth > max_depth:
+            return {}
+
+        if _seen is None:
+            _seen = set()
+
+        obj_id = id(data)
+        if obj_id in _seen:
+            return {}
+
+        _seen.add(obj_id)
+        try:
+            sanitized: dict[str, Any] = {}
+            sanitized_value: Any = None
+            for key, value in data.items():
+                if key is not None and not isinstance(key, (str, int, float, bool)):
+                    continue
+
+                if Translation._is_json_serializable(
+                    value,
+                    max_depth=max_depth,
+                    _depth=_depth + 1,
+                    _seen=_seen,
+                ):
+                    sanitized[key] = value
+                    continue
+
+                if isinstance(value, dict):
+                    sanitized_value = Translation._sanitize_dict_for_json(
+                        value,
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                        _seen=_seen,
+                    )
+                elif isinstance(value, list | tuple):
+                    sanitized_value = Translation._sanitize_list_for_json(
+                        list(value),
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                        _seen=_seen,
+                    )
+                elif isinstance(value, (str, int, float, bool)) or value is None:
+                    sanitized_value = value
+                else:
+                    continue
+
+                sanitized[key] = sanitized_value
+
+            return sanitized
+        finally:
+            _seen.remove(obj_id)
+
+    @staticmethod
+    def _sanitize_list_for_json(
+        data: list[Any],
+        *,
+        max_depth: int = _MAX_SANITIZE_DEPTH,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> list[Any]:
         """Sanitize a list by removing or converting non-JSON-serializable items."""
-        sanitized = []
-        for item in data:
-            try:
-                # Test if the item is JSON serializable
-                json.dumps(item)
-                sanitized.append(item)
-            except TypeError:
-                # Handle non-serializable items
+
+        if _depth > max_depth:
+            return []
+
+        if _seen is None:
+            _seen = set()
+
+        obj_id = id(data)
+        if obj_id in _seen:
+            return []
+
+        _seen.add(obj_id)
+        try:
+            sanitized: list[Any] = []
+            for item in data:
+                if Translation._is_json_serializable(
+                    item,
+                    max_depth=max_depth,
+                    _depth=_depth + 1,
+                    _seen=_seen,
+                ):
+                    sanitized.append(item)
+                    continue
+
                 if isinstance(item, dict):
-                    sanitized.append(Translation._sanitize_dict_for_json(item))
+                    sanitized.append(
+                        Translation._sanitize_dict_for_json(
+                            item,
+                            max_depth=max_depth,
+                            _depth=_depth + 1,
+                            _seen=_seen,
+                        )
+                    )
                 elif isinstance(item, list | tuple):
-                    sanitized.append(Translation._sanitize_list_for_json(list(item)))
-                elif isinstance(item, str | int | float | bool) or item is None:
+                    sanitized.append(
+                        Translation._sanitize_list_for_json(
+                            list(item),
+                            max_depth=max_depth,
+                            _depth=_depth + 1,
+                            _seen=_seen,
+                        )
+                    )
+                elif isinstance(item, (str, int, float, bool)) or item is None:
                     sanitized.append(item)
                 else:
-                    # For complex objects, skip them to maintain valid tool arguments
                     continue
-        return sanitized
+
+            return sanitized
+        finally:
+            _seen.remove(obj_id)
 
     @staticmethod
     def _process_gemini_function_call(function_call: dict[str, Any]) -> ToolCall:
@@ -797,6 +940,7 @@ class Translation(BaseTranslator):
             tool_choice = request.get("tool_choice")
             seed = request.get("seed")
             reasoning_effort = request.get("reasoning_effort")
+            reasoning_payload = request.get("reasoning")
         else:
             model = getattr(request, "model", None)
             messages = getattr(request, "messages", [])
@@ -810,6 +954,19 @@ class Translation(BaseTranslator):
             tool_choice = getattr(request, "tool_choice", None)
             seed = getattr(request, "seed", None)
             reasoning_effort = getattr(request, "reasoning_effort", None)
+            reasoning_payload = getattr(request, "reasoning", None)
+
+        if reasoning_effort in ("", None) and isinstance(reasoning_payload, dict):
+            raw_effort = reasoning_payload.get("effort")
+            if isinstance(raw_effort, str) and raw_effort.strip():
+                reasoning_effort = raw_effort
+
+        normalized_reasoning: dict[str, Any] | None = None
+        if reasoning_payload:
+            if isinstance(reasoning_payload, dict):
+                normalized_reasoning = dict(reasoning_payload)
+            elif hasattr(reasoning_payload, "model_dump"):
+                normalized_reasoning = reasoning_payload.model_dump()  # type: ignore[attr-defined]
 
         if not model:
             raise ValueError("Model not found in request")
@@ -835,6 +992,7 @@ class Translation(BaseTranslator):
             tool_choice=tool_choice,
             seed=seed,
             reasoning_effort=reasoning_effort,
+            reasoning=normalized_reasoning,
         )
 
     @staticmethod
@@ -929,7 +1087,7 @@ class Translation(BaseTranslator):
             return Translation.openai_to_domain_response(response)
 
         # If the backend already returned OpenAI-style choices, reuse that logic.
-        if response.get("choices"):
+        if response.get("choices") and not response.get("output"):
             return Translation.openai_to_domain_response(response)
 
         output_items = response.get("output") or []
@@ -1726,6 +1884,30 @@ class Translation(BaseTranslator):
         if request.tool_choice is not None:
             payload["tool_choice"] = request.tool_choice
 
+        # Handle OpenAI reasoning configuration
+        reasoning_payload: dict[str, Any] | None = None
+        if request.reasoning is not None:
+            if isinstance(request.reasoning, dict):
+                reasoning_payload = dict(request.reasoning)
+            elif hasattr(request.reasoning, "model_dump"):
+                reasoning_payload = request.reasoning.model_dump()  # type: ignore[attr-defined]
+
+        effort_value = request.reasoning_effort
+        normalized_effort: str | None
+        if isinstance(effort_value, str):
+            normalized_effort = effort_value.strip()
+        else:
+            normalized_effort = str(effort_value) if effort_value is not None else None
+
+        if normalized_effort:
+            if reasoning_payload is None:
+                reasoning_payload = {}
+            if "effort" not in reasoning_payload:
+                reasoning_payload["effort"] = effort_value
+
+        if reasoning_payload:
+            payload["reasoning"] = reasoning_payload
+
         # Handle structured output for Responses API
         if request.extra_body and "response_format" in request.extra_body:
             response_format = request.extra_body["response_format"]
@@ -2373,6 +2555,20 @@ class Translation(BaseTranslator):
 
         # Convert choices to Responses API format
         choices = []
+        output_items: list[dict[str, Any]] = []
+        aggregated_output_text: list[str | None] = []
+
+        def _map_finish_reason_to_status(finish_reason: str | None) -> str:
+            if finish_reason in (None, "", "stop"):
+                return "completed"
+            if finish_reason == "length":
+                return "incomplete"
+            if finish_reason in {"tool_calls", "function_call"}:
+                return "requires_action"
+            if finish_reason == "content_filter":
+                return "blocked"
+            return "completed"
+
         for choice in response.choices:
             if choice.message:
                 # Try to parse the content as JSON for structured output
@@ -2461,6 +2657,50 @@ class Translation(BaseTranslator):
                 }
                 choices.append(response_choice)
 
+                # Build Responses API output structure (mirrors incoming payloads)
+                text_value = (
+                    message_payload.get("content")
+                    if isinstance(message_payload.get("content"), str)
+                    else None
+                )
+                if text_value:
+                    aggregated_output_text.append(text_value)
+                else:
+                    aggregated_output_text.append(None)
+
+                output_content_parts: list[dict[str, Any]] = []
+
+                if text_value:
+                    output_content_parts.append(
+                        {"type": "output_text", "text": text_value}
+                    )
+
+                if tool_calls_payload:
+                    for tool_call in tool_calls_payload:  # type: ignore[assignment]
+                        tool_call_dict: dict[str, Any] = (
+                            tool_call if isinstance(tool_call, dict) else {}
+                        )
+                        output_content_parts.append(
+                            {
+                                "type": "tool_call",
+                                "id": tool_call_dict.get("id", ""),
+                                "function": tool_call_dict.get("function", {}),
+                            }
+                        )
+
+                output_item = {
+                    "id": f"msg-{response.id}-{choice.index}",
+                    "type": "message",
+                    "role": choice.message.role,
+                    "status": _map_finish_reason_to_status(choice.finish_reason),
+                    "content": output_content_parts,
+                }
+
+                if choice.finish_reason:
+                    output_item["finish_reason"] = choice.finish_reason
+
+                output_items.append(output_item)
+
         # Build the Responses API response
         responses_response = {
             "id": response.id,
@@ -2469,6 +2709,16 @@ class Translation(BaseTranslator):
             "model": response.model,
             "choices": choices,
         }
+
+        if output_items:
+            responses_response["output"] = output_items
+
+            # Only include output_text if we have any textual content
+            text_values = [text for text in aggregated_output_text if text is not None]
+            if text_values:
+                responses_response["output_text"] = [
+                    text if text is not None else "" for text in aggregated_output_text
+                ]
 
         # Add usage information if available
         if response.usage:
@@ -2680,33 +2930,77 @@ class Translation(BaseTranslator):
             return None
 
     @staticmethod
-    def _extract_and_repair_json(content: str, schema: dict[str, Any]) -> str | None:
-        """
-        Extract JSON from content and attempt repair.
-        """
-        try:
-            import re
+    def _iter_json_candidates(
+        content: str,
+        *,
+        max_candidates: int = 20,
+        max_object_size: int = 512 * 1024,
+    ) -> list[str]:
+        """Find potential JSON object substrings using a linear-time scan."""
 
-            # Try to find JSON-like patterns
-            json_patterns = [
-                r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}",  # Simple nested objects
-                r"\{.*\}",  # Any content between braces
-            ]
+        candidates: list[str] = []
+        depth = 0
+        start_index: int | None = None
+        escape_next = False
+        string_delimiter: str | None = None
 
-            for pattern in json_patterns:
-                matches = re.findall(pattern, content, re.DOTALL)
-                for match in matches:
-                    try:
-                        parsed = json.loads(match)
-                        if isinstance(parsed, dict):
-                            # Try to repair this JSON
-                            repaired = Translation._attempt_json_repair(
-                                parsed, schema, None
+        for index, char in enumerate(content):
+            if string_delimiter is not None:
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == "\\":
+                    escape_next = True
+                    continue
+                if char == string_delimiter:
+                    string_delimiter = None
+                continue
+
+            if char in ('"', "'"):
+                string_delimiter = char
+                continue
+
+            if char == "{":
+                if depth == 0:
+                    start_index = index
+                depth += 1
+            elif char == "}":
+                if depth == 0:
+                    continue
+                depth -= 1
+                if depth == 0 and start_index is not None:
+                    candidate = content[start_index : index + 1]
+                    start_index = None
+                    if len(candidate) > max_object_size:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Skipping oversized JSON candidate (%d bytes)",
+                                len(candidate),
                             )
-                            if repaired is not None:
-                                return json.dumps(repaired, indent=2)
-                    except json.JSONDecodeError:
                         continue
+                    candidates.append(candidate)
+                    if len(candidates) >= max_candidates:
+                        break
+
+        return candidates
+
+    @staticmethod
+    def _extract_and_repair_json(content: str, schema: dict[str, Any]) -> str | None:
+        """Extract JSON from content and attempt repair."""
+
+        try:
+            for candidate in Translation._iter_json_candidates(content):
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+
+                if not isinstance(parsed, dict):
+                    continue
+
+                repaired = Translation._attempt_json_repair(parsed, schema, None)
+                if repaired is not None:
+                    return json.dumps(repaired, indent=2)
 
             return None
         except Exception:

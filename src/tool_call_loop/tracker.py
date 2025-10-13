@@ -7,10 +7,12 @@ and implement TTL-based pruning to prevent false positives from old tool calls.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from reprlib import repr as limited_repr
 from typing import Any
 
 from json_repair import repair_json
@@ -78,43 +80,69 @@ class ToolCallSignature(InternalDTO):
 
         try:
             return json.dumps(arguments, ensure_ascii=False, default=str)
-        except TypeError:
-            return str(arguments)
+        except (TypeError, ValueError, RecursionError):
+            try:
+                return limited_repr(arguments)
+            except RecursionError:
+                return "<unrepresentable arguments>"
+
+    @staticmethod
+    def _hash_fallback(raw_value: str) -> str:
+        """Generate a deterministic fallback signature for deeply nested inputs."""
+
+        digest = hashlib.sha256(raw_value.encode("utf-8", "replace")).hexdigest()
+        return f"sha256:{digest}"
 
     @classmethod
     def _canonicalize_arguments(cls, arguments: Any) -> str:
         """Produce a stable string signature for tool call arguments."""
-
+        MAX_ARG_LENGTH = 1024
         if isinstance(arguments, str):
             try:
                 repaired_arguments = repair_json(arguments)
-            except TypeError:
+            except (TypeError, ValueError, RecursionError):
                 return arguments
 
             try:
                 parsed_arguments = json.loads(repaired_arguments)
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError, RecursionError, ValueError):
                 return arguments
 
-            return json.dumps(
-                parsed_arguments, sort_keys=True, ensure_ascii=False, default=str
-            )
+            try:
+                result = json.dumps(
+                    parsed_arguments, sort_keys=True, ensure_ascii=False, default=str
+                )
+                if len(result) > MAX_ARG_LENGTH:
+                    return cls._hash_fallback(result)
+                return result
+            except (TypeError, ValueError, RecursionError):
+                return cls._hash_fallback(arguments)
 
         if isinstance(arguments, Mapping) or (
             isinstance(arguments, Sequence)
             and not isinstance(arguments, bytes | bytearray | str)
         ):
             try:
-                return json.dumps(
+                result = json.dumps(
                     arguments,
                     sort_keys=True,
                     ensure_ascii=False,
                     default=str,
                 )
-            except TypeError:
-                return str(arguments)
+                if len(result) > MAX_ARG_LENGTH:
+                    return cls._hash_fallback(result)
+                return result
+            except (TypeError, ValueError, RecursionError):
+                raw_value = cls._stringify_raw_arguments(arguments)
+                return cls._hash_fallback(raw_value)
 
-        return str(arguments)
+        try:
+            result = str(arguments)
+            if len(result) > MAX_ARG_LENGTH:
+                return cls._hash_fallback(result)
+            return result
+        except RecursionError:
+            return cls._hash_fallback("<unrepresentable>")
 
 
 class ToolCallTracker:

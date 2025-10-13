@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from src.core.interfaces.tool_call_reactor_interface import (
@@ -60,7 +63,7 @@ def _extract_command(arguments: Any) -> str | None:
         command = arguments.get("command") or arguments.get("cmd")
         if isinstance(command, str) and command.strip():
             return command
-        if isinstance(command, (list, tuple)) and command:
+        if isinstance(command, list | tuple) and command:
             return " ".join(str(item) for item in command)
 
         for key in ("input", "body", "data"):
@@ -71,7 +74,7 @@ def _extract_command(arguments: Any) -> str | None:
                 sub = inner.get("command") or inner.get("cmd")
                 if isinstance(sub, str) and sub.strip():
                     return sub
-                if isinstance(sub, (list, tuple)) and sub:
+                if isinstance(sub, list | tuple) and sub:
                     return " ".join(str(item) for item in sub)
 
         args_list = arguments.get("args")
@@ -132,6 +135,10 @@ def _looks_like_full_suite(command: str) -> bool:
         # Strip trailing commas to handle cases like "pytest ,"
         stripped = token.strip(",")
 
+        # Treat plain current-directory invocations (".") as full-suite runs
+        if stripped in {".", "./", ".\\"}:
+            return True
+
         if "::" in stripped:
             return False
 
@@ -140,21 +147,49 @@ def _looks_like_full_suite(command: str) -> bool:
         ):
             return False
 
+        candidate = stripped.rstrip("/\\")
+        if not candidate:
+            continue
+
+        # Detect directories passed as positional arguments (e.g. "pytest tests")
+        # which indicate a targeted run rather than the entire suite.
+        candidate_path = Path(candidate)
+        if candidate_path.is_dir():
+            return False
+
+        # Support module-style selectors such as "pytest tests.unit.test_example"
+        # by considering any dotted path that is not a Python file extension as
+        # a targeted run.
+        if "." in candidate and not candidate.endswith(file_like_extensions):
+            return False
+
     return True
 
 
 @dataclass
 class _SessionState:
     last_command: str | None = None
+    last_seen: float = 0.0
 
 
 class PytestFullSuiteHandler(IToolCallHandler):
     """Steering handler for full-suite pytest commands."""
 
-    def __init__(self, message: str | None = None, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        message: str | None = None,
+        enabled: bool = True,
+        *,
+        state_ttl_seconds: int = 1800,
+        max_sessions: int = 1024,
+        monotonic: Callable[[], float] | None = None,
+    ) -> None:
         self._message = message or DEFAULT_STEERING_MESSAGE
         self._enabled = enabled
         self._session_state: dict[str, _SessionState] = {}
+        self._state_ttl_seconds = max(state_ttl_seconds, 1)
+        self._max_sessions = max(max_sessions, 1)
+        self._monotonic = monotonic or time.monotonic
 
     @property
     def name(self) -> str:
@@ -177,8 +212,16 @@ class PytestFullSuiteHandler(IToolCallHandler):
         if not _looks_like_full_suite(normalized):
             return False
 
+        now = self._monotonic()
+        self._prune_session_state(now)
+
         state = self._session_state.get(context.session_id)
-        return not (state and state.last_command == normalized)
+        if state:
+            state.last_seen = now
+            if state.last_command == normalized:
+                return False
+
+        return True
 
     async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
         if not self._enabled:
@@ -192,11 +235,19 @@ class PytestFullSuiteHandler(IToolCallHandler):
         if not _looks_like_full_suite(normalized):
             return ToolCallReactionResult(should_swallow=False)
 
-        state = self._session_state.setdefault(context.session_id, _SessionState())
+        now = self._monotonic()
+        self._prune_session_state(now)
+
+        state = self._session_state.setdefault(
+            context.session_id, _SessionState(last_seen=now)
+        )
+        state.last_seen = now
         if state.last_command == normalized:
             return ToolCallReactionResult(should_swallow=False)
 
         state.last_command = normalized
+        # Ensure memory guardrails are enforced after recording the new command
+        self._prune_session_state(now)
 
         logger.info(
             "Steering full-suite pytest command in session %s: %s",
@@ -214,6 +265,26 @@ class PytestFullSuiteHandler(IToolCallHandler):
                 "source": "pytest_full_suite_steering",
             },
         )
+
+    def _prune_session_state(self, now: float) -> None:
+        expired: list[str] = []
+        for session_id, state in self._session_state.items():
+            if now - state.last_seen > self._state_ttl_seconds:
+                expired.append(session_id)
+
+        for session_id in expired:
+            del self._session_state[session_id]
+
+        if len(self._session_state) <= self._max_sessions:
+            return
+
+        # Remove oldest sessions to cap memory usage
+        sorted_sessions = sorted(
+            self._session_state.items(), key=lambda item: item[1].last_seen
+        )
+        remove_count = len(self._session_state) - self._max_sessions
+        for session_id, _ in sorted_sessions[:remove_count]:
+            del self._session_state[session_id]
 
     def _extract_pytest_command(self, context: ToolCallContext) -> str | None:
         tool_name_raw = context.tool_name or ""

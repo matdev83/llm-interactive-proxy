@@ -6,19 +6,24 @@ Handles all chat completion related API endpoints.
 
 import asyncio
 import logging
-from typing import cast
+from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
 
 from src.core.common.exceptions import InitializationError, LLMProxyError
-from src.core.domain.chat import ChatRequest, ChatResponse
+from src.core.domain.chat import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatRequest,
+    ChatResponse,
+    ToolCall,
+)
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.interfaces.translation_service_interface import ITranslationService
-from src.core.services.translation_service import TranslationService
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -60,7 +65,7 @@ class ChatController:
 
         def _try_get(
             svc_provider: IServiceProvider,
-            key: object,
+            key: type,
         ) -> ITranslationService | None:
             try:
                 service = svc_provider.get_service(key)
@@ -80,7 +85,7 @@ class ChatController:
             resolved = _try_get(provider, cast(type, ITranslationService))
             if resolved is not None:
                 return resolved
-            resolved = _try_get(provider, TranslationService)
+            resolved = _try_get(provider, cast(type, TranslationService))
             if resolved is not None:
                 return resolved
 
@@ -97,7 +102,7 @@ class ChatController:
                 resolved = _try_get(global_provider, cast(type, ITranslationService))
                 if resolved is not None:
                     return resolved
-                resolved = _try_get(global_provider, TranslationService)
+                resolved = _try_get(global_provider, cast(type, TranslationService))
                 if resolved is not None:
                     return resolved
 
@@ -183,8 +188,12 @@ class ChatController:
                         _cast(type, ITranslationService)
                     )
                     if translation_service is None:
+                        from src.core.services.translation_service import (
+                            TranslationService as ConcreteTranslationService,
+                        )
+
                         translation_service = service_provider.get_service(
-                            TranslationService
+                            ConcreteTranslationService
                         )
 
                     if translation_service is None:
@@ -209,27 +218,19 @@ class ChatController:
                     except Exception:
                         return anth_response  # type: ignore[return-value]
 
-                    # Convert Anthropic JSON to domain then to OpenAI shape
+                    # Convert Anthropic JSON to domain then return domain response
                     # Use DI-resolved translation service to ensure proper dependency injection
-                    translation_service = (
+                    resolved_translation_service = (
                         self._resolve_translation_service_from_provider(
                             service_provider
                         )
                     )
-                    domain_resp = translation_service.to_domain_response(
+                    domain_resp = resolved_translation_service.to_domain_response(
                         anth_json, "anthropic"
                     )
-                    openai_json = translation_service.from_domain_to_openai_response(
-                        domain_resp
-                    )
 
-                    from fastapi import Response as _Response
-
-                    return _Response(
-                        content=_json.dumps(openai_json),
-                        media_type="application/json",
-                        status_code=200,
-                    )
+                    # Convert domain response to FastAPI response
+                    return domain_response_to_fastapi(domain_resp)
                 except Exception as _e:  # On any failure, fall back to default path
                     logger.debug(
                         f"ZAI delegation fallback due to error: {_e}", exc_info=True
@@ -242,6 +243,10 @@ class ChatController:
 
             with contextlib.suppress(Exception):
                 ctx.domain_request = domain_request  # type: ignore[attr-defined]
+
+            # Ensure session_id is available in context if provided in request
+            if domain_request.session_id:
+                ctx.session_id = domain_request.session_id
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, domain_request)
@@ -286,14 +291,23 @@ class ChatController:
                                 if potential_text:
                                     text_content = potential_text
 
-                            openai_message_obj: dict[str, object] = {
-                                "role": "assistant",
-                                "tool_calls": tool_calls,
-                            }
-                            if text_content:
-                                openai_message_obj["content"] = text_content
-                            else:
-                                openai_message_obj["content"] = None
+                            # Use Pydantic models instead of manual dict construction
+                            # Create the message using Pydantic model
+                            message = ChatCompletionChoiceMessage(
+                                role="assistant",
+                                content=text_content,
+                                tool_calls=cast("list[ToolCall] | None", tool_calls),
+                            )
+
+                            # Create the choice using Pydantic model
+                            choice = ChatCompletionChoice(
+                                index=0,
+                                message=message,
+                                finish_reason=cast(
+                                    "str | None",
+                                    metadata.get("finish_reason", "tool_calls"),
+                                ),
+                            )
 
                             model_name = str(
                                 metadata.get("model")
@@ -309,29 +323,97 @@ class ChatController:
                             else:
                                 created_val = int(_time.time())
 
-                            return {
-                                "id": response_id,
-                                "object": "chat.completion",
-                                "created": created_val,
-                                "model": model_name,
-                                "choices": [
-                                    {
-                                        "index": 0,
-                                        "message": openai_message_obj,
-                                        "finish_reason": metadata.get(
-                                            "finish_reason", "tool_calls"
-                                        ),
-                                    }
-                                ],
-                                "usage": metadata.get(
-                                    "usage",
-                                    {
-                                        "prompt_tokens": 0,
-                                        "completion_tokens": 0,
-                                        "total_tokens": 0,
-                                    },
+                            # Create the response using Pydantic model
+                            response = ChatResponse(
+                                id=response_id,
+                                created=created_val,
+                                model=model_name,
+                                choices=[choice],
+                                usage=cast(
+                                    "dict[str, Any] | None",
+                                    metadata.get(
+                                        "usage",
+                                        {
+                                            "prompt_tokens": 0,
+                                            "completion_tokens": 0,
+                                            "total_tokens": 0,
+                                        },
+                                    ),
                                 ),
-                            }
+                            )
+
+                            return response.model_dump()
+
+                    # Check if content is a JSON string of tool calls (common backend response format)
+                    if isinstance(content, str):
+                        try:
+                            import json as _json
+
+                            parsed_content = _json.loads(content)
+                            if (
+                                isinstance(parsed_content, list)
+                                and len(parsed_content) > 0
+                                and isinstance(parsed_content[0], dict)
+                                and parsed_content[0].get("type") == "function"
+                            ):
+                                # Content is a tool calls array, create proper OpenAI response
+                                import time as _time
+                                import uuid as _uuid
+
+                                # Create the message using Pydantic model
+                                message = ChatCompletionChoiceMessage(
+                                    role="assistant",
+                                    content=None,
+                                    tool_calls=parsed_content,
+                                )
+
+                                choice = ChatCompletionChoice(
+                                    index=0,
+                                    message=message,
+                                    finish_reason="tool_calls",
+                                )
+
+                                model_name = str(
+                                    metadata.get("model")
+                                    if metadata
+                                    else getattr(domain_request, "model", "gpt-4")
+                                )
+                                response_id = str(
+                                    metadata.get("id")
+                                    if metadata
+                                    else None or f"chatcmpl-{_uuid.uuid4().hex[:16]}"
+                                )
+                                created_ts = (
+                                    metadata.get("created") if metadata else None
+                                )
+                                if isinstance(created_ts, int | float):
+                                    created_val = int(created_ts)
+                                else:
+                                    created_val = int(_time.time())
+
+                                response = ChatResponse(
+                                    id=response_id,
+                                    created=created_val,
+                                    model=model_name,
+                                    choices=[choice],
+                                    usage=(
+                                        cast(
+                                            "dict[str, Any] | None",
+                                            metadata.get("usage"),
+                                        )
+                                        if metadata
+                                        else {
+                                            "prompt_tokens": 0,
+                                            "completion_tokens": 0,
+                                            "total_tokens": 0,
+                                        }
+                                    ),
+                                )
+
+                                return response.model_dump()
+                        except Exception:
+                            # If parsing fails, continue to other handlers
+                            pass
 
                     # Handle Anthropic-style message dict -> OpenAI chat.completion
                     if (
@@ -391,30 +473,37 @@ class ChatController:
                             + (usage.get("output_tokens", 0) or 0),
                         }
 
-                        message_obj: dict[str, object] = {"role": "assistant"}
-                        if text:
-                            message_obj["content"] = text
-                        if tool_calls_list:
-                            message_obj["tool_calls"] = tool_calls_list
-
-                        return {
-                            "id": content.get(
-                                "id", f"chatcmpl-{_uuid.uuid4().hex[:16]}"
+                        # Use Pydantic models instead of manual dict construction
+                        # Create the message using Pydantic model
+                        message = ChatCompletionChoiceMessage(
+                            role="assistant",
+                            content=text if text else None,
+                            tool_calls=(
+                                cast("list[ToolCall] | None", tool_calls_list)
+                                if tool_calls_list
+                                else None
                             ),
-                            "object": "chat.completion",
-                            "created": int(_time.time()),
-                            "model": content.get(
+                        )
+
+                        # Create the choice using Pydantic model
+                        choice = ChatCompletionChoice(
+                            index=0,
+                            message=message,
+                            finish_reason=finish_reason,
+                        )
+
+                        # Create the response using Pydantic model
+                        response = ChatResponse(
+                            id=content.get("id", f"chatcmpl-{_uuid.uuid4().hex[:16]}"),
+                            created=int(_time.time()),
+                            model=content.get(
                                 "model", getattr(domain_request, "model", "gpt-4")
                             ),
-                            "choices": [
-                                {
-                                    "index": 0,
-                                    "message": message_obj,
-                                    "finish_reason": finish_reason,
-                                }
-                            ],
-                            "usage": openai_usage,
-                        }
+                            choices=[choice],
+                            usage=openai_usage,
+                        )
+
+                        return response
 
                     import json as _json
                     import time
@@ -433,24 +522,34 @@ class ChatController:
                             text = str(content)
 
                     # Fallback: treat remaining content as assistant text
-                    return {
-                        "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
-                        "object": "chat.completion",
-                        "created": int(time.time()),
-                        "model": getattr(domain_request, "model", "gpt-4"),
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": {"role": "assistant", "content": text},
-                                "finish_reason": "stop",
-                            }
-                        ],
-                        "usage": {
+                    # Use Pydantic models instead of manual dict construction
+                    # Create the message using Pydantic model
+                    message = ChatCompletionChoiceMessage(
+                        role="assistant",
+                        content=text,
+                    )
+
+                    # Create the choice using Pydantic model
+                    choice = ChatCompletionChoice(
+                        index=0,
+                        message=message,
+                        finish_reason="stop",
+                    )
+
+                    # Create the response using Pydantic model
+                    response = ChatResponse(
+                        id=f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                        created=int(time.time()),
+                        model=getattr(domain_request, "model", "gpt-4"),
+                        choices=[choice],
+                        usage={
                             "prompt_tokens": 0,
                             "completion_tokens": 0,
                             "total_tokens": 0,
                         },
-                    }
+                    )
+
+                    return response
                 except Exception:
                     return content
 
@@ -588,7 +687,12 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                                     def command_processor_factory(
                                         provider: IServiceProvider,
                                     ) -> CommandProcessor:
-                                        return CommandProcessor(concrete_cmd)
+                                        resolved_command_service: ICommandService = (
+                                            provider.get_required_service(
+                                                cast(type, ICommandService)
+                                            )
+                                        )
+                                        return CommandProcessor(resolved_command_service)
 
                                     services.add_singleton(
                                         ICommandProcessor,  # type: ignore[type-abstract]
@@ -604,10 +708,29 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                                     def backend_processor_factory(
                                         provider: IServiceProvider,
                                     ) -> BackendProcessor:
+                                        from src.core.interfaces.application_state_interface import (
+                                            IApplicationState,
+                                        )
+
+                                        resolved_backend_service: IBackendService = (
+                                            provider.get_required_service(
+                                                cast(type, IBackendService)
+                                            )
+                                        )
+                                        resolved_session_service: ISessionService = (
+                                            provider.get_required_service(
+                                                cast(type, ISessionService)
+                                            )
+                                        )
+                                        resolved_app_state: IApplicationState = (
+                                            provider.get_required_service(
+                                                cast(type, IApplicationState)
+                                            )
+                                        )
                                         return BackendProcessor(
-                                            concrete_backend,
-                                            concrete_session,
-                                            app_state,
+                                            resolved_backend_service,
+                                            resolved_session_service,
+                                            resolved_app_state,
                                         )
 
                                     services.add_singleton(

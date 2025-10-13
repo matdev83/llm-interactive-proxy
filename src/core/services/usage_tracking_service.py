@@ -31,6 +31,7 @@ class StreamingResponseLike(Protocol):
 
 
 from src.core.domain.usage_data import UsageData
+from src.core.domain.usage_stats import ModelUsageStats, UsageStatsResponse
 from src.core.interfaces.repositories_interface import IUsageRepository
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.llm_accounting_utils import (
@@ -292,8 +293,9 @@ class UsageTrackingService(IUsageTrackingService):
         usage_records = await self._repository.get_all()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-        stats: dict[str, dict[str, Any]] = {}
-        project_filter = project
+        # Initialize stats response and prepare project filter
+        stats = UsageStatsResponse()
+        project_filter = project  # Store project filter for later use in filtering
 
         for usage in usage_records:
             if project_filter is not None and usage.project != project_filter:
@@ -306,27 +308,26 @@ class UsageTrackingService(IUsageTrackingService):
             if usage_timestamp < cutoff:
                 continue
 
-            model_stats = stats.setdefault(
-                usage.model,
-                {
-                    "total_tokens": 0,
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "cost": 0.0,
-                    "requests": 0,
-                },
+            if usage.model not in stats:
+                stats[usage.model] = ModelUsageStats(
+                    total_tokens=0,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    cost=0.0,
+                    requests=0,
+                )
+
+            current_stats = stats[usage.model]
+            stats[usage.model] = ModelUsageStats(
+                total_tokens=current_stats.total_tokens + usage.total_tokens,
+                prompt_tokens=current_stats.prompt_tokens + usage.prompt_tokens,
+                completion_tokens=current_stats.completion_tokens
+                + usage.completion_tokens,
+                cost=current_stats.cost + (usage.cost or 0.0),
+                requests=current_stats.requests + 1,
             )
 
-            model_stats["total_tokens"] += usage.total_tokens
-            model_stats["prompt_tokens"] += usage.prompt_tokens
-            model_stats["completion_tokens"] += usage.completion_tokens
-
-            if usage.cost is not None:
-                model_stats["cost"] += usage.cost
-
-            model_stats["requests"] += 1
-
-        return stats
+        return stats.model_dump()
 
     async def get_recent_usage(
         self, session_id: str | None = None, limit: int = 100

@@ -9,7 +9,7 @@ import pytest
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, EditPrecisionConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.services import register_core_services
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -24,23 +24,26 @@ from tests.unit.core.test_doubles import MockCommandProcessor, TestDataBuilder
 
 @pytest.mark.asyncio
 async def test_e2e_di_streaming_pipeline_sets_pending_and_next_call_tuned() -> None:
-    # Build DI container
+    # Create config with edit precision enabled BEFORE building DI container
+    from src.core.config.app_config import SessionConfig
+
+    session_cfg = SessionConfig(
+        json_repair_enabled=False, tool_call_repair_enabled=False
+    )
+    prov_cfg = AppConfig(
+        edit_precision=EditPrecisionConfig(
+            enabled=True, temperature=0.12, override_top_p=True, min_top_p=0.34
+        ),
+        session=session_cfg,
+    )
+
+    # Build DI container with the configured AppConfig
     services = ServiceCollection()
-    app_config = AppConfig()
-    services.add_instance(AppConfig, app_config)
-    register_core_services(services, app_config)
+    services.add_instance(AppConfig, prov_cfg)
+    register_core_services(services, prov_cfg)
     provider = services.build_service_provider()
 
-    # Configure provider AppConfig BEFORE resolving the normalizer
-    prov_cfg = provider.get_required_service(AppConfig)
-    prov_cfg.edit_precision.enabled = True
-    prov_cfg.edit_precision.temperature = 0.12
-    prov_cfg.edit_precision.override_top_p = True
-    prov_cfg.edit_precision.min_top_p = 0.34
-    prov_cfg.session.json_repair_enabled = False
-    prov_cfg.session.tool_call_repair_enabled = False
-
-    # Resolve the DI-wired normalizer now that config is set
+    # Resolve the DI-wired normalizer (which will use the config with edit precision enabled)
     normalizer: StreamNormalizer = provider.get_required_service(StreamNormalizer)  # type: ignore[assignment]
 
     # Also publish to default app_state for request processor path

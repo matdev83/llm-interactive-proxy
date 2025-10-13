@@ -21,11 +21,9 @@ def app_auth_enabled(monkeypatch):
         "src.connectors.openrouter.OpenRouterBackend.list_models",
         new=AsyncMock(return_value={"data": [{"id": "some-model"}]}),
     ):
-        from src.core.config.app_config import AppConfig
+        from src.core.config.app_config import AppConfig, AuthConfig
 
-        config = AppConfig()
-        config.auth.disable_auth = False  # Explicitly ensure auth is enabled
-        config.auth.api_keys = ["testkey"]  # Set valid keys
+        config = AppConfig(auth=AuthConfig(disable_auth=False, api_keys=["testkey"]))
 
         app = build_app(config=config)
 

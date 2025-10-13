@@ -12,7 +12,6 @@ import pytest
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig, BackendConfig
-from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import (
@@ -212,7 +211,9 @@ class TestBackendServiceTargeted:
         mock_session = Mock()
         mock_session.state = Mock()
         mock_session.state.backend_config = Mock()
-        mock_session.state.backend_config.backend_type = BackendType.OPENAI
+        mock_session.state.backend_config.backend_type = "openai"
+        mock_session.state.backend_config.model = "gpt-4"
+        mock_session.state.backend_config.interactive_mode = False
 
         with (
             patch.object(
@@ -226,6 +227,33 @@ class TestBackendServiceTargeted:
             # Assert
             assert mock_backend.chat_completions_called
             assert response.content["model"] == "test-model"
+
+    @pytest.mark.asyncio
+    async def test_gemini_cli_acp_backends_are_session_scoped(self):
+        """Gemini CLI ACP connector instances should not leak across sessions."""
+
+        service = create_backend_service()
+
+        backend_one = MockBackend(httpx.AsyncClient())
+        backend_two = MockBackend(httpx.AsyncClient())
+
+        ensure_mock = AsyncMock(side_effect=[backend_one, backend_two])
+
+        with patch.object(service._factory, "ensure_backend", ensure_mock):
+            resolved_one = await service._get_or_create_backend(
+                "gemini-cli-acp", session_id="session-1"
+            )
+            resolved_again = await service._get_or_create_backend(
+                "gemini-cli-acp", session_id="session-1"
+            )
+            resolved_two = await service._get_or_create_backend(
+                "gemini-cli-acp", session_id="session-2"
+            )
+
+        assert resolved_one is backend_one
+        assert resolved_again is backend_one
+        assert resolved_two is backend_two
+        assert ensure_mock.await_count == 2
 
     @pytest.mark.asyncio
     async def test_chat_completions_forwards_control_flags(self):

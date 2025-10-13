@@ -67,7 +67,7 @@ pip-log.txt
 data/*
 !data/.gitkeep
 !data/cli_flag_snapshot.txt
-!data\test_suite_state.json
+!data/test_suite_state.json
 data/accounting.sqlite3
 data/accounting.sqlite
 data/accounting.db
@@ -86,3 +86,5 @@ dev/thrdparty/
 .python_qa_mcp_server/
 test-results.xml
 .droid-shield.json
+.testmondata*
+mergeme.tmp

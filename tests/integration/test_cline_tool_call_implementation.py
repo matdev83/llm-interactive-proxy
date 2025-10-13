@@ -31,9 +31,12 @@ async def mock_backend_service() -> MagicMock:
 @pytest.fixture
 async def app(mock_backend_service: MagicMock) -> AsyncGenerator[FastAPI, None]:
     """Create the application for testing."""
+    from src.core.config.app_config import BackendConfig, BackendSettings
 
-    config = AppConfig()
-    config.backends.openai.api_key = ["test-api-key"]
+    # Create backend settings with openai configured
+    openai_backend = BackendConfig(api_key=["test-api-key"])
+    backends = BackendSettings(openai=openai_backend)
+    config = AppConfig(backends=backends)
 
     # Use a more targeted approach to build only what we need
     builder = (

@@ -52,21 +52,10 @@ class CommandProcessor(ICommandProcessor):
                 command_executed=False, modified_messages=[], command_results=[]
             )
 
-        # We only process the last message for commands.
-        last_message = messages[-1]
+        # The command service is responsible for handling the actual command
+        # detection and execution logic.
         processed_result = await self._command_service.process_commands(
-            [last_message],
-            session_id,
+            messages, session_id
         )
-
-        # If the last message was modified, we replace it in the original list.
-        # Otherwise, we return the original messages, preserving the history.
-        modified_tail = processed_result.modified_messages
-        if processed_result.command_executed or modified_tail:
-            # Merge the processed tail with the untouched history so command-only runs stay empty
-            processed_result.modified_messages = messages[:-1] + modified_tail
-        else:
-            # No commands were found, keep the original messages list
-            processed_result.modified_messages = messages
 
         return processed_result

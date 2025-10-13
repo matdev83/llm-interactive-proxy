@@ -261,10 +261,10 @@ class ProcessorStage(InitializationStage):
                 from typing import cast
 
                 app_config = provider.get_required_service(AppConfig)
-                backend_service = provider.get_required_service(
+                backend_service: IBackendService = provider.get_required_service(
                     cast(type, IBackendService)
                 )
-                session_service = provider.get_required_service(
+                session_service: ISessionService = provider.get_required_service(
                     cast(type, ISessionService)
                 )
                 return project_dir_service_cls(
@@ -312,9 +312,7 @@ class ProcessorStage(InitializationStage):
                 app_state: IApplicationState | None = provider.get_service(
                     cast(type, IApplicationState)
                 )
-                project_dir_resolution_service: (
-                    ProjectDirectoryResolutionService | None
-                ) = provider.get_service(ProjectDirectoryResolutionService)
+                # project_dir_resolution_service removed from RequestProcessor constructor
 
                 return RequestProcessor(
                     command_processor,
@@ -322,7 +320,6 @@ class ProcessorStage(InitializationStage):
                     backend_request_manager,
                     response_manager,
                     app_state=app_state,
-                    project_dir_resolution_service=project_dir_resolution_service,
                 )
 
             # Register concrete implementation

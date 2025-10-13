@@ -1,6 +1,8 @@
 """
 Comprehensive unit tests for Qwen OAuth credential validation logic.
 
+pytestmark = [pytest.mark.no_global_mock]
+
 Tests all the enhanced OAuth credential validation features:
 1. Startup validation (file existence, structure, expiry)
 2. Backend health status tracking
