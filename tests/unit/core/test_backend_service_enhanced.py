@@ -3,6 +3,7 @@ Enhanced tests for the BackendService implementation.
 """
 
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -19,6 +20,7 @@ from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
 )
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
@@ -486,6 +488,69 @@ class TestBackendServiceCompletions:
         assert "Rate limit exceeded" in str(exc_info.value)
         # The actual rate limit values may not be included in the string representation
         # so we're only checking for the essential message
+
+    @pytest.mark.asyncio
+    async def test_retry_429_preserves_backend_kwargs(
+        self, service, chat_request
+    ) -> None:
+        """Ensure retry logic preserves session-scoped backend kwargs on 429 errors."""
+
+        session_state = SimpleNamespace(project="proj-alpha", project_dir="/tmp/proj")
+        session_obj = SimpleNamespace(state=session_state)
+        service._session_service.get_session = AsyncMock(return_value=session_obj)
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            session_id="session-123",
+        )
+
+        class RecordingBackend(MockBackend):
+            def __init__(self) -> None:
+                super().__init__(httpx.AsyncClient())
+                self.calls: list[dict[str, Any]] = []
+
+            async def chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list,
+                effective_model: str,
+                identity: Any = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
+                self.calls.append({
+                    "kwargs": dict(kwargs),
+                    "identity": identity,
+                    "processed_messages": list(processed_messages),
+                })
+                if len(self.calls) == 1:
+                    raise BackendError(
+                        message="rate limited",
+                        backend_name=BackendType.OPENAI.value,
+                        status_code=429,
+                    )
+                return ResponseEnvelope(content={"id": "retry", "choices": []}, headers={})
+
+        backend = RecordingBackend()
+
+        with patch.object(service, "_get_or_create_backend", return_value=backend):
+            response = await service.call_completion(
+                chat_request,
+                allow_failover=False,
+                context=context,
+            )
+
+        assert isinstance(response, ResponseEnvelope)
+        assert len(backend.calls) == 2
+        expected_kwargs = {
+            "session_id": "session-123",
+            "project": "proj-alpha",
+            "project_dir": "/tmp/proj",
+        }
+        assert backend.calls[0]["kwargs"] == expected_kwargs
+        assert backend.calls[1]["kwargs"] == expected_kwargs
 
     @pytest.mark.asyncio
     async def test_call_completion_backend_error(self, service, chat_request):
