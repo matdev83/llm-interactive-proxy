@@ -8,15 +8,15 @@ with the TranslationService.
 
 import json
 import time
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
-from typing import cast
 from src.core.domain.chat import ChatMessage
 from src.core.domain.responses_api import (
-    JsonSchema,
     MAX_SCHEMA_COLLECTION_ITEMS,
     MAX_SCHEMA_DEPTH,
+    JsonSchema,
     ResponseChoice,
     ResponseFormat,
     ResponseMessage,

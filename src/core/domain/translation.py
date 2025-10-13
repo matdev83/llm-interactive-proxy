@@ -474,10 +474,10 @@ class Translation(BaseTranslator):
         if _depth > max_depth:
             return False
 
-        if value is None or isinstance(value, (str, int, float, bool)):
+        if value is None or isinstance(value, str | int | float | bool):
             return True
 
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             if _seen is None:
                 _seen = set()
             obj_id = id(value)
@@ -506,7 +506,9 @@ class Translation(BaseTranslator):
             _seen.add(obj_id)
             try:
                 for key, item in value.items():
-                    if key is not None and not isinstance(key, (str, int, float, bool)):
+                    if key is not None and not isinstance(
+                        key, str | int | float | bool
+                    ):
                         return False
                     if not Translation._is_json_serializable(
                         item,
@@ -546,7 +548,7 @@ class Translation(BaseTranslator):
             sanitized: dict[str, Any] = {}
             sanitized_value: Any = None
             for key, value in data.items():
-                if key is not None and not isinstance(key, (str, int, float, bool)):
+                if key is not None and not isinstance(key, str | int | float | bool):
                     continue
 
                 if Translation._is_json_serializable(
@@ -572,7 +574,7 @@ class Translation(BaseTranslator):
                         _depth=_depth + 1,
                         _seen=_seen,
                     )
-                elif isinstance(value, (str, int, float, bool)) or value is None:
+                elif isinstance(value, str | int | float | bool) or value is None:
                     sanitized_value = value
                 else:
                     continue
@@ -634,7 +636,7 @@ class Translation(BaseTranslator):
                             _seen=_seen,
                         )
                     )
-                elif isinstance(item, (str, int, float, bool)) or item is None:
+                elif isinstance(item, str | int | float | bool) or item is None:
                     sanitized.append(item)
                 else:
                     continue

@@ -5,10 +5,10 @@ import contextlib
 import json
 import os
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.common.structlog_config import get_logger

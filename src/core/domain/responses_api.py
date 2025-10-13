@@ -42,7 +42,7 @@ def enforce_json_schema_limits(schema: dict[str, Any]) -> None:
             for value in node.values():
                 stack.append((value, depth + 1))
 
-        elif isinstance(node, (list, tuple)):
+        elif isinstance(node, list | tuple):
             if len(node) > MAX_SCHEMA_COLLECTION_ITEMS:
                 raise ValueError(
                     "JSON schema arrays cannot contain more than "

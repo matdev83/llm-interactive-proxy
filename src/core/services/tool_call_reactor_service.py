@@ -204,7 +204,7 @@ class ToolCallReactorService(IToolCallReactor):
                 "omitted_bytes": len(encoded) - len(truncated),
             }
 
-        if isinstance(arguments, (bytes, bytearray)):
+        if isinstance(arguments, bytes | bytearray):
             buffer = bytes(arguments)
             if len(buffer) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
                 return buffer.decode("utf-8", errors="ignore")
