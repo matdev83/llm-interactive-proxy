@@ -4,8 +4,8 @@ Unit tests for Tool Call Reactor Service.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from src.core.common.exceptions import ToolCallReactorError

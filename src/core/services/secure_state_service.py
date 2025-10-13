@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class SecureStateService(ISecureStateAccess, ISecureStateModification):
     """Secure state service that enforces proper access patterns."""
 
-  DEFAULT_MAX_ACCESS_LOG_ENTRIES = 1024
+    DEFAULT_MAX_ACCESS_LOG_ENTRIES = 1024
 
     def __init__(
         self,

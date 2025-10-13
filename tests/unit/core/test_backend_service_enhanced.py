@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-from types import SimpleNamespace
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"

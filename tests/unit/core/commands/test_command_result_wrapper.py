@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.parser import CommandParser

@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock
 
 import pytest
-
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.services.secure_state_service import SecureStateService, StateAccessProxy
 

@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.connectors.gemini import GeminiBackend
