@@ -6,8 +6,7 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
-from src.core.config.app_config import AppConfig
-from src.core.config.config_loader import get_openrouter_headers
+from src.core.config.app_config import AppConfig, get_openrouter_headers
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import HeaderConfig, HeaderOverrideMode

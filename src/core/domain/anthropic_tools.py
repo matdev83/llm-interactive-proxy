@@ -8,6 +8,7 @@ replacing manual dictionary construction with type-safe Pydantic models.
 from typing import Any
 
 from pydantic import BaseModel, Field
+from pydantic.config import ConfigDict
 
 
 class AnthropicToolSchema(BaseModel):
@@ -21,8 +22,7 @@ class AnthropicToolSchema(BaseModel):
         default=None, description="List of required property names"
     )
 
-    class Config:
-        extra = "allow"  # Allow additional fields for flexibility
+    model_config = ConfigDict(extra="allow")  # Allow additional fields for flexibility
 
 
 class AnthropicToolFunction(BaseModel):

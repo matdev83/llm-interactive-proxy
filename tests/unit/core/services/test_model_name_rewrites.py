@@ -483,6 +483,29 @@ class TestModelAliasesConfiguration:
             # Restore original function
             src.core.cli.load_config = original_load_config
 
+    @pytest.fixture(autouse=True)
+    def clean_environment(self):
+        """Ensure clean environment for each test."""
+        import os
+
+        # Store original values
+        original_env = {}
+        env_vars_to_clean = ["COMMAND_PREFIX", "MODEL_ALIASES"]
+
+        for var in env_vars_to_clean:
+            original_env[var] = os.environ.get(var)
+            if var in os.environ:
+                del os.environ[var]
+
+        yield
+
+        # Restore original values
+        for var, value in original_env.items():
+            if value is not None:
+                os.environ[var] = value
+            elif var in os.environ:
+                del os.environ[var]
+
     def test_precedence_order_cli_env_config(self):
         """Test the complete precedence order: CLI > ENV > Config File."""
         import json
@@ -493,6 +516,16 @@ class TestModelAliasesConfiguration:
         import yaml
         from src.core.cli import apply_cli_args, parse_cli_args
         from src.core.config.app_config import load_config
+
+        # Store original environment state and ensure clean environment
+        original_command_prefix = os.environ.get("COMMAND_PREFIX")
+        original_model_aliases = os.environ.get("MODEL_ALIASES")
+
+        # Clear any existing environment variables that might interfere
+        if "COMMAND_PREFIX" in os.environ:
+            del os.environ["COMMAND_PREFIX"]
+        if "MODEL_ALIASES" in os.environ:
+            del os.environ["MODEL_ALIASES"]
 
         # 1. Create temporary config file (lowest precedence)
         config_data = {
@@ -536,5 +569,14 @@ class TestModelAliasesConfiguration:
         finally:
             # Clean up
             Path(config_path).unlink()
-            if "MODEL_ALIASES" in os.environ:
+
+            # Restore original environment state
+            if original_model_aliases is not None:
+                os.environ["MODEL_ALIASES"] = original_model_aliases
+            elif "MODEL_ALIASES" in os.environ:
                 del os.environ["MODEL_ALIASES"]
+
+            if original_command_prefix is not None:
+                os.environ["COMMAND_PREFIX"] = original_command_prefix
+            elif "COMMAND_PREFIX" in os.environ:
+                del os.environ["COMMAND_PREFIX"]
