@@ -527,7 +527,9 @@ async def test_streaming_response_error_closes_response(
 ) -> None:
     """Ensure streaming error responses release the underlying connection."""
 
-    mock_response = MockResponse(status_code=502, content=b"{\"error\": \"boom\"}", is_error=True)
+    mock_response = MockResponse(
+        status_code=502, content=b'{"error": "boom"}', is_error=True
+    )
     close_mock = AsyncMock()
     mock_response.aclose = close_mock
 
@@ -594,7 +596,7 @@ async def test_streaming_response_midstream_request_error(
 
     def failing_stream_factory():
         async def _iterator():
-            yield b"data: {\"choices\": []}\\n\\n"
+            yield b'data: {"choices": []}\\n\\n'
             raise read_error
 
         return _iterator()
@@ -630,7 +632,7 @@ async def test_streaming_response_midstream_request_error(
 
     # First chunk should be delivered successfully
     first_chunk = await stream_iterator.__anext__()
-    assert first_chunk.content == "data: {\"choices\": []}\\n\\n"
+    assert first_chunk.content == 'data: {"choices": []}\\n\\n'
 
     # Subsequent iteration should surface the timeout as ServiceUnavailableError
     with pytest.raises(ServiceUnavailableError) as excinfo:

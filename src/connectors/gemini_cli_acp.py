@@ -312,9 +312,7 @@ class GeminiCliAcpConnector(GeminiBackend):
             finally:
                 self._cleanup_process(process)
 
-    def _cleanup_process(
-        self, process: subprocess.Popen[bytes] | None = None
-    ) -> None:
+    def _cleanup_process(self, process: subprocess.Popen[bytes] | None = None) -> None:
         """Close process pipes and clear reference."""
         proc = process or self._process
         if not proc:

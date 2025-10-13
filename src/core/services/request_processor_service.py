@@ -388,7 +388,10 @@ class RequestProcessor(IRequestProcessor):
                             session_prefix = getattr(
                                 session_state, "command_prefix_override", None
                             )
-                            if isinstance(session_prefix, str) and session_prefix.strip():
+                            if (
+                                isinstance(session_prefix, str)
+                                and session_prefix.strip()
+                            ):
                                 command_prefix = session_prefix.strip()
                     except Exception:
                         pass

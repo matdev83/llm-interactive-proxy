@@ -80,8 +80,7 @@ def test_enforce_schema_size_limits_rejects_excessive_properties() -> None:
     schema = {
         "type": "object",
         "properties": {
-            f"field_{i}": {"type": "string"}
-            for i in range(MAX_SCHEMA_PROPERTIES + 1)
+            f"field_{i}": {"type": "string"} for i in range(MAX_SCHEMA_PROPERTIES + 1)
         },
     }
 

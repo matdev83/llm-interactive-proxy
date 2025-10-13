@@ -3,10 +3,9 @@
 import asyncio
 import logging
 import re
-from typing import Any, cast
-
 import sre_parse
 from sre_constants import MAXREPEAT
+from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
@@ -774,7 +773,9 @@ class ResponsesController:
             if isinstance(node, dict):
                 pattern = node.get("pattern")
                 if isinstance(pattern, str):
-                    ResponsesController._validate_single_regex(pattern, f"{location}.pattern")
+                    ResponsesController._validate_single_regex(
+                        pattern, f"{location}.pattern"
+                    )
 
                 pattern_properties = node.get("patternProperties")
                 if isinstance(pattern_properties, dict):
@@ -786,7 +787,10 @@ class ResponsesController:
                             )
                         if isinstance(sub_schema, (dict, list)):
                             stack.append(
-                                (sub_schema, f"{location}.patternProperties.{regex_key}")
+                                (
+                                    sub_schema,
+                                    f"{location}.patternProperties.{regex_key}",
+                                )
                             )
 
                 for key, value in node.items():
@@ -842,7 +846,8 @@ class ResponsesController:
                     return True
 
                 if ResponsesController._contains_nested_unbounded_repeat(
-                    cast(sre_parse.SubPattern, nested), inside_unbounded=is_unbounded or inside_unbounded
+                    cast(sre_parse.SubPattern, nested),
+                    inside_unbounded=is_unbounded or inside_unbounded,
                 ):
                     return True
 
@@ -852,7 +857,8 @@ class ResponsesController:
                 # argument is a tuple, nested pattern is the last element
                 nested = cast(tuple, argument)[-1]  # type: ignore[index]
                 if ResponsesController._contains_nested_unbounded_repeat(
-                    cast(sre_parse.SubPattern, nested), inside_unbounded=inside_unbounded
+                    cast(sre_parse.SubPattern, nested),
+                    inside_unbounded=inside_unbounded,
                 ):
                     return True
                 continue
@@ -862,7 +868,8 @@ class ResponsesController:
                 _, branches = cast(tuple, argument)  # type: ignore[misc]
                 for branch in cast(list, branches):
                     if ResponsesController._contains_nested_unbounded_repeat(
-                        cast(sre_parse.SubPattern, branch), inside_unbounded=inside_unbounded
+                        cast(sre_parse.SubPattern, branch),
+                        inside_unbounded=inside_unbounded,
                     ):
                         return True
                 continue
@@ -871,7 +878,8 @@ class ResponsesController:
                 # argument is a tuple, second element is the nested pattern
                 nested = cast(tuple, argument)[1]  # type: ignore[index]
                 if ResponsesController._contains_nested_unbounded_repeat(
-                    cast(sre_parse.SubPattern, nested), inside_unbounded=inside_unbounded
+                    cast(sre_parse.SubPattern, nested),
+                    inside_unbounded=inside_unbounded,
                 ):
                     return True
 

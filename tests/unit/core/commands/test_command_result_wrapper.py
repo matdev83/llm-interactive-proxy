@@ -18,7 +18,9 @@ class _StubSessionService:
     async def get_session(self, session_id: str) -> Session:
         return Session(session_id=session_id)
 
-    async def update_session(self, session: Session) -> None:  # pragma: no cover - interface stub
+    async def update_session(
+        self, session: Session
+    ) -> None:  # pragma: no cover - interface stub
         return None
 
 

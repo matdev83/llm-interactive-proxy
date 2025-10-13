@@ -63,7 +63,11 @@ def _strip_option(args: list[str], option: str) -> None:
     while option in args:
         index = args.index(option)
         del args[index]
-        if option in {"-n", "--max-worker-restart", "--dist", "--asyncio-mode"} and index < len(args) and not args[index].startswith("-"):
+        if (
+            option in {"-n", "--max-worker-restart", "--dist", "--asyncio-mode"}
+            and index < len(args)
+            and not args[index].startswith("-")
+        ):
             del args[index]
 
 

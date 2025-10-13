@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import inspect
 import logging
 
 logger = logging.getLogger(__name__)

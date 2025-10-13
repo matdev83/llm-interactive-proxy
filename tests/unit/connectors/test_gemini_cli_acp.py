@@ -207,9 +207,11 @@ class TestGeminiCliAcpConnectorProcessManagement:
         mock_process.stderr = MagicMock()
         mock_process.stderr.read.return_value = b"failure"
 
-        with patch("subprocess.Popen", return_value=mock_process):
-            with pytest.raises(BackendError):
-                await connector._spawn_gemini_cli_process()
+        with (
+            patch("subprocess.Popen", return_value=mock_process),
+            pytest.raises(BackendError),
+        ):
+            await connector._spawn_gemini_cli_process()
 
         mock_process.stdin.close.assert_called_once()
         mock_process.stdout.close.assert_called_once()

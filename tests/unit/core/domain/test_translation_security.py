@@ -47,7 +47,9 @@ def test_process_gemini_image_part_uri_scheme_validation(
         assert result is None, f"URI with scheme '{expected_scheme}' should be rejected"
 
 
-def test_normalize_tool_arguments_limits_json_dumps(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_normalize_tool_arguments_limits_json_dumps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Ensure sanitization does not repeatedly serialize large payloads."""
 
     from src.core.domain import translation as translation_module

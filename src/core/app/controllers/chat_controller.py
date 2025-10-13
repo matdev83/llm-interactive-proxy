@@ -692,7 +692,9 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                                                 cast(type, ICommandService)
                                             )
                                         )
-                                        return CommandProcessor(resolved_command_service)
+                                        return CommandProcessor(
+                                            resolved_command_service
+                                        )
 
                                     services.add_singleton(
                                         ICommandProcessor,  # type: ignore[type-abstract]

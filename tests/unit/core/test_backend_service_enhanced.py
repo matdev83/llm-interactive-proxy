@@ -520,18 +520,22 @@ class TestBackendServiceCompletions:
                 identity: Any = None,
                 **kwargs: Any,
             ) -> ResponseEnvelope | StreamingResponseEnvelope:
-                self.calls.append({
-                    "kwargs": dict(kwargs),
-                    "identity": identity,
-                    "processed_messages": list(processed_messages),
-                })
+                self.calls.append(
+                    {
+                        "kwargs": dict(kwargs),
+                        "identity": identity,
+                        "processed_messages": list(processed_messages),
+                    }
+                )
                 if len(self.calls) == 1:
                     raise BackendError(
                         message="rate limited",
                         backend_name=BackendType.OPENAI.value,
                         status_code=429,
                     )
-                return ResponseEnvelope(content={"id": "retry", "choices": []}, headers={})
+                return ResponseEnvelope(
+                    content={"id": "retry", "choices": []}, headers={}
+                )
 
         backend = RecordingBackend()
 
@@ -571,10 +575,10 @@ class TestBackendServiceCompletions:
             # Note: The backend type may not be included in the error message in all implementations
 
     @pytest.mark.asyncio
-    async def test_retry_429_preserves_backend_kwargs(
+    async def test_retry_429_preserves_backend_kwargs_alt(
         self, service, chat_request
     ) -> None:
-        """Ensure retrying a 429 keeps backend kwargs like session and project."""
+        """Ensure retrying a 429 keeps backend kwargs like session and project (alternative implementation)."""
 
         class TrackingBackend(LLMBackend):
             def __init__(self) -> None:
@@ -589,7 +593,9 @@ class TestBackendServiceCompletions:
                     ResponseEnvelope(content={"ok": True}, headers={}),
                 ]
 
-            async def initialize(self, **kwargs: Any) -> None:  # pragma: no cover - unused in test
+            async def initialize(
+                self, **kwargs: Any
+            ) -> None:  # pragma: no cover - unused in test
                 return None
 
             def get_available_models(self) -> list[str]:

@@ -242,7 +242,9 @@ class TestBackendServiceTargeted:
                 super().__init__(config=Mock())
                 self.shutdown_calls = 0
 
-            async def initialize(self, **kwargs: Any) -> None:  # pragma: no cover - unused
+            async def initialize(
+                self, **kwargs: Any
+            ) -> None:  # pragma: no cover - unused
                 return None
 
             async def chat_completions(  # pragma: no cover - unused in this test
@@ -259,7 +261,9 @@ class TestBackendServiceTargeted:
 
         created_backends: list[SessionScopedBackend] = []
 
-        async def fake_ensure_backend(*args: Any, **kwargs: Any) -> SessionScopedBackend:
+        async def fake_ensure_backend(
+            *args: Any, **kwargs: Any
+        ) -> SessionScopedBackend:
             backend = SessionScopedBackend()
             created_backends.append(backend)
             return backend

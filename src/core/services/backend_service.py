@@ -75,7 +75,9 @@ class BackendService(IBackendService):
         self._failover_strategy: IFailoverStrategy | None = failover_strategy
         self._backends: dict[str, LLMBackend] = {}
         self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
-        self._per_session_backend_limit = self._resolve_per_session_backend_limit(config)
+        self._per_session_backend_limit = self._resolve_per_session_backend_limit(
+            config
+        )
         from src.core.config.app_config import AppConfig
         from src.core.services.failover_coordinator import FailoverCoordinator
 
@@ -116,7 +118,9 @@ class BackendService(IBackendService):
         default_limit = 32
         try:
             session_config = getattr(config, "session", None)
-            candidate = getattr(session_config, "max_per_session_backends", default_limit)
+            candidate = getattr(
+                session_config, "max_per_session_backends", default_limit
+            )
             if isinstance(candidate, int) and candidate > 0:
                 return candidate
         except Exception as exc:
@@ -137,7 +141,9 @@ class BackendService(IBackendService):
         """Ensure the per-session backend cache does not grow without bound."""
         limit = max(self._per_session_backend_limit, 1)
         while len(self._per_session_backends) > limit:
-            evicted_key, evicted_backend = self._per_session_backends.popitem(last=False)
+            evicted_key, evicted_backend = self._per_session_backends.popitem(
+                last=False
+            )
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Evicting per-session backend %s due to cache limit %d",
@@ -164,7 +170,10 @@ class BackendService(IBackendService):
                         await result
         except Exception as exc:
             logger.warning(
-                "Error while shutting down backend %s: %s", cache_key, exc, exc_info=True
+                "Error while shutting down backend %s: %s",
+                cache_key,
+                exc,
+                exc_info=True,
             )
 
     def _apply_model_aliases(self, model: str) -> str:
@@ -879,16 +888,16 @@ class BackendService(IBackendService):
             else:
                 self._backend_configs.pop(backend_type, None)
 
-            backend: LLMBackend = await self._factory.ensure_backend(
+            created_backend: LLMBackend = await self._factory.ensure_backend(
                 backend_type, app_config, provider_backend_config
             )
             if self._is_per_session_cache_key(cache_key, backend_type):
-                self._per_session_backends[cache_key] = backend
+                self._per_session_backends[cache_key] = created_backend
                 self._per_session_backends.move_to_end(cache_key)
                 await self._enforce_per_session_backend_limit()
             else:
-                self._backends[cache_key] = backend
-            return backend
+                self._backends[cache_key] = created_backend
+            return created_backend
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(
                 message=f"Failed to create backend {backend_type}: {e!s}",

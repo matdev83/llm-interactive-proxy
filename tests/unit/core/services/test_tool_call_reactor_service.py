@@ -186,7 +186,9 @@ class TestToolCallReactorService:
     ):
         """Large tool arguments should be truncated before persisting to history."""
 
-        oversize_argument = "x" * (ToolCallReactorService._MAX_ARGUMENT_SNAPSHOT_BYTES + 512)
+        oversize_argument = "x" * (
+            ToolCallReactorService._MAX_ARGUMENT_SNAPSHOT_BYTES + 512
+        )
 
         context = ToolCallContext(
             session_id="test_session",
@@ -212,7 +214,9 @@ class TestToolCallReactorService:
 
         omitted_bytes = stored_arguments.get("omitted_bytes")
         serialized_length = len(
-            json.dumps({"payload": oversize_argument}, ensure_ascii=False).encode("utf-8")
+            json.dumps({"payload": oversize_argument}, ensure_ascii=False).encode(
+                "utf-8"
+            )
         )
         assert omitted_bytes == serialized_length - len(preview_bytes)
 
