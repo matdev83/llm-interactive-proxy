@@ -158,6 +158,19 @@ class SyncIterBytes:
         return chunk
 
 
+class ErrorAsyncIterBytes:
+    """Async iterator that raises a RequestError when consumed."""
+
+    def __init__(self, error: httpx.RequestError) -> None:
+        self.error = error
+
+    def __aiter__(self) -> ErrorAsyncIterBytes:
+        return self
+
+    async def __anext__(self) -> bytes:
+        raise self.error
+
+
 @pytest.fixture
 def connector(mocker: MockerFixture) -> OpenAIConnector:
     """Create a connector with a mock client, patching httpx.AsyncClient."""
