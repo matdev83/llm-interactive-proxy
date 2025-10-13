@@ -3,11 +3,13 @@ Enhanced tests for the BackendService implementation.
 """
 
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
+from types import SimpleNamespace
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
@@ -19,6 +21,7 @@ from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
 )
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
@@ -488,6 +491,69 @@ class TestBackendServiceCompletions:
         # so we're only checking for the essential message
 
     @pytest.mark.asyncio
+    async def test_retry_429_preserves_backend_kwargs(
+        self, service, chat_request
+    ) -> None:
+        """Ensure retry logic preserves session-scoped backend kwargs on 429 errors."""
+
+        session_state = SimpleNamespace(project="proj-alpha", project_dir="/tmp/proj")
+        session_obj = SimpleNamespace(state=session_state)
+        service._session_service.get_session = AsyncMock(return_value=session_obj)
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            session_id="session-123",
+        )
+
+        class RecordingBackend(MockBackend):
+            def __init__(self) -> None:
+                super().__init__(httpx.AsyncClient())
+                self.calls: list[dict[str, Any]] = []
+
+            async def chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list,
+                effective_model: str,
+                identity: Any = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
+                self.calls.append({
+                    "kwargs": dict(kwargs),
+                    "identity": identity,
+                    "processed_messages": list(processed_messages),
+                })
+                if len(self.calls) == 1:
+                    raise BackendError(
+                        message="rate limited",
+                        backend_name=BackendType.OPENAI.value,
+                        status_code=429,
+                    )
+                return ResponseEnvelope(content={"id": "retry", "choices": []}, headers={})
+
+        backend = RecordingBackend()
+
+        with patch.object(service, "_get_or_create_backend", return_value=backend):
+            response = await service.call_completion(
+                chat_request,
+                allow_failover=False,
+                context=context,
+            )
+
+        assert isinstance(response, ResponseEnvelope)
+        assert len(backend.calls) == 2
+        expected_kwargs = {
+            "session_id": "session-123",
+            "project": "proj-alpha",
+            "project_dir": "/tmp/proj",
+        }
+        assert backend.calls[0]["kwargs"] == expected_kwargs
+        assert backend.calls[1]["kwargs"] == expected_kwargs
+
+    @pytest.mark.asyncio
     async def test_call_completion_backend_error(self, service, chat_request):
         """Test error handling when backend calls fail."""
         # Arrange
@@ -504,6 +570,87 @@ class TestBackendServiceCompletions:
             assert "Backend call failed" in str(exc_info.value)
             assert "API error" in str(exc_info.value)
             # Note: The backend type may not be included in the error message in all implementations
+
+    @pytest.mark.asyncio
+    async def test_retry_429_preserves_backend_kwargs(
+        self, service, chat_request
+    ) -> None:
+        """Ensure retrying a 429 keeps backend kwargs like session and project."""
+
+        class TrackingBackend(LLMBackend):
+            def __init__(self) -> None:
+                self.calls: list[dict[str, Any]] = []
+                self._responses: list[object] = [
+                    BackendError(
+                        "Rate limited",
+                        backend_name=BackendType.OPENAI,
+                        status_code=429,
+                        details={"error": {"message": "Too Many Requests"}},
+                    ),
+                    ResponseEnvelope(content={"ok": True}, headers={}),
+                ]
+
+            async def initialize(self, **kwargs: Any) -> None:  # pragma: no cover - unused in test
+                return None
+
+            def get_available_models(self) -> list[str]:
+                return ["model1"]
+
+            async def chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list,
+                effective_model: str,
+                identity: Any = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
+                self.calls.append(dict(kwargs))
+                next_response = self._responses.pop(0)
+                if isinstance(next_response, Exception):
+                    raise next_response
+                return next_response  # type: ignore[return-value]
+
+        backend = TrackingBackend()
+        service._get_or_create_backend = AsyncMock(return_value=backend)
+
+        session = SimpleNamespace(
+            state=SimpleNamespace(
+                project="proj-alpha",
+                project_dir="/tmp/proj",
+                backend_config=None,
+            )
+        )
+        service._session_service.get_session = AsyncMock(return_value=session)
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=SimpleNamespace(),
+            app_state=SimpleNamespace(),
+            client_host="127.0.0.1",
+            session_id="sess-123",
+        )
+
+        request_with_session = chat_request.model_copy(
+            update={
+                "extra_body": {
+                    "backend_type": BackendType.OPENAI,
+                    "session_id": "sess-123",
+                }
+            }
+        )
+
+        response = await service.call_completion(
+            request_with_session, context=context, allow_failover=False
+        )
+
+        assert isinstance(response, ResponseEnvelope)
+        assert backend.calls and len(backend.calls) == 2
+        first_call, second_call = backend.calls
+        assert first_call == second_call
+        assert first_call.get("session_id") == "sess-123"
+        assert first_call.get("project") == "proj-alpha"
+        assert first_call.get("project_dir") == "/tmp/proj"
 
     @pytest.mark.asyncio
     async def test_call_completion_invalid_response(self, service, chat_request):

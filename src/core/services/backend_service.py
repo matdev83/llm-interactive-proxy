@@ -713,6 +713,7 @@ class BackendService(IBackendService):
                             processed_messages=request.messages,
                             effective_model=effective_model,
                             identity=identity,
+                            **backend_call_kwargs,
                         )
                     else:
                         raise

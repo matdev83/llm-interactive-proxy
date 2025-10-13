@@ -311,6 +311,7 @@ async def test_wrap_inbound_stream_does_not_store_all_chunks(
     with pytest.raises(StopAsyncIteration):
         await iterator.__anext__()
 
+
 def test_extract_system_prompt(structured_wire_capture):
     """Test system prompt extraction from different formats."""
     # OpenAI format
