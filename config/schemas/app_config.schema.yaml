@@ -73,7 +73,7 @@ properties:
       tool_call_repair_enabled: { type: boolean }
       json_repair_enabled: { type: boolean }
       json_repair_strict_mode: { type: boolean }
-      json_repair_schema: { type: ["string", "null"] }
+      json_repair_schema: { type: ["object", "null"] }
       json_repair_buffer_cap_bytes: { type: integer, minimum: 0 }
       content_accumulation_buffer_cap_bytes: { type: integer, minimum: 0 }
       tool_call_repair_buffer_cap_bytes: { type: integer, minimum: 0 }
@@ -83,6 +83,7 @@ properties:
       pytest_compression_min_lines: { type: integer, minimum: 1 }
       pytest_full_suite_steering_enabled: { type: boolean }
       pytest_full_suite_steering_message: { type: ["string", "null"] }
+      max_per_session_backends: { type: integer, minimum: 1 }
       planning_phase:
         type: object
         additionalProperties: false

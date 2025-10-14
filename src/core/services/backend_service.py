@@ -150,31 +150,21 @@ class BackendService(IBackendService):
                     evicted_key,
                     limit,
                 )
-            await self._shutdown_backend_instance(evicted_backend, evicted_key)
+            await self._shutdown_backend(evicted_backend)
 
-    async def _shutdown_backend_instance(
-        self, backend: LLMBackend, cache_key: str
-    ) -> None:
-        """Attempt to gracefully shut down a backend instance."""
-        shutdown_method = getattr(backend, "shutdown", None)
+    async def _shutdown_backend(self, backend: LLMBackend) -> None:
+        """Shutdown the backend if it has a shutdown method."""
+        shutdown = getattr(backend, "shutdown", None)
+        if shutdown is None:
+            return
+
         try:
-            if callable(shutdown_method):
-                result = shutdown_method()
-                if inspect.isawaitable(result):
-                    await result
+            if inspect.iscoroutinefunction(shutdown):  # type: ignore[arg-type]
+                await shutdown()
             else:
-                exit_method = getattr(backend, "__aexit__", None)
-                if callable(exit_method):
-                    result = exit_method(None, None, None)
-                    if inspect.isawaitable(result):
-                        await result
-        except Exception as exc:
-            logger.warning(
-                "Error while shutting down backend %s: %s",
-                cache_key,
-                exc,
-                exc_info=True,
-            )
+                shutdown()
+        except Exception:
+            logger.exception("Error shutting down backend %s", backend.backend_type)
 
     def _apply_model_aliases(self, model: str) -> str:
         """Applies the first matching model alias rule to the model name.

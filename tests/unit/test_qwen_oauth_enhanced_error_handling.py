@@ -107,15 +107,19 @@ class TestQwenOAuthEnhancedErrorHandling:
         # Mock validation to pass, token refresh to succeed and parent class method to raise an exception
         with (
             patch.object(
+                connector, "_load_oauth_credentials", AsyncMock(return_value=True)
+            ),
+            patch.object(
                 connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
             ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
-                "src.connectors.openai.OpenAIConnector._handle_non_streaming_response",
+                "src.connectors.qwen_oauth.OpenAIConnector._handle_non_streaming_response",
                 side_effect=Exception("Test error"),
             ),
             pytest.raises(BackendError) as exc_info,
         ):
+            connector._oauth_credentials = {"access_token": "fake-token"}
             # Execute and verify the exception is wrapped in BackendError
             await connector.chat_completions(
                 request_data=request,
@@ -140,16 +144,20 @@ class TestQwenOAuthEnhancedErrorHandling:
         # Mock validation to pass, token refresh to succeed and parent class method
         with (
             patch.object(
+                connector, "_load_oauth_credentials", AsyncMock(return_value=True)
+            ),
+            patch.object(
                 connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
             ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
-                "src.connectors.openai.OpenAIConnector._handle_non_streaming_response",
+                "src.connectors.qwen_oauth.OpenAIConnector._handle_non_streaming_response",
                 AsyncMock(
                     return_value=ResponseEnvelope(content={"id": "test"}, headers={})
                 ),
             ) as mock_parent,
         ):
+            connector._oauth_credentials = {"access_token": "fake-token"}
 
             # Execute
             await connector.chat_completions(
@@ -180,11 +188,11 @@ class TestQwenOAuthEnhancedErrorHandling:
             ),
             patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
-                "src.connectors.openai.OpenAIConnector._handle_non_streaming_response",
+                "src.connectors.qwen_oauth.OpenAIConnector._handle_non_streaming_response",
                 side_effect=http_exception,
             ),
         ):
-
+            connector._oauth_credentials = {"access_token": "fake-token"}
             # Execute and verify exception is re-raised
             with pytest.raises(HTTPException) as exc_info:
                 await connector.chat_completions(

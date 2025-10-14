@@ -8,6 +8,7 @@ CLI while maintaining clean separation of concerns through staged initialization
 import argparse
 import logging
 import os
+import re
 import socket
 import sys
 from collections.abc import Callable, Sequence
@@ -113,8 +114,6 @@ def build_cli_parser() -> argparse.ArgumentParser:
             )
         # Test regex validity
         try:
-            import re
-
             re.compile(pattern)
         except re.error as e:
             raise argparse.ArgumentTypeError(
@@ -1027,7 +1026,7 @@ def apply_cli_args(
     # Validate and apply configurations
     _validate_and_apply_prefix(cfg)
     _apply_feature_flags(cfg)
-    cfg = _apply_security_flags(cfg)
+    # The security flag application is now in main()
     if return_resolution:
         return cfg, res
     return cfg
@@ -1049,20 +1048,6 @@ def _apply_feature_flags(cfg: AppConfig) -> None:
     """Apply other feature flags from cfg."""
     # Apply other feature flags from cfg
     # These flags are now directly applied in apply_cli_args
-
-
-def _apply_security_flags(cfg: AppConfig) -> AppConfig:
-    """Apply security-related configuration."""
-    if not cfg.auth.disable_auth:
-        return cfg
-    logging.warning("Client authentication is DISABLED")
-    if cfg.host != "127.0.0.1":
-        logging.warning(
-            "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
-            cfg.host,
-        )
-        cfg = cfg.model_copy(update={"host": "127.0.0.1"})
-    return cfg
 
 
 def _check_privileges() -> None:

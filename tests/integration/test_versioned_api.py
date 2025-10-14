@@ -140,11 +140,31 @@ async def initialized_app(app: FastAPI):
             if cmd and backend and session and response_proc:
                 try:
                     # Create request processor properly
+                    from src.core.interfaces.backend_request_manager_interface import (
+                        IBackendRequestManager,
+                    )
+                    from src.core.interfaces.command_processor_interface import (
+                        ICommandProcessor,
+                    )
+                    from src.core.interfaces.response_manager_interface import (
+                        IResponseManager,
+                    )
+                    from src.core.interfaces.session_manager_interface import (
+                        ISessionManager,
+                    )
+
+                    command_processor = provider.get_service(ICommandProcessor)
+                    session_manager = provider.get_service(ISessionManager)
+                    backend_request_manager = provider.get_service(
+                        IBackendRequestManager
+                    )
+                    response_manager = provider.get_service(IResponseManager)
+
                     request_processor = RequestProcessor(
-                        command_service=cmd,
-                        backend_service=backend,
-                        session_service=session,
-                        response_processor=response_proc,
+                        command_processor,
+                        session_manager,
+                        backend_request_manager,
+                        response_manager,
                     )
 
                     # Register it in the provider
@@ -191,22 +211,25 @@ async def test_versioned_endpoint_with_backend_service(
 ):
     """Test that the versioned endpoint uses the backend service."""
     # Mock the backend service to return a successful response
-    from src.core.domain.chat import ChatResponse
+    from src.core.domain.chat import (
+        ChatCompletionChoice,
+        ChatCompletionChoiceMessage,
+    )
 
     # Create a mock response
     mock_response = ChatResponse(
         id="test-id",
-        created=1629380000,  # Add timestamp for created field
+        created=1629380000,
         model="test-model",
         choices=[
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": "This is a test response from the backend service",
-                },
-                "index": 0,
-                "finish_reason": "stop",
-            }
+            ChatCompletionChoice(
+                message=ChatCompletionChoiceMessage(
+                    role="assistant",
+                    content="This is a test response from the backend service",
+                ),
+                index=0,
+                finish_reason="stop",
+            )
         ],
         usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     )
@@ -255,19 +278,25 @@ async def test_versioned_endpoint_with_commands(
 ):
     """Test that the versioned endpoint processes commands."""
     # Mock the request processor to handle commands
+    from src.core.domain.chat import (
+        ChatCompletionChoice,
+        ChatCompletionChoiceMessage,
+    )
     from src.core.interfaces.request_processor_interface import IRequestProcessor
 
     # Create a mock response
     mock_response = ChatResponse(
         id="test-id",
-        created=1629380000,  # Add timestamp for created field
+        created=1629380000,
         model="test-model",
         choices=[
-            {
-                "message": {"role": "assistant", "content": "Command processed: hello"},
-                "index": 0,
-                "finish_reason": "stop",
-            }
+            ChatCompletionChoice(
+                message=ChatCompletionChoiceMessage(
+                    role="assistant", content="Command processed: hello"
+                ),
+                index=0,
+                finish_reason="stop",
+            )
         ],
         usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     )
@@ -348,22 +377,26 @@ async def test_versioned_endpoint_with_commands(
 async def test_compatibility_endpoint(initialized_app: FastAPI, client: TestClient):
     """Test that the compatibility endpoint works."""
     # Mock the request processor to return a successful response
+    from src.core.domain.chat import (
+        ChatCompletionChoice,
+        ChatCompletionChoiceMessage,
+    )
     from src.core.interfaces.request_processor_interface import IRequestProcessor
 
     # Create a mock response
     mock_response = ChatResponse(
         id="test-id",
-        created=1629380000,  # Add timestamp for created field
+        created=1629380000,
         model="test-model",
         choices=[
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": "This is a compatibility test response",
-                },
-                "index": 0,
-                "finish_reason": "stop",
-            }
+            ChatCompletionChoice(
+                message=ChatCompletionChoiceMessage(
+                    role="assistant",
+                    content="This is a compatibility test response",
+                ),
+                index=0,
+                finish_reason="stop",
+            )
         ],
         usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     )

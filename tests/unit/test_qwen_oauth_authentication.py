@@ -19,6 +19,13 @@ from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 
+@pytest.fixture(autouse=True)
+def cleanup_connector_state():
+    """Clean up connector state between tests to ensure isolation."""
+    yield
+    # Cleanup after each test - patch mock should auto-cleanup when context exits
+
+
 class TestQwenOAuthAuthentication:
     """Enhanced tests for Qwen OAuth authentication mechanisms."""
 
@@ -239,37 +246,43 @@ class TestQwenOAuthAuthentication:
             "expiry_date": int(time.time() * 1000) - 60000,  # 1 minute ago
         }
 
-        # Mock validation to pass and successful refresh
-        with (
-            patch.object(
-                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
-            ),
-            patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ) as mock_refresh,
-            patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions", AsyncMock()
-            ) as mock_chat,
-        ):
-            # Create a test request
-            request = ChatRequest(
-                model="qwen3-coder-plus",
-                messages=[ChatMessage(role="user", content="Test")],
-                stream=False,
-            )
+        # Ensure token appears expired by mocking the expiry check
+        with patch.object(connector, "_is_token_expired", return_value=True):
+            # Mock validation to pass and successful refresh
+            with (
+                patch.object(
+                    connector, "_validate_runtime_credentials", new_callable=AsyncMock
+                ) as mock_validate,
+                patch.object(
+                    connector, "_refresh_token_if_needed", new_callable=AsyncMock
+                ) as mock_refresh,
+                patch(
+                    "src.connectors.openai.OpenAIConnector.chat_completions", new_callable=AsyncMock
+                ) as mock_chat,
+            ):
+                # Configure mocks explicitly
+                mock_validate.return_value = True
+                mock_refresh.return_value = True
 
-            # Call the method
-            await connector.chat_completions(
-                request_data=request,
-                processed_messages=[{"role": "user", "content": "Test"}],
-                effective_model="qwen3-coder-plus",
-            )
+                # Create a test request
+                request = ChatRequest(
+                    model="qwen3-coder-plus",
+                    messages=[ChatMessage(role="user", content="Test")],
+                    stream=False,
+                )
 
-            # Verify token refresh was checked
-            mock_refresh.assert_called_once()
+                # Call the method
+                await connector.chat_completions(
+                    request_data=request,
+                    processed_messages=[{"role": "user", "content": "Test"}],
+                    effective_model="qwen3-coder-plus",
+                )
 
-            # Verify parent method was called (since refresh succeeded)
-            mock_chat.assert_called_once()
+                # Verify token refresh was checked
+                assert mock_refresh.call_count == 1, f"Expected _refresh_token_if_needed to be called once, was called {mock_refresh.call_count} times"
+
+                # Verify parent method was called (since refresh succeeded)
+                assert mock_chat.call_count == 1, f"Expected parent chat_completions to be called once, was called {mock_chat.call_count} times"
 
     @pytest.mark.asyncio
     async def test_chat_completion_token_refresh_failure(self, connector):
