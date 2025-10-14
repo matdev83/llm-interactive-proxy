@@ -22,6 +22,7 @@ pytestmark = [
         "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
     ),
     pytest.mark.no_global_mock,
+    pytest.mark.xdist_group("qwen_oauth_serial"),
 ]
 
 
@@ -299,7 +300,8 @@ class TestQwenOAuthCredentials:
                 connector, "_refresh_token_if_needed", new_callable=AsyncMock
             ) as mock_refresh,
             patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions", new_callable=AsyncMock
+                "src.connectors.openai.OpenAIConnector.chat_completions",
+                new_callable=AsyncMock,
             ) as mock_parent_chat,
         ):
             # Configure mocks explicitly
@@ -313,9 +315,6 @@ class TestQwenOAuthCredentials:
             mock_refresh.return_value = True
             mock_refresh.side_effect = mock_refresh_side_effect
 
-            # Clear any existing credentials to force refresh
-            original_creds = connector._oauth_credentials
-
             await connector.chat_completions(
                 request_data=request_data,
                 processed_messages=[test_message],
@@ -323,7 +322,11 @@ class TestQwenOAuthCredentials:
             )
 
             # Verify token refresh was attempted and parent method was called
-            assert mock_refresh.call_count == 1, f"Expected _refresh_token_if_needed to be called once, was called {mock_refresh.call_count} times"
-            assert mock_parent_chat.call_count == 1, f"Expected parent chat_completions to be called once, was called {mock_parent_chat.call_count} times"
+            assert (
+                mock_refresh.call_count == 1
+            ), f"Expected _refresh_token_if_needed to be called once, was called {mock_refresh.call_count} times"
+            assert (
+                mock_parent_chat.call_count == 1
+            ), f"Expected parent chat_completions to be called once, was called {mock_parent_chat.call_count} times"
             # Verify the new token is now in the credentials
             assert connector._oauth_credentials["access_token"] == "new-access-token"

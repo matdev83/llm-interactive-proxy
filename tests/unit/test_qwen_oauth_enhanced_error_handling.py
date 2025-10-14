@@ -11,9 +11,7 @@ pytestmark = [
     pytest.mark.filterwarnings(
         "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
     ),
-    pytest.mark.xdist_group(
-        "qwen_oauth_enhanced_error_handling_isolated"
-    ),  # Unique group name
+    pytest.mark.xdist_group("qwen_oauth_serial"),
     pytest.mark.no_global_mock,
 ]
 from fastapi import HTTPException
