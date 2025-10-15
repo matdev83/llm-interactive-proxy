@@ -100,7 +100,7 @@ and pushing changes we'll revert local back to remote dev and try merging files 
   - src/core/commands/command_meta.py
   - Hypothesis: CLI changes directly affect the module execution context
 
-  Medium-Risk Categories
+  Medium-Risk Categoriespy
 
   Batch 4: Connector and OAuth Changes
   - src/connectors/gemini_oauth_personal.py

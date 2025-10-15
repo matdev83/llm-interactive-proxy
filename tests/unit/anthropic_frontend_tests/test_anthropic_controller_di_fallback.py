@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import Any
+from unittest.mock import MagicMock
 
 from src.core.app.controllers.anthropic_controller import (
     AnthropicController,
@@ -16,6 +17,7 @@ from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.request_processor_interface import IRequestProcessor
@@ -166,6 +168,9 @@ def _build_service_provider_without_request_processor():
 
     agent_formatter = AgentResponseFormatter(session_service=session_service)
     services.add_instance(AgentResponseFormatter, agent_formatter)
+
+    # Backend request manager dependency used by fallback request processor path.
+    services.add_instance(IBackendRequestManager, MagicMock())
 
     # Provide a wire capture implementation to satisfy downstream dependencies.
     wire_capture = _StubWireCapture()

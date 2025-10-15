@@ -7,7 +7,7 @@ Handles Anthropic API endpoints.
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import Any
 
 from fastapi import HTTPException, Request, Response
 
@@ -407,6 +407,9 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
 
         if request_processor is None:
             # If still not found, try to create one on the fly
+            from src.core.interfaces.backend_request_manager_interface import (
+                IBackendRequestManager,
+            )
             from src.core.interfaces.backend_service_interface import IBackendService
             from src.core.interfaces.command_service_interface import ICommandService
             from src.core.interfaces.response_processor_interface import (
@@ -556,9 +559,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                     IBackendRequestManager, backend_request_manager_service
                 )
                 if backend_request_manager is None:
-                    raise InitializationError(
-                        "Could not resolve BackendRequestManager"
-                    )
+                    raise InitializationError("Could not resolve BackendRequestManager")
                 response_manager = ResponseManager(agent_response_formatter)
 
                 request_processor = RequestProcessor(

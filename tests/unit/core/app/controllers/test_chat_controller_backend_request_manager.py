@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from src.core.app.controllers.chat_controller import ChatController, get_chat_controller
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.interfaces.agent_response_formatter_interface import (
@@ -98,7 +97,9 @@ class _DummyRequestProcessor:
         self.response_manager = response_manager
         self.app_state = app_state
 
-    async def process_request(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - unused
+    async def process_request(
+        self, *args: Any, **kwargs: Any
+    ) -> Any:  # pragma: no cover - unused
         raise AssertionError("process_request should not be called in this test")
 
 
@@ -107,10 +108,12 @@ def test_get_chat_controller_uses_wire_capture_when_constructing_backend_manager
 ) -> None:
     """Ensure fallback construction uses DI-provided wire capture instances."""
 
-    from src.core.services import backend_request_manager_service
-    from src.core.services import request_processor_service
-    from src.core.services import response_manager_service
-    from src.core.services import session_manager_service
+    from src.core.services import (
+        backend_request_manager_service,
+        request_processor_service,
+        response_manager_service,
+        session_manager_service,
+    )
 
     monkeypatch.setattr(
         session_manager_service,

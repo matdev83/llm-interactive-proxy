@@ -12,9 +12,8 @@ import re
 import socket
 import sys
 from collections.abc import Callable, Sequence
-from typing import Any, cast
-
 from pathlib import Path
+from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI

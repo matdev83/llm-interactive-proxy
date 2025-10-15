@@ -13,6 +13,7 @@ from src.core.app.controllers.anthropic_controller import (
     get_anthropic_controller,
 )
 from src.core.common.exceptions import ServiceResolutionError
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.di_interface import IServiceProvider, IServiceScope
 
 
@@ -177,6 +178,7 @@ def test_get_anthropic_controller_uses_di_for_app_state(
     provider.set_service(IBackendService, MagicMock())
     provider.set_service(ISessionService, MagicMock())
     provider.set_service(IResponseProcessor, MagicMock())
+    provider.set_service(IBackendRequestManager, MagicMock())
 
     # Register the DI-managed application state instance under the patched class key
     provider.set_service(app_state_mock, sentinel_app_state)
