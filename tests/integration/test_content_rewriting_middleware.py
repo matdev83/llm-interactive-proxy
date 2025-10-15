@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import tempfile
 import unittest
 from unittest.mock import AsyncMock
 
@@ -16,7 +17,7 @@ from starlette.responses import Response, StreamingResponse
 
 class TestContentRewritingMiddleware(unittest.TestCase):
     def setUp(self):
-        self.test_config_dir = "test_config_middleware"
+        self.test_config_dir = tempfile.mkdtemp(prefix="test_config_middleware_")
         os.makedirs(
             os.path.join(self.test_config_dir, "prompts", "system", "001"),
             exist_ok=True,
@@ -37,7 +38,7 @@ class TestContentRewritingMiddleware(unittest.TestCase):
             f.write("rewritten system")
 
     def tearDown(self):
-        shutil.rmtree(self.test_config_dir)
+        shutil.rmtree(self.test_config_dir, ignore_errors=True)
 
     def test_inbound_reply_rewriting(self):
         """Verify that inbound replies are rewritten correctly."""
