@@ -1054,8 +1054,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
         **kwargs: Any,
     ) -> ResponseEnvelope:
         """Handle non-streaming chat completions."""
-        auth_session = self._get_adc_authorized_session()
+        auth_session = None
         try:
+            auth_session = self._get_adc_authorized_session()
             # Use ADC for API calls (matches gemini CLI behavior for project-id auth)
 
             # Ensure project is onboarded for standard-tier
@@ -1204,8 +1205,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 logger.error(f"Unexpected error during API call: {e}", exc_info=True)
             raise BackendError(f"Unexpected error during API call: {e}")
         finally:
-            with contextlib.suppress(Exception):
-                auth_session.close()
+            if auth_session is not None:
+                with contextlib.suppress(Exception):
+                    auth_session.close()
 
     async def _chat_completions_streaming(
         self,
@@ -1215,9 +1217,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
         **kwargs: Any,
     ) -> StreamingResponseEnvelope:
         """Handle streaming chat completions."""
-        auth_session = self._get_adc_authorized_session()
+        auth_session = None
         stream_prepared = False
         try:
+            auth_session = self._get_adc_authorized_session()
             # Use ADC for streaming API calls
 
             # Ensure project is onboarded for standard-tier
@@ -1400,8 +1403,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 finally:
                     if response:  # Ensure response is defined before closing
                         response.close()  # Use synchronous close
-                    with contextlib.suppress(Exception):
-                        auth_session.close()
+                    if auth_session is not None:
+                        with contextlib.suppress(Exception):
+                            auth_session.close()
 
             generator = stream_generator()
             stream_prepared = True
@@ -1420,7 +1424,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
         finally:
-            if not stream_prepared:
+            if not stream_prepared and auth_session is not None:
                 with contextlib.suppress(Exception):
                     auth_session.close()
 
