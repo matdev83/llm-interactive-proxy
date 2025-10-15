@@ -40,8 +40,8 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.middleware_application_manager_interface import (
     IMiddlewareApplicationManager,
 )
-from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
+from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_handler_interface import (
     INonStreamingResponseHandler,
     IStreamingResponseHandler,
