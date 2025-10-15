@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from asyncio import iscoroutinefunction as asyncio_iscoroutinefunction
 from collections.abc import Awaitable, Callable
-from inspect import iscoroutinefunction
 from typing import Any
 
 from src.core.domain.processed_result import ProcessedResult
@@ -13,11 +13,22 @@ CommandServiceHandler = Callable[[list[Any], str], Awaitable[ProcessedResult]]
 def _is_async_callable(candidate: Any) -> bool:
     """Return ``True`` when *candidate* is an awaitable callable."""
 
-    if iscoroutinefunction(candidate):  # Fast path for async callables
+    if asyncio_iscoroutinefunction(candidate):  # Handles partials and decorated callables
+        return True
+
+    func_attr = getattr(candidate, "func", None)
+    if func_attr and asyncio_iscoroutinefunction(func_attr):
         return True
 
     call_method = getattr(candidate, "__call__", None)
-    return bool(call_method and iscoroutinefunction(call_method))
+    if not call_method:
+        return False
+
+    if asyncio_iscoroutinefunction(call_method):
+        return True
+
+    bound_function = getattr(call_method, "__func__", None)
+    return bool(bound_function and asyncio_iscoroutinefunction(bound_function))
 
 
 class FunctionCommandService(ICommandService):
