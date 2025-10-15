@@ -89,4 +89,5 @@ test-results.xml
 .testmondata*
 forcepytest.run
 test_status.json
+data/test_suite_state.json
 .ck/
