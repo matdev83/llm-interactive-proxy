@@ -103,18 +103,19 @@ class ZAIConnector(OpenAIConnector):
         if not self.available_models:
             self.available_models = self._default_models.copy()
 
-    def get_headers(self) -> dict[str, str]:
+    def get_headers(
+        self, identity: IAppIdentityConfig | None = None
+    ) -> dict[str, str]:
         """Get headers with ZAI API key."""
         if not self.api_key:
             raise AuthenticationError(
                 message="ZAI API key is not set.", code="missing_api_key"
             )
-        return ensure_loop_guard_header(
-            {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            }
-        )
+
+        headers = super().get_headers(identity)
+        headers["Authorization"] = f"Bearer {self.api_key}"
+        headers["Content-Type"] = "application/json"
+        return headers
 
     def get_available_models(self) -> list[str]:
         """

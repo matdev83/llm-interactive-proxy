@@ -31,7 +31,6 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
-from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 
 from .openai import OpenAIConnector
@@ -630,7 +629,9 @@ class QwenOAuthConnector(OpenAIConnector):
                 logger.error(f"Error loading Qwen OAuth credentials: {e}")
             return False
 
-    def get_headers(self) -> dict[str, str]:
+    def get_headers(
+        self, identity: IAppIdentityConfig | None = None
+    ) -> dict[str, str]:
         """Override to use access_token from loaded credentials."""
         if not self._oauth_credentials or not self._oauth_credentials.get(
             "access_token"
@@ -639,13 +640,15 @@ class QwenOAuthConnector(OpenAIConnector):
                 status_code=401,
                 detail="No valid Qwen OAuth access token available. Please authenticate.",
             )
-        return ensure_loop_guard_header(
+        headers = super().get_headers(identity)
+        headers.update(
             {
                 "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             }
         )
+        return headers
 
     async def _perform_health_check(self) -> bool:
         """Override parent health check to use Qwen-specific API endpoint."""
