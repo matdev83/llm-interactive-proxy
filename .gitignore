@@ -88,4 +88,5 @@ test-results.xml
 .droid-shield.json
 .testmondata*
 forcepytest.run
+test_status.json
 .ck/
