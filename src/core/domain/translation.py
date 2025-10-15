@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 from typing import Any
 
 _MAX_SANITIZE_DEPTH = 100
@@ -1561,36 +1562,33 @@ class Translation(BaseTranslator):
             config["stopSequences"] = Translation._normalize_stop_sequences(
                 request.stop
             )
-        # Check for CLI override first (--thinking-budget flag)
-        import os
 
-        cli_thinking_budget = os.environ.get("THINKING_BUDGET")
-        if cli_thinking_budget is not None:
-            try:
-                budget = int(cli_thinking_budget)
-                config["thinkingConfig"] = {
-                    "thinkingBudget": budget,
-                    "includeThoughts": True,
-                }
-            except ValueError:
-                pass  # Invalid value, ignore
+        # Handle thinking budget overrides and reasoning effort mapping.
+        def _resolve_thinking_budget(reasoning_effort: str | None) -> int | None:
+            """Resolve thinking budget from CLI override or reasoning effort."""
+            cli_value = os.environ.get("THINKING_BUDGET")
+            if cli_value is not None:
+                try:
+                    return int(cli_value)
+                except ValueError:
+                    return None
 
-        # Otherwise, use reasoning_effort if provided
-        elif request.reasoning_effort is not None:
-            # Gemini uses thinkingBudget (max reasoning tokens)
-            # Map reasoning_effort levels to approximate token budgets
-            # -1 = dynamic/unlimited (let model decide)
-            # 0 = no thinking
-            # positive int = max thinking tokens
-            effort_to_budget = {
+            if reasoning_effort is None:
+                return None
+
+            effort_to_budget: dict[str, int] = {
                 "low": 512,
                 "medium": 2048,
-                "high": -1,  # Dynamic/unlimited
+                "high": -1,
             }
-            budget = effort_to_budget.get(request.reasoning_effort.lower(), -1)
+
+            return effort_to_budget.get(reasoning_effort.lower(), None)
+
+        thinking_budget = _resolve_thinking_budget(request.reasoning_effort)
+        if thinking_budget is not None:
             config["thinkingConfig"] = {
-                "thinkingBudget": budget,
-                "includeThoughts": True,  # Include reasoning in output
+                "thinkingBudget": thinking_budget,
+                "includeThoughts": True,
             }
 
         # Process messages with proper handling of multimodal content and tool calls
