@@ -835,7 +835,6 @@ class QwenOAuthConnector(OpenAIConnector):
 
         This overrides the parent class method to ensure credentials are valid before API call.
         """
-        # First, validate runtime credentials
         # Ensure token is refreshed before making the API call
         if not await self._refresh_token_if_needed():
             raise HTTPException(
@@ -843,16 +842,17 @@ class QwenOAuthConnector(OpenAIConnector):
                 detail="Failed to refresh Qwen OAuth token",
             )
 
-        # First, validate runtime credentials
+        # Validate runtime credentials and backend functionality
         if not await self._validate_runtime_credentials():
-            error_details = (
-                "; ".join(self._credential_validation_errors)
-                if self._credential_validation_errors
-                else "Backend is not functional"
-            )
+            # Check if we have specific validation errors
+            if self._credential_validation_errors:
+                error_detail = f"No valid OAuth credentials found for backend qwen-oauth: {'; '.join(self._credential_validation_errors)}"
+            else:
+                error_detail = "No valid OAuth credentials found for backend qwen-oauth: Backend is not functional"
+
             raise HTTPException(
                 status_code=502,
-                detail=f"No valid OAuth credentials found for backend qwen-oauth: {error_details}",
+                detail=error_detail,
             )
 
         try:
@@ -876,7 +876,10 @@ class QwenOAuthConnector(OpenAIConnector):
             modified_request = chat_request.model_copy(update={"model": model_name})
 
             # Call the parent class method to handle the actual API request
-            response_envelope = await super().chat_completions(
+            from src.connectors.openai import OpenAIConnector
+
+            response_envelope = await OpenAIConnector.chat_completions(
+                self,
                 request_data=modified_request,
                 processed_messages=processed_messages,
                 effective_model=model_name,

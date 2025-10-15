@@ -1,0 +1,1 @@
+{"all_tests_passed": false, "failure": "tests/unit/test_qwen_oauth_credentials.py::TestQwenOAuthCredentials::test_chat_completions_with_token_refresh - AssertionError: Expected parent chat_completions to be called once, was called 0 times", "timestamp": "2025-10-15T12:25:36+02:00"}
