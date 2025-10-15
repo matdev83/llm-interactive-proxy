@@ -236,7 +236,9 @@ class TestToolCallReactorService:
                 current = next_level
             return result
 
-        nested_arguments = _build_nested_dict(1100)
+        # Build a deeply nested structure that will trigger recursion error
+        # Use a higher depth to ensure we exceed the recursion limit consistently
+        nested_arguments = _build_nested_dict(2000)
 
         context = ToolCallContext(
             session_id="test_session",
@@ -262,7 +264,10 @@ class TestToolCallReactorService:
             ]
 
         assert isinstance(stored_arguments, dict)
-        assert stored_arguments.get("__proxy_warning__") == "tool_arguments_snapshot_omitted"
+        assert (
+            stored_arguments.get("__proxy_warning__")
+            == "tool_arguments_snapshot_omitted"
+        )
         assert stored_arguments.get("reason") == "depth_exceeded"
 
     @pytest.mark.asyncio

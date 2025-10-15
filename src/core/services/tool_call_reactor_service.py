@@ -137,7 +137,7 @@ class ToolCallReactorService(IToolCallReactor):
                 "model_name": context.model_name,
                 "calling_agent": context.calling_agent,
                 "timestamp": timestamp,
-                                        "tool_arguments": self._snapshot_tool_arguments(context.tool_arguments),
+                "tool_arguments": self._snapshot_tool_arguments(context.tool_arguments),
             }
 
             await self._history_tracker.record_tool_call(
@@ -265,6 +265,7 @@ class ToolCallReactorService(IToolCallReactor):
 
         # If we get here, the arguments are safe and within size limits
         return deep_copied
+
 
 class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
     """In-memory implementation of tool call history tracking."""
