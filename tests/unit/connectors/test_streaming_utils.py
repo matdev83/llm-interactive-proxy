@@ -4,6 +4,8 @@ Tests for the streaming utilities module using Hypothesis for property-based tes
 
 import pytest
 
+pytest.importorskip("hypothesis")
+
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"

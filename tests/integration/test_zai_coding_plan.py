@@ -1,5 +1,7 @@
 import pytest
 from httpx import Response
+
+pytest.importorskip("respx")
 from respx import MockRouter
 from starlette.testclient import TestClient
 

@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-import respx
 from src.core.domain.session import Session, SessionState
 
 
@@ -267,7 +266,7 @@ class MockSessionService:
 
 
 def mock_backend_api(
-    respx_mock: respx.Router, base_url: str = "https://api.openai.com/v1"
+    respx_mock: Any, base_url: str = "https://api.openai.com/v1"
 ) -> None:
     """Mock backend API calls for testing.
 
