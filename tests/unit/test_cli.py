@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
 from src.core.config.app_config import AppConfig, ParameterResolution
 
@@ -39,6 +40,18 @@ def _unwrap_config(
     result: AppConfig | tuple[AppConfig, ParameterResolution],
 ) -> AppConfig:
     return result[0] if isinstance(result, tuple) else result
+
+
+def test_cli_restores_default_prefix_when_missing() -> None:
+    """CLI should restore the default prefix when configuration omits it."""
+
+    broken_config = AppConfig().model_copy(update={"command_prefix": None})
+
+    with patch("src.core.cli.load_config", return_value=broken_config):
+        args = parse_cli_args([])
+        config = _unwrap_config(apply_cli_args(args))
+
+    assert config.command_prefix == DEFAULT_COMMAND_PREFIX
 
 
 def test_cli_allows_all_registered_backends() -> None:
