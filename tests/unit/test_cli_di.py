@@ -117,6 +117,8 @@ def test_cli_redaction_flag(monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = cfg[0]
     assert os.environ["DEFAULT_INTERACTIVE_MODE"] == "false"
     assert cfg.session.default_interactive_mode is False
+    # Clean up to prevent test pollution
+    monkeypatch.delenv("DEFAULT_INTERACTIVE_MODE", raising=False)
 
 
 def test_cli_force_set_project(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -153,6 +155,28 @@ def test_cli_normalizes_backend_api_keys(monkeypatch: pytest.MonkeyPatch) -> Non
     assert cfg.backends.gemini.api_key == ["gemini-key"]
     assert cfg.backends.openrouter.api_key == ["openrouter-key"]
     assert cfg.backends.zai.api_key == ["zai-key"]
+
+
+def test_cli_planning_phase_overrides_merge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("THINKING_BUDGET", raising=False)
+    args = parse_cli_args(
+        [
+            "--thinking-budget",
+            "321",
+            "--planning-phase-temperature",
+            "0.42",
+        ]
+    )
+
+    cfg = apply_cli_args(args)
+    if isinstance(cfg, tuple):
+        cfg = cfg[0]
+
+    overrides = cfg.session.planning_phase.overrides
+    assert overrides.get("thinking_budget") == 321
+    assert overrides.get("temperature") == 0.42
 
 
 def test_cli_disable_interactive_commands(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -362,11 +386,13 @@ def test_apply_cli_args_basic() -> None:
     args = parse_cli_args(["--port", "8080"])
     with patch.dict(os.environ, {}, clear=True):
         cfg = apply_cli_args(args)
+        if isinstance(cfg, tuple):
+            cfg = cfg[0]
         assert cfg.port == 8080
 
 
-def test_apply_cli_args_disable_auth_forces_localhost() -> None:
-    """Test that disable_auth via CLI forces host to localhost."""
+def test_apply_cli_args_disable_auth_does_not_force_localhost() -> None:
+    """Test that disable_auth via CLI does NOT force host to localhost in apply_cli_args."""
     args = parse_cli_args(["--disable-auth", "--host", "0.0.0.0"])
     with (
         patch.dict(os.environ, {}, clear=True),
@@ -375,23 +401,14 @@ def test_apply_cli_args_disable_auth_forces_localhost() -> None:
         cfg = apply_cli_args(args)
         if isinstance(cfg, tuple):
             cfg = cfg[0]
-        assert cfg.host == "127.0.0.1"
+        assert cfg.host == "0.0.0.0"
         assert cfg.auth.disable_auth is True
-        # Should log warnings about auth being disabled and host being forced
-        assert mock_logging.warning.call_count == 2
-        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-        auth_disabled_warnings = [
-            call for call in warning_calls if "authentication is DISABLED" in call
-        ]
-        host_forcing_warnings = [
-            call for call in warning_calls if "Forcing host to 127.0.0.1" in call
-        ]
-        assert len(auth_disabled_warnings) == 1
-        assert len(host_forcing_warnings) == 1
+        # No warnings should be logged at this stage
+        mock_logging.warning.assert_not_called()
 
 
-def test_apply_cli_args_disable_auth_with_localhost_no_warning() -> None:
-    """Test that disable_auth with localhost doesn't trigger host forcing warning."""
+def test_apply_cli_args_disable_auth_with_localhost_no_force() -> None:
+    """Test that disable_auth with localhost doesn't force host and logs no warnings."""
     args = parse_cli_args(["--disable-auth", "--host", "127.0.0.1"])
     with (
         patch.dict(os.environ, {}, clear=True),
@@ -402,17 +419,8 @@ def test_apply_cli_args_disable_auth_with_localhost_no_warning() -> None:
             cfg = cfg[0]
         assert cfg.host == "127.0.0.1"
         assert cfg.auth.disable_auth is True
-        # Should log only the auth disabled warning, not host forcing
-        assert mock_logging.warning.call_count == 1
-        warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-        auth_disabled_warnings = [
-            call for call in warning_calls if "authentication is DISABLED" in call
-        ]
-        host_forcing_warnings = [
-            call for call in warning_calls if "Forcing host to 127.0.0.1" in call
-        ]
-        assert len(auth_disabled_warnings) == 1
-        assert len(host_forcing_warnings) == 0
+        # No warnings should be logged at this stage
+        mock_logging.warning.assert_not_called()
 
 
 def test_main_disable_auth_forces_localhost() -> None:
@@ -428,7 +436,7 @@ def test_main_disable_auth_forces_localhost() -> None:
         patch("src.core.app.application_builder.build_app"),
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
-        main(["--port", "8080"])
+        main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
 
         # Should force host to localhost
         mock_uvicorn.assert_called_once_with(
@@ -455,7 +463,7 @@ def test_main_disable_auth_with_localhost_no_force() -> None:
         patch("src.core.app.application_builder.build_app"),
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
-        main(["--port", "8080"])
+        main(["--port", "8080", "--disable-auth", "--host", "127.0.0.1"])
 
         # Should use localhost
         mock_uvicorn.assert_called_once_with(
@@ -482,7 +490,7 @@ def test_main_auth_enabled_allows_custom_host() -> None:
         patch("src.core.app.application_builder.build_app"),
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
-        main(["--port", "8080"])
+        main(["--port", "8080", "--host", "0.0.0.0"])
 
         # Should use custom host when auth is enabled
         mock_uvicorn.assert_called_once_with(

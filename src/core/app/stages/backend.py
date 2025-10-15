@@ -248,9 +248,11 @@ class BackendStage(InitializationStage):
                 BackendService, implementation_factory=backend_service_factory
             )
 
-            services.add_singleton(
+            services.add_singleton_factory(
                 cast(type, IBackendService),
-                implementation_factory=backend_service_factory,
+                implementation_factory=lambda provider: provider.get_required_service(
+                    BackendService
+                ),
             )
 
             if logger.isEnabledFor(logging.DEBUG):

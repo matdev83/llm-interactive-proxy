@@ -422,6 +422,7 @@ class SessionConfig(DomainModel):
     pytest_full_suite_steering_enabled: bool | None = None
     pytest_full_suite_steering_message: str | None = None
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
+    max_per_session_backends: int = 32
 
     @model_validator(mode="before")
     @classmethod
@@ -790,6 +791,7 @@ class AppConfig(DomainModel, IConfig):
         if p.suffix.lower() in {".yaml", ".yml"}:
             import yaml
 
+            logger.debug(f"Saving configuration to {p}: {data}")
             with p.open("w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f, sort_keys=False)
         else:

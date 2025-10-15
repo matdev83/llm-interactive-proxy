@@ -379,45 +379,46 @@ class RequestProcessor(IRequestProcessor):
                 if should_redact:
                     api_keys = discover_api_keys_from_config_and_env(app_config)
                     # Command prefix can be None; RedactionMiddleware has a default
-                    command_prefix = None
+                    command_prefix: str | None = None
 
-                    # Debug logging for API keys
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"Redaction middleware: discovered {len(api_keys)} API keys"
-                        )
-
-                    # Check for session-level command prefix override first (highest priority)
+                    # Check for session-level command prefix override first
                     try:
                         session_state = getattr(session, "state", None)
                         if session_state is not None:
-                            session_override = getattr(
+                            session_prefix = getattr(
                                 session_state, "command_prefix_override", None
                             )
-                            if isinstance(session_override, str) and session_override:
-                                command_prefix = session_override
+                            if (
+                                isinstance(session_prefix, str)
+                                and session_prefix.strip()
+                            ):
+                                command_prefix = session_prefix.strip()
                     except Exception:
-                        # Best effort - continue with other prefix sources
                         pass
 
-                    # If no session override, prioritize app state command prefix over app config
-                    if command_prefix is None and self._app_state is not None:
+                    # Fall back to app state command prefix if no session override
+                    if not command_prefix and self._app_state is not None:
                         try:
-                            command_prefix = self._app_state.get_command_prefix()
-                            # Validate that it's actually a string, not a mock or other object
-                            if not isinstance(command_prefix, str):
-                                command_prefix = None
+                            candidate_prefix = self._app_state.get_command_prefix()
                         except AttributeError:
+                            candidate_prefix = None
+                        if isinstance(candidate_prefix, str):
+                            stripped_prefix = candidate_prefix.strip()
+                            command_prefix = stripped_prefix or None
+                        else:
                             command_prefix = None
 
-                    # Fall back to app_config command prefix if neither session override nor app state have one
-                    if command_prefix is None:
+                    # Fall back to config command prefix if still not found
+                    if not command_prefix:
                         try:
-                            command_prefix = (
+                            config_prefix = (
                                 app_config.command_prefix
                                 if app_config is not None
                                 else None
                             )
+                            if isinstance(config_prefix, str):
+                                stripped_prefix = config_prefix.strip()
+                                command_prefix = stripped_prefix or None
                         except (AttributeError, TypeError):
                             command_prefix = None
 

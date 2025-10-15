@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 from typing import Any
+
+_MAX_SANITIZE_DEPTH = 100
 
 from src.core.domain.base_translator import BaseTranslator
 from src.core.domain.chat import (
@@ -460,48 +463,188 @@ class Translation(BaseTranslator):
         return "{}"
 
     @staticmethod
-    def _sanitize_dict_for_json(data: dict[str, Any]) -> dict[str, Any]:
-        """Sanitize a dictionary by removing or converting non-JSON-serializable values."""
-        sanitized = {}
-        for key, value in data.items():
+    def _is_json_serializable(
+        value: Any,
+        *,
+        max_depth: int,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> bool:
+        """Best-effort check to determine if a value can be JSON-serialized."""
+
+        if _depth > max_depth:
+            return False
+
+        if value is None or isinstance(value, str | int | float | bool):
+            return True
+
+        if isinstance(value, list | tuple):
+            if _seen is None:
+                _seen = set()
+            obj_id = id(value)
+            if obj_id in _seen:
+                return False
+            _seen.add(obj_id)
             try:
-                # Test if the value is JSON serializable
-                json.dumps(value)
-                sanitized[key] = value
-            except TypeError:
-                # Handle non-serializable values
-                if isinstance(value, dict):
-                    sanitized[key] = Translation._sanitize_dict_for_json(value)
-                elif isinstance(value, list | tuple):
-                    sanitized[key] = Translation._sanitize_list_for_json(list(value))
-                elif isinstance(value, str | int | float | bool) or value is None:
-                    sanitized[key] = value
-                else:
-                    # For complex objects, skip them to maintain valid tool arguments
-                    continue
-        return sanitized
+                return all(
+                    Translation._is_json_serializable(
+                        item,
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                        _seen=_seen,
+                    )
+                    for item in value
+                )
+            finally:
+                _seen.remove(obj_id)
+
+        if isinstance(value, dict):
+            if _seen is None:
+                _seen = set()
+            obj_id = id(value)
+            if obj_id in _seen:
+                return False
+            _seen.add(obj_id)
+            try:
+                for key, item in value.items():
+                    if key is not None and not isinstance(
+                        key, str | int | float | bool
+                    ):
+                        return False
+                    if not Translation._is_json_serializable(
+                        item,
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                        _seen=_seen,
+                    ):
+                        return False
+            finally:
+                _seen.remove(obj_id)
+            return True
+
+        return False
 
     @staticmethod
-    def _sanitize_list_for_json(data: list[Any]) -> list[Any]:
+    def _sanitize_dict_for_json(
+        data: dict[str, Any],
+        *,
+        max_depth: int = _MAX_SANITIZE_DEPTH,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> dict[str, Any]:
+        """Sanitize a dictionary by removing or converting non-JSON-serializable values."""
+
+        if _depth > max_depth:
+            return {}
+
+        if _seen is None:
+            _seen = set()
+
+        obj_id = id(data)
+        if obj_id in _seen:
+            return {}
+
+        _seen.add(obj_id)
+        try:
+            sanitized: dict[str, Any] = {}
+            sanitized_value: Any = None
+            for key, value in data.items():
+                if key is not None and not isinstance(key, str | int | float | bool):
+                    continue
+
+                if Translation._is_json_serializable(
+                    value,
+                    max_depth=max_depth,
+                    _depth=_depth + 1,
+                    _seen=_seen,
+                ):
+                    sanitized[key] = value
+                    continue
+
+                if isinstance(value, dict):
+                    sanitized_value = Translation._sanitize_dict_for_json(
+                        value,
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                        _seen=_seen,
+                    )
+                elif isinstance(value, list | tuple):
+                    sanitized_value = Translation._sanitize_list_for_json(
+                        list(value),
+                        max_depth=max_depth,
+                        _depth=_depth + 1,
+                        _seen=_seen,
+                    )
+                elif isinstance(value, str | int | float | bool) or value is None:
+                    sanitized_value = value
+                else:
+                    continue
+
+                sanitized[key] = sanitized_value
+
+            return sanitized
+        finally:
+            _seen.remove(obj_id)
+
+    @staticmethod
+    def _sanitize_list_for_json(
+        data: list[Any],
+        *,
+        max_depth: int = _MAX_SANITIZE_DEPTH,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> list[Any]:
         """Sanitize a list by removing or converting non-JSON-serializable items."""
-        sanitized = []
-        for item in data:
-            try:
-                # Test if the item is JSON serializable
-                json.dumps(item)
-                sanitized.append(item)
-            except TypeError:
-                # Handle non-serializable items
+
+        if _depth > max_depth:
+            return []
+
+        if _seen is None:
+            _seen = set()
+
+        obj_id = id(data)
+        if obj_id in _seen:
+            return []
+
+        _seen.add(obj_id)
+        try:
+            sanitized: list[Any] = []
+            for item in data:
+                if Translation._is_json_serializable(
+                    item,
+                    max_depth=max_depth,
+                    _depth=_depth + 1,
+                    _seen=_seen,
+                ):
+                    sanitized.append(item)
+                    continue
+
                 if isinstance(item, dict):
-                    sanitized.append(Translation._sanitize_dict_for_json(item))
+                    sanitized.append(
+                        Translation._sanitize_dict_for_json(
+                            item,
+                            max_depth=max_depth,
+                            _depth=_depth + 1,
+                            _seen=_seen,
+                        )
+                    )
                 elif isinstance(item, list | tuple):
-                    sanitized.append(Translation._sanitize_list_for_json(list(item)))
+                    sanitized.append(
+                        Translation._sanitize_list_for_json(
+                            list(item),
+                            max_depth=max_depth,
+                            _depth=_depth + 1,
+                            _seen=_seen,
+                        )
+                    )
                 elif isinstance(item, str | int | float | bool) or item is None:
                     sanitized.append(item)
                 else:
-                    # For complex objects, skip them to maintain valid tool arguments
                     continue
-        return sanitized
+
+            return sanitized
+        finally:
+            _seen.remove(obj_id)
 
     @staticmethod
     def _process_gemini_function_call(function_call: dict[str, Any]) -> ToolCall:
@@ -1419,36 +1562,33 @@ class Translation(BaseTranslator):
             config["stopSequences"] = Translation._normalize_stop_sequences(
                 request.stop
             )
-        # Check for CLI override first (--thinking-budget flag)
-        import os
 
-        cli_thinking_budget = os.environ.get("THINKING_BUDGET")
-        if cli_thinking_budget is not None:
-            try:
-                budget = int(cli_thinking_budget)
-                config["thinkingConfig"] = {
-                    "thinkingBudget": budget,
-                    "includeThoughts": True,
-                }
-            except ValueError:
-                pass  # Invalid value, ignore
+        # Handle thinking budget overrides and reasoning effort mapping.
+        def _resolve_thinking_budget(reasoning_effort: str | None) -> int | None:
+            """Resolve thinking budget from CLI override or reasoning effort."""
+            cli_value = os.environ.get("THINKING_BUDGET")
+            if cli_value is not None:
+                try:
+                    return int(cli_value)
+                except ValueError:
+                    return None
 
-        # Otherwise, use reasoning_effort if provided
-        elif request.reasoning_effort is not None:
-            # Gemini uses thinkingBudget (max reasoning tokens)
-            # Map reasoning_effort levels to approximate token budgets
-            # -1 = dynamic/unlimited (let model decide)
-            # 0 = no thinking
-            # positive int = max thinking tokens
-            effort_to_budget = {
+            if reasoning_effort is None:
+                return None
+
+            effort_to_budget: dict[str, int] = {
                 "low": 512,
                 "medium": 2048,
-                "high": -1,  # Dynamic/unlimited
+                "high": -1,
             }
-            budget = effort_to_budget.get(request.reasoning_effort.lower(), -1)
+
+            return effort_to_budget.get(reasoning_effort.lower(), None)
+
+        thinking_budget = _resolve_thinking_budget(request.reasoning_effort)
+        if thinking_budget is not None:
             config["thinkingConfig"] = {
-                "thinkingBudget": budget,
-                "includeThoughts": True,  # Include reasoning in output
+                "thinkingBudget": thinking_budget,
+                "includeThoughts": True,
             }
 
         # Process messages with proper handling of multimodal content and tool calls

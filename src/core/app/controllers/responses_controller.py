@@ -2,6 +2,9 @@
 
 import asyncio
 import logging
+import re
+import sre_parse
+from sre_constants import MAXREPEAT
 from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
@@ -9,13 +12,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from src.core.common.exceptions import InitializationError, LLMProxyError
-from src.core.domain.responses_api import ResponsesRequest
+from src.core.domain.responses_api import (
+    ResponsesRequest,
+    enforce_json_schema_limits,
+)
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.translation_service_interface import (
     ITranslationService,
 )
+from src.core.services.json_repair_service import enforce_schema_size_limits
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -29,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 class ResponsesController:
     """Controller for Responses API endpoints."""
+
+    _MAX_REGEX_PATTERN_LENGTH = 512
 
     def __init__(
         self,
@@ -626,7 +635,11 @@ class ResponsesController:
         if not isinstance(schema, dict):
             raise ValueError("Schema must be a dictionary")
 
+        enforce_schema_size_limits(schema)
+
         # Check for required fields
+        ResponsesController._ensure_safe_regex_patterns(schema)
+
         if "type" not in schema:
             raise ValueError("Schema must have a 'type' field")
 
@@ -745,6 +758,137 @@ class ResponsesController:
             enum_values = schema["enum"]
             if not isinstance(enum_values, list) or len(enum_values) == 0:
                 raise ValueError("Enum must be a non-empty list")
+
+        enforce_json_schema_limits(schema)
+
+    @staticmethod
+    def _ensure_safe_regex_patterns(schema: dict[str, Any]) -> None:
+        """Validate regex patterns in a schema to avoid catastrophic backtracking."""
+
+        stack: list[tuple[Any, str]] = [(schema, "$")]
+        visited: set[int] = set()
+
+        while stack:
+            node, location = stack.pop()
+            node_id = id(node)
+            if node_id in visited:
+                continue
+            visited.add(node_id)
+
+            if isinstance(node, dict):
+                pattern = node.get("pattern")
+                if isinstance(pattern, str):
+                    ResponsesController._validate_single_regex(
+                        pattern, f"{location}.pattern"
+                    )
+
+                pattern_properties = node.get("patternProperties")
+                if isinstance(pattern_properties, dict):
+                    for regex_key, sub_schema in pattern_properties.items():
+                        if isinstance(regex_key, str):
+                            ResponsesController._validate_single_regex(
+                                regex_key,
+                                f"{location}.patternProperties[{regex_key}]",
+                            )
+                        if isinstance(sub_schema, dict | list):
+                            stack.append(
+                                (
+                                    sub_schema,
+                                    f"{location}.patternProperties.{regex_key}",
+                                )
+                            )
+
+                for key, value in node.items():
+                    if key == "patternProperties":
+                        continue
+                    if isinstance(value, dict | list):
+                        stack.append((value, f"{location}.{key}"))
+
+            elif isinstance(node, list):
+                for index, item in enumerate(node):
+                    if isinstance(item, dict | list):
+                        stack.append((item, f"{location}[{index}]"))
+
+    @staticmethod
+    def _validate_single_regex(pattern: str, location: str) -> None:
+        """Validate an individual regex for potential ReDoS characteristics."""
+
+        if len(pattern) > ResponsesController._MAX_REGEX_PATTERN_LENGTH:
+            raise ValueError(
+                "Regex pattern too long: "
+                f"{location} has {len(pattern)} characters (limit is {ResponsesController._MAX_REGEX_PATTERN_LENGTH})"
+            )
+
+        try:
+            parsed = sre_parse.parse(pattern)
+        except re.error as exc:  # pragma: no cover - invalid regex handled elsewhere
+            raise ValueError(
+                f"Invalid regex pattern at {location}: {exc.args[0]}"
+            ) from exc
+
+        if ResponsesController._contains_nested_unbounded_repeat(parsed):
+            raise ValueError(
+                "Regex pattern contains nested unbounded quantifiers which "
+                f"can lead to catastrophic backtracking: {location}"
+            )
+
+    @staticmethod
+    def _contains_nested_unbounded_repeat(
+        subpattern: sre_parse.SubPattern, inside_unbounded: bool = False
+    ) -> bool:
+        """Detect nested unbounded repeats within a parsed regex pattern."""
+
+        # sre_parse.SubPattern is iterable but mypy can't understand this
+        for token in cast(list[tuple[Any, Any]], subpattern):  # type: ignore[arg-type]
+            operator, argument = token
+
+            if operator in {sre_parse.MAX_REPEAT, sre_parse.MIN_REPEAT}:
+                # unpack with type ignore due to mypy not understanding sre_parse tuple structure
+                min_repeat, max_repeat, nested = cast(tuple, argument)  # type: ignore[misc]
+                is_unbounded = max_repeat == MAXREPEAT
+
+                if inside_unbounded and is_unbounded:
+                    return True
+
+                if ResponsesController._contains_nested_unbounded_repeat(
+                    cast(sre_parse.SubPattern, nested),
+                    inside_unbounded=is_unbounded or inside_unbounded,
+                ):
+                    return True
+
+                continue
+
+            if operator == sre_parse.SUBPATTERN:
+                # argument is a tuple, nested pattern is the last element
+                nested = cast(tuple, argument)[-1]  # type: ignore[index]
+                if ResponsesController._contains_nested_unbounded_repeat(
+                    cast(sre_parse.SubPattern, nested),
+                    inside_unbounded=inside_unbounded,
+                ):
+                    return True
+                continue
+
+            if operator == sre_parse.BRANCH:
+                # argument is a tuple, second element is list of branches
+                _, branches = cast(tuple, argument)  # type: ignore[misc]
+                for branch in cast(list, branches):
+                    if ResponsesController._contains_nested_unbounded_repeat(
+                        cast(sre_parse.SubPattern, branch),
+                        inside_unbounded=inside_unbounded,
+                    ):
+                        return True
+                continue
+
+            if operator in {sre_parse.ASSERT, sre_parse.ASSERT_NOT}:
+                # argument is a tuple, second element is the nested pattern
+                nested = cast(tuple, argument)[1]  # type: ignore[index]
+                if ResponsesController._contains_nested_unbounded_repeat(
+                    cast(sre_parse.SubPattern, nested),
+                    inside_unbounded=inside_unbounded,
+                ):
+                    return True
+
+        return False
 
 
 def get_responses_controller(service_provider: IServiceProvider) -> ResponsesController:

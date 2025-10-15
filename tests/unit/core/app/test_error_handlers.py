@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 import pytest
@@ -356,6 +357,47 @@ def test_general_exception_handler_standard_request(
         }
     }
     assert any(record.exc_info for record in caplog.records)
+
+
+def test_general_exception_handler_preserves_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = make_request("/v1/embeddings")
+
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as err:
+        captured_exc = err
+
+    with caplog.at_level(logging.ERROR, logger="src.core.app.error_handlers"):
+        response = call_handler(
+            general_exception_handler,
+            request,
+            captured_exc,
+        )
+
+    assert response.status_code == 500
+    payload = parse_json_response(response)
+    assert payload == {
+        "detail": {
+            "error": {
+                "message": "Internal Server Error",
+                "type": "InternalError",
+                "status_code": 500,
+            }
+        }
+    }
+
+    error_records = [
+        record
+        for record in caplog.records
+        if record.levelno >= logging.ERROR and record.exc_info is not None
+    ]
+    assert error_records, "Expected at least one error log with exception info"
+    exc_type, exc_value, exc_tb = error_records[0].exc_info
+    assert exc_type is RuntimeError
+    assert exc_value is captured_exc
+    assert exc_tb is captured_exc.__traceback__
 
 
 def test_configure_exception_handlers_registers_handlers() -> None:

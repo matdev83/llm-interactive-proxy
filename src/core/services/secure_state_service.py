@@ -8,6 +8,7 @@ only authorized operations are performed through proper interfaces.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import Any
 
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -23,14 +24,29 @@ logger = logging.getLogger(__name__)
 class SecureStateService(ISecureStateAccess, ISecureStateModification):
     """Secure state service that enforces proper access patterns."""
 
-    def __init__(self, application_state: IApplicationState):
+    DEFAULT_MAX_ACCESS_LOG_ENTRIES = 1024
+
+    def __init__(
+        self,
+        application_state: IApplicationState,
+        max_access_log_entries: int | None = None,
+    ) -> None:
         """Initialize with application state dependency.
 
         Args:
             application_state: The application state service to use
+            max_access_log_entries: Maximum number of access log entries to retain
         """
+        if max_access_log_entries is None:
+            max_entries = self.DEFAULT_MAX_ACCESS_LOG_ENTRIES
+        elif max_access_log_entries <= 0:
+            raise ValueError("max_access_log_entries must be a positive integer")
+        else:
+            max_entries = max_access_log_entries
+
         self._application_state = application_state
-        self._access_log: list[dict[str, Any]] = []
+        self._access_log_max_entries = max_entries
+        self._access_log: deque[dict[str, Any]] = deque(maxlen=max_entries)
 
     # Secure read access methods
     def get_command_prefix(self) -> str | None:
@@ -135,7 +151,7 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
 
     def get_access_log(self) -> list[dict[str, Any]]:
         """Get the access log for auditing."""
-        return self._access_log.copy()
+        return list(self._access_log)
 
 
 class StateAccessProxy:

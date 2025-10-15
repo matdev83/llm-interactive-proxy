@@ -15,21 +15,53 @@ from src.core.app.test_builder import build_test_app as build_app
 from src.core.common.exceptions import ConfigurationError, JSONParsingError
 from src.core.config.app_config import load_config
 from src.core.persistence import ConfigManager
+from src.core.services.application_state_service import ApplicationStateService
 
 
 @pytest.fixture(autouse=True)
 def manage_env_vars(monkeypatch: pytest.MonkeyPatch):
+    # Store original environment
+    import os
+
+    original_env = dict(os.environ)
+
+    # Clear potentially polluting variables first
+    env_vars_to_clear = [
+        "DEFAULT_BACKEND",
+        "LLM_BACKEND",
+        "THINKING_BUDGET",
+        "DISABLE_AUTH",
+        "API_KEYS",
+        "PYTEST_CURRENT_TEST",
+        "PROXY_PORT",
+        "COMMAND_PREFIX",
+        "FORCE_CONTEXT_WINDOW",
+    ]
+    for var in env_vars_to_clear:
+        monkeypatch.delenv(var, raising=False)
+
+    # Set clean test environment
     monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-proxy-key")
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "dummy_or_key")
     monkeypatch.setenv("GEMINI_API_KEY_1", "dummy_gem_key")
+
     yield
-    for i in range(1, 21):  # Clean up numbered keys potentially set by other tests
+
+    # Clean up numbered keys potentially set by other tests
+    for i in range(1, 21):
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
 
+    # Restore original environment completely
+    os.environ.clear()
+    os.environ.update(original_env)
+
 
 def test_save_and_load_persistent_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, functional_backend: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    functional_backend: str,
+    caplog: pytest.LogCaptureFixture,
 ):
     cfg_path = tmp_path / "cfg.yaml"
     # Ensure a clean slate for keys that might be set by other tests or global env
@@ -40,28 +72,32 @@ def test_save_and_load_persistent_config(
     monkeypatch.setenv("DEFAULT_BACKEND", "openrouter")
     app_config = load_config(str(cfg_path))
     app = build_app(config=app_config)
+    caplog.set_level("WARNING")
+
     with TestClient(
         app
     ) as client:  # Auth headers not needed if client fixture handles it
         # Create a modified config with updated values (config is frozen, so we use model_copy)
 
         # Use model_copy to efficiently create updated configuration
-        updated_failover_routes = dict(client.app.state.app_config.failover_routes)
+        client_app = client.app  # type: ignore[attr-defined]
+        app_config_state = client_app.state.app_config  # type: ignore[attr-defined]
+        updated_failover_routes = dict(app_config_state.failover_routes)
         updated_failover_routes["r1"] = {
             "policy": "k",
             "elements": ["openrouter:model-a"],
         }
 
-        updated_config = client.app.state.app_config.model_copy(
+        updated_config = app_config_state.model_copy(
             update={
                 "command_prefix": "$/",
-                "backends": client.app.state.app_config.backends.model_copy(
+                "backends": app_config_state.backends.model_copy(
                     update={"default_backend": functional_backend}
                 ),
-                "auth": client.app.state.app_config.auth.model_copy(
+                "auth": app_config_state.auth.model_copy(
                     update={"redact_api_keys_in_prompts": False}
                 ),
-                "session": client.app.state.app_config.session.model_copy(
+                "session": app_config_state.session.model_copy(
                     update={"default_interactive_mode": True}
                 ),
                 "failover_routes": updated_failover_routes,
@@ -105,20 +141,21 @@ def test_save_and_load_persistent_config(
             raise
         app2 = build_app(config=app2_config)
 
+    caplog.clear()
+
     with TestClient(app2) as client2:
         # Config file should be used since no CLI argument overrides it
-        assert (
-            client2.app.state.app_config.backends.default_backend == functional_backend
-        )
-        assert client2.app.state.app_config.session.default_interactive_mode is True
+        app2_state = client2.app.state  # type: ignore[attr-defined]
+        assert app2_state.app_config.backends.default_backend == functional_backend
+        assert app2_state.app_config.session.default_interactive_mode is True
 
         expected_elements = ["openrouter:model-a"]
 
         # The key 'r1' might not exist if all its elements were deemed unavailable.
-        if "r1" in client2.app.state.app_config.failover_routes:  # Updated path
+        if "r1" in app2_state.app_config.failover_routes:
             assert (
-                client2.app.state.app_config.failover_routes["r1"]["elements"]
-                == expected_elements  # Updated path
+                app2_state.app_config.failover_routes["r1"]["elements"]
+                == expected_elements
             )
         else:
             assert (
@@ -181,32 +218,21 @@ pytestmark = pytest.mark.filterwarnings(
 )
 
 
-class _DummyAppState:
-    def __init__(self) -> None:
-        self._functional_backends = ["openai"]
-        self.backend_type: str | None = None
-        self.backend = None
-
-    def get_functional_backends(self) -> list[str]:
-        return list(self._functional_backends)
-
-    def set_backend_type(self, backend_type: str | None) -> None:
-        self.backend_type = backend_type
-
-    def set_backend(self, backend: object) -> None:
-        self.backend = backend
-
-
 def test_apply_default_backend_invalid_backend_raises_configuration_error() -> None:
     app = FastAPI()
-    manager = ConfigManager(app, path=":memory:", app_state=_DummyAppState())
+    application_state = ApplicationStateService()
+    manager = ConfigManager(
+        app,
+        path=":memory:",
+        app_state=application_state,
+    )
 
     with pytest.raises(ConfigurationError) as exc_info:
         manager._apply_default_backend("nonexistent")
 
     assert exc_info.value.details == {
         "backend": "nonexistent",
-        "functional_backends": ["openai"],
+        "functional_backends": [],
     }
 
 
@@ -214,7 +240,12 @@ def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = FastAPI()
-    manager = ConfigManager(app, path=":memory:", app_state=_DummyAppState())
+    application_state = ApplicationStateService()
+    manager = ConfigManager(
+        app,
+        path=":memory:",
+        app_state=application_state,
+    )
 
     monkeypatch.setenv("LLM_BACKEND", "openai")
 
@@ -223,7 +254,7 @@ def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
 
     assert exc_info.value.details == {
         "backend": "nonexistent",
-        "functional_backends": ["openai"],
+        "functional_backends": [],
     }
 
 

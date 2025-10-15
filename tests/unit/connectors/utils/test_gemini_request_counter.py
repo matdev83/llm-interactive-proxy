@@ -1,8 +1,8 @@
 import json
+import logging
 import uuid
-from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
@@ -16,12 +16,6 @@ def persistence_path(tmp_path: Path) -> Path:
     # Use UUID to ensure uniqueness in parallel execution
     unique_id = str(uuid.uuid4())
     return tmp_path / f"request_count_{unique_id}.json"
-
-
-@pytest.fixture
-def logger_mock() -> Generator[MagicMock, None, None]:
-    with patch("src.connectors.utils.gemini_request_counter.logger") as mock:
-        yield mock
 
 
 def test_initialization_no_persistence_file(
@@ -97,62 +91,71 @@ def test_daily_reset(persistence_path: Path) -> None:
             assert saved_data["last_reset_date"] == "2023-01-01"
 
 
-def test_threshold_warnings(persistence_path: Path) -> None:
+def _extract_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [record.getMessage() for record in caplog.records]
+
+
+def test_threshold_warnings(
+    persistence_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     # Mock both the date and the logger directly in the test
-    with (
-        patch.object(
-            DailyRequestCounter,
-            "_get_current_pacific_date",
-            return_value="2023-01-01",
-        ),
-        patch("src.connectors.utils.gemini_request_counter.logger") as logger_mock,
+    with patch.object(
+        DailyRequestCounter,
+        "_get_current_pacific_date",
+        return_value="2023-01-01",
     ):
+        caplog.set_level(
+            logging.WARNING, logger="src.connectors.utils.gemini_request_counter"
+        )
         counter = DailyRequestCounter(persistence_path, limit=1000)
-        # Verify the patch is working
         assert counter._get_current_pacific_date() == "2023-01-01"
 
         # Below first threshold
         for _ in range(699):
             counter.increment()
-        logger_mock.warning.assert_not_called()
+        assert not _extract_messages(caplog)
 
         # Hit 700 threshold
         counter.increment()
         assert counter.count == 700
-        logger_mock.warning.assert_called_once_with(
+        assert _extract_messages(caplog) == [
             "Gemini CLI OAuth personal daily usage reached 700 requests (700/1000)."
-        )
+        ]
 
         # Cross several more requests but stay below 800
-        logger_mock.reset_mock()
+        caplog.clear()
         for _ in range(50):
             counter.increment()
-        logger_mock.warning.assert_not_called()
+        assert not _extract_messages(caplog)
 
         # Hit 800 threshold
         for _ in range(50):
             counter.increment()
         assert counter.count == 800
-        logger_mock.warning.assert_called_once_with(
+        assert _extract_messages(caplog) == [
             "Gemini CLI OAuth personal daily usage reached 800 requests (800/1000)."
-        )
+        ]
 
         # Hit 900 threshold
-        logger_mock.reset_mock()
+        caplog.clear()
         for _ in range(100):
             counter.increment()
         assert counter.count == 900
-        logger_mock.warning.assert_called_once_with(
+        assert _extract_messages(caplog) == [
             "Gemini CLI OAuth personal daily usage reached 900 requests (900/1000)."
-        )
+        ]
 
 
-def test_no_warning_below_thresholds(persistence_path: Path) -> None:
-    with patch("src.connectors.utils.gemini_request_counter.logger") as logger_mock:
-        counter = DailyRequestCounter(persistence_path, limit=1000)
-        for _ in range(699):
-            counter.increment()
-        logger_mock.warning.assert_not_called()
+def test_no_warning_below_thresholds(
+    persistence_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(
+        logging.WARNING, logger="src.connectors.utils.gemini_request_counter"
+    )
+    counter = DailyRequestCounter(persistence_path, limit=1000)
+    for _ in range(699):
+        counter.increment()
+    assert not _extract_messages(caplog)
 
 
 def test_pacific_time_date_change(persistence_path: Path) -> None:
@@ -180,7 +183,9 @@ def test_pacific_time_date_change(persistence_path: Path) -> None:
             assert counter.last_reset_date == "2023-01-02"
 
 
-def test_thresholds_persist_across_restarts(persistence_path: Path) -> None:
+def test_thresholds_persist_across_restarts(
+    persistence_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     # Mock both the date and the logger directly in the test
     with (
         patch.object(
@@ -188,8 +193,10 @@ def test_thresholds_persist_across_restarts(persistence_path: Path) -> None:
             "_get_current_pacific_date",
             return_value="2023-01-01",
         ),
-        patch("src.connectors.utils.gemini_request_counter.logger") as logger_mock,
     ):
+        caplog.set_level(
+            logging.WARNING, logger="src.connectors.utils.gemini_request_counter"
+        )
         counter = DailyRequestCounter(persistence_path, limit=1000)
         assert counter._get_current_pacific_date() == "2023-01-01"
 
@@ -202,7 +209,7 @@ def test_thresholds_persist_across_restarts(persistence_path: Path) -> None:
         persisted = json.loads(persistence_path.read_text(encoding="utf-8"))
         assert set(persisted["logged_thresholds"]) == {700, 800}
 
-        logger_mock.reset_mock()
+        caplog.clear()
 
         # Simulate restart by creating a new counter instance
         counter_restarted = DailyRequestCounter(persistence_path, limit=1000)
@@ -214,12 +221,14 @@ def test_thresholds_persist_across_restarts(persistence_path: Path) -> None:
             counter_restarted.increment()
 
         assert counter_restarted.count == 900
-        logger_mock.warning.assert_called_once_with(
+        assert _extract_messages(caplog) == [
             "Gemini CLI OAuth personal daily usage reached 900 requests (900/1000)."
-        )
+        ]
 
 
-def test_restart_logs_missing_thresholds(persistence_path: Path) -> None:
+def test_restart_logs_missing_thresholds(
+    persistence_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     data = {"count": 850, "last_reset_date": "2023-01-01"}
     persistence_path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -229,8 +238,10 @@ def test_restart_logs_missing_thresholds(persistence_path: Path) -> None:
             "_get_current_pacific_date",
             return_value="2023-01-01",
         ),
-        patch("src.connectors.utils.gemini_request_counter.logger") as logger_mock,
     ):
+        caplog.set_level(
+            logging.WARNING, logger="src.connectors.utils.gemini_request_counter"
+        )
         counter = DailyRequestCounter(persistence_path, limit=1000)
         assert counter._get_current_pacific_date() == "2023-01-01"
 
@@ -242,12 +253,7 @@ def test_restart_logs_missing_thresholds(persistence_path: Path) -> None:
             "Gemini CLI OAuth personal daily usage reached 800 requests (850/1000).",
         ]
 
-        assert logger_mock.warning.call_count == 2
-        actual_calls = [
-            call_args.args[0] if call_args.args else ""
-            for call_args in logger_mock.warning.call_args_list
-        ]
-        assert actual_calls == expected_calls
+        assert _extract_messages(caplog) == expected_calls
 
         persisted = json.loads(persistence_path.read_text(encoding="utf-8"))
         assert set(persisted.get("logged_thresholds", [])) == {700, 800}

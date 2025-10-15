@@ -17,6 +17,8 @@ from src.core.commands.handlers.reasoning_handlers import (
 )
 from src.core.interfaces.domain_entities_interface import ISessionState
 
+pytestmark = [pytest.mark.xdist_group("reasoning_handlers_serial")]
+
 
 class TestReasoningEffortHandler:
     """Tests for ReasoningEffortHandler class."""

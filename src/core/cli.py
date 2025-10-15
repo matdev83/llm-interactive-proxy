@@ -8,9 +8,11 @@ CLI while maintaining clean separation of concerns through staged initialization
 import argparse
 import logging
 import os
+import re
 import socket
 import sys
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any, cast
 
 import uvicorn
@@ -113,8 +115,6 @@ def build_cli_parser() -> argparse.ArgumentParser:
             )
         # Test regex validity
         try:
-            import re
-
             re.compile(pattern)
         except re.error as e:
             raise argparse.ArgumentTypeError(
@@ -574,17 +574,16 @@ def apply_cli_args(
     # Logging configuration
     logging_overrides: dict[str, Any] = {}
     if args.log_file is not None:
-        logging_overrides["log_file"] = args.log_file
-        record_cli("logging.log_file", args.log_file, "--log")
+        log_path = Path(args.log_file).expanduser()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        logging_overrides["log_file"] = str(log_path)
+        record_cli("logging.log_file", str(log_path), "--log")
     elif cfg.logging.log_file is None:
         # Set default log file only if none specified in config or CLI
-        from pathlib import Path
-
-        default_log_file = "logs/proxy.log"
+        default_log_file = Path("logs/proxy.log")
         # Ensure logs directory exists
-        log_dir = Path(default_log_file).parent
-        log_dir.mkdir(exist_ok=True)
-        logging_overrides["log_file"] = default_log_file
+        default_log_file.parent.mkdir(parents=True, exist_ok=True)
+        logging_overrides["log_file"] = str(default_log_file)
     if args.log_level is not None:
         logging_overrides["level"] = LogLevel[args.log_level]
         record_cli("logging.level", LogLevel[args.log_level].value, "--log-level")
@@ -933,7 +932,8 @@ def apply_cli_args(
     if getattr(args, "planning_phase_thinking_budget", None) is not None:
         overrides_updates["thinking_budget"] = args.planning_phase_thinking_budget
     if overrides_updates:
-        planning_phase_overrides["overrides"] = overrides_updates
+        existing_overrides = planning_phase_overrides.setdefault("overrides", {})
+        existing_overrides.update(overrides_updates)
         flag_mapping = {
             "temperature": "--planning-phase-temperature",
             "top_p": "--planning-phase-top-p",
@@ -1021,6 +1021,9 @@ def apply_cli_args(
         config_dict = cfg.model_dump()
         # Apply CLI overrides
         _merge_dicts(config_dict, cli_overrides)
+        # Ensure command_prefix is never None to satisfy Pydantic validation
+        if config_dict.get("command_prefix") is None:
+            config_dict["command_prefix"] = DEFAULT_COMMAND_PREFIX
         # Create new config
         cfg = AppConfig.model_validate(config_dict)
 
@@ -1028,44 +1031,30 @@ def apply_cli_args(
     cfg = _ensure_anthropic_port(cfg, res)
 
     # Validate and apply configurations
-    _validate_and_apply_prefix(cfg)
+    cfg = _validate_and_apply_prefix(cfg)
     _apply_feature_flags(cfg)
-    cfg = _apply_security_flags(cfg)
+    # The security flag application is now in main()
     if return_resolution:
         return cfg, res
     return cfg
 
 
-def _validate_and_apply_prefix(cfg: AppConfig) -> None:
-    """Validate and apply command prefix configuration."""
+def _validate_and_apply_prefix(cfg: AppConfig) -> AppConfig:
+    """Validate command prefix configuration and apply defaults safely."""
     if cfg.command_prefix is None:
-        cfg.command_prefix = DEFAULT_COMMAND_PREFIX
-        return
+        return cfg.model_copy(update={"command_prefix": DEFAULT_COMMAND_PREFIX})
 
     prefix = str(cfg.command_prefix)
     err = validate_command_prefix(prefix)
     if err:
         raise ValueError(f"Invalid command prefix: {err}")
+    return cfg
 
 
 def _apply_feature_flags(cfg: AppConfig) -> None:
     """Apply other feature flags from cfg."""
     # Apply other feature flags from cfg
     # These flags are now directly applied in apply_cli_args
-
-
-def _apply_security_flags(cfg: AppConfig) -> AppConfig:
-    """Apply security-related configuration."""
-    if not cfg.auth.disable_auth:
-        return cfg
-    logging.warning("Client authentication is DISABLED")
-    if cfg.host != "127.0.0.1":
-        logging.warning(
-            "Authentication disabled but host is %s. Forcing host to 127.0.0.1 for security.",
-            cfg.host,
-        )
-        cfg = cfg.model_copy(update={"host": "127.0.0.1"})
-    return cfg
 
 
 def _ensure_anthropic_port(
@@ -1092,8 +1081,6 @@ def _ensure_anthropic_port(
         "anthropic_port", derived_port, ParameterSource.DERIVED, origin="port+1"
     )
     return cfg.model_copy(update={"anthropic_port": derived_port})
-
-
 def _check_privileges() -> None:
     """Refuse to run the server with elevated privileges."""
     if os.name != "nt":

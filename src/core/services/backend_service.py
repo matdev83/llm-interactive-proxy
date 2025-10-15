@@ -1,17 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import logging
-import os
 import re
+from collections import OrderedDict
 from typing import Any, cast
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
-from src.core.config.app_config import (
-    AppConfig,
-    BackendConfig,
-    _collect_api_keys_from_env,
-)
+from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -76,6 +74,10 @@ class BackendService(IBackendService):
         self._failover_routes: dict[str, dict[str, Any]] = failover_routes or {}
         self._failover_strategy: IFailoverStrategy | None = failover_strategy
         self._backends: dict[str, LLMBackend] = {}
+        self._per_session_backends: OrderedDict[str, LLMBackend] = OrderedDict()
+        self._per_session_backend_limit = self._resolve_per_session_backend_limit(
+            config
+        )
         from src.core.config.app_config import AppConfig
         from src.core.services.failover_coordinator import FailoverCoordinator
 
@@ -110,6 +112,59 @@ class BackendService(IBackendService):
                 self._backend_config_service = BackendConfigProvider(AppConfig())
         # Assign wire_capture if provided
         self._wire_capture: IWireCapture | None = wire_capture
+
+    def _resolve_per_session_backend_limit(self, config: IConfig) -> int:
+        """Determine the cache size for per-session backends."""
+        default_limit = 32
+        try:
+            session_config = getattr(config, "session", None)
+            candidate = getattr(
+                session_config, "max_per_session_backends", default_limit
+            )
+            if isinstance(candidate, int) and candidate > 0:
+                return candidate
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Falling back to default per-session backend limit: %s",
+                    exc,
+                    exc_info=True,
+                )
+        return default_limit
+
+    @staticmethod
+    def _is_per_session_cache_key(cache_key: str, backend_type: str) -> bool:
+        """Return True when the cache key maps to a session-scoped backend."""
+        return cache_key != backend_type
+
+    async def _enforce_per_session_backend_limit(self) -> None:
+        """Ensure the per-session backend cache does not grow without bound."""
+        limit = max(self._per_session_backend_limit, 1)
+        while len(self._per_session_backends) > limit:
+            evicted_key, evicted_backend = self._per_session_backends.popitem(
+                last=False
+            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicting per-session backend %s due to cache limit %d",
+                    evicted_key,
+                    limit,
+                )
+            await self._shutdown_backend(evicted_backend)
+
+    async def _shutdown_backend(self, backend: LLMBackend) -> None:
+        """Shutdown the backend if it has a shutdown method."""
+        shutdown = getattr(backend, "shutdown", None)
+        if shutdown is None:
+            return
+
+        try:
+            if inspect.iscoroutinefunction(shutdown):  # type: ignore[arg-type]
+                await shutdown()
+            else:
+                shutdown()
+        except Exception:
+            logger.exception("Error shutting down backend %s", backend.backend_type)
 
     def _apply_model_aliases(self, model: str) -> str:
         """Applies the first matching model alias rule to the model name.
@@ -657,6 +712,7 @@ class BackendService(IBackendService):
                             processed_messages=request.messages,
                             effective_model=effective_model,
                             identity=identity,
+                            **backend_call_kwargs,
                         )
                     else:
                         raise
@@ -788,8 +844,15 @@ class BackendService(IBackendService):
                 else f"{backend_type}:default"
             )
 
-        if cache_key in self._backends:
-            return self._backends[cache_key]
+        if self._is_per_session_cache_key(cache_key, backend_type):
+            backend = self._per_session_backends.get(cache_key)
+            if backend is not None:
+                self._per_session_backends.move_to_end(cache_key)
+                return backend
+        else:
+            backend = self._backends.get(cache_key)
+            if backend is not None:
+                return backend
 
         try:
             provider_backend_config: BackendConfig | None = None
@@ -815,11 +878,16 @@ class BackendService(IBackendService):
             else:
                 self._backend_configs.pop(backend_type, None)
 
-            backend: LLMBackend = await self._factory.ensure_backend(
+            created_backend: LLMBackend = await self._factory.ensure_backend(
                 backend_type, app_config, provider_backend_config
             )
-            self._backends[cache_key] = backend
-            return backend
+            if self._is_per_session_cache_key(cache_key, backend_type):
+                self._per_session_backends[cache_key] = created_backend
+                self._per_session_backends.move_to_end(cache_key)
+                await self._enforce_per_session_backend_limit()
+            else:
+                self._backends[cache_key] = created_backend
+            return created_backend
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(
                 message=f"Failed to create backend {backend_type}: {e!s}",
@@ -1223,7 +1291,7 @@ class BackendService(IBackendService):
             }.get(backend_type)
             if not env_base:
                 return backend_type
-            mapping = _collect_api_keys_from_env(env_base, os.environ)
+            mapping = _collect_api_keys(env_base)
             for name, value in mapping.items():
                 if value == api_key_value:
                     return name

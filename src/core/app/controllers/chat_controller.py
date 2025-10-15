@@ -687,7 +687,14 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                                     def command_processor_factory(
                                         provider: IServiceProvider,
                                     ) -> CommandProcessor:
-                                        return CommandProcessor(concrete_cmd)
+                                        resolved_command_service: ICommandService = (
+                                            provider.get_required_service(
+                                                cast(type, ICommandService)
+                                            )
+                                        )
+                                        return CommandProcessor(
+                                            resolved_command_service
+                                        )
 
                                     services.add_singleton(
                                         ICommandProcessor,  # type: ignore[type-abstract]
@@ -703,10 +710,29 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                                     def backend_processor_factory(
                                         provider: IServiceProvider,
                                     ) -> BackendProcessor:
+                                        from src.core.interfaces.application_state_interface import (
+                                            IApplicationState,
+                                        )
+
+                                        resolved_backend_service: IBackendService = (
+                                            provider.get_required_service(
+                                                cast(type, IBackendService)
+                                            )
+                                        )
+                                        resolved_session_service: ISessionService = (
+                                            provider.get_required_service(
+                                                cast(type, ISessionService)
+                                            )
+                                        )
+                                        resolved_app_state: IApplicationState = (
+                                            provider.get_required_service(
+                                                cast(type, IApplicationState)
+                                            )
+                                        )
                                         return BackendProcessor(
-                                            concrete_backend,
-                                            concrete_session,
-                                            app_state,
+                                            resolved_backend_service,
+                                            resolved_session_service,
+                                            resolved_app_state,
                                         )
 
                                     services.add_singleton(
@@ -795,9 +821,34 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                         agent_response_formatter = AgentResponseFormatter()
 
                     session_manager = SessionManager(concrete_session, session_resolver)
-                    backend_request_manager = BackendRequestManager(
-                        backend_processor, concrete_response_proc
+                    backend_request_manager_service = service_provider.get_service(
+                        cast(type, IBackendRequestManager)
                     )
+                    if backend_request_manager_service is None:
+                        backend_request_manager_service = service_provider.get_service(
+                            BackendRequestManager
+                        )
+                    if backend_request_manager_service is None:
+                        from src.core.interfaces.wire_capture_interface import (
+                            IWireCapture,
+                        )
+
+                        wire_capture = service_provider.get_service(
+                            cast(type, IWireCapture)
+                        )
+                        backend_request_manager_service = BackendRequestManager(
+                            backend_processor,
+                            concrete_response_proc,
+                            wire_capture,
+                        )
+
+                    backend_request_manager = cast(
+                        IBackendRequestManager, backend_request_manager_service
+                    )
+                    if backend_request_manager is None:
+                        raise InitializationError(
+                            "Could not resolve BackendRequestManager"
+                        )
                     response_manager = ResponseManager(agent_response_formatter)
 
                     request_processor = RequestProcessor(

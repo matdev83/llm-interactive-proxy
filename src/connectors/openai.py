@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 
 logger = logging.getLogger(__name__)
@@ -501,10 +502,24 @@ class OpenAIConnector(LLMBackend):
         if status_code >= 400:
             # For backwards compatibility with existing error handlers, still use HTTPException here.
             # This will be replaced in a future update with domain exceptions.
+            body: str = ""
             try:
-                body = (await response.aread()).decode("utf-8")
+                body_bytes = await response.aread()
             except Exception:
-                body = getattr(response, "text", "")
+                fallback = getattr(response, "text", "")
+                body = fallback() if callable(fallback) else fallback
+            else:
+                try:
+                    body = body_bytes.decode("utf-8")
+                except Exception:
+                    fallback = getattr(response, "text", "")
+                    body = fallback() if callable(fallback) else fallback
+            finally:
+                with contextlib.suppress(Exception):
+                    await response.aclose()
+
+            if not isinstance(body, str):
+                body = str(body)
             raise HTTPException(
                 status_code=status_code,
                 detail={
@@ -519,14 +534,23 @@ class OpenAIConnector(LLMBackend):
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
             # Forward raw text stream; central pipeline will handle normalization/repairs
             async def text_generator() -> AsyncGenerator[str, None]:
-                async for chunk in response.aiter_text():
-                    yield self.translation_service.to_domain_stream_chunk(
-                        chunk, stream_format
-                    )
+                try:
+                    async for chunk in response.aiter_text():
+                        yield self.translation_service.to_domain_stream_chunk(
+                            chunk, stream_format
+                        )
+                except httpx.RequestError as exc:
+                    raise ServiceUnavailableError(
+                        message=f"Streaming connection interrupted ({exc})"
+                    ) from exc
 
             try:
                 async for chunk in text_generator():
                     yield ProcessedResponse(content=chunk)
+            except httpx.HTTPError as exc:
+                raise ServiceUnavailableError(
+                    message=f"Streaming connection interrupted ({exc})"
+                ) from exc
             finally:
                 import contextlib
 

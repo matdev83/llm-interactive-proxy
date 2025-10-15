@@ -40,6 +40,7 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.middleware_application_manager_interface import (
     IMiddlewareApplicationManager,
 )
+from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_handler_interface import (
     INonStreamingResponseHandler,
@@ -1189,8 +1190,15 @@ def register_core_services(
 
         backend_factory: BackendFactory = provider.get_required_service(BackendFactory)
 
-        # Create rate limiter
-        rate_limiter: RateLimiter = RateLimiter()
+        # Resolve the rate limiter from the DI container when available
+        rate_limiter: IRateLimiter | None = provider.get_service(RateLimiter)
+        if rate_limiter is None:
+            rate_limiter = provider.get_service(cast(type, IRateLimiter))
+        if rate_limiter is None:
+            logging.getLogger(__name__).warning(
+                "RateLimiter service not registered; creating transient instance"
+            )
+            rate_limiter = RateLimiter()
 
         # Get application state service
         app_state: IApplicationState = provider.get_required_service(IApplicationState)  # type: ignore[type-abstract]

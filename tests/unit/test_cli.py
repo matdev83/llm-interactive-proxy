@@ -1,10 +1,12 @@
 import argparse
 import os
 import socket
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from src.constants import DEFAULT_COMMAND_PREFIX
 from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
 from src.core.config.app_config import AppConfig, ParameterResolution
 from src.core.config.parameter_resolution import ParameterSource
@@ -40,6 +42,18 @@ def _unwrap_config(
     result: AppConfig | tuple[AppConfig, ParameterResolution],
 ) -> AppConfig:
     return result[0] if isinstance(result, tuple) else result
+
+
+def test_cli_restores_default_prefix_when_missing() -> None:
+    """CLI should restore the default prefix when configuration omits it."""
+
+    broken_config = AppConfig().model_copy(update={"command_prefix": None})
+
+    with patch("src.core.cli.load_config", return_value=broken_config):
+        args = parse_cli_args([])
+        config = _unwrap_config(apply_cli_args(args))
+
+    assert config.command_prefix == DEFAULT_COMMAND_PREFIX
 
 
 def test_cli_allows_all_registered_backends() -> None:
@@ -416,6 +430,20 @@ def test_cli_capture_limits_arguments() -> None:
         assert config.logging.capture_max_bytes == 1024
         assert config.logging.capture_truncate_bytes == 256
         assert config.logging.capture_max_files == 3
+
+
+def test_cli_creates_log_directory_for_custom_path(tmp_path: Path) -> None:
+    """CLI should create parent directories for user-specified log files."""
+
+    from src.core.cli import apply_cli_args, parse_cli_args
+
+    custom_log = tmp_path / "nested" / "proxy.log"
+
+    with patch("src.core.cli.load_config", return_value=AppConfig()):
+        args = parse_cli_args(["--log", str(custom_log)])
+        apply_cli_args(args)
+
+    assert custom_log.parent.exists()
 
 
 @pytest.mark.parametrize(

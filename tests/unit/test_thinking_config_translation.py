@@ -6,8 +6,26 @@ Based on gemini-cli reference: dev/thrdparty/gemini-cli-new/packages/core/src/co
 """
 
 import pytest
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
+
+
+@pytest.fixture(autouse=True)
+def isolate_test_completely():
+    """Ensure complete test isolation by clearing any global state."""
+    import os
+
+    # Store original environment
+    original_env = dict(os.environ)
+
+    # Remove variables that would interfere with thinking config tests (e.g. set by CI)
+    os.environ.pop("THINKING_BUDGET", None)
+
+    yield
+
+    # Restore original environment completely
+    os.environ.clear()
+    os.environ.update(original_env)
 
 
 class TestThinkingConfigTranslation:
@@ -23,9 +41,9 @@ class TestThinkingConfigTranslation:
         try:
             service = TranslationService()
 
-            request = ChatRequest(
+            request = CanonicalChatRequest(
                 model="gemini-2.5-pro",
-                messages=[{"role": "user", "content": "test"}],
+                messages=[ChatMessage(role="user", content="test")],
                 reasoning_effort="low",
             )
 
@@ -51,9 +69,9 @@ class TestThinkingConfigTranslation:
         """Test that 'medium' effort maps to 2048 token budget."""
         service = TranslationService()
 
-        request = ChatRequest(
+        request = CanonicalChatRequest(
             model="gemini-2.5-pro",
-            messages=[{"role": "user", "content": "test"}],
+            messages=[ChatMessage(role="user", content="test")],
             reasoning_effort="medium",
         )
 
@@ -71,9 +89,9 @@ class TestThinkingConfigTranslation:
         """
         service = TranslationService()
 
-        request = ChatRequest(
+        request = CanonicalChatRequest(
             model="gemini-2.5-pro",
-            messages=[{"role": "user", "content": "test"}],
+            messages=[ChatMessage(role="user", content="test")],
             reasoning_effort="high",
         )
 
@@ -89,9 +107,9 @@ class TestThinkingConfigTranslation:
         """Test that without reasoning_effort, no thinkingConfig is added."""
         service = TranslationService()
 
-        request = ChatRequest(
+        request = CanonicalChatRequest(
             model="gemini-2.5-pro",
-            messages=[{"role": "user", "content": "test"}],
+            messages=[ChatMessage(role="user", content="test")],
             # No reasoning_effort specified
         )
 
@@ -130,9 +148,9 @@ def test_cli_thinking_budget_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
     service = TranslationService()
 
-    request = ChatRequest(
+    request = CanonicalChatRequest(
         model="gemini-2.5-pro",
-        messages=[{"role": "user", "content": "test"}],
+        messages=[ChatMessage(role="user", content="test")],
         reasoning_effort="low",  # Would map to 512 without override
     )
 

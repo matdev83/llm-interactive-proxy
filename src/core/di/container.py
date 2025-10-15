@@ -353,6 +353,7 @@ class ServiceCollection(IServiceCollection):
         )
         from src.core.services.backend_registry import (
             BackendRegistry,  # type: ignore[import-untyped]
+            backend_registry,
         )
         from src.core.services.backend_request_manager_service import (
             BackendRequestManager,  # type: ignore[import-untyped]
@@ -396,7 +397,11 @@ class ServiceCollection(IServiceCollection):
         self.add_singleton(
             BackendFactory, implementation_factory=_backend_factory_factory
         )
-        self.add_singleton(BackendRegistry, BackendRegistry)
+        # Use the global backend registry instance so that connector auto-
+        # registration (performed at import time) is visible to the DI
+        # container. Creating a new BackendRegistry here would yield an empty
+        # registry in scoped providers and break backend resolution.
+        self.add_instance(BackendRegistry, backend_registry)
         self.add_singleton(IUsageTrackingService, UsageTrackingService)
         self.add_singleton(ISessionService, SessionService)
         # ICommandService registered in register_core_services()

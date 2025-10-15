@@ -87,4 +87,7 @@ dev/thrdparty/
 test-results.xml
 .droid-shield.json
 .testmondata*
-mergeme.tmp
+forcepytest.run
+test_status.json
+data/test_suite_state.json
+.ck/

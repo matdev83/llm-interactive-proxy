@@ -407,6 +407,9 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
 
         if request_processor is None:
             # If still not found, try to create one on the fly
+            from src.core.interfaces.backend_request_manager_interface import (
+                IBackendRequestManager,
+            )
             from src.core.interfaces.backend_service_interface import IBackendService
             from src.core.interfaces.command_service_interface import ICommandService
             from src.core.interfaces.response_processor_interface import (
@@ -533,9 +536,30 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                     agent_response_formatter = AgentResponseFormatter()
 
                 session_manager = SessionManager(session, session_resolver)
-                backend_request_manager = BackendRequestManager(
-                    backend_processor, response_proc
+                backend_request_manager_service = service_provider.get_service(
+                    cast(type, IBackendRequestManager)
                 )
+                if backend_request_manager_service is None:
+                    backend_request_manager_service = service_provider.get_service(
+                        BackendRequestManager
+                    )
+                if backend_request_manager_service is None:
+                    from src.core.interfaces.wire_capture_interface import IWireCapture
+
+                    wire_capture = service_provider.get_service(
+                        cast(type, IWireCapture)
+                    )
+                    backend_request_manager_service = BackendRequestManager(
+                        backend_processor,
+                        response_proc,
+                        wire_capture,
+                    )
+
+                backend_request_manager = cast(
+                    IBackendRequestManager, backend_request_manager_service
+                )
+                if backend_request_manager is None:
+                    raise InitializationError("Could not resolve BackendRequestManager")
                 response_manager = ResponseManager(agent_response_formatter)
 
                 request_processor = RequestProcessor(
@@ -543,6 +567,7 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                     session_manager,
                     backend_request_manager,
                     response_manager,
+                    app_state=app_state,
                 )
 
                 # Register it for future use
