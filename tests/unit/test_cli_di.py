@@ -117,6 +117,8 @@ def test_cli_redaction_flag(monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = cfg[0]
     assert os.environ["DEFAULT_INTERACTIVE_MODE"] == "false"
     assert cfg.session.default_interactive_mode is False
+    # Clean up to prevent test pollution
+    monkeypatch.delenv("DEFAULT_INTERACTIVE_MODE", raising=False)
 
 
 def test_cli_force_set_project(monkeypatch: pytest.MonkeyPatch) -> None:
