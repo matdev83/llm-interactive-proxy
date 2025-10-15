@@ -115,20 +115,23 @@ class TestQwenOAuthEnhancedErrorHandling:
             model="qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
-        processed_messages = [ChatMessage(role="user", content="Hello")]
+        processed_messages: list[ChatMessage] = [
+            ChatMessage(role="user", content="Hello")
+        ]
 
         # Mock validation to pass, token refresh to succeed and parent class method to raise an exception
         with (
             patch.object(
-                connector, "_load_oauth_credentials", AsyncMock(return_value=True)
+                connector,
+                "_validate_runtime_credentials",
+                AsyncMock(return_value=True),
             ),
             patch.object(
-                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
-            patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector._handle_non_streaming_response",
-                side_effect=Exception("Test error"),
+                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
+                AsyncMock(side_effect=Exception("Test error")),
             ),
             pytest.raises(BackendError) as exc_info,
         ):
@@ -152,19 +155,20 @@ class TestQwenOAuthEnhancedErrorHandling:
             model="qwen-oauth:qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
-        processed_messages = [{"role": "user", "content": "Hello"}]
+        processed_messages = [ChatMessage(role="user", content="Hello")]
 
         # Mock validation to pass, token refresh to succeed and parent class method
         with (
             patch.object(
-                connector, "_load_oauth_credentials", AsyncMock(return_value=True)
+                connector,
+                "_validate_runtime_credentials",
+                AsyncMock(return_value=True),
             ),
             patch.object(
-                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
-            patch.object(connector, "_refresh_token_if_needed", return_value=True),
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector._handle_non_streaming_response",
+                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
                 AsyncMock(
                     return_value=ResponseEnvelope(content={"id": "test"}, headers={})
                 ),
@@ -180,9 +184,20 @@ class TestQwenOAuthEnhancedErrorHandling:
             )
 
             # Verify that the model name was properly modified in the payload sent to parent
-            call_args = mock_parent.call_args
-            sent_payload = call_args[0][1]  # Second positional argument is the payload
-            assert sent_payload["model"] == "qwen3-coder-plus"
+            mock_parent.assert_awaited_once()
+            await_call = mock_parent.await_args
+            sent_payload = await_call.kwargs.get("request_data")
+            if sent_payload is None and len(await_call.args) > 1:
+                sent_payload = await_call.args[1]
+
+            assert sent_payload is not None
+
+            if isinstance(sent_payload, ChatRequest):
+                sent_model = sent_payload.model
+            else:
+                sent_model = sent_payload["model"]
+
+            assert sent_model == "qwen3-coder-plus"
 
     @pytest.mark.asyncio
     async def test_http_exception_passthrough(self, connector):
@@ -191,18 +206,22 @@ class TestQwenOAuthEnhancedErrorHandling:
             model="qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
-        processed_messages = [{"role": "user", "content": "Hello"}]
+        processed_messages = [ChatMessage(role="user", content="Hello")]
 
         # Mock validation to pass, token refresh to succeed and parent class to raise HTTPException
         http_exception = HTTPException(status_code=429, detail="Rate limited")
         with (
             patch.object(
-                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+                connector,
+                "_validate_runtime_credentials",
+                AsyncMock(return_value=True),
             ),
-            patch.object(connector, "_refresh_token_if_needed", return_value=True),
+            patch.object(
+                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
+            ),
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector._handle_non_streaming_response",
-                side_effect=http_exception,
+                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
+                AsyncMock(side_effect=http_exception),
             ),
         ):
             connector._oauth_credentials = {"access_token": "fake-token"}
@@ -225,7 +244,7 @@ class TestQwenOAuthEnhancedErrorHandling:
             model="qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
-        processed_messages = [{"role": "user", "content": "Hello"}]
+        processed_messages = [ChatMessage(role="user", content="Hello")]
 
         # Mock validation to pass and token refresh to fail
         with (

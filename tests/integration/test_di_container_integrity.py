@@ -84,7 +84,7 @@ class TestDIContainerIntegrity:
 
         # Verify it has the required dependency
         assert (
-            processor._base_detector is not None
+            processor.loop_detector is not None
         ), "LoopDetectionProcessor must have ILoopDetector injected"
 
     @pytest.mark.asyncio
@@ -202,8 +202,8 @@ class TestDIContainerIntegrity:
         loop_processor = provider.get_service(LoopDetectionProcessor)
         assert loop_processor is not None, "Step 2: LoopDetectionProcessor must exist"
         assert (
-            loop_processor._base_detector is not None
-        ), "Step 2: LoopDetectionProcessor must have _base_detector"
+            loop_processor.loop_detector is not None
+        ), "Step 2: LoopDetectionProcessor must have loop_detector"
 
         # 3. Verify normalizer exists and has loop processor in pipeline
         normalizer = provider.get_service(IStreamNormalizer)
