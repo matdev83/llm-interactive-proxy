@@ -14,6 +14,8 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import Any, cast
 
+from pathlib import Path
+
 import uvicorn
 from fastapi import FastAPI
 
@@ -573,17 +575,16 @@ def apply_cli_args(
     # Logging configuration
     logging_overrides: dict[str, Any] = {}
     if args.log_file is not None:
-        logging_overrides["log_file"] = args.log_file
-        record_cli("logging.log_file", args.log_file, "--log")
+        log_path = Path(args.log_file).expanduser()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        logging_overrides["log_file"] = str(log_path)
+        record_cli("logging.log_file", str(log_path), "--log")
     elif cfg.logging.log_file is None:
         # Set default log file only if none specified in config or CLI
-        from pathlib import Path
-
-        default_log_file = "logs/proxy.log"
+        default_log_file = Path("logs/proxy.log")
         # Ensure logs directory exists
-        log_dir = Path(default_log_file).parent
-        log_dir.mkdir(exist_ok=True)
-        logging_overrides["log_file"] = default_log_file
+        default_log_file.parent.mkdir(parents=True, exist_ok=True)
+        logging_overrides["log_file"] = str(default_log_file)
     if args.log_level is not None:
         logging_overrides["level"] = LogLevel[args.log_level]
         record_cli("logging.level", LogLevel[args.log_level].value, "--log-level")
