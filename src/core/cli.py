@@ -1021,6 +1021,9 @@ def apply_cli_args(
         config_dict = cfg.model_dump()
         # Apply CLI overrides
         _merge_dicts(config_dict, cli_overrides)
+        # Ensure command_prefix is never None to satisfy Pydantic validation
+        if config_dict.get("command_prefix") is None:
+            config_dict["command_prefix"] = DEFAULT_COMMAND_PREFIX
         # Create new config
         cfg = AppConfig.model_validate(config_dict)
 
