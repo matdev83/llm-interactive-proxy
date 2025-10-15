@@ -50,4 +50,4 @@ def test_loop_detection_processor_can_be_created():
     processor = LoopDetectionProcessor(loop_detector)
 
     assert processor is not None
-    assert processor.loop_detector is not None
+    assert processor._base_detector is not None
