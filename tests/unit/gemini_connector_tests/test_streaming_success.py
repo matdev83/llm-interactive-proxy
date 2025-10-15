@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -11,6 +12,7 @@ try:  # pragma: no cover - optional test dependency
 except ModuleNotFoundError:  # pragma: no cover - optional test dependency
     HTTPXMock = None  # type: ignore[assignment]
 from src.connectors.gemini import GeminiBackend
+from src.core.common.exceptions import ServiceUnavailableError
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
@@ -121,10 +123,14 @@ class _StubStreamResponse:
 
 
 class _StubAsyncClient:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        response_factory: Callable[[], _StubStreamResponse] | None = None,
+    ) -> None:
         self.last_stream_flag: bool | None = None
         self.last_request: dict[str, Any] | None = None
         self.last_response: _StubStreamResponse | None = None
+        self._response_factory = response_factory or _StubStreamResponse
 
     def build_request(
         self,
@@ -146,7 +152,7 @@ class _StubAsyncClient:
         self, request: dict[str, Any], stream: bool = False
     ) -> _StubStreamResponse:
         self.last_stream_flag = stream
-        response = _StubStreamResponse()
+        response = self._response_factory()
         self.last_response = response
         return response
 
@@ -167,7 +173,7 @@ class _StubAsyncClient:
         # For streaming requests, set stream flag to True
         is_streaming = url.endswith(":streamGenerateContent")
         self.last_stream_flag = is_streaming
-        response = _StubStreamResponse()
+        response = self._response_factory()
         self.last_response = response
         return response
 
@@ -208,5 +214,63 @@ async def test_chat_completions_streaming_uses_httpx_stream_send() -> None:
         chunks.append(chunk)
 
     assert chunks, "Expected at least one streamed chunk"
+    assert client.last_response is not None
+    assert client.last_response.closed is True
+
+
+class _ErrorStreamResponse(_StubStreamResponse):
+    def __init__(self, request_url: str) -> None:
+        super().__init__()
+        self._request = httpx.Request("POST", request_url)
+
+    def aiter_text(self) -> Any:
+        async def _gen() -> Any:
+            yield (
+                'data: {"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}\n\n'
+            )
+            raise httpx.ReadError("stream disconnected", request=self._request)
+
+        return _gen()
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_streaming_network_error_translated() -> None:
+    from src.core.config.app_config import AppConfig
+    from src.core.domain.responses import StreamingResponseEnvelope
+    from src.core.services.translation_service import TranslationService
+
+    request = ChatRequest(
+        model="gemini-pro",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=True,
+    )
+
+    request_url = (
+        f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/gemini-pro:streamGenerateContent"
+    )
+    client = _StubAsyncClient(
+        response_factory=lambda: _ErrorStreamResponse(request_url)
+    )
+    backend = GeminiBackend(
+        client=client, config=AppConfig(), translation_service=TranslationService()
+    )
+
+    envelope = await backend.chat_completions(
+        request_data=request,
+        processed_messages=list(request.messages),
+        effective_model="gemini/gemini-pro",
+        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
+        api_key="DUMMY",
+    )
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
+
+    with pytest.raises(ServiceUnavailableError) as exc_info:
+        async for _chunk in envelope.content:  # type: ignore[union-attr]
+            pass
+
+    message = str(exc_info.value)
+    assert "Gemini streaming connection error" in message
+
     assert client.last_response is not None
     assert client.last_response.closed is True

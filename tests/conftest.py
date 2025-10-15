@@ -1,6 +1,9 @@
 import asyncio
 import contextlib
+import importlib.util
 import inspect
+import sys
+import types
 import warnings
 from pathlib import Path
 from typing import Any
@@ -14,16 +17,58 @@ from src.core.interfaces.session_service_interface import ISessionService
 """Test fixtures and utilities."""
 
 
-def pytest_load_initial_conftests(args, early_config, parser):
-    # If user already set -n/--numprocesses, respect it
-    if "-n" in args or any(a.startswith("--numprocesses") for a in args):
-        return
+def _module_is_available(name: str) -> bool:
+    """Return True if the optional module can be imported."""
 
-    # Simple heuristic: exactly one explicit nodeid like path::testname
-    nodeids = [a for a in args if "::" in a]
-    if len(nodeids) == 1:
-        # Prepend -n 1 so xdist sees it during option parsing
-        args[:0] = ["-n", "1"]
+    return importlib.util.find_spec(name) is not None
+
+
+HAS_PYTEST_ASYNCIO = _module_is_available("pytest_asyncio")
+HAS_PYTEST_HTTPX = _module_is_available("pytest_httpx")
+HAS_PYTEST_XDIST = _module_is_available("xdist")
+
+
+if not HAS_PYTEST_ASYNCIO:
+    module = types.ModuleType("pytest_asyncio")
+
+    def _asyncio_fixture(*fixture_args, **fixture_kwargs):
+        def decorator(func):
+            async def _skipped_fixture(*_args: Any, **_kwargs: Any):
+                pytest.skip("pytest_asyncio not installed")
+
+            return pytest.fixture(*fixture_args, **fixture_kwargs)(_skipped_fixture)
+
+        return decorator
+
+    module.fixture = _asyncio_fixture  # type: ignore[assignment]
+    sys.modules.setdefault("pytest_asyncio", module)
+
+
+if not HAS_PYTEST_HTTPX:
+    module = types.ModuleType("pytest_httpx")
+    module.HTTPXMock = Any  # type: ignore[assignment]
+    sys.modules.setdefault("pytest_httpx", module)
+
+
+if not HAS_PYTEST_HTTPX:
+
+    @pytest.fixture
+    def httpx_mock():  # type: ignore[no-redef]
+        pytest.skip("pytest_httpx not installed")
+
+
+def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
+    if not HAS_PYTEST_HTTPX:
+        skip_httpx = pytest.mark.skip(reason="pytest_httpx not installed")
+        for item in items:
+            if "httpx_mock" in getattr(item, "fixturenames", ()):  # pragma: no branch
+                item.add_marker(skip_httpx)
+
+    if not HAS_PYTEST_ASYNCIO:
+        skip_asyncio = pytest.mark.skip(reason="pytest_asyncio not installed")
+        for item in items:
+            if item.get_closest_marker("asyncio"):
+                item.add_marker(skip_asyncio)
 
 
 # Provide env fixtures used by config tests
@@ -112,6 +157,12 @@ pytestmark = pytest.mark.filterwarnings(
 def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
     """Install warning filters in each worker process (xdist)."""
     _install_global_warning_filters()
+    config.addinivalue_line(
+        "markers", "httpx_mock: mark tests that require pytest_httpx"
+    )
+    config.addinivalue_line(
+        "markers", "asyncio: mark tests that require pytest_asyncio"
+    )
 
 
 # Test helper utilities expected by some tests

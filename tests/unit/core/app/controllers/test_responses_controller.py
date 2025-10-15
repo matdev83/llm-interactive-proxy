@@ -1,6 +1,7 @@
 """Unit tests for the ResponsesController front-end logic."""
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,7 +14,13 @@ from src.core.domain.chat import (
     ChatResponse,
 )
 from src.core.domain.responses import ResponseEnvelope
-from src.core.domain.responses_api import JsonSchema, ResponseFormat, ResponsesRequest
+from src.core.domain.responses_api import (
+    MAX_SCHEMA_COLLECTION_ITEMS,
+    MAX_SCHEMA_DEPTH,
+    JsonSchema,
+    ResponseFormat,
+    ResponsesRequest,
+)
 
 
 class StubTranslationService:
@@ -148,6 +155,79 @@ class TestResponsesControllerSchemaValidation:
         }
 
         # Should not raise a TypeError or validation error
+        ResponsesController._validate_json_schema(schema)
+
+    def test_validate_json_schema_rejects_excessive_depth(self) -> None:
+        """Schemas that exceed the supported nesting depth should be rejected."""
+
+        schema: dict[str, object] = {"type": "object", "properties": {}}
+        cursor = cast(dict[str, object], schema["properties"])
+        for level in range(MAX_SCHEMA_DEPTH + 1):
+            next_layer: dict[str, object] = {"type": "object", "properties": {}}
+            cursor[f"layer_{level}"] = next_layer
+            cursor = cast(dict[str, object], next_layer["properties"])
+
+        with pytest.raises(ValueError, match="maximum allowed depth"):
+            ResponsesController._validate_json_schema(schema)  # type: ignore[arg-type]
+
+    def test_validate_json_schema_rejects_excessive_width(self) -> None:
+        """Schemas with too many peer keys should be rejected early."""
+
+        properties: dict[str, object] = {}
+        schema = {"type": "object", "properties": properties}
+        for index in range(MAX_SCHEMA_COLLECTION_ITEMS + 1):
+            properties[f"field_{index}"] = {"type": "string"}
+
+        with pytest.raises(ValueError, match="cannot contain more than"):
+            ResponsesController._validate_json_schema(schema)
+
+    def test_validate_json_schema_rejects_overlong_regex_patterns(self) -> None:
+        """Regex patterns that are excessively long should be rejected."""
+
+        long_pattern = "^" + "a" * 600 + "$"
+        schema = {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "pattern": long_pattern},
+            },
+        }
+
+        with pytest.raises(ValueError) as exc:
+            ResponsesController._validate_json_schema(schema)
+
+        assert "Regex pattern too long" in str(exc.value)
+
+    def test_validate_json_schema_rejects_nested_unbounded_regex(self) -> None:
+        """Schemas with nested unbounded regex quantifiers must be rejected to avoid ReDoS."""
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "pattern": r"^(?:a+)+$",
+                }
+            },
+        }
+
+        with pytest.raises(ValueError) as exc:
+            ResponsesController._validate_json_schema(schema)
+
+        assert "nested unbounded quantifiers" in str(exc.value)
+
+    def test_validate_json_schema_accepts_safe_nested_quantifiers(self) -> None:
+        """Quantifiers that do not repeat unbounded groups should be allowed."""
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "sequence": {
+                    "type": "string",
+                    "pattern": r"^(?:ab?)+$",
+                }
+            },
+        }
+
         ResponsesController._validate_json_schema(schema)
 
 

@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.connectors.gemini import GeminiBackend
@@ -351,9 +351,9 @@ class TestGeminiTemperatureHandling:
             update={"temperature": 0.9, "stream": True}
         )
 
-        # Mock streaming response
-        mock_response = MagicMock()
-        mock_response.status_code = 200  # This should be an int, not AsyncMock
+        # Mock streaming response - use a regular Mock with explicit configuration
+        mock_response = Mock()
+        mock_response.configure_mock(status_code=200)
         mock_response.aiter_text = AsyncMock()
         mock_response.aiter_text.return_value = AsyncMock()
         mock_response.aiter_text.return_value.__aiter__ = AsyncMock()
@@ -368,8 +368,10 @@ class TestGeminiTemperatureHandling:
         mock_response.aclose = AsyncMock()
         mock_response.headers = {}
 
-        # Mock the client.post method for the initial request
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        # Mock the client methods - need to mock both build_request and send
+        mock_request = Mock()
+        gemini_backend.client.build_request = Mock(return_value=mock_request)
+        gemini_backend.client.send = AsyncMock(return_value=mock_response)
 
         # Call the method
         await gemini_backend.chat_completions(
@@ -381,9 +383,15 @@ class TestGeminiTemperatureHandling:
         )
 
         # Verify the request was made with temperature in payload
-        gemini_backend.client.post.assert_called_once()
-        call_args = gemini_backend.client.post.call_args
-        payload = call_args[1]["json"]
+        gemini_backend.client.build_request.assert_called_once()
+        gemini_backend.client.send.assert_called_once()
+
+        # Get the build_request call args to check the payload
+        call_args = gemini_backend.client.build_request.call_args
+        payload = call_args.kwargs["json"]
+        # The stream parameter is passed to send(), not build_request
+        send_call_args = gemini_backend.client.send.call_args
+        assert send_call_args.kwargs["stream"] is True
 
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]

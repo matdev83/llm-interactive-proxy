@@ -17,9 +17,20 @@ from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
-)
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    ),
+    pytest.mark.no_global_mock,
+    pytest.mark.xdist_group("qwen_oauth_serial"),
+]
+
+
+@pytest.fixture(autouse=True)
+def cleanup_connector_state():
+    """Clean up connector state between tests to ensure isolation."""
+    yield
+    # Cleanup after each test - patch mock should auto-cleanup when context exits
 
 
 class TestQwenOAuthCredentials:
@@ -280,22 +291,28 @@ class TestQwenOAuthCredentials:
             "expiry_date": int(time.time() * 1000) + 3600000,
         }
 
+        # Create mocks with proper reset and clear any existing state
         with (
             patch.object(
-                connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
-            ),
+                connector, "_validate_runtime_credentials", new_callable=AsyncMock
+            ) as mock_validate,
             patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
+                connector, "_refresh_token_if_needed", new_callable=AsyncMock
             ) as mock_refresh,
             patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions", AsyncMock()
+                "src.connectors.openai.OpenAIConnector.chat_completions",
+                new_callable=AsyncMock,
             ) as mock_parent_chat,
         ):
+            # Configure mocks explicitly
+            mock_validate.return_value = True
+
             # Mock successful CLI refresh
-            def mock_refresh_side_effect():
+            async def mock_refresh_side_effect(*args, **kwargs):
                 connector._oauth_credentials = new_credentials
                 return True
 
+            mock_refresh.return_value = True
             mock_refresh.side_effect = mock_refresh_side_effect
 
             await connector.chat_completions(
@@ -305,7 +322,11 @@ class TestQwenOAuthCredentials:
             )
 
             # Verify token refresh was attempted and parent method was called
-            mock_refresh.assert_called_once()
-            mock_parent_chat.assert_called_once()
+            assert (
+                mock_refresh.call_count == 1
+            ), f"Expected _refresh_token_if_needed to be called once, was called {mock_refresh.call_count} times"
+            assert (
+                mock_parent_chat.call_count == 1
+            ), f"Expected parent chat_completions to be called once, was called {mock_parent_chat.call_count} times"
             # Verify the new token is now in the credentials
             assert connector._oauth_credentials["access_token"] == "new-access-token"

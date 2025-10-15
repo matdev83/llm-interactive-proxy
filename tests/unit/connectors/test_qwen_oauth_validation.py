@@ -1,6 +1,8 @@
 """
 Comprehensive unit tests for Qwen OAuth credential validation logic.
 
+pytestmark = [pytest.mark.no_global_mock]
+
 Tests all the enhanced OAuth credential validation features:
 1. Startup validation (file existence, structure, expiry)
 2. Backend health status tracking
@@ -15,7 +17,9 @@ from __future__ import annotations
 import json
 import tempfile
 import time
+from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -46,7 +50,7 @@ class TestQwenOAuthCredentialValidation:
         return QwenOAuthConnector(mock_client, mock_config)
 
     @pytest.fixture
-    def temp_credentials_dir(self) -> Path:
+    def temp_credentials_dir(self) -> Generator[Path, None, None]:
         """Create a temporary directory for OAuth credentials testing."""
         with tempfile.TemporaryDirectory() as temp_dir:
             credentials_dir = Path(temp_dir) / ".qwen"
@@ -54,7 +58,7 @@ class TestQwenOAuthCredentialValidation:
             yield credentials_dir
 
     @pytest.fixture
-    def valid_credentials(self) -> dict[str, any]:
+    def valid_credentials(self) -> dict[str, Any]:
         """Create valid OAuth credentials for testing."""
         # Token expires 1 hour from now
         expiry_time = int((time.time() + 3600) * 1000)  # Convert to milliseconds
@@ -67,7 +71,7 @@ class TestQwenOAuthCredentialValidation:
         }
 
     @pytest.fixture
-    def expired_credentials(self) -> dict[str, any]:
+    def expired_credentials(self) -> dict[str, Any]:
         """Create expired OAuth credentials for testing."""
         # Token expired 1 hour ago
         expiry_time = int((time.time() - 3600) * 1000)  # Convert to milliseconds
@@ -457,8 +461,11 @@ class TestErrorResponses(TestQwenOAuthCredentialValidation):
         ]
 
         # Mock validation to return False
-        with patch.object(
-            connector, "_validate_runtime_credentials", return_value=False
+        with (
+            patch.object(connector, "_refresh_token_if_needed", return_value=True),
+            patch.object(
+                connector, "_validate_runtime_credentials", return_value=False
+            ),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await connector.chat_completions({}, [], "test-model")
@@ -480,8 +487,11 @@ class TestErrorResponses(TestQwenOAuthCredentialValidation):
         connector._credential_validation_errors = []
 
         # Mock validation to return False
-        with patch.object(
-            connector, "_validate_runtime_credentials", return_value=False
+        with (
+            patch.object(connector, "_refresh_token_if_needed", return_value=True),
+            patch.object(
+                connector, "_validate_runtime_credentials", return_value=False
+            ),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await connector.chat_completions({}, [], "test-model")

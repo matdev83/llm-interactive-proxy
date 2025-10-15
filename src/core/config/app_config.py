@@ -13,6 +13,22 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 
+def get_openrouter_headers(cfg: dict[str, str], api_key: str) -> dict[str, str]:
+    """Construct headers for OpenRouter requests.
+
+    Be tolerant of minimal cfg dicts provided by tests by falling back to
+    sensible defaults when optional keys are absent.
+    """
+    referer: str = cfg.get("app_site_url", "http://localhost:8000")
+    x_title: str = cfg.get("app_x_title", "InterceptorProxy")
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": referer,
+        "X-Title": x_title,
+    }
+
+
 def _collect_api_keys_from_env(
     base_name: str,
     env: Mapping[str, str],
@@ -406,6 +422,7 @@ class SessionConfig(DomainModel):
     pytest_full_suite_steering_enabled: bool | None = None
     pytest_full_suite_steering_message: str | None = None
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
+    max_per_session_backends: int = 32
 
     @model_validator(mode="before")
     @classmethod
@@ -774,6 +791,7 @@ class AppConfig(DomainModel, IConfig):
         if p.suffix.lower() in {".yaml", ".yml"}:
             import yaml
 
+            logger.debug(f"Saving configuration to {p}: {data}")
             with p.open("w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f, sort_keys=False)
         else:

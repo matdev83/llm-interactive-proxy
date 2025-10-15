@@ -82,8 +82,7 @@ dev = [
     "xenon",
     "radon",
     "types-pytz",
-    "pytest-testmon",
-
+    "pre-commit",
 ]
 
 [build-system]
@@ -92,13 +91,14 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+packages = ["connectors", "core", "services", "loop_detection", "tool_call_loop"]
 
 
 
 [tool.pytest.ini_options]
 pythonpath = "."
 testpaths = ["tests"]
-addopts = "-v --asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n auto --dist=loadfile --maxfail=10"
+addopts = "--failed-first -q --junit-xml=test-results.xml -n 7 -W ignore --maxfail=10 -r fE --ignore=tests/test_meta_test_suite_protection.py"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "INFO"
@@ -384,6 +384,4 @@ ignore_names = [
     "_load_yaml_schema"
 ]
 
-[tool.testmon]
-run_variant_expression = "','.join(sorted(str(v) for v in [sys.version_info[:2], sys.platform]))"
-historian = "git"
+

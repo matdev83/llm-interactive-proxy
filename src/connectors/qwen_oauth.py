@@ -836,6 +836,14 @@ class QwenOAuthConnector(OpenAIConnector):
         This overrides the parent class method to ensure credentials are valid before API call.
         """
         # First, validate runtime credentials
+        # Ensure token is refreshed before making the API call
+        if not await self._refresh_token_if_needed():
+            raise HTTPException(
+                status_code=401,
+                detail="Failed to refresh Qwen OAuth token",
+            )
+
+        # First, validate runtime credentials
         if not await self._validate_runtime_credentials():
             error_details = (
                 "; ".join(self._credential_validation_errors)
@@ -845,13 +853,6 @@ class QwenOAuthConnector(OpenAIConnector):
             raise HTTPException(
                 status_code=502,
                 detail=f"No valid OAuth credentials found for backend qwen-oauth: {error_details}",
-            )
-
-        # Ensure token is refreshed before making the API call
-        if not await self._refresh_token_if_needed():
-            raise HTTPException(
-                status_code=401,
-                detail="Failed to refresh Qwen OAuth token",
             )
 
         try:
