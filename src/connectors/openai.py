@@ -95,13 +95,14 @@ class OpenAIConnector(LLMBackend):
             )
         return service
 
-    def get_headers(self) -> dict[str, str]:
+    def get_headers(self, api_key: str | None = None) -> dict[str, str]:
         """Return request headers including API key and per-request identity."""
 
         headers: dict[str, str] = {}
 
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        effective_api_key = api_key if api_key is not None else self.api_key
+        if effective_api_key:
+            headers["Authorization"] = f"Bearer {effective_api_key}"
 
         if self.identity:
             try:
@@ -143,7 +144,7 @@ class OpenAIConnector(LLMBackend):
                     logger.warning("Failed to fetch models: %s", e, exc_info=True)
                 # Log the error but don't fail initialization
 
-    async def _perform_health_check(self) -> bool:
+    async def _perform_health_check(self, api_key: str | None = None) -> bool:
         """Perform a health check by testing API connectivity.
 
         This method tests actual API connectivity by making a simple request to verify
@@ -154,11 +155,12 @@ class OpenAIConnector(LLMBackend):
         """
         try:
             # Test API connectivity with a simple models endpoint request
-            if not self.api_key:
+            effective_api_key = api_key if api_key is not None else self.api_key
+            if not effective_api_key:
                 logger.warning("Health check failed - no API key available")
                 return False
 
-            headers = self.get_headers()
+            headers = self.get_headers(effective_api_key)
             if not headers.get("Authorization"):
                 logger.warning("Health check failed - no authorization header")
                 return False
@@ -183,7 +185,7 @@ class OpenAIConnector(LLMBackend):
                 )
             return False
 
-    async def _ensure_healthy(self) -> None:
+    async def _ensure_healthy(self, api_key: str | None = None) -> None:
         """Ensure the backend is healthy before use.
 
         This method performs health checks on first use, similar to how
@@ -198,7 +200,7 @@ class OpenAIConnector(LLMBackend):
                 f"Performing first-use health check for {self.backend_type} backend"
             )
 
-            healthy = await self._perform_health_check()
+            healthy = await self._perform_health_check(api_key)
             if not healthy:
                 logger.warning(
                     "Health check did not pass; continuing with lazy verification on first request"
@@ -228,16 +230,14 @@ class OpenAIConnector(LLMBackend):
         api_key: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        original_identity = self.identity
+
         # Allow callers to supply a one-off API key (e.g., multi-tenant flows).
-        # Temporarily replace the connector-level key for the duration of this
-        # call so that header construction and health checks use it.
-        original_api_key = self.api_key
-        if api_key is not None:
-            self.api_key = api_key
+        effective_api_key = api_key if api_key is not None else self.api_key
 
         # Perform health check if enabled (for subclasses that support it)
         try:
-            await self._ensure_healthy()
+            await self._ensure_healthy(effective_api_key)
 
             # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
             # (the frontend controller converts from frontend-specific format to domain format)
@@ -272,7 +272,7 @@ class OpenAIConnector(LLMBackend):
                 headers = dict(headers_override)
 
                 try:
-                    base_headers = self.get_headers()
+                    base_headers = self.get_headers(effective_api_key)
                 except Exception:
                     base_headers = None
 
@@ -287,7 +287,7 @@ class OpenAIConnector(LLMBackend):
                     # callers rely on identity-specific headers being scoped to
                     # a single request.
                     self.identity = identity
-                    headers = self.get_headers()
+                    headers = self.get_headers(effective_api_key)
                 except Exception:
                     headers = None
 
@@ -317,8 +317,7 @@ class OpenAIConnector(LLMBackend):
                     url, payload, headers, domain_request.session_id or ""
                 )
         finally:
-            if api_key is not None:
-                self.api_key = original_api_key
+            self.identity = original_identity
 
     async def _prepare_payload(
         self,
