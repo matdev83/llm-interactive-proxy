@@ -169,8 +169,8 @@ def _looks_like_full_suite(command: str) -> bool:
             continue
 
         if any(token.startswith(prefix) for prefix in allowed_flag_prefixes):
-            flag_name, _, _ = token.partition("=")
-            if flag_name in flags_requiring_value and not token.endswith("="):
+            flag_name, sep, inline_value = token.partition("=")
+            if flag_name in flags_requiring_value and (not sep or not inline_value):
                 skip_next_value = True
             continue
 
