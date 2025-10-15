@@ -26,12 +26,14 @@ def session_service(app: FastAPI) -> ISessionService:
     return get_required_service_from_app(app, ISessionService)
 
 
-def test_session_service_can_create_sessions(app: FastAPI) -> None:
-    """Test that session service can create and manage sessions."""
+@pytest.mark.asyncio
+async def test_session_service_can_create_sessions(app: FastAPI) -> None:
+    """Test that session service retrieved via DI can create sessions."""
     service = get_required_service_from_app(app, ISessionService)
 
-    # This is a basic test to verify the service works
-    assert service is not None
+    session = await service.get_or_create_session("di-session")
+
+    assert session.session_id == "di-session"
 
 
 @pytest.mark.asyncio
