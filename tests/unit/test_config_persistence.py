@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.common.exceptions import ConfigurationError, JSONParsingError
 from src.core.config.app_config import load_config
-from src.core.persistence import ConfigManager
+from src.core.persistence import ConfigManager, FailoverValidationResult
 from src.core.services.application_state_service import ApplicationStateService
 
 
@@ -236,6 +236,32 @@ def test_apply_default_backend_invalid_backend_raises_configuration_error() -> N
     }
 
 
+def test_apply_default_backend_uses_injected_binder() -> None:
+    app = FastAPI()
+    application_state = ApplicationStateService()
+    application_state.set_functional_backends(["gemini"])
+
+    class RecorderBinder:
+        def __init__(self):
+            self.calls: list[tuple[str, bool]] = []
+
+        def bind(self, backend_name: str, *, strict: bool) -> None:
+            self.calls.append((backend_name, strict))
+
+    binder = RecorderBinder()
+    manager = ConfigManager(
+        app,
+        path=":memory:",
+        app_state=application_state,
+        backend_binder=binder,  # type: ignore[arg-type]
+    )
+
+    manager._apply_default_backend("gemini")
+
+    assert binder.calls == [("gemini", False)]
+    assert application_state.get_backend_type() == "gemini"
+
+
 def test_apply_default_backend_invalid_backend_still_raises_with_cli_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -269,3 +295,73 @@ def test_load_raises_json_parsing_error_for_invalid_json(tmp_path: Path) -> None
         manager.load()
 
     assert "Failed to parse config file" in str(exc_info.value)
+
+
+def test_apply_failover_routes_uses_validator_and_skips_invalid(monkeypatch) -> None:
+    app = FastAPI()
+    application_state = ApplicationStateService()
+    application_state.set_functional_backends(["gemini"])
+
+    class DummyValidator:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        def validate(
+            self, backend_name: str, model_name: str
+        ) -> FailoverValidationResult:
+            self.calls.append((backend_name, model_name))
+            if model_name == "bad-model":
+                return FailoverValidationResult(
+                    is_valid=False,
+                    warning="backend rejection",
+                )
+            return FailoverValidationResult(is_valid=True, warning=None)
+
+    validator = DummyValidator()
+    manager = ConfigManager(
+        app,
+        path=":memory:",
+        app_state=application_state,
+        failover_validator=validator,  # type: ignore[arg-type]
+    )
+
+    warnings = manager._apply_failover_routes(
+        {
+            "safe": {"policy": "k", "elements": ["gemini:model-a"]},
+            "invalid": {"policy": "k", "elements": ["gemini:bad-model"]},
+        }
+    )
+
+    assert validator.calls == [("gemini", "model-a"), ("gemini", "bad-model")]
+    assert "backend rejection" in " ".join(warnings)
+    routes = application_state.get_failover_routes()
+    assert routes is not None
+    assert any(route for route in routes if route.get("elements") == ["gemini:model-a"])
+
+
+def test_apply_failover_routes_does_not_invoke_asyncio_run(monkeypatch) -> None:
+    app = FastAPI()
+    application_state = ApplicationStateService()
+    application_state.set_functional_backends(["gemini"])
+
+    class Validator:
+        def validate(
+            self, backend_name: str, model_name: str
+        ) -> FailoverValidationResult:
+            return FailoverValidationResult(is_valid=True, warning=None)
+
+    manager = ConfigManager(
+        app,
+        path=":memory:",
+        app_state=application_state,
+        failover_validator=Validator(),  # type: ignore[arg-type]
+    )
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("asyncio.run should not be called")
+
+    monkeypatch.setattr("asyncio.run", fail_run)
+
+    manager._apply_failover_routes(
+        {"safe": {"policy": "k", "elements": ["gemini:model-a"]}}
+    )

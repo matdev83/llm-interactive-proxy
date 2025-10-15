@@ -75,16 +75,21 @@ async def test_streaming_response_converted_to_anthropic() -> None:
 
     assert len(chunks) == 4
 
-    prefix = "data: "
-    first_payload = json.loads(chunks[0][len(prefix) :])
-    assert first_payload["type"] == "message_start"
-    assert first_payload["message"] == {"role": "assistant"}
+    def _get_payload_from_sse_event(event_string: str) -> dict[str, Any]:
+        for line in event_string.strip().split("\n"):
+            if line.startswith("data:"):
+                return json.loads(line[len("data: ") :])
+        raise ValueError(f"No data line found in event: {event_string!r}")
 
-    second_payload = json.loads(chunks[1][len(prefix) :])
+    first_payload = _get_payload_from_sse_event(chunks[0])
+    assert first_payload["type"] == "message_start"
+    assert first_payload["message"]["role"] == "assistant"
+
+    second_payload = _get_payload_from_sse_event(chunks[1])
     assert second_payload["type"] == "content_block_delta"
     assert second_payload["delta"]["text"] == "Hello"
 
-    third_payload = json.loads(chunks[2][len(prefix) :])
+    third_payload = _get_payload_from_sse_event(chunks[2])
     assert third_payload["type"] == "message_delta"
     assert third_payload["delta"]["stop_reason"] == "end_turn"
 

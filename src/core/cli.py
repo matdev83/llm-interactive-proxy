@@ -1343,6 +1343,7 @@ def main(
         raise
 
 
+# Main entry point guard
 if __name__ == "__main__":
     main()
 

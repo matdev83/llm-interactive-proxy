@@ -689,6 +689,14 @@ class BackendSettings(DomainModel):
                     dumped[backend_name] = config.model_dump()
         return dumped
 
+    def model_is_functional(self, model_id: str) -> bool:
+        """Check if a model is available in any functional backend."""
+        if ":" not in model_id:
+            return False  # Invalid format
+
+        backend_name, _ = model_id.split(":", 1)
+        return backend_name in self.functional_backends
+
 
 class AppConfig(DomainModel, IConfig):
     """Complete application configuration."""
@@ -748,6 +756,10 @@ class AppConfig(DomainModel, IConfig):
 
     # FastAPI app instance
     app: Any = None
+
+    def model_is_functional(self, model_id: str) -> bool:
+        """Check if a model is available in any functional backend."""
+        return self.backends.model_is_functional(model_id)
 
     def save(self, path: str | Path) -> None:
         """Save the current configuration to a file."""

@@ -6,7 +6,7 @@ Handles Anthropic API endpoints.
 
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
 from typing import Any
 
 from fastapi import HTTPException, Request, Response
@@ -263,28 +263,37 @@ class AnthropicController:
                     # Ensure Anthropic streaming endpoints advertise proper SSE headers
                     sse_content_type = "text/event-stream; charset=utf-8"
 
-                    original_iterator = adapted_response.body_iterator
+                    # The body_iterator from the StreamingResponse is what we need to convert
+                    source_iterator = adapted_response.body_iterator
 
-                    def _convert_chunk(chunk: bytes | str | memoryview) -> bytes:
-                        if isinstance(chunk, memoryview):
-                            chunk = chunk.tobytes()
+                    async def _byte_wrapper(
+                        iterator: AsyncIterable[str | bytes | memoryview],
+                    ) -> AsyncGenerator[bytes, None]:
+                        async for chunk in iterator:
+                            if isinstance(chunk, memoryview):
+                                yield chunk.tobytes()
+                            elif isinstance(chunk, str):
+                                yield chunk.encode("utf-8")
+                            else:
+                                yield chunk
 
-                        text_chunk = (
-                            chunk.decode("utf-8", errors="ignore")
-                            if isinstance(chunk, bytes | bytearray)
-                            else str(chunk)
-                        )
-                        converted = openai_stream_to_anthropic_stream(text_chunk)
-                        if isinstance(converted, bytes):
-                            return converted
-                        return str(converted).encode("utf-8")
+                    openai_stream_bytes = _byte_wrapper(source_iterator)
+
+                    # This session ID may be None, but the converter has a fallback
+                    session_id = ctx.session_id or ""
+
+                    # The new stateful async generator that will handle the conversion
+                    anthropic_stream_str = openai_stream_to_anthropic_stream(
+                        openai_stream_bytes,
+                        anthropic_request,
+                        anthropic_request.model,
+                        session_id,
+                    )
 
                     async def _anthropic_stream() -> AsyncIterator[bytes]:
-                        """Convert OpenAI-formatted SSE chunks to Anthropic format."""
-
-                        iterator = original_iterator
-                        async for chunk in iterator:
-                            yield _convert_chunk(chunk)
+                        """Yields bytes from the converted Anthropic-formatted stream."""
+                        async for chunk_str in anthropic_stream_str:
+                            yield chunk_str.encode("utf-8")
 
                     headers = dict(adapted_response.headers)
                     headers["content-type"] = sse_content_type

@@ -1,96 +1,370 @@
+from __future__ import annotations
+
+import asyncio
 import json
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from fastapi import FastAPI
 
 from src.command_prefix import validate_command_prefix
 from src.core.common.exceptions import (
+    BackendError,
     ConfigurationError,
     JSONParsingError,
     ServiceResolutionError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.model_utils import (
-    ModelDefaults,  # Add import for model config classes
-)
+from src.core.domain.model_utils import ModelDefaults, parse_model_backend
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
 
 
-class ConfigManager:
+@dataclass(frozen=True)
+class FailoverValidationResult:
+    """Outcome of validating a failover backend/model combination."""
+
+    is_valid: bool
+    warning: str | None = None
+
+
+class ConfigIOProtocol(Protocol):
+    """Protocol for reading and writing configuration data."""
+
+    def exists(self) -> bool:
+        """Return True when the underlying resource exists."""
+
+    def read(self) -> dict[str, Any]:
+        """Read configuration data as a dictionary."""
+
+    def write(self, data: dict[str, Any]) -> None:
+        """Persist configuration data."""
+
+
+class FileConfigIO(ConfigIOProtocol):
+    """File-backed configuration storage with JSON encoding."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def exists(self) -> bool:
+        return self._path.is_file()
+
+    def read(self) -> dict[str, Any]:
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.error(
+                "Failed to read config file %s: %s", self._path, exc, exc_info=True
+            )
+            raise ConfigurationError(
+                f"Failed to read config file {self._path.name}."
+            ) from exc
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "Failed to parse config file %s as JSON: %s",
+                self._path,
+                exc,
+                exc_info=True,
+            )
+            raise JSONParsingError(
+                f"Failed to parse config file {self._path.name} as JSON."
+            ) from exc
+
+        if not isinstance(data, dict):
+            logger.error(
+                "Invalid config file structure in %s: expected object but got %s",
+                self._path,
+                type(data).__name__,
+            )
+            raise ConfigurationError(
+                f"Config file {self._path.name} must contain a JSON object."
+            )
+
+        return data
+
+    def write(self, data: dict[str, Any]) -> None:
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with self._path.open("w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2)
+        except OSError as exc:
+            logger.error(
+                "Failed to write config file %s: %s", self._path, exc, exc_info=True
+            )
+            raise ConfigurationError(
+                f"Failed to write config file {self._path.name}."
+            ) from exc
+        except TypeError as exc:
+            logger.error(
+                "Failed to serialize config data to JSON for %s: %s",
+                self._path,
+                exc,
+                exc_info=True,
+            )
+            raise ConfigurationError(
+                f"Failed to serialize configuration to JSON for {self._path.name}."
+            ) from exc
+
+
+class BackendBinderProtocol(Protocol):
+    """Protocol for binding backend instances into application state."""
+
+    def bind(self, backend_name: str, *, strict: bool) -> None:
+        """Ensure the backend instance is wired up for the provided backend name."""
+
+
+class NoOpBackendBinder(BackendBinderProtocol):
+    """A no-op binder for when a real binder is not available."""
+
+    def bind(self, backend_name: str, *, strict: bool) -> None:
+        """A no-op binder for when a real binder is not available."""
+
+
+class ServiceProviderBackendBinder(BackendBinderProtocol):
+    """Binder that resolves backend instances through the service provider."""
+
     def __init__(
         self,
-        app: FastAPI,
+        service_provider: IServiceProvider | None,
+        app_state: IApplicationState | None,
+    ) -> None:
+        self._service_provider = service_provider
+        self._app_state = app_state
+
+    def bind(self, backend_name: str, *, strict: bool) -> None:
+        if not self._service_provider or not self._app_state:
+            return
+
+        try:
+            from src.core.interfaces.backend_service_interface import (
+                IBackendService,
+            )
+
+            backend_service = self._service_provider.get_required_service(
+                IBackendService  # type: ignore[type-abstract]
+            )
+        except ServiceResolutionError as exc:
+            logger.debug(
+                "DI resolution for IBackendService failed: %s", exc, exc_info=True
+            )
+            if strict:
+                raise ServiceResolutionError(
+                    "Failed to resolve IBackendService for default backend."
+                ) from exc
+            logger.warning(
+                "Could not resolve IBackendService while applying default backend '%s'; "
+                "continuing without binding backend instance",
+                backend_name,
+            )
+            return
+
+        try:
+            backend_instance = backend_service.get_backend(backend_name)
+        except BackendError as exc:
+            if strict:
+                raise ConfigurationError(
+                    f"Failed to resolve backend instance for '{backend_name}'."
+                ) from exc
+            logger.warning(
+                "Failed to resolve backend instance for '%s': %s",
+                backend_name,
+                exc,
+            )
+            return
+        except Exception as exc:  # pragma: no cover - defensive best effort
+            if strict:
+                raise ConfigurationError(
+                    "Unexpected error while binding backend instance."
+                ) from exc
+            logger.warning(
+                "Unexpected error while binding backend '%s': %s",
+                backend_name,
+                exc,
+            )
+            return
+
+        self._app_state.set_backend(backend_instance)
+
+
+class FailoverRouteValidatorProtocol(Protocol):
+    """Protocol for validating failover backend/model combinations."""
+
+    def validate(self, backend_name: str, model_name: str) -> FailoverValidationResult:
+        """Validate backend/model compatibility."""
+
+
+class NoOpFailoverRouteValidator(FailoverRouteValidatorProtocol):
+    """Validator that always reports success (useful for tests)."""
+
+    def validate(self, backend_name: str, model_name: str) -> FailoverValidationResult:
+        return FailoverValidationResult(is_valid=True, warning=None)
+
+
+class ServiceProviderFailoverRouteValidator(FailoverRouteValidatorProtocol):
+    """Validator that uses backend service validation when available."""
+
+    def __init__(
+        self,
+        service_provider: IServiceProvider | None,
+        strict_error_supplier: Callable[[], bool],
+    ) -> None:
+        self._service_provider = service_provider
+        self._strict_error_supplier = strict_error_supplier
+
+    def validate(self, backend_name: str, model_name: str) -> FailoverValidationResult:
+        if not self._service_provider:
+            return FailoverValidationResult(is_valid=True, warning=None)
+
+        try:
+            from src.core.interfaces.backend_service_interface import (
+                IBackendService,
+            )
+
+            backend_service = self._service_provider.get_required_service(
+                IBackendService  # type: ignore[type-abstract]
+            )
+        except ServiceResolutionError as exc:
+            logger.debug(
+                "DI resolution for IBackendService failed in failover validation: %s",
+                exc,
+                exc_info=True,
+            )
+            if self._strict_error_supplier():
+                raise ServiceResolutionError(
+                    "Failed to resolve IBackendService during failover validation",
+                    service_name="IBackendService",
+                ) from exc
+            return FailoverValidationResult(
+                is_valid=True,
+                warning=(
+                    "Skipping backend validation because the backend service is unavailable."
+                ),
+            )
+
+        coroutine = backend_service.validate_backend_and_model(backend_name, model_name)
+
+        try:
+            asyncio.get_running_loop()
+            loop_running = True
+        except RuntimeError:
+            loop_running = False
+
+        if loop_running:
+            warning = (
+                f"Skipping validation for backend '{backend_name}' model '{model_name}' "
+                "because the event loop is already running."
+            )
+            if self._strict_error_supplier():
+                raise ConfigurationError(
+                    "Cannot validate failover routes while the event loop is running."
+                )
+            return FailoverValidationResult(is_valid=True, warning=warning)
+
+        try:
+            is_valid, message = asyncio.run(coroutine)
+        except BackendError as exc:
+            if self._strict_error_supplier():
+                raise ConfigurationError(
+                    f"Backend validation failed for '{backend_name}'."
+                ) from exc
+            logger.debug(
+                "Backend validation failed for %s/%s: %s",
+                backend_name,
+                model_name,
+                exc,
+                exc_info=True,
+            )
+            return FailoverValidationResult(is_valid=False, warning=str(exc))
+        except Exception as exc:
+            if self._strict_error_supplier():
+                raise ConfigurationError(
+                    "Unexpected error validating failover element."
+                ) from exc
+            logger.debug(
+                "Unexpected error validating failover element %s/%s: %s",
+                backend_name,
+                model_name,
+                exc,
+                exc_info=True,
+            )
+            return FailoverValidationResult(
+                is_valid=False,
+                warning=str(exc),
+            )
+
+        if not is_valid:
+            warning = message or (
+                f"Model '{model_name}' is not available for backend '{backend_name}'."
+            )
+            return FailoverValidationResult(is_valid=False, warning=warning)
+
+        return FailoverValidationResult(is_valid=True, warning=None)
+
+
+class ConfigManager:
+    """Co-ordinates persistence of runtime configuration settings."""
+
+    def __init__(
+        self,
+        app: FastAPI | None,
         path: str,
         service_provider: IServiceProvider | None = None,
         app_state: IApplicationState | None = None,
         config: AppConfig | None = None,
+        *,
+        config_io: ConfigIOProtocol | None = None,
+        backend_binder: BackendBinderProtocol | None = None,
+        failover_validator: FailoverRouteValidatorProtocol | None = None,
     ) -> None:
         self.app = app
         self.path = Path(path)
         self.service_provider = service_provider
         self.app_state = app_state
         self.config = config
+        self._config_io = config_io or FileConfigIO(self.path)
+
+        self._backend_binder: BackendBinderProtocol
+        if backend_binder is not None:
+            self._backend_binder = backend_binder
+        elif app_state is not None and service_provider is not None:
+            self._backend_binder = ServiceProviderBackendBinder(
+                service_provider, app_state
+            )
+        else:
+            self._backend_binder = NoOpBackendBinder()
+
+        self._failover_validator: FailoverRouteValidatorProtocol
+        if failover_validator is not None:
+            self._failover_validator = failover_validator
+        else:
+            self._failover_validator = ServiceProviderFailoverRouteValidator(
+                service_provider, self._should_raise_strict_errors
+            )
 
     def _should_raise_strict_errors(self) -> bool:
-        """Check if strict error handling is enabled via config."""
         if self.config:
             value = self.config.get("session.dangerous_command_prevention_enabled")
             return bool(value) if value is not None else False
         return False
 
     def load(self) -> None:
-        if not self.path.is_file():
+        if not self._config_io.exists():
             return
-        try:
-            data = json.loads(self.path.read_text())
-        except json.JSONDecodeError as e:
-            logger.error(
-                "Failed to parse config file %s as JSON: %s",
-                self.path,
-                e,
-                exc_info=True,
-            )
-            raise JSONParsingError(
-                f"Failed to parse config file {self.path.name} as JSON."
-            ) from e
-        except OSError as e:
-            logger.error(
-                "Failed to read config file %s: %s", self.path, e, exc_info=True
-            )
-            raise ConfigurationError(
-                f"Failed to read config file {self.path.name}."
-            ) from e
-        except Exception as e:  # Catch any other unexpected exceptions
-            logger.error(
-                "An unexpected error occurred while loading config file %s: %s",
-                self.path,
-                e,
-                exc_info=True,
-            )
-            raise ConfigurationError(
-                f"An unexpected error occurred while loading config file {self.path.name}."
-            ) from e
-        if not isinstance(data, dict):
-            logger.error(
-                "Invalid config file structure in %s: expected object but got %s",
-                self.path,
-                type(data).__name__,
-            )
-            raise ConfigurationError(
-                f"Config file {self.path.name} must contain a JSON object."
-            )
-
+        data = self._config_io.read()
         self.apply(data)
 
     def _apply_default_backend(self, backend_value: Any) -> None:
         if not isinstance(backend_value, str):
             return
-
         if not self.app_state:
             return
 
@@ -106,7 +380,6 @@ class ConfigManager:
                 },
             )
 
-        # Get CLI backend from config instead of direct os.getenv
         cli_backend = (
             self.config.get("backends.default_backend") if self.config else None
         )
@@ -119,98 +392,47 @@ class ConfigManager:
             return
 
         self.app_state.set_backend_type(backend_value)
-        if self.service_provider is not None:
-            try:
-                from src.core.interfaces.backend_service_interface import (
-                    IBackendService,
-                )
 
-                backend_service = self.service_provider.get_required_service(
-                    IBackendService  # type: ignore[type-abstract]
-                )
-                if backend_service and backend_value in getattr(
-                    backend_service, "_backends", {}  # type: ignore[attr-defined]
-                ):
-                    self.app_state.set_backend(
-                        backend_service._backends[  # type: ignore[attr-defined]
-                            backend_value
-                        ]
-                    )
-                    return
-            except ServiceResolutionError as e:
-                logger.debug(
-                    "DI resolution for IBackendService failed: %s",
-                    e,
-                    exc_info=True,
-                )
-                # Check for strict errors via config if available
-                strict_errors = self._should_raise_strict_errors()
-                if strict_errors:
-                    raise ServiceResolutionError(
-                        "Failed to resolve IBackendService for default backend."
-                    ) from e
-                logger.warning(
-                    "Could not resolve IBackendService while applying default backend '%s'; "
-                    "continuing without binding backend instance",
-                    backend_value,
-                )
-            except Exception as e:
-                logger.error(
-                    "An unexpected error occurred during DI resolution for IBackendService: %s",
-                    e,
-                    exc_info=True,
-                )
-                strict_errors = self._should_raise_strict_errors()
-                if strict_errors:
-                    raise ConfigurationError(
-                        "An unexpected error occurred while applying default backend."
-                    ) from e
-                logger.warning(
-                    "Skipping backend instance binding for default backend '%s' due to unexpected error",
-                    backend_value,
-                )
+        strict_errors = self._should_raise_strict_errors()
+        if self._backend_binder:
+            self._backend_binder.bind(backend_value, strict=strict_errors)
 
     def _apply_interactive_mode(self, mode_value: Any) -> None:
-        if isinstance(mode_value, bool) and self.service_provider is not None:
-            # Get session service from DI
-            try:
-                from src.core.interfaces.session_service_interface import (
-                    ISessionService,
-                )
+        if not isinstance(mode_value, bool) or self.service_provider is None:
+            return
 
-                session_service = self.service_provider.get_required_service(
-                    ISessionService  # type: ignore[type-abstract]
-                )
-                session_service.default_interactive_mode = mode_value  # type: ignore[attr-defined]
-            except ServiceResolutionError as e:
-                logger.debug(
-                    "DI resolution for ISessionService failed: %s",
-                    e,
-                    exc_info=True,
-                )
-                strict_errors = self._should_raise_strict_errors()
-                if strict_errors:
-                    raise ServiceResolutionError(
-                        "Failed to resolve ISessionService for interactive mode."
-                    ) from e
-                logger.warning(
-                    "Could not resolve ISessionService while applying interactive mode; "
-                    "continuing without updating session service",
-                )
-            except Exception as e:
-                logger.error(
-                    "An unexpected error occurred during DI resolution for ISessionService: %s",
-                    e,
-                    exc_info=True,
-                )
-                strict_errors = self._should_raise_strict_errors()
-                if strict_errors:
-                    raise ConfigurationError(
-                        "An unexpected error occurred while applying interactive mode."
-                    ) from e
-                logger.warning(
-                    "Skipping interactive mode update due to unexpected error",
-                )
+        try:
+            from src.core.interfaces.session_service_interface import (
+                ISessionService,
+            )
+
+            session_service = self.service_provider.get_required_service(
+                ISessionService  # type: ignore[type-abstract]
+            )
+            session_service.default_interactive_mode = mode_value  # type: ignore[attr-defined]
+        except ServiceResolutionError as exc:
+            logger.debug(
+                "DI resolution for ISessionService failed: %s", exc, exc_info=True
+            )
+            if self._should_raise_strict_errors():
+                raise ServiceResolutionError(
+                    "Failed to resolve ISessionService for interactive mode."
+                ) from exc
+            logger.warning(
+                "Could not resolve ISessionService while applying interactive mode; "
+                "continuing without updating session service",
+            )
+        except Exception as exc:
+            logger.error(
+                "An unexpected error occurred during DI resolution for ISessionService: %s",
+                exc,
+                exc_info=True,
+            )
+            if self._should_raise_strict_errors():
+                raise ConfigurationError(
+                    "An unexpected error occurred while applying interactive mode."
+                ) from exc
+            logger.warning("Skipping interactive mode update due to unexpected error")
 
     def _apply_redact_api_keys(self, redact_value: Any) -> None:
         if isinstance(redact_value, bool) and self.app_state:
@@ -218,23 +440,21 @@ class ConfigManager:
             self.app_state.set_default_api_key_redaction_enabled(redact_value)
 
     def _apply_command_prefix(self, prefix_value: Any) -> None:
-        if isinstance(prefix_value, str):
+        if isinstance(prefix_value, str) and self.app_state:
             err = validate_command_prefix(prefix_value)
             if err:
-                logger.warning(f"Invalid command prefix in config: {err}")
-            else:
-                if self.app_state:
-                    self.app_state.set_command_prefix(prefix_value)
+                logger.warning("Invalid command prefix in config: %s", err)
+                return
+            self.app_state.set_command_prefix(prefix_value)
 
     def _apply_model_defaults(self, model_defaults_value: Any) -> list[str]:
-        """Apply model-specific default configurations."""
         warnings: list[str] = []
         if not isinstance(model_defaults_value, dict):
             return warnings
+        if not self.app_state:
+            return warnings
 
-        # Store model defaults in app state for later use
-        if self.app_state and not hasattr(self.app_state, "model_defaults"):
-            self.app_state.set_model_defaults({})
+        current_defaults = dict(self.app_state.get_model_defaults() or {})
 
         for model_name, defaults_config in model_defaults_value.items():
             if not isinstance(defaults_config, dict):
@@ -244,42 +464,32 @@ class ConfigManager:
                 continue
 
             try:
-                # Validate the model defaults configuration
                 model_defaults = ModelDefaults(**defaults_config)
-                if self.app_state:
-                    current_defaults = self.app_state.get_model_defaults()
-                    current_defaults[model_name] = model_defaults
-                    self.app_state.set_model_defaults(current_defaults)
-                logger.info(f"Loaded defaults for model: {model_name}")
-            except Exception as e:
+            except Exception as exc:
                 logger.error(
                     "Invalid model defaults for '%s': %s",
                     model_name,
-                    e,
+                    exc,
                     exc_info=True,
                 )
                 warnings.append(
-                    f"Invalid model defaults for '{model_name}': {e}. Check logs for details."
+                    f"Invalid model defaults for '{model_name}': {exc}. Check logs for details."
                 )
                 continue
 
+            current_defaults[model_name] = model_defaults
+
+        self.app_state.set_model_defaults(current_defaults)
         return warnings
 
     def _parse_and_validate_failover_element(
         self, elem_str: Any, route_name: str
     ) -> tuple[str | None, str | None]:
-        """Parses and validates a single failover element string.
-        Accepts both slash (backend/model) and colon (backend:model) syntax.
-        Returns (valid_element_string, warning_message_if_any).
-        """
         if not isinstance(elem_str, str):
             return (
                 None,
                 f"Invalid element format '{elem_str}' in route '{route_name}', must be string.",
             )
-
-        # Use robust parsing that handles both slash and colon syntax
-        from src.core.domain.model_utils import parse_model_backend
 
         backend_name, model_name = parse_model_backend(elem_str)
         if not backend_name or not model_name:
@@ -288,100 +498,44 @@ class ConfigManager:
                 f"Invalid element format '{elem_str}' in route '{route_name}', must contain '/' or ':' separator.",
             )
 
-        # Convert to internal colon syntax
-        internal_elem_str = f"{backend_name}:{model_name}"
-
-        if (
-            self.app_state
-            and backend_name not in self.app_state.get_functional_backends()
+        if self.app_state and backend_name not in set(
+            self.app_state.get_functional_backends()
         ):
             return (
                 None,
                 f"Backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not functional, skipping.",
             )
 
-        valid_model = True
-        validation_warning: str | None = None
-        if self.service_provider:
-            try:
-                from src.core.interfaces.backend_service_interface import (
-                    IBackendService,
-                )
+        validator = self._failover_validator or NoOpFailoverRouteValidator()
+        result = validator.validate(backend_name, model_name)
 
-                backend_service = self.service_provider.get_required_service(
-                    IBackendService  # type: ignore[type-abstract]
-                )
-                if backend_service:
-                    # This is now an async method, but we are in a sync method.
-                    # This is a bigger issue that needs to be addressed separately.
-                    # For now, we will assume it's valid if the service exists.
-                    # A proper fix would involve making this method async.
-                    # This is a temporary workaround to unblock the current refactoring.
-                    import asyncio
-
-                    try:
-                        valid_model, _validation_error = asyncio.run(
-                            backend_service.validate_backend_and_model(
-                                backend_name, model_name
-                            )
-                        )
-                    except RuntimeError as runtime_error:
-                        message = str(runtime_error)
-                        if "asyncio.run() cannot be called" not in message:
-                            raise
-
-                        logger.debug(
-                            "Skipping failover validation for %s/%s because the event loop is running.",
-                            backend_name,
-                            model_name,
-                            exc_info=True,
-                        )
-                        strict_errors = self._should_raise_strict_errors()
-                        if strict_errors:
-                            raise ConfigurationError(
-                                "Cannot validate failover routes while the event loop is running."
-                            ) from runtime_error
-                        validation_warning = (
-                            f"Skipping validation for backend '{backend_name}' model '{model_name}' in route "
-                            f"'{route_name}' because the event loop is already running."
-                        )
-                        valid_model = True
-
-            except ServiceResolutionError as e:
-                logger.debug(
-                    "DI resolution for IBackendService failed in failover validation: %s",
-                    e,
-                    exc_info=True,
-                )
-                strict_errors = self._should_raise_strict_errors()
-                if strict_errors:
-                    raise ServiceResolutionError(
-                        "Failed to resolve IBackendService during failover validation",
-                        service_name="IBackendService",
-                    ) from e
-            except Exception as e:
-                logger.debug(
-                    "Unexpected error during DI resolution in failover validation: %s",
-                    e,
-                    exc_info=True,
-                )
-                strict_errors = self._should_raise_strict_errors()
-                if strict_errors:
-                    raise ConfigurationError(
-                        "Unexpected error validating failover element",
-                    ) from e
-                valid_model = False
-
-        if not valid_model:
+        if not result.is_valid:
+            warning = result.warning or (
+                f"Model '{model_name}' for backend '{backend_name}' is not available."
+            )
             return (
                 None,
-                f"Model '{model_name}' for backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not available, skipping.",
+                f"Model '{model_name}' for backend '{backend_name}' in route '{route_name}' element '{elem_str}' is not available: {warning}",
             )
 
-        if validation_warning:
-            return internal_elem_str, validation_warning
+        if result.warning:
+            return f"{backend_name}:{model_name}", result.warning
 
-        return internal_elem_str, None  # Return internal colon syntax, no warning
+        return f"{backend_name}:{model_name}", None
+
+    def _prune_unavailable_routes(self) -> None:
+        if not self.app_state or not self.app_state.app_config:
+            return
+
+        self.app_state.app_config.failover_routes = {
+            name: route
+            for name, route in self.app_state.app_config.failover_routes.items()
+            if route.get("elements")
+            and all(
+                self.app_state.app_config.model_is_functional(element)
+                for element in route["elements"]
+            )
+        }
 
     def _apply_failover_routes(self, froutes_value: Any) -> list[str]:
         warnings: list[str] = []
@@ -421,6 +575,7 @@ class ConfigManager:
                         "elements": valid_elements,
                     },
                 )
+
         return warnings
 
     def apply(self, data: dict[str, Any]) -> None:
@@ -437,11 +592,10 @@ class ConfigManager:
         model_defaults_warnings = self._apply_model_defaults(data.get("model_defaults"))
         all_warnings.extend(model_defaults_warnings)
 
-        for w in all_warnings:
-            logger.warning(w)
+        for warning in all_warnings:
+            logger.warning(warning)
 
     def collect(self) -> dict[str, Any]:
-        # Get interactive mode from session service
         interactive_mode = False
         if self.service_provider is not None:
             try:
@@ -455,18 +609,16 @@ class ConfigManager:
                 interactive_mode = getattr(
                     session_service, "default_interactive_mode", False
                 )
-            except ServiceResolutionError as e:
-                strict_errors = self._should_raise_strict_errors()
-                if strict_errors:
+            except ServiceResolutionError as exc:
+                if self._should_raise_strict_errors():
                     raise
-                logger.warning(f"Failed to get interactive mode: {e}")
-            except Exception as e:
-                strict_errors = self._should_raise_strict_errors()
-                if strict_errors:
+                logger.warning("Failed to get interactive mode: %s", exc)
+            except Exception as exc:
+                if self._should_raise_strict_errors():
                     raise ConfigurationError(
                         "Unexpected error reading interactive mode from session service."
-                    ) from e
-                logger.warning(f"Failed to get interactive mode: {e}")
+                    ) from exc
+                logger.warning("Failed to get interactive mode: %s", exc)
 
         config_data: dict[str, Any] = {
             "default_backend": (
@@ -486,11 +638,9 @@ class ConfigManager:
             ),
         }
 
-        # Include model defaults if they exist
         if self.app_state:
             model_defaults = self.app_state.get_model_defaults()
             if model_defaults:
-                # Convert ModelDefaults objects back to dict format for JSON serialization
                 model_defaults_dict = {}
                 for model_name, model_defaults_obj in model_defaults.items():
                     if hasattr(model_defaults_obj, "model_dump"):
@@ -504,25 +654,5 @@ class ConfigManager:
         return config_data
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         data = self.collect()
-        try:
-            with self.path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-        except OSError as e:
-            logger.error(
-                "Failed to write config file %s: %s", self.path, e, exc_info=True
-            )
-            raise ConfigurationError(
-                f"Failed to write config file {self.path.name}."
-            ) from e
-        except TypeError as e:
-            logger.error(
-                "Failed to serialize config data to JSON for %s: %s",
-                self.path,
-                e,
-                exc_info=True,
-            )
-            raise ConfigurationError(
-                f"Failed to serialize configuration to JSON for {self.path.name}."
-            ) from e
+        self._config_io.write(data)

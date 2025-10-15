@@ -96,7 +96,6 @@ package-dir = {"" = "src"}
 
 
 [tool.pytest.ini_options]
-pythonpath = "."
 testpaths = ["tests"]
 addopts = "-v --asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n 7 --dist=loadfile --maxfail=10 -r fE"
 asyncio_mode = "auto"

@@ -10,9 +10,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from src.core.config.app_config import AppConfig
+
 
 class IApplicationState(ABC):
     """Interface for managing application-wide state."""
+
+    app_config: AppConfig | None
 
     @abstractmethod
     def get_command_prefix(self) -> str | None:

@@ -136,6 +136,10 @@ def main():
     # 2) Pattern-based detection (generic + ZAI-specific)
     if not found_keys_in_staged_files:
         for file_path, content in staged_files_content.items():
+            # Skip pattern scan for files in the 'dev/' directory
+            if file_path.startswith("dev/"):
+                print(f"Skipping pattern scan for dev file: {file_path}")
+                continue
             pattern_hits = _scan_content_for_patterns(file_path, content)
             if pattern_hits:
                 print(

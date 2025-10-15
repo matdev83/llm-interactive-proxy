@@ -4,7 +4,7 @@ Pydantic models for Anthropic API request/response structures.
 
 from typing import Any
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 
 from src.core.interfaces.model_bases import DomainModel
 
@@ -22,6 +22,19 @@ class AnthropicMessagesRequest(DomainModel):
     model: str
     messages: list[AnthropicMessage]
     system: str | None = None
+
+    @field_validator("system", mode="before")
+    @classmethod
+    def clean_system_field(cls, value: Any) -> str | None:
+        """Allow 'system' to be a list with a single text block, like [{'text': '...'}]."""
+        if isinstance(value, list) and value:
+            first_item = value[0]
+            if isinstance(first_item, dict) and "text" in first_item:
+                return str(first_item["text"])
+        if isinstance(value, str):
+            return value
+        return None
+
     max_tokens: int | None = Field(
         default=None,
         validation_alias=AliasChoices("max_output_tokens", "max_tokens"),

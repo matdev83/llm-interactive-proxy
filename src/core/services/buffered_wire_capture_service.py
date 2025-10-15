@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from collections.abc import AsyncIterator
@@ -25,6 +26,8 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.redaction_middleware import APIKeyRedactor
+
+logger = logging.getLogger(__name__)
 
 
 class WireCaptureEntry(NamedTuple):
@@ -98,6 +101,16 @@ class BufferedWireCapture(IWireCapture):
 
     def __del__(self) -> None:
         """Cleanup resources when the instance is destroyed."""
+        if self._flush_task and not self._flush_task.done():
+            # This is not a reliable mechanism, but it's a good indicator of a lifecycle issue.
+            # The logger may or may not be available at this point.
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                logger.warning(
+                    "BufferedWireCapture was garbage collected without being shut down. "
+                    "Call shutdown() to ensure data is flushed and tasks are cleaned up."
+                )
         self.force_shutdown_sync()
 
     def _initialize(self) -> None:
@@ -553,33 +566,15 @@ class BufferedWireCapture(IWireCapture):
                 await self._flush_buffer()
 
     def force_shutdown_sync(self) -> None:
-        """Synchronous best-effort shutdown when async context is not available."""
-        # Mark as disabled first so the background loop exits promptly
+        """Synchronous best-effort shutdown. Deprecated and unsafe from __del__."""
+        # This method is problematic when called from __del__ during interpreter shutdown.
+        # The async shutdown() method should be used for proper cleanup.
+        # This is now a no-op to prevent errors during garbage collection.
+        # The real fix is to ensure the application lifecycle calls shutdown().
+        if not getattr(self, "_enabled", False):
+            return
+
         self._enabled = False
 
-        task = self._flush_task
-        if task is not None:
-            # Don't try to get the loop or schedule cancellation if loop might be closed
-            # Just cancel the task directly if it's not done
-            try:
-                if not task.done():
-                    task.cancel()
-            except RuntimeError:
-                # Event loop is closed, can't cancel - just clear the reference
-                pass
-            except Exception:
-                # Any other exception during cancellation, ignore
-                pass
-
-            self._flush_task = None
-
-        # Attempt a final synchronous flush if the buffer is idle
-        try:
-            if self._buffer and not self._buffer_lock.locked():
-                entries_to_write = self._buffer.copy()
-                self._buffer.clear()
-                self._last_flush_time = time.time()
-                self._write_entries_sync(entries_to_write)
-        except Exception:
-            # Best-effort only; never raise during shutdown
-            pass
+        # Do not attempt to cancel tasks or flush buffers here, as it's not safe
+        # from a __del__ context, especially during interpreter shutdown.
