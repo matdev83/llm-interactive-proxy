@@ -933,7 +933,8 @@ def apply_cli_args(
     if getattr(args, "planning_phase_thinking_budget", None) is not None:
         overrides_updates["thinking_budget"] = args.planning_phase_thinking_budget
     if overrides_updates:
-        planning_phase_overrides["overrides"] = overrides_updates
+        existing_overrides = planning_phase_overrides.setdefault("overrides", {})
+        existing_overrides.update(overrides_updates)
         flag_mapping = {
             "temperature": "--planning-phase-temperature",
             "top_p": "--planning-phase-top-p",
