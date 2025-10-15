@@ -34,6 +34,11 @@ class ToolCallReactorService(IToolCallReactor):
     """
 
     _MAX_ARGUMENT_SNAPSHOT_BYTES = 16 * 1024
+    _SNAPSHOT_WARNING_KEY = "__proxy_warning__"
+    _SNAPSHOT_WARNING_VALUE = "tool_arguments_snapshot_omitted"
+    _SNAPSHOT_REASON_KEY = "reason"
+    _SNAPSHOT_REASON_DEPTH = "depth_exceeded"
+    _SNAPSHOT_REASON_ERROR = "snapshot_failed"
 
     def __init__(self, history_tracker: IToolCallHistoryTracker | None = None) -> None:
         """Initialize the tool call reactor service.
@@ -132,7 +137,7 @@ class ToolCallReactorService(IToolCallReactor):
                 "model_name": context.model_name,
                 "calling_agent": context.calling_agent,
                 "timestamp": timestamp,
-                "tool_arguments": self._snapshot_tool_arguments(context.tool_arguments),
+                                        "tool_arguments": self._snapshot_tool_arguments(context.tool_arguments),
             }
 
             await self._history_tracker.record_tool_call(
@@ -188,15 +193,44 @@ class ToolCallReactorService(IToolCallReactor):
 
     @classmethod
     def _snapshot_tool_arguments(cls, arguments: Any) -> Any:
-        """Create a bounded snapshot of tool arguments for history tracking."""
+        """Create a bounded snapshot of tool arguments for history tracking.
 
+        This method handles both size-based truncation and recursion error protection
+        to prevent security handlers from being bypassed by problematic payloads.
+        """
         if arguments is None:
             return None
 
-        if isinstance(arguments, str):
-            encoded = arguments.encode("utf-8", errors="ignore")
+        # First handle recursion errors - this is a security-critical check
+        try:
+            # Try deep copy first to catch recursion errors early
+            deep_copied = copy.deepcopy(arguments)
+        except RecursionError:
+            logger.warning(
+                "Tool call arguments exceeded maximum recursion depth; storing"
+                " placeholder instead of raising."
+            )
+            return {
+                cls._SNAPSHOT_WARNING_KEY: cls._SNAPSHOT_WARNING_VALUE,
+                cls._SNAPSHOT_REASON_KEY: cls._SNAPSHOT_REASON_DEPTH,
+            }
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Failed to snapshot tool call arguments (%s); storing fallback"
+                " placeholder instead of raising.",
+                type(exc).__name__,
+                exc_info=True,
+            )
+            return {
+                cls._SNAPSHOT_WARNING_KEY: cls._SNAPSHOT_WARNING_VALUE,
+                cls._SNAPSHOT_REASON_KEY: cls._SNAPSHOT_REASON_ERROR,
+            }
+
+        # Now handle size-based truncation on the safely copied data
+        if isinstance(deep_copied, str):
+            encoded = deep_copied.encode("utf-8", errors="ignore")
             if len(encoded) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
-                return arguments
+                return deep_copied
             truncated = encoded[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
             return {
                 "__truncated__": True,
@@ -204,8 +238,8 @@ class ToolCallReactorService(IToolCallReactor):
                 "omitted_bytes": len(encoded) - len(truncated),
             }
 
-        if isinstance(arguments, bytes | bytearray):
-            buffer = bytes(arguments)
+        if isinstance(deep_copied, bytes | bytearray):
+            buffer = bytes(deep_copied)
             if len(buffer) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
                 return buffer.decode("utf-8", errors="ignore")
             truncated = buffer[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
@@ -216,9 +250,9 @@ class ToolCallReactorService(IToolCallReactor):
             }
 
         try:
-            serialized = json.dumps(arguments, ensure_ascii=False)
+            serialized = json.dumps(deep_copied, ensure_ascii=False)
         except (TypeError, ValueError):
-            serialized = repr(arguments)
+            serialized = repr(deep_copied)
 
         encoded = serialized.encode("utf-8", errors="ignore")
         if len(encoded) > cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
@@ -229,14 +263,8 @@ class ToolCallReactorService(IToolCallReactor):
                 "omitted_bytes": len(encoded) - len(truncated),
             }
 
-        try:
-            return copy.deepcopy(arguments)
-        except Exception:
-            try:
-                return json.loads(serialized)
-            except Exception:
-                return serialized
-
+        # If we get here, the arguments are safe and within size limits
+        return deep_copied
 
 class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
     """In-memory implementation of tool call history tracking."""
