@@ -19,13 +19,41 @@ from src.core.persistence import ConfigManager
 
 @pytest.fixture(autouse=True)
 def manage_env_vars(monkeypatch: pytest.MonkeyPatch):
+    # Store original environment
+    import os
+
+    original_env = dict(os.environ)
+
+    # Clear potentially polluting variables first
+    env_vars_to_clear = [
+        "DEFAULT_BACKEND",
+        "LLM_BACKEND",
+        "THINKING_BUDGET",
+        "DISABLE_AUTH",
+        "API_KEYS",
+        "PYTEST_CURRENT_TEST",
+        "PROXY_PORT",
+        "COMMAND_PREFIX",
+        "FORCE_CONTEXT_WINDOW",
+    ]
+    for var in env_vars_to_clear:
+        monkeypatch.delenv(var, raising=False)
+
+    # Set clean test environment
     monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-proxy-key")
     monkeypatch.setenv("OPENROUTER_API_KEY_1", "dummy_or_key")
     monkeypatch.setenv("GEMINI_API_KEY_1", "dummy_gem_key")
+
     yield
-    for i in range(1, 21):  # Clean up numbered keys potentially set by other tests
+
+    # Clean up numbered keys potentially set by other tests
+    for i in range(1, 21):
         monkeypatch.delenv(f"OPENROUTER_API_KEY_{i}", raising=False)
         monkeypatch.delenv(f"GEMINI_API_KEY_{i}", raising=False)
+
+    # Restore original environment completely
+    os.environ.clear()
+    os.environ.update(original_env)
 
 
 def test_save_and_load_persistent_config(

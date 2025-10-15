@@ -21,6 +21,21 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 
 
+@pytest.fixture(autouse=True)
+def isolate_test_completely():
+    """Ensure complete test isolation by clearing any global state."""
+    import os
+
+    # Store original environment
+    original_env = dict(os.environ)
+
+    yield
+
+    # Restore original environment completely
+    os.environ.clear()
+    os.environ.update(original_env)
+
+
 class TestQwenOAuthEnhancedErrorHandling:
     """Test cases focusing on Qwen OAuth error handling and initialization."""
 

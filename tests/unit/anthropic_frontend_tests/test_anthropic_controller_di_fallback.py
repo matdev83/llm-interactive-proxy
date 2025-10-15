@@ -11,6 +11,10 @@ from src.core.app.controllers.anthropic_controller import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.domain.chat import ChatRequest
+from src.core.domain.processed_result import ProcessedResult
+from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_service_interface import ICommandService
@@ -22,15 +26,11 @@ from src.core.interfaces.response_processor_interface import (
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.response_manager_service import AgentResponseFormatter
 from src.core.services.session_resolver_service import DefaultSessionResolver
 from src.core.services.session_service_impl import SessionService
-from src.core.domain.processed_result import ProcessedResult
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.chat import ChatRequest
-from src.core.domain.request_context import RequestContext
-from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 
 
 class _StubCommandService(ICommandService):
@@ -53,6 +53,7 @@ class _StubBackendService(IBackendService):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         if stream:
+
             async def _stream() -> AsyncIterator[StreamingResponseEnvelope]:
                 yield StreamingResponseEnvelope(content={}, headers={}, status_code=200)
 
@@ -84,9 +85,7 @@ class _StubResponseProcessor(IResponseProcessor):
 
         return _generator()
 
-    async def register_middleware(
-        self, middleware: Any, priority: int = 0
-    ) -> None:
+    async def register_middleware(self, middleware: Any, priority: int = 0) -> None:
         return None
 
 
