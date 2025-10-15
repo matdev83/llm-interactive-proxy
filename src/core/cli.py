@@ -1021,8 +1021,14 @@ def apply_cli_args(
         config_dict = cfg.model_dump()
         # Apply CLI overrides
         _merge_dicts(config_dict, cli_overrides)
+        # Ensure command_prefix is never None to satisfy Pydantic validation
+        if config_dict.get("command_prefix") is None:
+            config_dict["command_prefix"] = DEFAULT_COMMAND_PREFIX
         # Create new config
         cfg = AppConfig.model_validate(config_dict)
+
+    # Fill in derived defaults that are not provided by explicit sources
+    cfg = _ensure_anthropic_port(cfg, res)
 
     # Validate and apply configurations
     cfg = _validate_and_apply_prefix(cfg)
@@ -1051,6 +1057,30 @@ def _apply_feature_flags(cfg: AppConfig) -> None:
     # These flags are now directly applied in apply_cli_args
 
 
+def _ensure_anthropic_port(
+    cfg: AppConfig, resolution: ParameterResolution
+) -> AppConfig:
+    """Ensure the Anthropic compatibility port follows the main port when implied."""
+
+    explicit_sources: dict[str, Any] = {}
+    for source in (
+        ParameterSource.CONFIG_FILE,
+        ParameterSource.ENVIRONMENT,
+        ParameterSource.CLI,
+    ):
+        explicit_sources.update(resolution.latest_by_source(source))
+
+    if "anthropic_port" in explicit_sources:
+        return cfg
+
+    if cfg.anthropic_port is not None and cfg.anthropic_port > 0:
+        return cfg
+
+    derived_port = cfg.port + 1
+    resolution.record(
+        "anthropic_port", derived_port, ParameterSource.DERIVED, origin="port+1"
+    )
+    return cfg.model_copy(update={"anthropic_port": derived_port})
 def _check_privileges() -> None:
     """Refuse to run the server with elevated privileges."""
     if os.name != "nt":
