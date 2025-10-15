@@ -219,6 +219,44 @@ def test_http_exception_handler_chat_completions_with_structured_detail(
     }
 
 
+def test_http_exception_handler_preserves_outer_metadata_from_error_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("time.time", lambda: 1700000000)
+    request = make_request("/v1/models")
+    exc = HTTPException(
+        status_code=500,
+        detail={
+            "error": {
+                "message": "Database failure",
+                "type": "BackendError",
+                "details": {"retries": 2},
+            },
+            "trace_id": "abc123",
+            "correlation": {"request": "req-1"},
+        },
+    )
+
+    response = call_handler(http_exception_handler, request, exc)
+
+    assert response.status_code == 500
+    payload = parse_json_response(response)
+    assert payload == {
+        "detail": {
+            "error": {
+                "message": "Database failure",
+                "type": "BackendError",
+                "status_code": 500,
+                "details": {
+                    "trace_id": "abc123",
+                    "correlation": {"request": "req-1"},
+                    "retries": 2,
+                },
+            }
+        }
+    }
+
+
 def test_http_exception_handler_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
     request = make_request("/v1/models")
     exc = HTTPException(status_code=400, detail="Missing field")

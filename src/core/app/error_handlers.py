@@ -75,6 +75,14 @@ def _normalize_http_exception_detail(
             message = nested_error.get("message")
             error_type = nested_error.get("type", default_type)
             details = nested_error.get("details")
+            extras = {k: v for k, v in detail.items() if k != "error"}
+            if extras:
+                if details is None:
+                    details = extras
+                elif isinstance(details, Mapping):
+                    details = {**extras, **details}
+                else:
+                    details = {"value": details, "extras": extras}
             if message is None:
                 message = str({k: v for k, v in detail.items() if k != "error"})
             return str(message), str(error_type), details
