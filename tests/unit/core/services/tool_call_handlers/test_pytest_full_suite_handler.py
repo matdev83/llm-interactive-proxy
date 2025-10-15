@@ -14,6 +14,8 @@ from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
         ("pytest", True),
         ("python -m pytest", True),
         ("py.test", True),
+        ("./.venv/bin/pytest", True),
+        (r"C:\\venv\\Scripts\\pytest.exe", True),
         ("pytest -q", True),
         ("pytest --maxfail=1", True),
         ("pytest tests/unit", False),
@@ -22,6 +24,7 @@ from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
         ("pytest some/test/path", False),
         ("pytest some/test/path::TestSuite::test_case", False),
         ("pytest tests.unit.test_example", False),
+        ("./.venv/bin/pytest tests/unit", False),
         ("pytest .", True),
         ("pytest ./tests", False),
     ],
@@ -136,6 +139,17 @@ async def test_handler_detects_list_based_command() -> None:
         tool_name="bash",
         tool_arguments={"command": ["pytest", "-q"]},
     )
+
+    assert await handler.can_handle(context) is True
+    result = await handler.handle(context)
+
+    assert result.should_swallow is True
+
+
+@pytest.mark.asyncio
+async def test_handler_detects_path_qualified_pytest_invocation() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = _build_context("./.venv/bin/pytest")
 
     assert await handler.can_handle(context) is True
     result = await handler.handle(context)

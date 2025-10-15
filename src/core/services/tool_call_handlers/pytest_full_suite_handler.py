@@ -34,6 +34,16 @@ _PYTEST_ROOT_PATTERN = re.compile(
 )
 
 
+def _token_invokes_pytest(token: str) -> bool:
+    """Return True when the token represents a pytest executable."""
+
+    if not token:
+        return False
+
+    executable_name = Path(token).name
+    return bool(_PYTEST_ROOT_PATTERN.fullmatch(executable_name))
+
+
 DEFAULT_STEERING_MESSAGE = (
     "You requested to run the whole test suite. This may be a lengthy process. "
     "Please consider running only selected tests for optimal speed. If you still "
@@ -115,7 +125,7 @@ def _command_invokes_pytest(command: str) -> bool:
             last_separator_index = index
             continue
 
-        if not _PYTEST_ROOT_PATTERN.fullmatch(token):
+        if not _token_invokes_pytest(token):
             continue
 
         segment_start = last_separator_index + 1
@@ -164,7 +174,7 @@ def _looks_like_full_suite(command: str) -> bool:
     # Identify index where pytest command appears and inspect subsequent tokens.
     try:
         pytest_index = next(
-            i for i, tok in enumerate(tokens) if _PYTEST_ROOT_PATTERN.fullmatch(tok)
+            i for i, tok in enumerate(tokens) if _token_invokes_pytest(tok)
         )
     except StopIteration:
         return False
