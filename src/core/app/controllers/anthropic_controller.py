@@ -7,7 +7,7 @@ Handles Anthropic API endpoints.
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
 
@@ -533,40 +533,32 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                     agent_response_formatter = AgentResponseFormatter()
 
                 session_manager = SessionManager(session, session_resolver)
-                wire_capture = None
-                try:
-                    from src.core.interfaces.wire_capture_interface import (
-                        IWireCapture as _IWireCapture,
+                backend_request_manager_service = service_provider.get_service(
+                    cast(type, IBackendRequestManager)
+                )
+                if backend_request_manager_service is None:
+                    backend_request_manager_service = service_provider.get_service(
+                        BackendRequestManager
                     )
+                if backend_request_manager_service is None:
+                    from src.core.interfaces.wire_capture_interface import IWireCapture
 
                     wire_capture = service_provider.get_service(
-                        cast(type, _IWireCapture)
+                        cast(type, IWireCapture)
                     )
-                except Exception:
-                    wire_capture = None
+                    backend_request_manager_service = BackendRequestManager(
+                        backend_processor,
+                        response_proc,
+                        wire_capture,
+                    )
 
-                if wire_capture is None:
-                    try:
-                        from src.core.di.services import get_service_provider
-
-                        global_provider = get_service_provider()
-                    except Exception:
-                        global_provider = None
-                    else:
-                        if (
-                            global_provider is not None
-                            and global_provider is not service_provider
-                        ):
-                            try:
-                                wire_capture = global_provider.get_service(
-                                    cast(type, _IWireCapture)
-                                )
-                            except Exception:
-                                wire_capture = None
-
-                backend_request_manager = BackendRequestManager(
-                    backend_processor, response_proc, wire_capture
+                backend_request_manager = cast(
+                    IBackendRequestManager, backend_request_manager_service
                 )
+                if backend_request_manager is None:
+                    raise InitializationError(
+                        "Could not resolve BackendRequestManager"
+                    )
                 response_manager = ResponseManager(agent_response_formatter)
 
                 request_processor = RequestProcessor(
