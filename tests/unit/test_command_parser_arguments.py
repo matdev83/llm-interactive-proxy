@@ -29,9 +29,20 @@ def test_parser_handles_complex_arguments(
 
     parser = CommandParser()
     parsed = parser.parse(content)
-    assert parsed is not None
-    command, matched_text = parsed
+    assert len(parsed) == 1
+    command = parsed[0].command
+    matched_text = parsed[0].matched_text
 
     assert matched_text == content
     assert command.name == "set"
     assert command.args == expected_args
+
+
+def test_parser_returns_multiple_commands_in_order() -> None:
+    parser = CommandParser()
+    content = "!/hello !/set(temperature=0.2) \nother text !/unset(model)"
+
+    parsed = parser.parse(content)
+
+    assert [item.command.name for item in parsed] == ["hello", "set", "unset"]
+    assert parsed[1].command.args == {"temperature": "0.2"}

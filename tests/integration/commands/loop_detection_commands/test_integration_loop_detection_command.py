@@ -1,6 +1,5 @@
 import pytest
 from src.core.commands.parser import CommandParser
-from src.core.commands.service import NewCommandService
 from src.core.domain.chat import ChatMessage
 from src.core.domain.session import LoopDetectionConfiguration, SessionState
 from src.core.services.command_processor import (
@@ -55,9 +54,12 @@ async def run_command(command_string: str) -> str:
         async def get_all_sessions(self) -> list:
             return []
 
-    processor = CoreCommandProcessor(
-        NewCommandService(session_service=_SessionSvc(), command_parser=CommandParser())
+    from tests.utils.command_service_utils import build_new_command_service
+
+    command_service = build_new_command_service(
+        session_service=_SessionSvc(), command_parser=CommandParser()
     )
+    processor = CoreCommandProcessor(command_service)
 
     result = await processor.process_messages(
         [ChatMessage(role="user", content=command_string)],

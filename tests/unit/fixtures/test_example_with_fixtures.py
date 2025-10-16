@@ -23,18 +23,18 @@ async def test_process_command_with_fixtures(
     process_command: Callable[[str], Awaitable[ProcessedResult]],
 ) -> None:
     """Test processing a command using the process_command fixture."""
-    text = "!/set(model=openrouter:gpt-4-turbo) Please use this model"
+    text = "Please use this model\n!/set(model=openrouter:gpt-4-turbo)"
     result = await process_command(text)
     commands_found = result.command_executed
-    processed_text = result.command_results[0].message if result.command_results else ""
+    processed_text = (
+        result.modified_messages[0].content if result.modified_messages else ""
+    )
 
     # Verify the command was found and processed
     assert commands_found
 
-    # Verify the command was stripped from the message
-    # Note: The exact behavior depends on the implementation of process_commands_in_messages_test
-    # With the current implementation, the command is removed but surrounding text is preserved
-    assert "!/set" not in processed_text
+    # Verify the command was stripped from the message, leaving only the context line
+    assert processed_text == "Please use this model"
 
 
 @pytest.mark.session
@@ -100,7 +100,7 @@ async def test_command_parser_fixture(
     """Test the command_parser fixture."""
     # Create a message with a command
     message = MultimodalMessage.text(
-        role="user", content="!/set(model=openrouter:test-model)"
+        role="user", content="Do it now\n!/set(model=openrouter:test-model)"
     )
 
     # Process the message
@@ -148,20 +148,13 @@ async def test_multimodal_message_with_command_fixture(
     """Test the multimodal_message_with_command fixture with process_command."""
     # Extract the content from the multimodal message
     # Assuming the command is always in the first text part
-    text_part = None
-    if multimodal_message_with_command.content is not None:
-        text_part = next(
-            (
-                p
-                for p in multimodal_message_with_command.content
-                if isinstance(p, ContentPart) and p.type == ContentType.TEXT
-            ),
-            None,
-        )
-    assert text_part is not None and text_part.type == ContentType.TEXT
+    text = "\n".join(
+        p.data
+        for p in multimodal_message_with_command.content
+        if isinstance(p, ContentPart) and p.type == ContentType.TEXT
+    )
 
-    # Process the command in the text part
-    result = await process_command(text_part.data)
+    result = await process_command(text)
     commands_found = result.command_executed
 
     # Verify the command was found and processed

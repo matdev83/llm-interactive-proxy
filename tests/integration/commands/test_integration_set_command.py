@@ -50,12 +50,12 @@ class MockSessionService(ISecureStateAccess, ISecureStateModification):
 async def run_command(command_string: str, initial_state: SessionState = None) -> str:
     """Run a command and return the result message."""
     from src.core.commands.parser import CommandParser
-    from src.core.commands.service import NewCommandService
     from src.core.domain.chat import ChatMessage
     from src.core.services.command_processor import (
         CommandProcessor as CoreCommandProcessor,
     )
     from tests.unit.core.test_doubles import MockSessionService
+    from tests.utils.command_service_utils import build_new_command_service
 
     # Create a Session object to hold the state
     initial_state = initial_state or SessionState()
@@ -63,7 +63,7 @@ async def run_command(command_string: str, initial_state: SessionState = None) -
 
     session_service = MockSessionService(session=session)
     command_parser = CommandParser()
-    service = NewCommandService(session_service, command_parser)
+    service = build_new_command_service(session_service, command_parser)
     processor = CoreCommandProcessor(service)
 
     messages = [ChatMessage(role="user", content=command_string)]

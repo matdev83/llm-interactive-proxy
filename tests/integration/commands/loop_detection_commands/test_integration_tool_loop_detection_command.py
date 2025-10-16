@@ -1,6 +1,5 @@
 import pytest
 from src.core.commands.parser import CommandParser
-from src.core.commands.service import NewCommandService
 
 # Unskip: snapshot fixture is available in test suite
 from src.core.domain.chat import ChatMessage
@@ -24,9 +23,12 @@ async def run_command(command_string: str) -> str:
         async def update_session(self, session):
             return None
 
-    processor = CoreCommandProcessor(
-        NewCommandService(session_service=_SessionSvc(), command_parser=CommandParser())
+    from tests.utils.command_service_utils import build_new_command_service
+
+    command_service = build_new_command_service(
+        session_service=_SessionSvc(), command_parser=CommandParser()
     )
+    processor = CoreCommandProcessor(command_service)
 
     result = await processor.process_messages(
         [ChatMessage(role="user", content=command_string)],

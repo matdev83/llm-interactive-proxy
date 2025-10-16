@@ -8,7 +8,7 @@ import pytest
 from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.parser import CommandParser
-from src.core.commands.service import CommandResultWrapper, NewCommandService
+from src.core.commands.service import CommandResultWrapper
 from src.core.domain.chat import ChatMessage
 from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session
@@ -49,7 +49,9 @@ class _DummyHandler(ICommandHandler):
 async def test_command_result_wrapper_type_is_stable(monkeypatch: Any) -> None:
     """Ensure the wrapper class is shared across invocations for type checks."""
 
-    service = NewCommandService(_StubSessionService(), CommandParser())
+    from tests.utils.command_service_utils import build_new_command_service
+
+    service = build_new_command_service(_StubSessionService(), CommandParser())
 
     def _get_command_handler(name: str) -> type[ICommandHandler] | None:
         return _DummyHandler if name == "mock" else None

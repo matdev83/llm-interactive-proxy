@@ -1,11 +1,22 @@
-"""
-Parses commands from message content.
-"""
+"""Parses commands from message content."""
+
+from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from src.core.commands.command import Command
+
+
+@dataclass(frozen=True)
+class ParsedCommand:
+    """Represents a command parsed from raw text."""
+
+    command: Command
+    matched_text: str
+    start: int
+    end: int
 
 
 class CommandParser:
@@ -14,7 +25,7 @@ class CommandParser:
     def __init__(self, command_prefix: str = "!/"):
         """Initialize the parser with the desired command prefix."""
         self._command_prefix: str = ""
-        self.pattern: re.Pattern
+        self.pattern: re.Pattern[str]
         self.command_prefix = command_prefix
         self._import_command_handlers()
 
@@ -61,95 +72,112 @@ class CommandParser:
 
     def parse(
         self, content: str, command_prefix: str | None = None
-    ) -> tuple[Command, str] | None:
-        """
-        Parses a command from the given content.
+    ) -> list[ParsedCommand]:
+        """Return every command present in *content*."""
 
-        Args:
-            content: The content to parse.
+        if not content:
+            return []
 
-        Returns:
-            A tuple containing the Command object and the matched string, or None.
-        """
         prefix_value: str | None = (
-            command_prefix if command_prefix else self.command_prefix
+            command_prefix if command_prefix is not None else self.command_prefix
         )
         if not isinstance(prefix_value, str) or not prefix_value:
-            return None
+            return []
 
-        prefix = prefix_value
+        results: list[ParsedCommand] = []
         search_index = 0
-        while True:
-            start = content.find(prefix, search_index)
+        content_length = len(content)
+
+        while search_index < content_length:
+            start = content.find(prefix_value, search_index)
             if start == -1:
-                return None
+                break
 
-            cursor = start + len(prefix)
-            if cursor >= len(content):
-                return None
-
-            name_chars: list[str] = []
-            while cursor < len(content) and (
-                content[cursor].isalnum() or content[cursor] in "-_"
-            ):
-                name_chars.append(content[cursor])
-                cursor += 1
-
-            if not name_chars:
-                search_index = start + len(prefix)
+            parsed = self._parse_from_index(content, prefix_value, start)
+            if parsed is None:
+                search_index = start + len(prefix_value)
                 continue
 
-            name = "".join(name_chars)
+            command, matched_text, end_index = parsed
+            results.append(
+                ParsedCommand(
+                    command=command,
+                    matched_text=matched_text,
+                    start=start,
+                    end=end_index,
+                )
+            )
+            # Continue searching after the current match to support multiple commands
+            search_index = max(end_index, start + len(prefix_value))
 
-            name_end = cursor
-            whitespace_cursor = cursor
-            while (
-                whitespace_cursor < len(content)
-                and content[whitespace_cursor].isspace()
-            ):
-                whitespace_cursor += 1
+        return results
 
-            matched_end = name_end
-            args: dict[str, Any] = {}
-            if whitespace_cursor < len(content) and content[whitespace_cursor] == "(":
-                cursor = whitespace_cursor + 1
-                args_start = cursor
-                depth = 1
-                quote_char: str | None = None
-                escape_next = False
+    def _parse_from_index(
+        self, content: str, prefix: str, start: int
+    ) -> tuple[Command, str, int] | None:
+        cursor = start + len(prefix)
+        if cursor >= len(content):
+            return None
 
-                while cursor < len(content):
-                    char = content[cursor]
-                    if escape_next:
-                        escape_next = False
-                    elif quote_char is not None:
-                        if char == "\\":
-                            escape_next = True
-                        elif char == quote_char:
-                            quote_char = None
-                    else:
-                        if char in ('"', "'"):
-                            quote_char = char
-                        elif char == "(":
-                            depth += 1
-                        elif char == ")":
-                            depth -= 1
-                            if depth == 0:
-                                break
-                    cursor += 1
+        name_chars: list[str] = []
+        while cursor < len(content) and (
+            content[cursor].isalnum() or content[cursor] in "-_"
+        ):
+            name_chars.append(content[cursor])
+            cursor += 1
 
-                if depth != 0:
-                    # Unbalanced parentheses - skip this occurrence and keep searching
-                    search_index = start + len(prefix)
-                    continue
+        if not name_chars:
+            return None
 
-                args_str = content[args_start:cursor]
-                matched_end = cursor + 1
-                args = self._parse_args(args_str)
-            else:
-                cursor = name_end
-            matched_text = content[start:matched_end]
-            return Command(name=name, args=args), matched_text
+        name = "".join(name_chars)
+        name_end = cursor
+
+        whitespace_cursor = cursor
+        while whitespace_cursor < len(content) and content[whitespace_cursor].isspace():
+            whitespace_cursor += 1
+
+        args: dict[str, Any] = {}
+        matched_end = name_end
+
+        if whitespace_cursor < len(content) and content[whitespace_cursor] == "(":
+            cursor = whitespace_cursor + 1
+            args_start = cursor
+            depth = 1
+            quote_char: str | None = None
+            escape_next = False
+
+            while cursor < len(content):
+                char = content[cursor]
+                if escape_next:
+                    escape_next = False
+                elif quote_char is not None:
+                    if char == "\\":
+                        escape_next = True
+                    elif char == quote_char:
+                        quote_char = None
+                else:
+                    if char in ('"', "'"):
+                        quote_char = char
+                    elif char == "(":
+                        depth += 1
+                    elif char == ")":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                cursor += 1
+
+            if depth != 0:
+                return None
+
+            args_str = content[args_start:cursor]
+            matched_end = cursor + 1
+            args = self._parse_args(args_str)
+        else:
+            cursor = name_end
+            matched_end = cursor
+
+        matched_text = content[start:matched_end]
+        return Command(name=name, args=args), matched_text, matched_end
 
     def _parse_args(self, args_str: str) -> dict[str, Any]:
         """Parse the arguments string into a dictionary."""

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
@@ -10,15 +10,21 @@ from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatelessCommandBase
 from src.core.domain.session import Session
 
+if TYPE_CHECKING:
+    from src.core.interfaces.command_policy_service_interface import (
+        ICommandPolicyService,
+    )
+
 logger = logging.getLogger(__name__)
 
 
 class ModelCommand(StatelessCommandBase, BaseCommand):
     """Command for setting the model name."""
 
-    def __init__(self) -> None:
+    def __init__(self, policy_service: ICommandPolicyService | None = None) -> None:
         """Initialize without state services."""
-        StatelessCommandBase.__init__(self)
+        StatelessCommandBase.__init__(self, policy_service=policy_service)
+        self._policy_service = policy_service
 
     @property
     def name(self) -> str:
@@ -41,7 +47,7 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
     ) -> CommandResult:
         """Set or unset the model name."""
         # Check if static routing is enabled - if so, block model changes
-        if self._is_static_routing_enabled():
+        if self._is_static_route_locked():
             model_name = args.get("name")
             if (
                 model_name is not None
@@ -111,10 +117,23 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
             logger.error(error_message)
             return CommandResult(success=False, message=error_message, name=self.name)
 
-    def _is_static_routing_enabled(self) -> bool:
-        """Check if static routing is enabled via CLI parameter."""
+    def _is_static_route_locked(self) -> bool:
+        policy = getattr(self, "_policy_service", None)
+        if policy is None:
+            policy = self.policy_service
+
+        if policy is not None:
+            try:
+                return policy.is_static_route_enforced()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Policy service failed to determine static routing: %s",
+                        exc,
+                        exc_info=True,
+                    )
+
         import os
 
-        # Check if static route was set via CLI (stored in environment)
         static_route = os.environ.get("STATIC_ROUTE")
-        return static_route is not None and static_route.strip() != ""
+        return bool(static_route and static_route.strip())

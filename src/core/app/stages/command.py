@@ -2,9 +2,9 @@
 Command services initialization stage.
 
 This stage registers command-related services:
-- Command registry
-- Command service
 - Command settings service
+- Command policy/state helpers
+- Command service
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ class CommandStage(InitializationStage):
     Stage for registering command-related services.
 
     This stage registers:
-    - Command registry (for registering available commands)
-    - Command service (main command processing interface)
     - Command settings service (command configuration)
+    - Command policy/state helpers
+    - Command service (main command processing interface)
     """
 
     @property
@@ -46,11 +46,11 @@ class CommandStage(InitializationStage):
         if logger.isEnabledFor(logging.INFO):
             logger.info("Initializing command services...")
 
-        # Register command registry
-        self._register_command_registry(services)
-
         # Register command settings service
         self._register_command_settings_service(services, config)
+
+        # Register supporting policy/state services for commands
+        self._register_command_support_services(services)
 
         # Register command service
         self._register_command_service(services)
@@ -74,19 +74,6 @@ class CommandStage(InitializationStage):
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Command services validation failed: {e}")
             return False
-
-    def _register_command_registry(self, services: ServiceCollection) -> None:
-        """Register the CommandRegistry service for backward compatibility."""
-        try:
-            from src.core.services.command_utils import CommandRegistry
-
-            # Register CommandRegistry as singleton
-            services.add_singleton(CommandRegistry)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered CommandRegistry service")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register CommandRegistry: {e}")
 
     def _register_command_settings_service(
         self, services: ServiceCollection, config: AppConfig
@@ -116,13 +103,80 @@ class CommandStage(InitializationStage):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register command settings service: {e}")
 
+    def _register_command_support_services(self, services: ServiceCollection) -> None:
+        """Register policy, state, and pipeline helpers used by command execution."""
+        from typing import cast
+
+        try:
+            from src.core.commands.pipeline import (
+                CommandMatchFilter,
+                CommandTailExtractor,
+            )
+            from src.core.interfaces.command_policy_service_interface import (
+                ICommandPolicyService,
+            )
+            from src.core.interfaces.command_state_service_interface import (
+                ICommandStateService,
+            )
+            from src.core.services.command_policy_service import CommandPolicyService
+            from src.core.services.command_state_service import CommandStateService
+            from src.core.services.session_service_impl import SessionService
+
+            services.add_singleton(CommandTailExtractor)
+            services.add_singleton(CommandMatchFilter)
+
+            services.add_singleton(
+                CommandStateService,
+                implementation_factory=lambda provider: CommandStateService(
+                    provider.get_required_service(SessionService)
+                ),
+            )
+            services.add_singleton(
+                cast(type, ICommandStateService),
+                implementation_factory=lambda provider: provider.get_required_service(
+                    CommandStateService
+                ),
+            )  # type: ignore[type-abstract]
+
+            services.add_singleton(
+                CommandPolicyService,
+                implementation_factory=lambda provider: CommandPolicyService(
+                    provider.get_required_service(AppConfig),
+                    provider.get_service(cast(type, IApplicationState)),
+                ),
+            )
+            services.add_singleton(
+                cast(type, ICommandPolicyService),
+                implementation_factory=lambda provider: provider.get_required_service(
+                    CommandPolicyService
+                ),
+            )  # type: ignore[type-abstract]
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered command policy/state services")
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Could not register command support services: %s", exc)
+
     def _register_command_service(self, services: ServiceCollection) -> None:
         """Register command service with dependencies."""
         try:
+            from typing import cast
+
             from src.core.commands.parser import CommandParser
+            from src.core.commands.pipeline import (
+                CommandMatchFilter,
+                CommandTailExtractor,
+            )
             from src.core.commands.service import NewCommandService
             from src.core.interfaces.command_parser_interface import ICommandParser
+            from src.core.interfaces.command_policy_service_interface import (
+                ICommandPolicyService,
+            )
             from src.core.interfaces.command_service_interface import ICommandService
+            from src.core.interfaces.command_state_service_interface import (
+                ICommandStateService,
+            )
 
             def command_service_factory(
                 provider: IServiceProvider,
@@ -132,27 +186,40 @@ class CommandStage(InitializationStage):
 
                 session_service = provider.get_required_service(SessionService)
                 command_parser = provider.get_required_service(CommandParser)
-                from typing import cast
-
+                app_config = provider.get_required_service(AppConfig)
+                state_service: ICommandStateService = provider.get_required_service(
+                    cast(type, ICommandStateService)
+                )
+                policy_service: ICommandPolicyService = provider.get_required_service(
+                    cast(type, ICommandPolicyService)
+                )
+                tail_extractor = provider.get_required_service(CommandTailExtractor)
+                match_filter = provider.get_required_service(CommandMatchFilter)
                 app_state = provider.get_service(cast(type, IApplicationState))
                 return NewCommandService(
                     session_service,
                     command_parser,
+                    strict_command_detection=app_config.strict_command_detection,
                     app_state=app_state,
+                    tail_extractor=tail_extractor,
+                    match_filter=match_filter,
+                    command_state_service=state_service,
+                    command_policy_service=policy_service,
+                    config=app_config,
                 )
 
             services.add_singleton(
                 NewCommandService, implementation_factory=command_service_factory
             )
             services.add_singleton(
-                ICommandService,
+                cast(type, ICommandService),
                 implementation_factory=lambda sp: sp.get_required_service(
                     NewCommandService
                 ),
             )
 
             services.add_singleton(CommandParser)
-            services.add_singleton(ICommandParser, CommandParser)
+            services.add_singleton(cast(type, ICommandParser), CommandParser)
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -161,112 +228,3 @@ class CommandStage(InitializationStage):
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Could not register command service or parser: {e}")
-
-    def _register_default_commands(self, services: ServiceCollection) -> None:
-        """Register default commands using auto-discovery from domain command registry."""
-        try:
-            # Register a factory that will populate the command registry with auto-discovered commands
-            def populate_commands_factory(provider: IServiceProvider) -> None:
-                """Factory to populate the command registry with auto-discovered commands."""
-                try:
-                    # Import domain commands to trigger auto-discovery
-                    import src.core.domain.commands  # noqa: F401
-                    from src.core.domain.commands.command_registry import (
-                        domain_command_registry,
-                    )
-                    from src.core.interfaces.command_settings_interface import (
-                        ICommandSettingsService,
-                    )
-                    from src.core.interfaces.state_provider_interface import (
-                        ISecureStateAccess,
-                        ISecureStateModification,
-                    )
-                    from src.core.services.command_utils import CommandRegistry
-
-                    registry = provider.get_required_service(CommandRegistry)
-                    settings_service = provider.get_required_service(
-                        ICommandSettingsService  # type: ignore[type-abstract]
-                    )
-
-                    # Create a simple state service for commands
-                    class DefaultStateService(
-                        ISecureStateAccess, ISecureStateModification
-                    ):
-                        def __init__(self, settings_service):
-                            self._settings = settings_service
-                            self._routes = []
-
-                        def get_command_prefix(self):
-                            return self._settings.get_command_prefix()
-
-                        def get_failover_routes(self):
-                            return self._routes
-
-                        def update_failover_routes(self, routes):
-                            self._routes = routes
-
-                        def get_api_key_redaction_enabled(self):
-                            return self._settings.get_api_key_redaction_enabled()
-
-                        def get_disable_interactive_commands(self):
-                            return self._settings.get_disable_interactive_commands()
-
-                        def update_command_prefix(self, prefix: str) -> None:
-                            self._settings.command_prefix = prefix
-
-                        def update_api_key_redaction(self, enabled: bool) -> None:
-                            self._settings.api_key_redaction_enabled = enabled
-
-                        def update_interactive_commands(self, enabled: bool) -> None:
-                            pass
-
-                    state_service = DefaultStateService(settings_service)
-
-                    # Auto-register all commands from the domain command registry
-                    for (
-                        command_name
-                    ) in domain_command_registry.get_registered_commands():
-                        try:
-                            command_factory = (
-                                domain_command_registry.get_command_factory(
-                                    command_name
-                                )
-                            )
-                            # Instantiate the command with state services
-                            command_instance = command_factory(
-                                state_service, state_service
-                            )
-                            registry.register(command_instance)
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    f"Auto-registered domain command: {command_name}"
-                                )
-                        except Exception as e:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    f"Could not register command '{command_name}': {e}"
-                                )
-
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            f"Auto-registered {len(domain_command_registry.get_registered_commands())} domain commands"
-                        )
-
-                except Exception as e:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(f"Could not register domain commands: {e}")
-
-                return None
-
-            # Register the factory as a singleton that gets called during service provider build
-            services.add_singleton(
-                type(None), implementation_factory=populate_commands_factory
-            )
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered domain commands auto-discovery factory")
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Could not register domain commands auto-discovery factory: {e}"
-                )

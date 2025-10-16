@@ -1,6 +1,5 @@
 import pytest
 from src.core.commands.parser import CommandParser
-from src.core.commands.service import NewCommandService
 from src.core.domain.chat import ChatMessage, MessageContentPartText
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.command_processor import (
@@ -8,6 +7,7 @@ from src.core.services.command_processor import (
 )
 
 from tests.unit.core.test_doubles import MockSessionService
+from tests.utils.command_service_utils import build_new_command_service
 
 # Avoid global backend mocking for these focused unit tests
 pytestmark = [pytest.mark.no_global_mock]
@@ -21,7 +21,7 @@ async def test_process_messages_single_message_with_command() -> None:
     # Setup DI-driven processor
     session_service = MockSessionService()
     command_parser = CommandParser()
-    service = NewCommandService(session_service, command_parser)
+    service = build_new_command_service(session_service, command_parser)
     processor = CoreCommandProcessor(service)
 
     messages = [ChatMessage(role="user", content="!/hello")]
@@ -40,7 +40,7 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
 ):
     session_service = MockSessionService()
     command_parser = CommandParser()
-    service = NewCommandService(session_service, command_parser)
+    service = build_new_command_service(session_service, command_parser)
     processor = CoreCommandProcessor(service)
     messages = [
         ChatMessage(
@@ -54,35 +54,8 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
 
     result = await processor.process_messages(messages, session_id="test-session")
     processed_messages = result.modified_messages
-    any_command_processed = result.command_executed
-
-    assert any_command_processed is True
-    assert len(processed_messages) == 1
-
-    # The first part with !/hello should be processed and its text potentially emptied or modified
-    # The second part with !/anothercmd should remain as is because processing stops after the first command.
-    # process_text will make the first part's text ""
-    # The second part's text will be "!/anothercmd"
-    # The _clean_remaining_text in process_text might affect this if not handled carefully,
-    # but process_messages calls process_text on each part *until a command is found*.
-
-    # The logic is: process_messages iterates parts. For first part, calls process_text("!/hello").
-    # process_text processes "!/hello", returns ("", True). Handler for "hello" is called.
-    # `part_level_found_in_current_message` becomes True.
-    # `already_processed_commands_in_a_message` becomes True.
-    # If a part results in empty text AND was a command, it's dropped from new_parts.
-    # Loop continues to next part. `already_processed_commands_in_a_message` is True, so process_text is NOT called for "!/anothercmd".
-    # So the second text part "!/anothercmd" is added to new_parts as is.
-
-    assert isinstance(processed_messages[0].content, list)
-    content_list = processed_messages[0].content
-    assert len(content_list) in (0, 1)
-
-    # The remaining part is "!/anothercmd"
-    if len(content_list) == 1:
-        remaining_part = content_list[0]
-        assert isinstance(remaining_part, MessageContentPartText)
-        assert remaining_part.text == "!/anothercmd"
+    assert result.command_executed is False
+    assert processed_messages == messages
 
 
 # Removed @pytest.mark.parametrize for preserve_unknown
@@ -90,7 +63,7 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
 async def test_process_messages_processes_command_in_last_message_and_stops() -> None:
     session_service = MockSessionService()
     command_parser = CommandParser()
-    service = NewCommandService(session_service, command_parser)
+    service = build_new_command_service(session_service, command_parser)
     processor = CoreCommandProcessor(service)
     messages = [
         ChatMessage(role="user", content="!/hello"),
@@ -111,7 +84,7 @@ async def test_process_messages_processes_command_in_last_message_and_stops() ->
     assert processed_messages[0].content == "!/hello"
     # The last message had its command removed. The 'hello' command preserves structure,
     # so the trailing space remains.
-    assert processed_messages[1].content == "text before "
+    assert processed_messages[1].content == "text before"
 
 
 @pytest.mark.asyncio
@@ -121,7 +94,7 @@ async def test_process_messages_uses_runtime_command_prefix() -> None:
     app_state = ApplicationStateService()
     app_state.set_command_prefix("$/")
 
-    service = NewCommandService(
+    service = build_new_command_service(
         session_service,
         command_parser,
         app_state=app_state,
@@ -133,3 +106,96 @@ async def test_process_messages_uses_runtime_command_prefix() -> None:
 
     assert result.command_executed is True
     assert command_parser.command_prefix == "$/"
+
+
+@pytest.mark.asyncio
+async def test_process_messages_respects_interactive_disable() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    app_state = ApplicationStateService()
+    app_state.set_disable_interactive_commands(True)
+
+    service = build_new_command_service(
+        session_service,
+        command_parser,
+        app_state=app_state,
+    )
+    processor = CoreCommandProcessor(service)
+
+    messages = [ChatMessage(role="user", content="!/hello")]
+    result = await processor.process_messages(messages, session_id="test-session")
+
+    assert result.command_executed is False
+    assert result.modified_messages == messages
+
+
+@pytest.mark.asyncio
+async def test_process_messages_trailing_whitespace_command() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    service = build_new_command_service(session_service, command_parser)
+    processor = CoreCommandProcessor(service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content="Please adjust settings\n!/set(project=demo)   ",
+        )
+    ]
+
+    result = await processor.process_messages(messages, session_id="test-session")
+    processed_messages = result.modified_messages
+
+    assert result.command_executed is True
+    assert result.command_results[-1].name == "set"
+    assert processed_messages[0].content == "Please adjust settings"
+
+
+@pytest.mark.asyncio
+async def test_process_messages_only_last_command_in_line_executed() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    service = build_new_command_service(session_service, command_parser)
+    processor = CoreCommandProcessor(service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content="Run diagnostics !/hello !/set(model=openrouter:foo)",
+        )
+    ]
+
+    result = await processor.process_messages(messages, session_id="test-session")
+    processed_messages = result.modified_messages
+
+    assert result.command_executed is True
+    assert result.command_results[-1].name == "set"
+    assert processed_messages[0].content == "Run diagnostics !/hello"
+
+
+@pytest.mark.asyncio
+async def test_process_messages_multimodal_tail_command_with_whitespace() -> None:
+    session_service = MockSessionService()
+    command_parser = CommandParser()
+    service = build_new_command_service(session_service, command_parser)
+    processor = CoreCommandProcessor(service)
+
+    messages = [
+        ChatMessage(
+            role="user",
+            content=[
+                MessageContentPartText(type="text", text="Notes for later"),
+                MessageContentPartText(
+                    type="text", text="Next actions\n!/set(project=demo)   "
+                ),
+            ],
+        )
+    ]
+
+    result = await processor.process_messages(messages, session_id="test-session")
+    processed_messages = result.modified_messages
+
+    assert result.command_executed is True
+    assert result.command_results[-1].name == "set"
+    assert isinstance(processed_messages[0].content, list)
+    assert processed_messages[0].content[1].text == "Next actions"

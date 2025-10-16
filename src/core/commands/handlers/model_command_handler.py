@@ -11,6 +11,9 @@ from src.core.domain.commands.model_command import ModelCommand
 from src.core.domain.session import Session
 
 if TYPE_CHECKING:
+    from src.core.interfaces.command_policy_service_interface import (
+        ICommandPolicyService,
+    )
     from src.core.interfaces.command_service_interface import ICommandService
 
 
@@ -21,10 +24,15 @@ class ModelCommandHandler(ICommandHandler):
     def __init__(
         self,
         command_service: "ICommandService | None" = None,
+        policy_service: "ICommandPolicyService | None" = None,
         model_command: ModelCommand | None = None,
     ) -> None:
-        super().__init__(command_service)
-        self._model_command = model_command or ModelCommand()
+        super().__init__(command_service, policy_service=policy_service)
+        self._policy_service = policy_service
+        if model_command is not None:
+            self._model_command = model_command
+        else:
+            self._model_command = ModelCommand(policy_service=policy_service)
 
     @property
     def command_name(self) -> str:

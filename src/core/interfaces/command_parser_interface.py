@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Protocol
 
-from src.core.domain.chat import ChatMessage
+if TYPE_CHECKING:
+    from src.core.commands.parser import ParsedCommand
 
 
-class ICommandParser(ABC):
-    """Interface for parsing commands from chat messages."""
+class ICommandParser(Protocol):
+    """Interface for parsing commands from raw message text."""
 
-    @abstractmethod
-    async def parse(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
-        """Extract commands with arguments and positions from messages.
-
-        Args:
-            messages: List of chat messages to parse
-
-        Returns:
-            List of parsed commands with their details
-        """
+    def parse(
+        self, content: str, *, command_prefix: str | None = None
+    ) -> Sequence[ParsedCommand]:
+        """Return all commands found in *content*."""

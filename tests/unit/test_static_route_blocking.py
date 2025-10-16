@@ -7,9 +7,16 @@ import pytest
 from src.core.commands.command import Command
 from src.core.commands.handlers.model_command_handler import ModelCommandHandler
 from src.core.commands.handlers.set_command_handler import SetCommandHandler
+from src.core.config.app_config import AppConfig
 from src.core.domain.commands.model_command import ModelCommand
 from src.core.domain.commands.set_command import SetCommand
 from src.core.domain.session import Session, SessionState
+from src.core.services.command_policy_service import CommandPolicyService
+
+
+@pytest.fixture
+def policy_service() -> CommandPolicyService:
+    return CommandPolicyService(AppConfig())
 
 
 class TestStaticRouteBlocking:
@@ -29,12 +36,14 @@ class TestStaticRouteBlocking:
             del os.environ["STATIC_ROUTE"]
 
     @pytest.mark.asyncio
-    async def test_set_command_blocks_backend_when_static_route_enabled(self):
+    async def test_set_command_blocks_backend_when_static_route_enabled(
+        self, policy_service: CommandPolicyService
+    ):
         """Test that set command blocks backend changes when static route is enabled."""
         # Enable static routing
         os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
 
-        handler = SetCommandHandler()
+        handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="set", args={"backend": "openai"})
 
@@ -45,12 +54,14 @@ class TestStaticRouteBlocking:
         assert "--static-route CLI parameter" in result.message
 
     @pytest.mark.asyncio
-    async def test_set_command_blocks_model_when_static_route_enabled(self):
+    async def test_set_command_blocks_model_when_static_route_enabled(
+        self, policy_service: CommandPolicyService
+    ):
         """Test that set command blocks model changes when static route is enabled."""
         # Enable static routing
         os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
 
-        handler = SetCommandHandler()
+        handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="set", args={"model": "gpt-4"})
 
@@ -62,13 +73,13 @@ class TestStaticRouteBlocking:
 
     @pytest.mark.asyncio
     async def test_set_command_blocks_both_backend_and_model_when_static_route_enabled(
-        self,
+        self, policy_service: CommandPolicyService
     ):
         """Test that set command blocks both backend and model changes when static route is enabled."""
         # Enable static routing
         os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
 
-        handler = SetCommandHandler()
+        handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="set", args={"backend": "openai", "model": "gpt-4"})
 
@@ -82,12 +93,14 @@ class TestStaticRouteBlocking:
         assert "--static-route CLI parameter" in result.message
 
     @pytest.mark.asyncio
-    async def test_set_command_allows_other_params_when_static_route_enabled(self):
+    async def test_set_command_allows_other_params_when_static_route_enabled(
+        self, policy_service: CommandPolicyService
+    ):
         """Test that set command allows non-backend/model parameters when static route is enabled."""
         # Enable static routing
         os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
 
-        handler = SetCommandHandler()
+        handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="set", args={"temperature": "0.7"})
 
@@ -97,13 +110,15 @@ class TestStaticRouteBlocking:
         assert result.success
 
     @pytest.mark.asyncio
-    async def test_set_command_works_normally_when_static_route_disabled(self):
+    async def test_set_command_works_normally_when_static_route_disabled(
+        self, policy_service: CommandPolicyService
+    ):
         """Test that set command works normally when static route is not enabled."""
         # Ensure static routing is disabled
         if "STATIC_ROUTE" in os.environ:
             del os.environ["STATIC_ROUTE"]
 
-        handler = SetCommandHandler()
+        handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="set", args={"backend": "openai", "model": "gpt-4"})
 
@@ -113,12 +128,14 @@ class TestStaticRouteBlocking:
         assert result.success
 
     @pytest.mark.asyncio
-    async def test_model_command_blocks_model_change_when_static_route_enabled(self):
+    async def test_model_command_blocks_model_change_when_static_route_enabled(
+        self, policy_service: CommandPolicyService
+    ):
         """Test that model command blocks model changes when static route is enabled."""
         # Enable static routing
         os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
 
-        handler = ModelCommandHandler()
+        handler = ModelCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="model", args={"name": "gpt-4"})
 
@@ -130,13 +147,13 @@ class TestStaticRouteBlocking:
 
     @pytest.mark.asyncio
     async def test_model_command_blocks_backend_model_change_when_static_route_enabled(
-        self,
+        self, policy_service: CommandPolicyService
     ):
         """Test that model command blocks backend:model changes when static route is enabled."""
         # Enable static routing
         os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
 
-        handler = ModelCommandHandler()
+        handler = ModelCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="model", args={"name": "openai:gpt-4"})
 
@@ -147,13 +164,15 @@ class TestStaticRouteBlocking:
         assert "--static-route CLI parameter" in result.message
 
     @pytest.mark.asyncio
-    async def test_model_command_works_normally_when_static_route_disabled(self):
+    async def test_model_command_works_normally_when_static_route_disabled(
+        self, policy_service: CommandPolicyService
+    ):
         """Test that model command works normally when static route is not enabled."""
         # Ensure static routing is disabled
         if "STATIC_ROUTE" in os.environ:
             del os.environ["STATIC_ROUTE"]
 
-        handler = ModelCommandHandler()
+        handler = ModelCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="model", args={"name": "gpt-4"})
 
@@ -163,12 +182,14 @@ class TestStaticRouteBlocking:
         assert result.success
 
     @pytest.mark.asyncio
-    async def test_model_command_allows_unset_when_static_route_enabled(self):
+    async def test_model_command_allows_unset_when_static_route_enabled(
+        self, policy_service: CommandPolicyService
+    ):
         """Test that model command allows unsetting model when static route is enabled."""
         # Enable static routing
         os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
 
-        handler = ModelCommandHandler()
+        handler = ModelCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
         command = Command(name="model", args={"name": ""})  # Empty name should unset
 
@@ -179,7 +200,7 @@ class TestStaticRouteBlocking:
 
     @pytest.mark.asyncio
     async def test_domain_set_command_blocks_backend_model_when_static_route_enabled(
-        self,
+        self, policy_service: CommandPolicyService
     ):
         """Test that domain-level set command blocks backend/model when static route is enabled."""
         # Enable static routing
@@ -189,7 +210,11 @@ class TestStaticRouteBlocking:
         state_reader = MagicMock()
         state_modifier = MagicMock()
 
-        command = SetCommand(state_reader=state_reader, state_modifier=state_modifier)
+        command = SetCommand(
+            state_reader=state_reader,
+            state_modifier=state_modifier,
+            policy_service=policy_service,
+        )
         session = Session(session_id="test", state=SessionState())
 
         # Configure the mock to return the session state
@@ -204,13 +229,13 @@ class TestStaticRouteBlocking:
 
     @pytest.mark.asyncio
     async def test_domain_model_command_blocks_model_change_when_static_route_enabled(
-        self,
+        self, policy_service: CommandPolicyService
     ):
         """Test that domain-level model command blocks model changes when static route is enabled."""
         # Enable static routing
         os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
 
-        command = ModelCommand()
+        command = ModelCommand(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
 
         result = await command.execute({"name": "gpt-4"}, session)
@@ -219,9 +244,11 @@ class TestStaticRouteBlocking:
         assert "Cannot change model when static routing is enabled" in result.message
         assert "--static-route CLI parameter" in result.message
 
-    def test_static_route_detection_ignores_empty_string(self):
+    def test_static_route_detection_ignores_empty_string(
+        self, policy_service: CommandPolicyService
+    ):
         """Test that static route detection ignores empty strings."""
-        handler = SetCommandHandler()
+        handler = SetCommandHandler(policy_service=policy_service)
 
         # Set empty string
         os.environ["STATIC_ROUTE"] = ""

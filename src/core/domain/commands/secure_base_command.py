@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Mapping
-from typing import Any, final
+from typing import TYPE_CHECKING, Any, final
 
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
@@ -20,6 +20,11 @@ from src.core.interfaces.state_provider_interface import (
     StateAccessViolationError,
 )
 
+if TYPE_CHECKING:
+    from src.core.interfaces.command_policy_service_interface import (
+        ICommandPolicyService,
+    )
+
 
 class SecureCommandBase(BaseCommand):
     """Base class for domain commands that enforces secure state access."""
@@ -28,6 +33,7 @@ class SecureCommandBase(BaseCommand):
         self,
         state_reader: ISecureStateAccess | None = None,
         state_modifier: ISecureStateModification | None = None,
+        policy_service: ICommandPolicyService | None = None,
     ):
         """Initialize the command with optional state services.
 
@@ -38,6 +44,7 @@ class SecureCommandBase(BaseCommand):
         self._state_reader = state_reader
         self._state_modifier = state_modifier
         self._execution_count = 0
+        self._policy_service = policy_service
 
     @property
     @abstractmethod
@@ -152,13 +159,22 @@ class SecureCommandBase(BaseCommand):
         """Get the number of times this command has been executed."""
         return self._execution_count
 
+    @property
+    def policy_service(self) -> ICommandPolicyService | None:
+        """Return the policy service injected for this command, if any."""
+        return self._policy_service
+
 
 class StatelessCommandBase(SecureCommandBase):
     """Base class for commands that don't need state access."""
 
-    def __init__(self) -> None:
+    def __init__(self, policy_service: ICommandPolicyService | None = None) -> None:
         """Initialize without state services."""
-        super().__init__(state_reader=None, state_modifier=None)
+        super().__init__(
+            state_reader=None,
+            state_modifier=None,
+            policy_service=policy_service,
+        )
 
     def get_state_setting(self, setting_name: str) -> Any:
         """Override to prevent state access in stateless commands."""
@@ -182,6 +198,7 @@ class StatefulCommandBase(SecureCommandBase):
         self,
         state_reader: ISecureStateAccess,
         state_modifier: ISecureStateModification | None = None,
+        policy_service: ICommandPolicyService | None = None,
     ):
         """Initialize with required state services.
 
@@ -195,7 +212,11 @@ class StatefulCommandBase(SecureCommandBase):
                 "Inject ISecureStateAccess through constructor",
             )
 
-        super().__init__(state_reader=state_reader, state_modifier=state_modifier)
+        super().__init__(
+            state_reader=state_reader,
+            state_modifier=state_modifier,
+            policy_service=policy_service,
+        )
 
 
 # Factory function to create commands with proper DI
@@ -203,6 +224,7 @@ def create_secure_command(
     command_class: type[SecureCommandBase],
     state_reader: ISecureStateAccess | None = None,
     state_modifier: ISecureStateModification | None = None,
+    **extra_kwargs: Any,
 ) -> SecureCommandBase:
     """Factory function to create commands with proper dependency injection.
 
@@ -224,11 +246,19 @@ def create_secure_command(
                 f"{command_class.__name__} requires ISecureStateAccess",
                 "Provide state_reader parameter",
             )
-        return command_class(state_reader=state_reader, state_modifier=state_modifier)
+        return command_class(
+            state_reader=state_reader,
+            state_modifier=state_modifier,
+            **extra_kwargs,
+        )
 
     elif issubclass(command_class, StatelessCommandBase):
-        return command_class()
+        return command_class(**extra_kwargs)
 
     else:
         # Generic SecureCommandBase
-        return command_class(state_reader=state_reader, state_modifier=state_modifier)
+        return command_class(
+            state_reader=state_reader,
+            state_modifier=state_modifier,
+            **extra_kwargs,
+        )

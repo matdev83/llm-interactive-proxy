@@ -1,18 +1,20 @@
+import inspect
 import logging
 from typing import TYPE_CHECKING, Any
 
 from src.core.commands.handler import ICommandHandler
-from src.core.commands.handlers.failover_command_handler import (
-    FailoverCommandHandler,
-    SessionStateApplicationStateAdapter,
-)
+from src.core.commands.handlers.failover_command_handler import FailoverCommandHandler
 from src.core.commands.parser import CommandParser
+from src.core.commands.pipeline import CommandMatchFilter, CommandTailExtractor
 from src.core.commands.registry import get_all_commands, get_command_handler
+from src.core.config.app_config import AppConfig
 from src.core.domain import chat as models
 from src.core.domain.chat import ChatMessage
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.command_policy_service_interface import ICommandPolicyService
 from src.core.interfaces.command_service_interface import ICommandService
+from src.core.interfaces.command_state_service_interface import ICommandStateService
 from src.core.interfaces.session_service_interface import ISessionService
 
 if TYPE_CHECKING:
@@ -58,6 +60,11 @@ class NewCommandService(ICommandService):
         command_parser: CommandParser,
         strict_command_detection: bool = False,
         app_state: IApplicationState | None = None,
+        tail_extractor: CommandTailExtractor | None = None,
+        match_filter: CommandMatchFilter | None = None,
+        command_state_service: ICommandStateService | None = None,
+        command_policy_service: ICommandPolicyService | None = None,
+        config: AppConfig | None = None,
     ):
         """
         Initializes the command service.
@@ -65,72 +72,39 @@ class NewCommandService(ICommandService):
         Args:
             session_service: The session service.
             command_parser: The command parser.
-            strict_command_detection: If True, only match commands on last non-blank line.
+            strict_command_detection: Backward-compatibility flag (deprecated).
         """
         self.session_service = session_service
         self.command_parser = command_parser
         self.strict_command_detection = strict_command_detection
         self._app_state = app_state
+        if command_state_service is None:
+            raise ValueError("command_state_service must be provided")
+        if command_policy_service is None:
+            raise ValueError("command_policy_service must be provided")
+
+        self._tail_extractor = tail_extractor or CommandTailExtractor()
+        self._match_filter = match_filter or CommandMatchFilter()
+        self._state_service = command_state_service
+        self._policy_service = command_policy_service
 
         # Initialize command parser with app state command prefix if available
-        if self._app_state is not None:
-            try:
-                app_prefix = self._app_state.get_command_prefix()
-                if isinstance(app_prefix, str) and app_prefix:
-                    self.command_parser.command_prefix = app_prefix
-            except Exception:
-                # Best effort - don't fail initialization if we can't get the prefix
-                pass
+        try:
+            resolved_prefix = self._policy_service.resolve_command_prefix(
+                session=None,
+                fallback_prefix=self.command_parser.command_prefix,
+            )
+            if resolved_prefix:
+                self.command_parser.command_prefix = resolved_prefix
+        except Exception:  # pragma: no cover - defensive
+            pass
 
     def _determine_command_prefix(self, session: "Session | None") -> str:
         """Resolve the effective command prefix for the provided session."""
 
-        if session is not None:
-            try:
-                override = getattr(session.state, "command_prefix_override", None)
-            except Exception:  # pragma: no cover - best-effort logging path
-                override = None
-            else:
-                if isinstance(override, str) and override:
-                    return override
-
-        prefix: str | None = None
-        if self._app_state is not None:
-            try:
-                prefix = self._app_state.get_command_prefix()
-            except Exception as exc:  # pragma: no cover - defensive logging
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Unable to resolve command prefix from application state: %s",
-                        exc,
-                        exc_info=True,
-                    )
-                prefix = None
-
-        if not isinstance(prefix, str) or not prefix:
-            prefix = self.command_parser.command_prefix
-
-        return prefix
-
-    def _get_last_non_blank_line_content(self, text: str) -> str:
-        """
-        Extract only the last non-blank line from text.
-
-        Args:
-            text: The input text
-
-        Returns:
-            The last non-blank line, or empty string if none found
-        """
-        if not text:
-            return ""
-
-        lines = text.split("\n")
-        # Find the last non-blank line
-        for line in reversed(lines):
-            if line.strip():  # Non-blank line
-                return line
-        return ""
+        return self._policy_service.resolve_command_prefix(
+            session, self.command_parser.command_prefix
+        )
 
     async def process_commands(
         self, messages: list[ChatMessage], session_id: str
@@ -150,11 +124,18 @@ class NewCommandService(ICommandService):
                 modified_messages=[], command_executed=False, command_results=[]
             )
 
-        session = await self.session_service.get_session(session_id)
+        session = await self._state_service.get_session(session_id)
         if not session:
             logger.warning(f"Session '{session_id}' not found.")
             return ProcessedResult(
                 modified_messages=messages, command_executed=False, command_results=[]
+            )
+
+        if self._policy_service.are_interactive_commands_disabled(session):
+            return ProcessedResult(
+                modified_messages=messages,
+                command_executed=False,
+                command_results=[],
             )
 
         prefix_for_session = self._determine_command_prefix(session)
@@ -163,124 +144,78 @@ class NewCommandService(ICommandService):
         command_results: list[Any] = []
         command_executed = False
 
-        executed_command_name: str | None = None
-        for message in reversed(modified_messages):
-            if message.role != "user":
-                continue
-
-            content_str = ""
-            if isinstance(message.content, str):
-                content_str = message.content
-            elif isinstance(message.content, list):
-                # For now, we only look for commands in the first text part.
-                content_str = next(
-                    (
-                        part.text
-                        for part in message.content
-                        if isinstance(part, models.MessageContentPartText)
-                    ),
-                    "",
-                )
-
-            if self.strict_command_detection:
-                content_to_parse = self._get_last_non_blank_line_content(content_str)
-            else:
-                content_to_parse = content_str
-
-            if not content_to_parse:
-                continue
-
-            parse_result = self.command_parser.parse(
-                content_to_parse, command_prefix=prefix_for_session
+        tail_segment = self._tail_extractor.extract_tail_segment(modified_messages)
+        if tail_segment.message_index is None or not tail_segment.content:
+            return ProcessedResult(
+                modified_messages=modified_messages,
+                command_executed=False,
+                command_results=[],
             )
-            if not parse_result:
-                continue
 
-            command, matched_text = parse_result
+        parsed_commands = self.command_parser.parse(
+            tail_segment.content, command_prefix=prefix_for_session
+        )
 
-            # In strict mode, only execute commands that appear at the end of the
-            # last non-blank line (after trimming). In default mode commands can
-            # appear anywhere in the message body.
-            if self.strict_command_detection:
-                trimmed_content = content_to_parse.rstrip()
-                if not trimmed_content.endswith(matched_text):
-                    # Command is not at the end, skip it
-                    continue
+        filtered_commands = self._match_filter.filter_tail_commands(
+            parsed_commands,
+            tail_segment.content,
+            tail_segment.message_index,
+        )
 
-            # Remove the command from the message content.
-            if isinstance(message.content, str):
-                # Find and remove the command from the full message content
-                original_content = message.content
-                if self.strict_command_detection:
-                    idx = original_content.rfind(matched_text)
-                else:
-                    idx = original_content.find(matched_text)
-                if idx != -1:
-                    before = original_content[:idx]
-                    after = original_content[idx + len(matched_text) :]
-                    if command.name == "hello":
-                        # For 'hello': preserve structure without stripping
-                        message.content = before + after
-                    else:
-                        if self.strict_command_detection:
-                            # Default: strip trailing whitespace when enforcing strict mode
-                            message.content = (before + after).rstrip()
-                        else:
-                            message.content = before + after
-            elif isinstance(message.content, list):
-                for i, part in enumerate(message.content):
-                    if (
-                        isinstance(part, models.MessageContentPartText)
-                        and matched_text in part.text
-                    ):
-                        part_text = part.text
-                        if self.strict_command_detection:
-                            idx = part_text.rfind(matched_text)
-                        else:
-                            idx = part_text.find(matched_text)
-                        if idx == -1:
-                            continue
+        if not filtered_commands:
+            return ProcessedResult(
+                modified_messages=modified_messages,
+                command_executed=False,
+                command_results=[],
+            )
+
+        parsed_command = filtered_commands[-1].command
+        command = parsed_command.command
+        matched_text = parsed_command.matched_text
+
+        message = modified_messages[tail_segment.message_index]
+
+        handler_class = get_command_handler(command.name)
+        if not handler_class:
+            logger.warning(f"Command '{command.name}' not found.")
+            return ProcessedResult(
+                modified_messages=modified_messages,
+                command_executed=False,
+                command_results=[],
+            )
+
+        if isinstance(message.content, str):
+            original_content = message.content
+            idx = original_content.rfind(matched_text)
+            if idx != -1:
+                before = original_content[:idx]
+                after = original_content[idx + len(matched_text) :]
+                message.content = (before + after).rstrip()
+        elif isinstance(message.content, list):
+            part_index = tail_segment.part_index
+            if part_index is not None and 0 <= part_index < len(message.content):
+                part = message.content[part_index]
+                if isinstance(part, models.MessageContentPartText):
+                    part_text = part.text
+                    idx = part_text.rfind(matched_text)
+                    if idx != -1:
                         before = part_text[:idx]
                         after = part_text[idx + len(matched_text) :]
-                        if self.strict_command_detection:
-                            new_text = (before + after).strip()
-                        else:
-                            new_text = before + after
-                        if not new_text or not new_text.strip():
-                            message.content.pop(i)
+                        new_text = (before + after).rstrip()
+                        if not new_text:
+                            message.content.pop(part_index)
                         else:
                             part.text = new_text
-                        break
 
-            handler_class = get_command_handler(command.name)
-            if not handler_class:
-                logger.warning(f"Command '{command.name}' not found.")
-                # Unknown command: if there are earlier messages, stop; otherwise continue
-                if len(modified_messages) > 1:
-                    command_executed = True
-                    break
-                continue
+        handler = self._create_handler(handler_class, session)
 
-            handler: ICommandHandler
-            if handler_class is FailoverCommandHandler:
-                app_state_adapter = SessionStateApplicationStateAdapter(session)
-                handler = handler_class(
-                    self,
-                    secure_state_access=app_state_adapter,
-                    secure_state_modification=app_state_adapter,
-                )
-            else:
-                handler = handler_class(self)
+        result = await handler.handle(command, session)
 
-            result = await handler.handle(command, session)
-
-            # Wrap the result with command name for proper response formatting
-            executed_command_name = command.name
-            wrapped_result = CommandResultWrapper(executed_command_name, result)
-            command_executed = True
-            (modified_messages.index(message) if message in modified_messages else 0)
-            command_results.append(wrapped_result)
-            break
+        # Wrap the result with command name for proper response formatting
+        executed_command_name = command.name
+        wrapped_result = CommandResultWrapper(executed_command_name, result)
+        command_executed = True
+        command_results.append(wrapped_result)
 
         # If, after command execution, there is no meaningful user content left,
         # return a command-only result to avoid unnecessary backend calls.
@@ -321,6 +256,26 @@ class NewCommandService(ICommandService):
             command_results=command_results,
         )
 
+    def _create_handler(
+        self,
+        handler_class: type[ICommandHandler],
+        session: "Session | None",
+    ) -> ICommandHandler:
+        """Instantiate a handler with the dependencies it declares."""
+        if handler_class is FailoverCommandHandler and session is not None:
+            adapter = self._state_service.build_session_adapter(session)
+            return handler_class(
+                self,
+                secure_state_access=adapter,
+                secure_state_modification=adapter,
+            )
+
+        init_params = inspect.signature(handler_class.__init__).parameters
+        if "policy_service" in init_params:
+            return handler_class(self, policy_service=self._policy_service)
+
+        return handler_class(self)
+
     async def get_command_handler(
         self, name: str
     ) -> (
@@ -337,5 +292,5 @@ class NewCommandService(ICommandService):
         """Return instantiated handlers for all registered commands."""
         handlers: dict[str, ICommandHandler] = {}
         for name, handler_class in sorted(get_all_commands().items()):
-            handlers[name] = handler_class(self)
+            handlers[name] = self._create_handler(handler_class, session=None)
         return handlers

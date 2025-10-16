@@ -4,9 +4,10 @@ from unittest.mock import Mock
 import pytest
 import src.core.domain.chat as models
 from src.core.commands.parser import CommandParser
-from src.core.commands.service import NewCommandService
 from src.core.domain.session import Session
 from src.core.interfaces.command_processor_interface import ICommandProcessor
+
+from tests.utils.command_service_utils import build_new_command_service
 
 
 class TestProcessCommandsInMessages:
@@ -112,7 +113,12 @@ class TestProcessCommandsInMessages:
 
         session_service = _SessionSvc()
         command_parser = CommandParser()
-        service = NewCommandService(session_service, command_parser)
+        app_state = _MockAppState()
+        service = build_new_command_service(
+            session_service,
+            command_parser,
+            app_state=app_state,
+        )
         return CommandProcessor(service)
 
     @pytest.mark.asyncio
@@ -129,17 +135,12 @@ class TestProcessCommandsInMessages:
         ]
         result = await command_parser.process_messages(messages, session.session_id)
         processed_messages = result.modified_messages
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # Note: messages may be cleared when commands are processed
-        assert len(processed_messages) >= 0
+        # Command is not at the tail of the latest message, so it should be ignored.
+        assert result.command_executed is False
         assert processed_messages[0].content == "Hello"
-        # Command is removed from the message content regardless of position
-        assert processed_messages[1].content == "Please use  for this query."
-        # The new command processor doesn't modify the session state directly in the mock.
-        # This needs to be checked via the command result or mock calls.
-        # For now, we assume the command was processed.
+        assert processed_messages[1].content == (
+            "Please use !/set(model=openrouter:new-model) for this query."
+        )
 
     @pytest.mark.asyncio
     async def test_multimodal_content_with_command(
@@ -259,17 +260,15 @@ class TestProcessCommandsInMessages:
         ]
         result = await command_parser.process_messages(messages, session.session_id)
         processed_messages = result.modified_messages
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # Note: messages may be cleared when commands are processed
-        assert len(processed_messages) >= 0
-        if len(processed_messages) > 1:
-            # First message's command is not processed since only the last message is processed
-            assert "First message" in processed_messages[0].content
-            # Last message's command should be removed by the command processor
-            assert processed_messages[1].content == "Second message "
-        # Test passes if fewer messages remain (some were cleared)
+        assert result.command_executed is True
+        assert len(processed_messages) == 2
+        # First message remains unchanged because only the trailing command is eligible.
+        assert (
+            processed_messages[0].content
+            == "First message !/set(model=openrouter:first-try)"
+        )
+        # Last message had its trailing command removed.
+        assert processed_messages[1].content == "Second message"
 
     @pytest.mark.asyncio
     async def test_command_in_earlier_message_processed_if_later_has_no_command(
@@ -285,16 +284,14 @@ class TestProcessCommandsInMessages:
         ]
         result = await command_parser.process_messages(messages, session.session_id)
         processed_messages = result.modified_messages
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # Note: messages may be cleared when commands are processed
-        assert len(processed_messages) >= 0
-        if len(processed_messages) > 1:
-            # Note: command processing may not transform content in current implementation
-            assert "First message with" in processed_messages[0].content
-            assert processed_messages[1].content == "Second message, plain text."
-        # Test passes if fewer messages remain (some were cleared)
+        # Latest message has no command, so earlier commands are ignored.
+        assert result.command_executed is False
+        assert len(processed_messages) == 2
+        assert (
+            processed_messages[0].content
+            == "First message with !/set(model=openrouter:model-from-past)"
+        )
+        assert processed_messages[1].content == "Second message, plain text."
 
     @pytest.mark.asyncio
     async def test_no_commands_in_any_message(self, command_parser: ICommandProcessor):
@@ -385,14 +382,10 @@ class TestProcessCommandsInMessages:
         ]
         result = await command_parser.process_messages(messages, session.session_id)
         processed_messages = result.modified_messages
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # Note: messages may be cleared when commands are processed
-        # The key test is that command processing works, not message count
-        assert len(processed_messages) >= 0
-        # Command is removed from the message content regardless of position
-        assert processed_messages[0].content == "Hello  there"
+        assert result.command_executed is False
+        assert len(processed_messages) == 1
+        # Unknown commands should be left untouched.
+        assert processed_messages[0].content == "Hello !/unknown(cmd) there"
 
     @pytest.mark.asyncio
     async def test_multiline_command_detection(self, command_parser: ICommandProcessor):
@@ -405,12 +398,12 @@ class TestProcessCommandsInMessages:
         ]
         result = await command_parser.process_messages(messages, session.session_id)
         processed_messages = result.modified_messages
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # The command on the middle line is removed by the command processor even though
-        # it's not executed (only last non-blank line is checked for execution)
-        assert processed_messages[0].content == "Line1\n\nLine3"
+        # Command resides on a non-trailing line, so the message stays untouched.
+        assert result.command_executed is False
+        assert (
+            processed_messages[0].content
+            == "Line1\n!/set(model=openrouter:multi)\nLine3"
+        )
 
     @pytest.mark.asyncio
     async def test_set_project_in_messages(self, command_parser: ICommandProcessor):
@@ -418,11 +411,9 @@ class TestProcessCommandsInMessages:
         messages = [models.ChatMessage(role="user", content="hi !/set(project=proj1)")]
         result = await command_parser.process_messages(messages, session.session_id)
         processed_messages = result.modified_messages
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # Command is at the end, so it IS executed and removed (leaving trailing space)
-        assert processed_messages[0].content == "hi "
+        assert result.command_executed is True
+        # Command at the tail is removed while preserving preceding text.
+        assert processed_messages[0].content == "hi"
 
     @pytest.mark.asyncio
     async def test_unset_model_and_project_in_message(
@@ -470,15 +461,8 @@ class TestProcessCommandsInMessages:
         # Depending on processor behavior, it may still process the set command.
         result = await command_parser.process_messages(messages, session.session_id)
         processed_messages = result.modified_messages
-        # Accept either behavior depending on processor implementation
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations in (True, False)
-        # Note: messages may be cleared when commands are processed
-        # The key test is that command processing works, not message count
-        assert len(processed_messages) >= 0
-        # Command is at the end, so it IS executed and removed (leaving trailing space)
-        assert processed_messages[0].content == "and some text here "
+        assert result.command_executed is True
+        assert processed_messages[0].content == "and some text here"
 
     @pytest.mark.asyncio
     async def test_command_with_agent_environment_details(
@@ -491,15 +475,8 @@ class TestProcessCommandsInMessages:
         )
         result = await command_parser.process_messages([msg], session.session_id)
         processed_messages = result.modified_messages
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # Note: messages may be cleared when commands are processed
-        # The key test is that command processing works, not message count
-        assert len(processed_messages) >= 0
-        # The command on line 2 is removed by the command processor even though
-        # it's not executed (only last non-blank line is checked for execution)
-        assert processed_messages[0].content == "<task>\n\n</task>\n# detail"
+        assert result.command_executed is False
+        assert processed_messages[0].content == "<task>\n!/hello\n</task>\n# detail"
 
     @pytest.mark.asyncio
     async def test_set_command_with_multiple_parameters_and_prefix(
@@ -512,18 +489,5 @@ class TestProcessCommandsInMessages:
         )
         result = await command_parser.process_messages([msg], session.session_id)
         processed_messages = result.modified_messages
-        # Note: command execution may fail in test environment due to missing dependencies
-        # The main test is that the message content is properly processed
-        # assert result.command_executed  # Temporarily disabled due to test environment limitations
-        # Note: message may be cleared when command is processed
-        # Due to the command service implementation that replaces content with the
-        # processed last line only, the prefix content is lost. This is expected behavior.
-        if len(processed_messages) > 0:
-            # After command removal, the content is empty since only the command was on the last line
-            assert (
-                processed_messages[0].content == ""
-                or "# prefix line" in processed_messages[0].content
-            )
-        else:
-            # Message was cleared after command processing
-            assert len(processed_messages) == 0
+        assert result.command_executed is True
+        assert processed_messages[0].content == "# prefix line"

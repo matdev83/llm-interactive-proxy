@@ -1,5 +1,25 @@
 # Changelog
 
+# 2025-10-16 - Command Pipeline Policy & Regression Coverage
+
+- **Dependency Injection**: Command services now require explicit `ICommandPolicyService`
+  and `ICommandStateService` instances. `CommandStage` wires the policy/state helpers,
+  tail extractor, and match filter, eliminating the legacy registry auto-population.
+- **Policy Abstraction**: Added `CommandPolicyService` that centralises static-route,
+  interactive-disable, strict-detection, and prefix resolution decisions with environment
+  fallbacks and app-state overrides.
+- **State Adapter**: Introduced `CommandStateService` to expose secure session state
+  access/mutation without duplicating repository logic.
+- **Handler Alignment**: Interactive handlers (`set`, `model`, `unset`) and domain
+  commands pull policy inputs via DI, ensuring static routing and alias normalisation
+  behave consistently across adapters.
+- **Regression Coverage**: Expanded unit/integration suites covering tail-only parsing,
+  whitespace-tolerant detection, multi-command lines, multimodal tails, and reasoning
+  parameter enforcement. New builder utilities let tests provision fully wired command
+  services.
+- **Housekeeping**: Documented progress in `dev/command-refactor-plan.md` and updated
+  fixtures to rely on the shared command-service builder.
+
 ## 2025-10-06 - Various Improvements
 
 - **Feature**: Added Model Name Rewrites system for dynamic model name transformation

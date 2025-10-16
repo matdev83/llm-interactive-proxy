@@ -328,17 +328,24 @@ def register_core_services(
     def _command_service_factory(provider: IServiceProvider) -> ICommandService:
         from src.core.commands.parser import CommandParser
         from src.core.commands.service import NewCommandService
+        from src.core.services.command_policy_service import CommandPolicyService
+        from src.core.services.command_state_service import CommandStateService
         from src.core.services.session_service_impl import SessionService
 
         session_service = provider.get_required_service(SessionService)
         command_parser = provider.get_required_service(CommandParser)
         config = provider.get_required_service(AppConfig)
         app_state = provider.get_service(cast(type, IApplicationState))
+        state_service = provider.get_required_service(CommandStateService)
+        policy_service = provider.get_required_service(CommandPolicyService)
         return NewCommandService(
             session_service,
             command_parser,
             strict_command_detection=config.strict_command_detection,
             app_state=app_state,
+            command_state_service=state_service,
+            command_policy_service=policy_service,
+            config=config,
         )
 
     # Register CommandService and bind to interface
@@ -384,6 +391,55 @@ def register_core_services(
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, ISessionService), implementation_factory=_session_service_factory
+        )  # type: ignore[type-abstract]
+
+    # Register command state service
+    from src.core.interfaces.command_state_service_interface import (
+        ICommandStateService,
+    )
+    from src.core.services.command_state_service import CommandStateService
+
+    def _command_state_service_factory(
+        provider: IServiceProvider,
+    ) -> CommandStateService:
+        session = provider.get_required_service(SessionService)
+        return CommandStateService(session)
+
+    _add_singleton(
+        CommandStateService, implementation_factory=_command_state_service_factory
+    )
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, ICommandStateService),
+            implementation_factory=lambda provider: provider.get_required_service(
+                CommandStateService
+            ),
+        )  # type: ignore[type-abstract]
+
+    # Register command policy service
+    from src.core.interfaces.command_policy_service_interface import (
+        ICommandPolicyService,
+    )
+    from src.core.services.command_policy_service import CommandPolicyService
+
+    def _command_policy_service_factory(
+        provider: IServiceProvider,
+    ) -> CommandPolicyService:
+        cfg = provider.get_required_service(AppConfig)
+        app_state = provider.get_service(cast(type, IApplicationState))
+        return CommandPolicyService(cfg, app_state)
+
+    _add_singleton(
+        CommandPolicyService, implementation_factory=_command_policy_service_factory
+    )
+
+    with contextlib.suppress(Exception):
+        services.add_singleton(
+            cast(type, ICommandPolicyService),
+            implementation_factory=lambda provider: provider.get_required_service(
+                CommandPolicyService
+            ),
         )  # type: ignore[type-abstract]
 
     # Register command processor

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from src.core.commands.set_parameter_registry import build_set_parameter_handlers
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatefulCommandBase
@@ -14,6 +15,12 @@ from src.core.interfaces.state_provider_interface import (
     ISecureStateModification,
 )
 
+if TYPE_CHECKING:
+    from src.core.commands.handlers.base_handler import CommandHandlerResult
+    from src.core.interfaces.command_policy_service_interface import (
+        ICommandPolicyService,
+    )
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +30,10 @@ class SetCommand(StatefulCommandBase, BaseCommand):
     _PARAMETER_ALIASES: dict[str, str] = {"interactive": "interactive-mode"}
 
     def __init__(
-        self, state_reader: ISecureStateAccess, state_modifier: ISecureStateModification
+        self,
+        state_reader: ISecureStateAccess,
+        state_modifier: ISecureStateModification,
+        policy_service: ICommandPolicyService | None = None,
     ):
         """Initialize with required state services.
 
@@ -31,7 +41,14 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             state_reader: Service for reading state
             state_modifier: Service for modifying state
         """
-        StatefulCommandBase.__init__(self, state_reader, state_modifier)
+        StatefulCommandBase.__init__(
+            self,
+            state_reader,
+            state_modifier,
+            policy_service=policy_service,
+        )
+        self._policy_service = policy_service
+        self._parameter_handlers = build_set_parameter_handlers()
 
     @property
     def name(self) -> str:
@@ -64,26 +81,36 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 success=False, message="Parameter(s) must be specified", name=self.name
             )
 
-        # Check if static routing is enabled - if so, block backend/model changes
-        if self._is_static_routing_enabled():
-            blocked_params = []
-            if "backend" in args:
-                blocked_params.append("backend")
-            if "model" in args:
-                blocked_params.append("model")
-
-            if blocked_params:
-                return CommandResult(
-                    success=False,
-                    message=f"Cannot change {' and '.join(blocked_params)} when static routing is enabled via --static-route CLI parameter",
-                    name=self.name,
-                )
-
         updated_state = session.state
         messages: list[str] = []
         data: dict[str, Any] = {}
 
-        remaining_args = dict(args)
+        normalized_args: dict[str, Any] = {}
+        for param, value in args.items():
+            normalized = self._normalize_param_name(param)
+            if normalized in normalized_args:
+                return CommandResult(
+                    success=False,
+                    message=f"Duplicate parameter provided: {normalized}",
+                    name=self.name,
+                )
+            normalized_args[normalized] = value
+
+        if self._is_static_route_locked():
+            blocked_params = [
+                name for name in ("backend", "model") if name in normalized_args
+            ]
+            if blocked_params:
+                return CommandResult(
+                    success=False,
+                    message=(
+                        f"Cannot change {' and '.join(blocked_params)} when static routing is enabled via --static-route CLI parameter"
+                    ),
+                    name=self.name,
+                )
+
+        remaining_args = dict(normalized_args)
+        handled_any = False
 
         if "backend" in remaining_args or "model" in remaining_args:
             result, updated_state = await self._handle_backend_and_model(
@@ -96,47 +123,64 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 data.update(result.data)
             remaining_args.pop("backend", None)
             remaining_args.pop("model", None)
+            handled_any = True
 
-        normalized_args: dict[str, Any] = {}
         for param, value in remaining_args.items():
-            normalized = self._PARAMETER_ALIASES.get(param, param)
-            if normalized in normalized_args:
-                return CommandResult(
-                    success=False,
-                    message=f"Duplicate parameter provided: {normalized}",
-                    name=self.name,
-                )
-            normalized_args[normalized] = value
-
-        for param, value in normalized_args.items():
             handler = getattr(self, f"_handle_{param.replace('-', '_')}", None)
-            if handler:
-                handler_result: CommandResult
-                handler_result, updated_state = await handler(
+            if handler is not None:
+                command_result: CommandResult
+                command_result, updated_state = await handler(
                     value, updated_state, context
                 )
-                if not handler_result.success:
-                    return handler_result
-                messages.append(handler_result.message)
-                if handler_result.data:
-                    data.update(handler_result.data)
-            else:
-                return CommandResult(
-                    success=False, message=f"Unknown parameter: {param}", name=self.name
-                )
+                if not command_result.success:
+                    return command_result
+                if command_result.message:
+                    messages.append(command_result.message)
+                if command_result.data:
+                    data.update(command_result.data)
+                handled_any = True
+                continue
 
-        if not messages:
+            parameter_handler = self._parameter_handlers.get(param)
+            if parameter_handler is not None:
+                parameter_result: CommandHandlerResult = parameter_handler.handle(
+                    value, updated_state, context
+                )
+                if not parameter_result.success:
+                    return CommandResult(
+                        success=False,
+                        message=parameter_result.message,
+                        name=self.name,
+                    )
+                if parameter_result.new_state is not None:
+                    updated_state = parameter_result.new_state
+                if parameter_result.message:
+                    messages.append(parameter_result.message)
+                if parameter_result.additional_data:
+                    data.update(parameter_result.additional_data)
+                handled_any = True
+                continue
+
+            return CommandResult(
+                success=False, message=f"Unknown parameter: {param}", name=self.name
+            )
+
+        if not handled_any:
             return CommandResult(
                 success=False, message="No valid parameters provided.", name=self.name
             )
 
         return CommandResult(
             success=True,
-            message="\n".join(m for m in messages if m),
+            message="\n".join(m for m in messages if m) or "Settings updated",
             name=self.name,
             data=data,
             new_state=updated_state,
         )
+
+    def _normalize_param_name(self, name: str) -> str:
+        normalized = name.strip().lower().replace("_", "-").replace(" ", "-")
+        return self._PARAMETER_ALIASES.get(normalized, normalized)
 
     async def _handle_backend_and_model(
         self, args: dict[str, Any], state: ISessionState, context: Any
@@ -364,10 +408,23 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             updated_state,
         )
 
-    def _is_static_routing_enabled(self) -> bool:
-        """Check if static routing is enabled via CLI parameter."""
+    def _is_static_route_locked(self) -> bool:
+        policy = getattr(self, "_policy_service", None)
+        if policy is None:
+            policy = self.policy_service
+
+        if policy is not None:
+            try:
+                return policy.is_static_route_enforced()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Policy service failed to determine static routing: %s",
+                        exc,
+                        exc_info=True,
+                    )
+
         import os
 
-        # Check if static route was set via CLI (stored in environment)
         static_route = os.environ.get("STATIC_ROUTE")
-        return static_route is not None and static_route.strip() != ""
+        return bool(static_route and static_route.strip())

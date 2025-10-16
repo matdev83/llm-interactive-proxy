@@ -23,10 +23,12 @@ class ICommandHandler(ABC):
         command_service: "ICommandService | None" = None,
         secure_state_access: Any = None,
         secure_state_modification: Any = None,
+        policy_service: Any = None,
     ) -> None:
         self._command_service = command_service
         self._secure_state_access = secure_state_access
         self._secure_state_modification = secure_state_modification
+        self._policy_service = policy_service
 
     @property
     @abstractmethod

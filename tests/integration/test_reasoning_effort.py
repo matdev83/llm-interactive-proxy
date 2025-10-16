@@ -136,7 +136,6 @@ async def test_in_chat_reasoning_commands() -> None:
         ThinkingBudgetHandler,
     )
     from src.core.commands.parser import CommandParser
-    from src.core.commands.service import NewCommandService
     from src.core.domain.chat import ChatMessage
     from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
     from src.core.domain.session import Session, SessionState
@@ -150,7 +149,9 @@ async def test_in_chat_reasoning_commands() -> None:
     session = Session(session_id="session-1", state=session_state)
     session_service = MockSessionService(session=session)
     command_parser = CommandParser()
-    command_service = NewCommandService(
+    from tests.utils.command_service_utils import build_new_command_service
+
+    command_service = build_new_command_service(
         session_service, command_parser, strict_command_detection=False
     )
 

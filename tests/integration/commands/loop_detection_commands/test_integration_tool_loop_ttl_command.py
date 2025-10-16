@@ -1,9 +1,6 @@
 import pytest
 from src.core.commands.parser import CommandParser
 
-# Import the actual NewCommandService
-from src.core.commands.service import NewCommandService
-
 # Unskip: snapshot fixture is available in test suite
 from src.core.domain.chat import ChatMessage
 from src.core.domain.session import LoopDetectionConfiguration, Session, SessionState
@@ -48,8 +45,9 @@ async def run_command(command_string: str) -> str:
         async def get_all_sessions(self) -> list[Session]:
             return []
 
-    # Use the actual NewCommandService
-    command_service = NewCommandService(
+    from tests.utils.command_service_utils import build_new_command_service
+
+    command_service = build_new_command_service(
         session_service=_SessionSvc(), command_parser=CommandParser()
     )
 

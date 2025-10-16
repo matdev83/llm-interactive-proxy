@@ -33,31 +33,31 @@
 ## Refactor Phases & Tasks
 
 ### Phase 1: Detection Pipeline Overhaul
-- [ ] Introduce `CommandTailExtractor` with unit tests for strings and multipart content.
-- [ ] Redesign `CommandParser` & `ICommandParser` to support synchronous multi-command extraction (update interface, docs, tests).
-- [ ] Implement `CommandMatchFilter` to enforce prefix + end-of-message matching, including whitespace tolerance.
-- [ ] Update `NewCommandService` (or replacement) to use the pipeline and restrict processing to the last user message.
+- [x] Introduce `CommandTailExtractor` with unit tests for strings and multipart content.
+- [x] Redesign `CommandParser` & `ICommandParser` to support synchronous multi-command extraction (update interface, docs, tests).
+- [x] Implement `CommandMatchFilter` to enforce prefix + end-of-message matching, including whitespace tolerance.
+- [x] Update `NewCommandService` (or replacement) to use the pipeline and restrict processing to the last user message.
 
 ### Phase 2: Command Routing Consolidation
-- [ ] Decide on canonical command implementation layer (domain commands) and document adapter strategy.
-- [ ] Replace `SetCommandHandler`, `UnsetCommandHandler`, and similar legacy handlers with thin adapters to domain commands.
-- [ ] Remove duplicated logic from handlers; port missing behaviour from handlers into domain commands where needed.
-- [ ] Ensure failover commands use shared router/registry while still supporting secure state access.
+- [x] Decide on canonical command implementation layer (domain commands) and document adapter strategy.
+- [x] Replace `SetCommandHandler`, `UnsetCommandHandler`, and similar legacy handlers with thin adapters to domain commands.
+- [x] Remove duplicated logic from handlers; port missing behaviour from handlers into domain commands where needed.
+- [x] Ensure failover commands use shared router/registry while still supporting secure state access.
 
 ### Phase 3: Policy & State Abstraction
-- [ ] Create `ICommandPolicyService` pulling configuration from `AppConfig`, CLI overrides, and session/app state.
-- [ ] Move static routing and interactive-command disable checks into the policy service; update commands to query policies instead of environment variables.
-- [ ] Introduce `ICommandStateService` (wrapper around `SessionService`/state mutation helpers) to centralize updates.
+- [x] Create `ICommandPolicyService` pulling configuration from `AppConfig`, CLI overrides, and session/app state.
+- [x] Move static routing and interactive-command disable checks into the policy service; update commands to query policies instead of environment variables.
+- [x] Introduce `ICommandStateService` (wrapper around `SessionService`/state mutation helpers) to centralize updates.
 
 ### Phase 4: Dependency Injection & Cleanup
-- [ ] Update `src/core/di/services.py` and `CommandStage` to wire new services and drop unused registrations (CommandRegistry, CommandDetector, etc.).
+- [x] Update `src/core/di/services.py` and `CommandStage` to wire new services and drop unused registrations (CommandRegistry, CommandDetector, etc.).
 - [ ] Remove unused legacy modules or mark them deprecated with clear documentation.
 - [ ] Adjust configuration schema & CLI flags to align with new defaults (strict detection enabled by default, optional overrides).
 
 ### Phase 5: Testing & Regression Safety
-- [ ] Expand unit tests for parser, extractor, policy logic, and router.
-- [ ] Refresh integration tests covering command execution scenarios (set/unset/model/failover/loop detection).
-- [ ] Add regression tests for multi-command lines, trailing whitespace, multipart content, and command-only requests.
+- [x] Expand unit tests for parser, extractor, policy logic, and router.
+- [x] Refresh integration tests covering command execution scenarios (set/unset/model/failover/loop detection).
+- [x] Add regression tests for multi-command lines, trailing whitespace, multipart content, and command-only requests.
 - [ ] Validate no regression in redaction middleware or downstream processors (update mocks as needed).
 
 ### Phase 6: Migration & Rollout
@@ -74,3 +74,7 @@
 - Default strict detection must be enforced in new policy service; CLI/config should only relax it explicitly.
 - Domain commands that require secure state must receive dependencies through DI (SecureCommandFactory or successor) to preserve safety.
 - After consolidation, delete or archive unused handler tests; replace them with domain command coverage to reduce duplication.
+- Set/unset interactive handlers now wrap the domain command implementations via `SessionStateAdapter`, establishing domain commands as the canonical execution layer while preserving legacy messaging semantics.
+- CommandStage registers the shared policy/state helpers and relies on the new pipeline wiring instead of the legacy `CommandRegistry` auto-population path.
+- Remaining legacy fixtures to revisit: `tests/unit/fixtures/command_fixtures.py` still exports `NewCommandService` for compatibility; evaluate removal once downstream consumers migrate to direct DI resolution.
+- Feature flag assessment: current rollout keeps the new pipeline as the default; introduce a gating flag only if downstream regressions surface during staging.

@@ -72,14 +72,14 @@ class UnsetCommand(StatefulCommandBase, BaseCommand):
         # Validate that this command was created through proper DI
         self._validate_di_usage()
 
-        if not args or all(not v for v in args.values()):
+        if not args:
             return CommandResult(
                 success=False,
                 message="Parameter to unset must be specified",
                 name=self.name,
             )
 
-        parameters_to_unset = [p for p, v in args.items() if v]
+        parameters_to_unset = list(args.keys())
         if not parameters_to_unset:
             return CommandResult(
                 success=False,

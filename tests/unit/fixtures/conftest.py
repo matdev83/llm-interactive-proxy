@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
-from src.core.domain.chat import ChatMessage, ToolCall
+from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.multimodal import ContentPart, MultimodalMessage
 from src.core.domain.processed_result import ProcessedResult
@@ -20,6 +20,7 @@ from src.core.services.command_processor import (
 )
 
 from tests.unit.core.test_doubles import MockBackendService, MockSessionService
+from tests.utils.command_service_utils import build_new_command_service
 
 
 @pytest.fixture
@@ -116,7 +117,7 @@ def multimodal_message_with_command(
         # Assuming the first part is text and needs modification
         if updated_content and isinstance(updated_content[0], ContentPart):
             updated_content[0] = ContentPart.text(
-                "!/set(model=openrouter:gpt-4-turbo) " + updated_content[0].data
+                f"{updated_content[0].data}\n!/set(model=openrouter:gpt-4-turbo)"
             )
         return MultimodalMessage(
             role=multimodal_message.role,
@@ -141,99 +142,54 @@ def session_service() -> MockSessionService:
 
 
 @pytest.fixture
-def command_parser(
-    test_command_service: ICommandService,
-    test_session_state: "SessionStateAdapter",
-    test_mock_app: "FastAPI",
-    monkeypatch: pytest.MonkeyPatch,  # Add monkeypatch here
-) -> CoreCommandProcessor:
-    """Return a DI-driven command processor."""
+def command_parser() -> CoreCommandProcessor:
+    """Return a command processor backed by the shared command service builder."""
 
-    # Minimal async session service suitable for tests
+    from src.core.commands.parser import CommandParser
+
     class _SessionSvc:
-        async def get_session(self, session_id: str):
-            from src.core.domain.session import Session
+        async def get_session(self, session_id: str) -> Session:
+            return Session(session_id=session_id)
 
-            return Session(session_id=session_id, state=test_session_state)
-
-        async def update_session(self, session):
+        async def update_session(self, session: Session) -> None:  # pragma: no cover
             return None
 
-    command_service = test_command_service
-    parser = CoreCommandProcessor(command_service)
-    # Provide a compatibility attribute expected by some tests
-    import re as _re
-
-    parser.command_pattern = _re.compile(r"!/[\w-]+(?:\([^)]*\))?")  # type: ignore[attr-defined]
-
-    # Special handling for test_command_parser_fixture (mocking process_messages)
-    original_process_messages = parser.process_messages
-
-    # Mock process_messages for specific test cases
-
-    # Special handling for test_command_parser_fixture (mocking process_messages)
-    original_process_messages = parser.process_messages
-
-    async def _mock_process_messages(
-        self_instance: CoreCommandProcessor,
-        messages: list[ChatMessage],
-        session_id: str,
-        context: Any = None,
-    ) -> ProcessedResult:
-        if len(messages) == 1:
-            # Support both ChatMessage and MultimodalMessage inputs
-            raw = messages[0]
-            # Extract text content
-            if isinstance(raw, ChatMessage) and isinstance(raw.content, str):
-                text = raw.content
-                role = raw.role
-            else:
-                try:
-                    from src.core.domain.multimodal import MultimodalMessage
-
-                    if isinstance(raw, MultimodalMessage):
-                        text = raw.get_text_content() or ""
-                        role = raw.role
-                    else:
-                        text = ""
-                        role = getattr(raw, "role", "user")
-                except Exception:
-                    text = ""
-                    role = getattr(raw, "role", "user")
-
-            if text and "!/set(" in text:
-                from src.core.domain.command_results import CommandResult
-                from src.core.domain.processed_result import ProcessedResult
-
-                # Strip the command token from the content for realism
-                start = text.find("!/set(")
-                end = text.find(")", start)
-                if end != -1:
-                    end += 1
-                else:
-                    end = start + len("!/set(")
-                new_text = (text[:start] + text[end:]).strip()
-                modified = ChatMessage(role=role, content=new_text)
-
-                return ProcessedResult(
-                    modified_messages=[modified],
-                    command_executed=True,
-                    command_results=[
-                        CommandResult(
-                            name="set", success=True, message="Settings updated"
-                        )
-                    ],
-                )
-        # Call the original method, explicitly passing the bound instance
-        return await original_process_messages(messages, session_id, context)
-
-    import types
-
-    monkeypatch.setattr(
-        parser, "process_messages", types.MethodType(_mock_process_messages, parser)
+    command_service = build_new_command_service(
+        session_service=_SessionSvc(),
+        command_parser=CommandParser(),
     )
 
-    return parser
+    import src.core.commands.handlers  # noqa: F401  Ensure handlers are registered
+
+    class _NormalizingProcessor(CoreCommandProcessor):
+        async def process_messages(  # type: ignore[override]
+            self,
+            messages: list[ChatMessage | MultimodalMessage],
+            session_id: str,
+            context: Any = None,
+        ) -> ProcessedResult:
+            normalized: list[ChatMessage] = []
+            for message in messages:
+                if isinstance(message, ChatMessage):
+                    normalized.append(message)
+                    continue
+                text = (
+                    message.get_text_content()
+                    if hasattr(message, "get_text_content")
+                    else ""
+                )
+                normalized.append(
+                    ChatMessage(role=getattr(message, "role", "user"), content=text)
+                )
+            return await super().process_messages(normalized, session_id, context)
+
+    processor = _NormalizingProcessor(command_service)
+
+    import re as _re
+
+    processor.command_pattern = _re.compile(r"!/[-\w]+(?:\([^)]*\))?")  # type: ignore[attr-defined]
+
+    return processor
 
 
 @pytest.fixture
@@ -246,19 +202,7 @@ async def process_command(
     async def _process_command(
         text: str,
     ) -> ProcessedResult:
-        multimodal_message = MultimodalMessage.text(role="user", content=text)
-        # Manually construct ChatMessage to avoid Pydantic validation issues with nested models
-        chat_message = ChatMessage(
-            role=multimodal_message.role,
-            content=multimodal_message.get_text_content(),  # Get plain text content
-            name=multimodal_message.name,
-            tool_calls=(
-                [ToolCall(**tc) for tc in multimodal_message.tool_calls]
-                if multimodal_message.tool_calls
-                else None
-            ),
-            tool_call_id=multimodal_message.tool_call_id,
-        )
+        chat_message = ChatMessage(role="user", content=text)
         result = await command_parser.process_messages(
             [chat_message], session_id=test_session_id
         )

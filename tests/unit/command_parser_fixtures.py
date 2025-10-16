@@ -4,7 +4,6 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from src.core.commands.service import NewCommandService
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.session import Session, SessionStateAdapter
@@ -12,6 +11,8 @@ from src.core.services.command_processor import (
     CommandProcessor as CoreCommandProcessor,
 )
 from src.core.services.command_utils import CommandRegistry
+
+from tests.utils.command_service_utils import build_new_command_service
 
 
 class MockSuccessCommand(BaseCommand):
@@ -84,8 +85,12 @@ async def command_parser(
 
     from src.core.commands.parser import CommandParser
 
-    service = NewCommandService(
-        _SessionSvc(), CommandParser(), strict_command_detection=False
+    session_service = _SessionSvc()
+    command_parser = CommandParser()
+    service = build_new_command_service(
+        session_service,
+        command_parser,
+        strict_command_detection=False,
     )
     processor = CoreCommandProcessor(service)
     yield processor
