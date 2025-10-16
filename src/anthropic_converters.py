@@ -21,6 +21,8 @@ def anthropic_to_openai_request(
     return a plain dictionary - not a ``ChatCompletionRequest`` object.
     """
 
+    logger.debug("Converting Anthropic to OpenAI request: %r", anthropic_request)
+
     messages: list[dict[str, Any]] = []
 
     # Optional system message comes first
@@ -141,18 +143,20 @@ def anthropic_to_openai_request(
         result["tool_choice"] = _convert_anthropic_tool_choice(
             anthropic_request.tool_choice
         )
+    logger.debug("Converted Anthropic to OpenAI request: %r", result)
     return result
 
 
 def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     """Convert an OpenAI chat completion response into Anthropic format."""
+    logger.debug("Converting OpenAI to Anthropic response: %r", openai_response)
     oai_dict = _normalize_openai_response_to_dict(openai_response)
     # Defensive: handle empty or missing choices gracefully
     choices = oai_dict.get("choices") or []
     if not choices:
         # Produce a minimal Anthropic-like message with empty text and usage mapping
         usage = oai_dict.get("usage", {})
-        return {
+        response = {
             "id": oai_dict.get("id", "msg_unk"),
             "type": "message",
             "role": "assistant",
@@ -164,12 +168,16 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
                 "output_tokens": usage.get("completion_tokens", 0),
             },
         }
+        logger.debug(
+            "Converted OpenAI to Anthropic response (no choices): %r", response
+        )
+        return response
 
     choice = choices[0]
     message = choice.get("message", {})
     content_blocks = _build_content_blocks(choice, message)
     usage = oai_dict.get("usage", {})
-    return {
+    response = {
         "id": oai_dict.get("id", "msg_unk"),
         "type": "message",
         "role": "assistant",
@@ -181,6 +189,8 @@ def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
             "output_tokens": usage.get("completion_tokens", 0),
         },
     }
+    logger.debug("Converted OpenAI to Anthropic response: %r", response)
+    return response
 
 
 def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
@@ -385,29 +395,51 @@ async def openai_stream_to_anthropic_stream(
     active_tool_call_index = -1
     logger.debug("Starting stateful OpenAI to Anthropic stream conversion.")
 
-    async for chunk_bytes in chunk_generator:
-        if not chunk_bytes.strip():
-            logger.debug("Skipping empty chunk.")
-            continue
+    buffer = ""
 
-        chunk_data = chunk_bytes.decode("utf-8")
-        logger.debug(f"RAW_CHUNK: {chunk_data!r}")
+    def _consume_sse_buffer(data: str) -> tuple[str, list[str]]:
+        """Split accumulated SSE data into payload strings, returning leftovers."""
+        remaining = data
+        payloads: list[str] = []
 
-        prefix = "data: "
-        payload_str = (
-            chunk_data[len(prefix) :] if chunk_data.startswith(prefix) else chunk_data
-        ).strip()
+        while True:
+            separator_index = remaining.find("\n\n")
+            if separator_index == -1:
+                break
+
+            raw_event = remaining[:separator_index]
+            remaining = remaining[separator_index + 2 :]
+
+            if not raw_event.strip():
+                continue
+
+            data_lines: list[str] = []
+            for line in raw_event.split("\n"):
+                if line.startswith("data:"):
+                    data_lines.append(line[len("data:") :].lstrip())
+
+            if data_lines:
+                payloads.append("\n".join(data_lines))
+
+        return remaining, payloads
+
+    def _translate_payload(payload_str: str) -> tuple[bool, list[str]]:
+        """Convert a JSON payload string into Anthropic SSE events."""
+        nonlocal message_started, finish_reason_sent, active_tool_call_index
+        events: list[str] = []
 
         if not payload_str:
-            logger.debug("Skipping empty payload.")
-            continue
+            return False, events
 
-        if payload_str == "[DONE]":
+        stripped_payload = payload_str.strip()
+
+        if stripped_payload == "[DONE]":
             logger.debug("Received [DONE] marker.")
             if active_tool_call_index != -1:
                 stop_block = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
                 logger.debug(f"YIELDING content_block_stop: {stop_block!r}")
-                yield stop_block
+                events.append(stop_block)
+                active_tool_call_index = -1
             if not finish_reason_sent:
                 final_delta = {
                     "type": "message_delta",
@@ -419,143 +451,183 @@ async def openai_stream_to_anthropic_stream(
                 logger.debug(
                     f"YIELDING message_delta (end_turn): {final_delta_event!r}"
                 )
-                yield final_delta_event
+                events.append(final_delta_event)
+                finish_reason_sent = True
             stop_event = 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
             logger.debug(f"YIELDING message_stop: {stop_event!r}")
-            yield stop_event
+            events.append(stop_event)
             logger.debug("Stream conversion complete.")
-            return
+            return True, events
 
         try:
-            openai_chunk = json.loads(payload_str)
-            choices = openai_chunk.get("choices", [])
-            logger.debug(f"PARSED_CHUNK: {openai_chunk}")
+            openai_chunk = json.loads(stripped_payload)
+        except (json.JSONDecodeError, IndexError) as exc:
+            logger.debug(f"Skipping chunk due to parsing error: {exc}")
+            return False, events
 
-            if not choices:
-                if "usage" in openai_chunk:
-                    usage = openai_chunk["usage"]
-                    payload = {
-                        "type": "message_delta",
-                        "delta": {},
-                        "usage": {
-                            "input_tokens": usage.get("prompt_tokens", 0),
-                            "output_tokens": usage.get("completion_tokens", 0),
+        choices = openai_chunk.get("choices", [])
+        logger.debug(f"PARSED_CHUNK: {openai_chunk}")
+
+        if not choices:
+            usage = openai_chunk.get("usage")
+            if isinstance(usage, dict):
+                payload = {
+                    "type": "message_delta",
+                    "delta": {},
+                    "usage": {
+                        "input_tokens": usage.get("prompt_tokens", 0),
+                        "output_tokens": usage.get("completion_tokens", 0),
+                    },
+                }
+                usage_event = (
+                    f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
+                )
+                logger.debug(f"YIELDING usage delta: {usage_event!r}")
+                events.append(usage_event)
+            return False, events
+
+        choice = choices[0]
+        delta = choice.get("delta", {})
+
+        if not message_started and delta.get("role"):
+            message_payload = {
+                "id": openai_chunk.get("id", session_id),
+                "type": "message",
+                "role": "assistant",
+                "model": model,
+                "content": [],
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+            start_payload = {"type": "message_start", "message": message_payload}
+            start_event = (
+                f"event: message_start\ndata: {json.dumps(start_payload)}\n\n"
+            )
+            logger.debug(f"YIELDING message_start: {start_event!r}")
+            events.append(start_event)
+            message_started = True
+
+        if delta.get("tool_calls"):
+            for tool_call in delta["tool_calls"]:
+                if tool_call.get("id"):
+                    if active_tool_call_index != -1:
+                        stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
+                        logger.debug(
+                            f"YIELDING content_block_stop (new tool): {stop_block_event!r}"
+                        )
+                        events.append(stop_block_event)
+                    active_tool_call_index = tool_call["index"]
+                    start_block = {
+                        "type": "content_block_start",
+                        "index": active_tool_call_index,
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": tool_call["id"],
+                            "name": tool_call["function"]["name"],
+                            "input": {},
                         },
                     }
-                    usage_event = (
-                        f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
-                    )
-                    logger.debug(f"YIELDING usage delta: {usage_event!r}")
-                    yield usage_event
-                continue
-
-            choice = choices[0]
-            delta = choice.get("delta", {})
-
-            if not message_started and delta.get("role"):
-                message_payload = {
-                    "id": openai_chunk.get("id", session_id),
-                    "type": "message",
-                    "role": "assistant",
-                    "model": model,
-                    "content": [],
-                    "stop_reason": None,
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 0, "output_tokens": 0},
-                }
-                start_payload = {"type": "message_start", "message": message_payload}
-                start_event = (
-                    f"event: message_start\ndata: {json.dumps(start_payload)}\n\n"
-                )
-                logger.debug(f"YIELDING message_start: {start_event!r}")
-                yield start_event
-                message_started = True
-
-            if delta.get("tool_calls"):
-                for tool_call in delta["tool_calls"]:
-                    if tool_call.get("id"):
-                        if active_tool_call_index != -1:
-                            stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
-                            logger.debug(
-                                f"YIELDING content_block_stop (new tool): {stop_block_event!r}"
-                            )
-                            yield stop_block_event
-                        active_tool_call_index = tool_call["index"]
-                        start_block = {
-                            "type": "content_block_start",
-                            "index": active_tool_call_index,
-                            "content_block": {
-                                "type": "tool_use",
-                                "id": tool_call["id"],
-                                "name": tool_call["function"]["name"],
-                                "input": {},
-                            },
-                        }
-                        start_block_event = f"event: content_block_start\ndata: {json.dumps(start_block)}\n\n"
-                        logger.debug(
-                            f"YIELDING content_block_start (tool): {start_block_event!r}"
-                        )
-                        yield start_block_event
-
-                    if tool_call.get("function", {}).get("arguments"):
-                        args_delta = {
-                            "type": "content_block_delta",
-                            "index": tool_call["index"],
-                            "delta": {
-                                "type": "input_json_delta",
-                                "partial_json": tool_call["function"]["arguments"],
-                            },
-                        }
-                        args_delta_event = f"event: content_block_delta\ndata: {json.dumps(args_delta)}\n\n"
-                        logger.debug(f"YIELDING input_json_delta: {args_delta_event!r}")
-                        yield args_delta_event
-
-            if delta.get("content"):
-                if active_tool_call_index != -1:
-                    stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
+                    start_block_event = f"event: content_block_start\ndata: {json.dumps(start_block)}\n\n"
                     logger.debug(
-                        f"YIELDING content_block_stop (text): {stop_block_event!r}"
+                        f"YIELDING content_block_start (tool): {start_block_event!r}"
                     )
-                    yield stop_block_event
-                    active_tool_call_index = -1
-                content_payload = {
-                    "type": "content_block_delta",
-                    "index": 0,
-                    "delta": {
-                        "type": "text_delta",
-                        "text": _normalize_text_content(delta["content"]),
-                    },
-                }
-                content_event = f"event: content_block_delta\ndata: {json.dumps(content_payload)}\n\n"
-                logger.debug(f"YIELDING text_delta: {content_event!r}")
-                yield content_event
+                    events.append(start_block_event)
 
-            if choice.get("finish_reason"):
-                if active_tool_call_index != -1:
-                    stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
-                    logger.debug(
-                        f"YIELDING content_block_stop (finish): {stop_block_event!r}"
-                    )
-                    yield stop_block_event
-                    active_tool_call_index = -1
-                finish_payload = {
-                    "type": "message_delta",
-                    "delta": {
-                        "stop_reason": _map_finish_reason(choice["finish_reason"])
-                    },
-                    "usage": {"input_tokens": 0, "output_tokens": 0},
-                }
-                finish_event = (
-                    f"event: message_delta\ndata: {json.dumps(finish_payload)}\n\n"
+                if tool_call.get("function", {}).get("arguments"):
+                    args_delta = {
+                        "type": "content_block_delta",
+                        "index": tool_call["index"],
+                        "delta": {
+                            "type": "input_json_delta",
+                            "partial_json": tool_call["function"]["arguments"],
+                        },
+                    }
+                    args_delta_event = f"event: content_block_delta\ndata: {json.dumps(args_delta)}\n\n"
+                    logger.debug(f"YIELDING input_json_delta: {args_delta_event!r}")
+                    events.append(args_delta_event)
+
+        if delta.get("content"):
+            if active_tool_call_index != -1:
+                stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
+                logger.debug(
+                    f"YIELDING content_block_stop (text): {stop_block_event!r}"
                 )
-                logger.debug(f"YIELDING message_delta (finish): {finish_event!r}")
-                yield finish_event
-                finish_reason_sent = True
+                events.append(stop_block_event)
+                active_tool_call_index = -1
+            content_payload = {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "text_delta",
+                    "text": _normalize_text_content(delta["content"]),
+                },
+            }
+            content_event = (
+                f"event: content_block_delta\ndata: {json.dumps(content_payload)}\n\n"
+            )
+            logger.debug(f"YIELDING text_delta: {content_event!r}")
+            events.append(content_event)
 
-        except (json.JSONDecodeError, IndexError) as e:
-            logger.debug(f"Skipping chunk due to parsing error: {e}")
+        if choice.get("finish_reason"):
+            if active_tool_call_index != -1:
+                stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
+                logger.debug(
+                    f"YIELDING content_block_stop (finish): {stop_block_event!r}"
+                )
+                events.append(stop_block_event)
+                active_tool_call_index = -1
+            finish_payload = {
+                "type": "message_delta",
+                "delta": {
+                    "stop_reason": _map_finish_reason(choice["finish_reason"])
+                },
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+            finish_event = (
+                f"event: message_delta\ndata: {json.dumps(finish_payload)}\n\n"
+            )
+            logger.debug(f"YIELDING message_delta (finish): {finish_event!r}")
+            events.append(finish_event)
+            finish_reason_sent = True
 
-    # Always send a final message_stop event
+        return False, events
+
+    async for chunk_bytes in chunk_generator:
+        if chunk_bytes is None:
+            logger.debug("Received None chunk; skipping.")
+            continue
+
+        try:
+            chunk_data = chunk_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            chunk_data = chunk_bytes.decode("utf-8", errors="ignore")
+            logger.debug("Chunk contained invalid UTF-8; decoded with replacement.")
+
+        logger.debug(f"RAW_CHUNK: {chunk_data!r}")
+
+        normalized_chunk = chunk_data.replace("\r\n", "\n")
+        buffer += normalized_chunk
+
+        buffer, payloads = _consume_sse_buffer(buffer)
+
+        for payload in payloads:
+            done, events = _translate_payload(payload)
+            for event in events:
+                yield event
+            if done:
+                return
+
+    if buffer.strip():
+        buffer, payloads = _consume_sse_buffer(buffer + "\n\n")
+        for payload in payloads:
+            done, events = _translate_payload(payload)
+            for event in events:
+                yield event
+            if done:
+                return
+
+    # Always send a final message_stop event if the stream ended unexpectedly
     final_stop_event = 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
     logger.debug(f"YIELDING final message_stop: {final_stop_event!r}")
     yield final_stop_event

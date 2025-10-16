@@ -7,11 +7,14 @@ import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from src.anthropic_converters import (
     _map_finish_reason,
     anthropic_to_openai_request,
     extract_anthropic_usage,
     get_anthropic_models,
+    openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
     openai_to_anthropic_stream_chunk,
 )
@@ -588,3 +591,79 @@ class TestAnthropicConverters:
         assert openai_req["messages"][2]["content"] == "2+2 equals 4."
         assert openai_req["messages"][3]["role"] == "user"
         assert openai_req["messages"][3]["content"] == "What about 3+3?"
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_to_anthropic_stream_handles_multi_event_chunks() -> None:
+    """Multiple OpenAI SSE events in a single chunk should be parsed individually."""
+
+    request = AnthropicMessagesRequest(
+        model="claude-3-sonnet-20240229",
+        messages=[AnthropicMessage(role="user", content="Hi")],
+        stream=True,
+    )
+
+    async def chunk_generator():
+        payload = (
+            b'data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", '
+            b'"created": 123, "model": "code-assist-model", "choices": '
+            b'[{"index": 0, "delta": {"role": "assistant"}}]}\n\n'
+            b'data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", '
+            b'"created": 124, "model": "code-assist-model", "choices": '
+            b'[{"index": 0, "delta": {"content": "Hello"}}]}\n\n'
+        )
+        yield payload
+        yield (
+            b'data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", '
+            b'"created": 125, "model": "code-assist-model", "choices": '
+            b'[{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\n'
+        )
+        yield b"data: [DONE]\n\n"
+
+    chunks: list[str] = []
+    async for event in openai_stream_to_anthropic_stream(
+        chunk_generator(), request, request.model, "session-123"
+    ):
+        chunks.append(event)
+
+    assert any("event: message_start" in chunk for chunk in chunks)
+    text_events = [chunk for chunk in chunks if '"text_delta"' in chunk]
+    assert len(text_events) == 1
+    assert "Hello" in text_events[0]
+    assert chunks[-1] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_to_anthropic_stream_handles_partial_payloads() -> None:
+    """SSE payloads split across TCP boundaries should be buffered until complete."""
+
+    request = AnthropicMessagesRequest(
+        model="claude-3-haiku-20240307",
+        messages=[AnthropicMessage(role="user", content="Hi")],
+        stream=True,
+    )
+
+    async def chunk_generator():
+        yield (
+            b'data: {"id": "chatcmpl-2", "object": "chat.completion.chunk", '
+            b'"created": 200, "model": "code-assist-model", "choices": '
+            b'[{"index": 0, "delta": {"role": "assistant"}}]}\n\n'
+        )
+        yield (
+            b'data: {"id": "chatcmpl-2", "object": "chat.completion.chunk", '
+            b'"created": 201, "model": "code-assist-model", "choices": '
+            b'[{"index": 0, "delta": {"content": "Partial'
+        )
+        yield b' text"}}]}\n\n'
+        yield b"data: [DONE]\n\n"
+
+    chunks: list[str] = []
+    async for event in openai_stream_to_anthropic_stream(
+        chunk_generator(), request, request.model, "session-456"
+    ):
+        chunks.append(event)
+
+    text_payloads = [chunk for chunk in chunks if '"text_delta"' in chunk]
+    assert len(text_payloads) == 1
+    assert "Partial text" in text_payloads[0]
+    assert chunks[-1] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
