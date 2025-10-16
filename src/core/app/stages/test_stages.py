@@ -555,19 +555,23 @@ class MockBackendStage(InitializationStage):
 
                         httpx_client = self._resolve_httpx_client(services)
                         if httpx_client is None:
-                            raise RuntimeError(
-                                "Shared HTTP client unavailable for backend instantiation"
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "No shared HTTP client available for anthropic backend; "
+                                    "falling back to mock"
+                                )
+                            # Fall back to mock behavior instead of raising error
+                            pass
+                        else:
+                            real_backend = AnthropicBackend(
+                                httpx_client, AppConfig(), translation_service
                             )
-
-                        real_backend = AnthropicBackend(
-                            httpx_client, AppConfig(), translation_service
-                        )
-                        # If the connector was patched in tests, its methods will
-                        # already reflect the patch. Cache and return the real
-                        # backend so tests that patch connector class methods
-                        # observe calls.
-                        mock_backend_service._backend_cache[backend_type] = real_backend
-                        return real_backend
+                            # If the connector was patched in tests, its methods will
+                            # already reflect the patch. Cache and return the real
+                            # backend so tests that patch connector class methods
+                            # observe calls.
+                            mock_backend_service._backend_cache[backend_type] = real_backend
+                            return real_backend
                 except Exception:
                     # Fall back to mock backend when real instantiation fails
                     pass
