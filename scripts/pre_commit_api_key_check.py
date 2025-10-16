@@ -1,9 +1,6 @@
 import subprocess
 import sys
-import types
 from pathlib import Path
-
-import yaml
 
 # Add the project root to the sys.path to import project modules
 project_root = Path(__file__).resolve().parents[1]
@@ -14,22 +11,7 @@ from src.core.common.logging_utils import (
     ZAI_KEY_PATTERN,
     discover_api_keys_from_config_and_env,
 )
-
-
-def load_config_from_yaml(config_path: Path):
-    """Loads configuration from a YAML file and converts it to a SimpleNamespace object."""
-    with open(config_path) as f:
-        config_dict = yaml.safe_load(f)
-
-    # Convert dictionary to a SimpleNamespace to mimic object access
-    def dict_to_namespace(d):
-        if isinstance(d, dict):
-            return types.SimpleNamespace(
-                **{k: dict_to_namespace(v) for k, v in d.items()}
-            )
-        return d
-
-    return dict_to_namespace(config_dict)
+from src.core.config.app_config import AppConfig, load_config
 
 
 def get_staged_files_content():
@@ -95,7 +77,7 @@ def main():
         print(f"Error: config.example.yaml not found at {config_path}", file=sys.stderr)
         sys.exit(1)
 
-    config_obj = load_config_from_yaml(config_path)
+    config_obj: AppConfig = load_config(config_path)
 
     # Discover API keys from the loaded config and environment variables
     # Note: Environment variables will be those of the pre-commit hook's execution environment

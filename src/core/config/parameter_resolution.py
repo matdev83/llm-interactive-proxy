@@ -46,6 +46,10 @@ class ParameterResolution:
     def __init__(self) -> None:
         self._history = {}
 
+    def is_set(self, name: str) -> bool:
+        """Check if a parameter has been set through any source."""
+        return name in self._history
+
     def record(
         self,
         name: str,

@@ -38,12 +38,15 @@ class ConfigIOProtocol(Protocol):
 
     def exists(self) -> bool:
         """Return True when the underlying resource exists."""
+        ...
 
     def read(self) -> dict[str, Any]:
         """Read configuration data as a dictionary."""
+        ...
 
     def write(self, data: dict[str, Any]) -> None:
         """Persist configuration data."""
+        ...
 
 
 class FileConfigIO(ConfigIOProtocol):
@@ -120,6 +123,7 @@ class BackendBinderProtocol(Protocol):
 
     def bind(self, backend_name: str, *, strict: bool) -> None:
         """Ensure the backend instance is wired up for the provided backend name."""
+        ...
 
 
 class NoOpBackendBinder(BackendBinderProtocol):
@@ -200,6 +204,7 @@ class FailoverRouteValidatorProtocol(Protocol):
 
     def validate(self, backend_name: str, model_name: str) -> FailoverValidationResult:
         """Validate backend/model compatibility."""
+        ...
 
 
 class NoOpFailoverRouteValidator(FailoverRouteValidatorProtocol):

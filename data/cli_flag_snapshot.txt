@@ -1,4 +1,6 @@
 --allow-admin
+--anthropic-port
+--anthropic-port
 --auth-brute-force-initial-block
 --auth-brute-force-max-block
 --auth-brute-force-multiplier

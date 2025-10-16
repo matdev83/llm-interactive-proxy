@@ -427,11 +427,13 @@ class ApplicationBuilder:
 
                 wire_capture = service_provider.get_service(IWireCapture)  # type: ignore[type-abstract]
                 if wire_capture and hasattr(wire_capture, "shutdown"):
+                    logger.info("Shutting down wire capture service...")
                     # type: ignore[attr-defined]
                     await wire_capture.shutdown()  # pyright: ignore[reportAttributeAccessIssue]
+                    logger.info("Wire capture service shut down successfully.")
             except Exception:
                 # Best-effort shutdown; ignore errors to avoid masking real failures
-                pass
+                logger.debug("Failed to shut down wire capture service", exc_info=True)
 
         # Set lifespan handler
         app.router.lifespan_context = lifespan

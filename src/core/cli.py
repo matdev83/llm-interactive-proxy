@@ -141,6 +141,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
     # Basic server options
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
+    parser.add_argument(
+        "--anthropic-port",
+        type=int,
+        help="Port for Anthropic-compatible endpoints (defaults to port + 1)",
+    )
     parser.add_argument("--timeout", type=int)
     parser.add_argument("--command-prefix")
     parser.add_argument(
@@ -538,6 +543,22 @@ def apply_cli_args(
         cli_overrides["port"] = args.port
         os.environ["PROXY_PORT"] = str(args.port)
         record_cli("port", args.port, "--port")
+
+    # Anthropic port must be handled after main port to allow derivation
+    if args.anthropic_port is not None:
+        cli_overrides["anthropic_port"] = args.anthropic_port
+        record_cli("anthropic_port", args.anthropic_port, "--anthropic-port")
+    elif "port" in cli_overrides:
+        # If main port is overridden and anthropic_port is not, derive it
+        if not res.is_set("anthropic_port"):
+            derived_anthropic_port = cli_overrides["port"] + 1
+            cli_overrides["anthropic_port"] = derived_anthropic_port
+            record_cli(
+                "anthropic_port",
+                derived_anthropic_port,
+                "--port",
+            )
+
     if args.timeout is not None:
         cli_overrides["proxy_timeout"] = args.timeout
         record_cli("proxy_timeout", args.timeout, "--timeout")
@@ -1031,6 +1052,10 @@ def apply_cli_args(
     cfg = _validate_and_apply_prefix(cfg)
     _apply_feature_flags(cfg)
     # The security flag application is now in main()
+    # Finalize derived configuration values
+    if cfg.anthropic_port is None:
+        cfg = cfg.model_copy(update={"anthropic_port": cfg.port + 1})
+
     if return_resolution:
         return cfg, res
     return cfg
