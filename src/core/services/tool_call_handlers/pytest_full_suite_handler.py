@@ -31,6 +31,43 @@ logger = logging.getLogger(__name__)
 # Matches commands invoking pytest (pytest, python -m pytest, py.test, etc.)
 _PYTEST_ROOT_PATTERN = re.compile(r"\b(pytest|py\.test)(?:\b|\.py\b)", re.IGNORECASE)
 
+_FLAGS_REQUIRING_VALUE = {
+    "-k",
+    "-m",
+    "-c",
+    "-p",
+    "-o",
+    "-n",
+    "--maxfail",
+    "--deselect",
+    "--lfnf",
+    "--ffnf",
+    "--max-worker-restart",
+    "--max-workers",
+    "--dist",
+    "--tx",
+    "--cov",
+    "--cov-report",
+    "--rootdir",
+    "--basetemp",
+    "--junitxml",
+    "--resultlog",
+    "--log-cli-level",
+    "--log-cli-format",
+    "--log-cli-date-format",
+    "--log-file",
+    "--log-file-level",
+    "--log-file-format",
+    "--log-file-date-format",
+    "--durations",
+    "--max-slave-restart",
+    "--pdbcls",
+    "--pastebin",
+    "--reruns",
+    "--reruns-delay",
+    "--stepwise-skip",
+}
+
 
 DEFAULT_STEERING_MESSAGE = (
     "You requested to run the whole test suite. This may be a lengthy process. "
@@ -125,42 +162,6 @@ def _looks_like_full_suite(command: str) -> bool:
     file_like_extensions = (".py", ".pyi")
 
     skip_next_value = False
-    flags_requiring_value = {
-        "-k",
-        "-m",
-        "-c",
-        "-p",
-        "-o",
-        "-n",
-        "--maxfail",
-        "--deselect",
-        "--lfnf",
-        "--ffnf",
-        "--max-worker-restart",
-        "--max-workers",
-        "--dist",
-        "--tx",
-        "--cov",
-        "--cov-report",
-        "--rootdir",
-        "--basetemp",
-        "--junitxml",
-        "--resultlog",
-        "--log-cli-level",
-        "--log-cli-format",
-        "--log-cli-date-format",
-        "--log-file",
-        "--log-file-level",
-        "--log-file-format",
-        "--log-file-date-format",
-        "--durations",
-        "--max-slave-restart",
-        "--pdbcls",
-        "--pastebin",
-        "--reruns",
-        "--reruns-delay",
-        "--stepwise-skip",
-    }
 
     for token in tail:
         if skip_next_value:
@@ -172,7 +173,7 @@ def _looks_like_full_suite(command: str) -> bool:
 
         if any(token.startswith(prefix) for prefix in allowed_flag_prefixes):
             flag_name, _, _ = token.partition("=")
-            if flag_name in flags_requiring_value and not token.endswith("="):
+            if flag_name in _FLAGS_REQUIRING_VALUE and not token.endswith("="):
                 skip_next_value = True
             continue
 

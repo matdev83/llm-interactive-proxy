@@ -4,8 +4,8 @@ from .match_filter import CommandMatchFilter, FilteredCommand
 from .tail_extractor import CommandTailExtractor, TailSegment
 
 __all__ = [
-    "CommandTailExtractor",
-    "TailSegment",
     "CommandMatchFilter",
+    "CommandTailExtractor",
     "FilteredCommand",
+    "TailSegment",
 ]
