@@ -11,9 +11,9 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
+from src.core.common.env_utils import get_env_flag
 from src.core.domain.chat import ChatRequest, MessageContentPartText
 from src.core.interfaces.request_processor_interface import IRequestMiddleware
-from src.core.common.env_utils import get_env_flag
 from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
@@ -42,9 +42,7 @@ class RedactionMiddleware(IRequestMiddleware):
         self._api_key_redactor = APIKeyRedactor(api_keys)
         self._command_filter = ProxyCommandFilter(command_prefix)
         if not strict_command_detection:
-            strict_command_detection = get_env_flag(
-                "STRICT_COMMAND_DETECTION", False
-            )
+            strict_command_detection = get_env_flag("STRICT_COMMAND_DETECTION", False)
         self._strict_command_detection = strict_command_detection
 
     async def process(

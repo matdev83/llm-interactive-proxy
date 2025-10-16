@@ -164,7 +164,7 @@ class JsonRepairProcessor(IStreamProcessor):
                 success = True
         except Exception as e:  # pragma: no cover - strict mode rethrow
             if self._strict_mode:
-                if isinstance(e, (JSONParsingError, ValidationError)):
+                if isinstance(e, JSONParsingError | ValidationError):
                     raise
                 raise JSONParsingError(
                     message=f"JSON repair failed in strict mode: {e}",

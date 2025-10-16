@@ -120,7 +120,18 @@ def openai_to_gemini_contents(messages: list[ChatMessage]) -> list[Content]:
         role = "user"  # Default role
         if message.role == "assistant":
             role = "model"
-        elif message.role == "function":
+        elif message.role in ("function", "tool"):
+            # This is the point of interest for our bug.
+            # A message with role 'tool' is a tool result.
+            # Gemini expects this as a 'function' role with a 'functionResponse' part.
+            # The current implementation sends it as a simple text part, which is incorrect.
+            # We will log the message here to confirm.
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Converting OpenAI tool message to Gemini: {message.model_dump_json()}"
+            )
             role = "function"
         elif message.role == "user":
             role = "user"

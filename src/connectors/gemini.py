@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator, Callable
 from typing import Any, cast
 
@@ -16,7 +19,11 @@ from src.core.domain.chat import (
     MessageContentPartImage,
     MessageContentPartText,
 )
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import (
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+    StreamingResponseHandle,
+)
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -256,13 +263,20 @@ class GeminiBackend(LLMBackend):
         }
 
     async def _handle_gemini_streaming_response(
-        self, base_url: str, payload: dict, headers: dict, effective_model: str
-    ) -> StreamingResponseEnvelope:
-        headers = ensure_loop_guard_header(headers)
+        self,
+        base_url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        effective_model: str,
+    ) -> StreamingResponseHandle:
+        request_headers = ensure_loop_guard_header(headers)
+        request_id = request_headers.get("x-goog-request-id") or uuid.uuid4().hex
+        request_headers.setdefault("x-goog-request-id", request_id)
+
         url = f"{base_url}:streamGenerateContent"
         try:
             request = self.client.build_request(
-                "POST", url, json=payload, headers=headers
+                "POST", url, json=payload, headers=request_headers
             )
             response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
@@ -271,7 +285,7 @@ class GeminiBackend(LLMBackend):
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
         except (AttributeError, TypeError):
             request = self.client.build_request(
-                "POST", url, json=payload, headers=headers
+                "POST", url, json=payload, headers=request_headers
             )
             try:
                 response = await self.client.send(request, stream=True)
@@ -286,7 +300,6 @@ class GeminiBackend(LLMBackend):
 
         if response.status_code >= 400:
             try:
-                # Attempt to read body text for logging if available
                 if hasattr(response, "aread"):
                     body_bytes = await response.aread()  # type: ignore[no-untyped-call]
                 else:
@@ -295,7 +308,6 @@ class GeminiBackend(LLMBackend):
             except Exception:
                 body_text = ""
             finally:
-                # Close response if supported
                 if hasattr(response, "aclose"):
                     await response.aclose()
             if logger.isEnabledFor(logging.ERROR):
@@ -309,6 +321,45 @@ class GeminiBackend(LLMBackend):
                 code="gemini_error",
                 status_code=response.status_code,
             )
+
+        # Prefer response-provided request identifiers when available
+        response_request_id = response.headers.get("x-goog-request-id")
+        if response_request_id:
+            request_id = response_request_id
+
+        cancel_lock = asyncio.Lock()
+        cancel_state = {"called": False}
+
+        async def cancel_stream() -> None:
+            async with cancel_lock:
+                if cancel_state["called"]:
+                    return
+                cancel_state["called"] = True
+
+            cancel_url = f"{base_url}:cancel"
+            cancel_headers = ensure_loop_guard_header(dict(request_headers))
+            payload_body = {"requestId": request_id}
+
+            try:
+                cancel_response = await self.client.post(
+                    cancel_url,
+                    json=payload_body,
+                    headers=cancel_headers,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "Gemini cancel request failed - url=%s request_id=%s error=%s",
+                    cancel_url,
+                    request_id,
+                    exc,
+                    exc_info=True,
+                )
+            else:
+                with contextlib.suppress(Exception):
+                    await cancel_response.aclose()
+
+            with contextlib.suppress(Exception):
+                await response.aclose()
 
         async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
             processed_stream = response.aiter_text()
@@ -349,13 +400,18 @@ class GeminiBackend(LLMBackend):
                     message=f"Gemini streaming connection error ({stream_error})"
                 ) from stream_error
             finally:
-                if hasattr(response, "aclose"):
+                with contextlib.suppress(Exception):
                     await response.aclose()
 
-        return StreamingResponseEnvelope(
-            content=stream_generator(),
-            media_type="text/event-stream",
-            headers=dict(response.headers),
+        try:
+            response_headers = dict(response.headers)
+        except Exception:
+            response_headers = {}
+
+        return StreamingResponseHandle(
+            iterator=stream_generator(),
+            cancel_callback=cancel_stream,
+            headers=response_headers,
         )
 
     async def chat_completions(  # type: ignore[override]
@@ -468,8 +524,14 @@ class GeminiBackend(LLMBackend):
 
         # Streaming vs non-streaming
         if domain_request.stream:
-            return await self._handle_gemini_streaming_response(
+            stream_handle = await self._handle_gemini_streaming_response(
                 model_url, payload, headers, effective_model
+            )
+            return StreamingResponseEnvelope(
+                content=stream_handle.iterator,
+                media_type="text/event-stream",
+                headers=stream_handle.headers or {},
+                cancel_callback=stream_handle.cancel_callback,
             )
 
         return await self._handle_gemini_non_streaming_response(

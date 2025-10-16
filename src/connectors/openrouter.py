@@ -264,7 +264,7 @@ class OpenRouterBackend(OpenAIConnector):
             url = f"{api_base.rstrip('/')}/chat/completions"
 
             if domain_request.stream:
-                content_iterator = await self._handle_streaming_response(
+                stream_handle = await self._handle_streaming_response(
                     url,
                     payload,
                     headers_override,
@@ -272,9 +272,10 @@ class OpenRouterBackend(OpenAIConnector):
                     "openai",
                 )
                 return StreamingResponseEnvelope(
-                    content=content_iterator,
+                    content=stream_handle.iterator,
                     media_type="text/event-stream",
                     headers={},
+                    cancel_callback=stream_handle.cancel_callback,
                 )
             else:
                 return await self._handle_non_streaming_response(

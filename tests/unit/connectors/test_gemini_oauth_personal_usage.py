@@ -197,3 +197,69 @@ async def test_chat_completions_streaming_with_tiktoken_usage_calculation():
 
     # Check final chunk
     assert all_chunks[3]["choices"][0]["finish_reason"] == "stop"
+
+
+@pytest.mark.asyncio
+async def test_code_assist_streaming_cancel_callback_absent():
+    mock_client = AsyncMock()
+    mock_config = MagicMock()
+    mock_translation_service = MagicMock()
+
+    connector = GeminiOAuthPersonalConnector(
+        client=mock_client,
+        config=mock_config,
+        translation_service=mock_translation_service,
+    )
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
+    connector._oauth_credentials = {"access_token": "fake_token"}
+    connector._discover_project_id = AsyncMock(return_value="fake_project")
+
+    mock_translation_service.to_domain_request.return_value = ChatRequest(
+        model="gemini-pro",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=True,
+    )
+    mock_translation_service.from_domain_to_gemini_request.return_value = {
+        "contents": [{"role": "user", "parts": [{"text": "Hello"}]}]
+    }
+
+    stream_response = MagicMock()
+    stream_response.status_code = 200
+
+    def _iter_content(chunk_size: int = 1, decode_unicode: bool = False):
+        data = b'data: {"choices": [{"delta": {"content": "Hi"}}]}\n' b"data: [DONE]\n"
+        for byte in data:
+            yield bytes([byte])
+
+    stream_response.iter_content.side_effect = _iter_content
+    stream_response.close = MagicMock()
+
+    mock_auth_session = MagicMock()
+    mock_auth_session.request.return_value = stream_response
+
+    mock_translation_service.to_domain_stream_chunk.side_effect = (
+        lambda chunk, source_format: (
+            {"choices": [{"delta": {"content": "Hi"}}]}
+            if chunk
+            else {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        )
+    )
+
+    request_data = ChatRequest(
+        model="gemini-cli-oauth-personal:gemini-pro",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=True,
+    )
+
+    with patch(
+        "google.auth.transport.requests.AuthorizedSession",
+        return_value=mock_auth_session,
+    ):
+        envelope = await connector._chat_completions_code_assist_streaming(
+            request_data=request_data,
+            processed_messages=[ChatMessage(role="user", content="Hello")],
+            effective_model="gemini-pro",
+        )
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
+    assert envelope.cancel_callback is None

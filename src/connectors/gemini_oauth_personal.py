@@ -57,12 +57,12 @@ the path to the credentials file as input - no Google Cloud project configuratio
 """
 
 import asyncio
-import concurrent.futures
 import contextlib
 import json
 import logging
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -171,24 +171,7 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                         logger.info(f"Credentials file modified: {event.src_path}")
 
                     # Schedule credential reload in the connector's event loop in a thread-safe way
-                    if self.connector._main_loop is not None:
-                        try:
-                            future = asyncio.run_coroutine_threadsafe(
-                                self.connector._handle_credentials_file_change(),
-                                self.connector._main_loop,
-                            )
-                            # Store reference to prevent task from being garbage collected
-                            self.connector._pending_reload_task = future
-                        except Exception as e:
-                            if logger.isEnabledFor(logging.ERROR):
-                                logger.error(
-                                    f"Failed to schedule credentials reload: {e}"
-                                )
-                    else:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "No event loop available for credentials reload"
-                            )
+                    self.connector._schedule_credentials_reload()
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(f"Error processing file modification event: {e}")
@@ -245,9 +228,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
         self._credential_validation_errors: list[str] = []
         self._initialization_failed = False
         self._last_validation_time = 0.0
-        self._pending_reload_task: asyncio.Task | concurrent.futures.Future | None = (
-            None
-        )
+        self._pending_reload_task: asyncio.Future[Any] | None = None
+        self._reload_task_lock = threading.Lock()
+        self._reload_scheduling_in_progress = False
         self._last_cli_refresh_attempt = 0.0
         self._cli_refresh_process: subprocess.Popen[bytes] | None = None
         # Store reference to the main event loop for thread-safe operations
@@ -482,6 +465,95 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(f"Error stopping file watcher: {e}")
+
+    def _schedule_credentials_reload(self) -> None:
+        """Schedule an asynchronous reload when the credentials file changes."""
+        with self._reload_task_lock:
+            if (
+                self._pending_reload_task is not None
+                and not self._pending_reload_task.done()
+            ):
+                return
+            if self._reload_scheduling_in_progress:
+                return
+            self._reload_scheduling_in_progress = True
+
+        async def reload_task() -> None:
+            await self._handle_credentials_file_change()
+
+        loop = self._main_loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            self._main_loop = loop
+
+        if loop is None:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Cannot schedule credentials reload: no running event loop available."
+                )
+            with self._reload_task_lock:
+                self._reload_scheduling_in_progress = False
+            return
+
+        if loop.is_closed():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping credentials reload scheduling: event loop is closed. Stopping file watcher."
+                )
+            self._stop_file_watching()
+            self._main_loop = None
+            with self._reload_task_lock:
+                self._pending_reload_task = None
+                self._reload_scheduling_in_progress = False
+            return
+
+        def _clear(_: asyncio.Future[Any]) -> None:
+            with self._reload_task_lock:
+                self._pending_reload_task = None
+                self._reload_scheduling_in_progress = False
+
+        def _assign_task(task: asyncio.Future[None]) -> None:
+            task.add_done_callback(_clear)
+            with self._reload_task_lock:
+                self._pending_reload_task = task
+                self._reload_scheduling_in_progress = False
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is loop:
+            task = loop.create_task(reload_task())
+            _assign_task(task)
+            return
+
+        def schedule_task() -> None:
+            try:
+                task = loop.create_task(reload_task())
+                _assign_task(task)
+            except Exception as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to schedule credentials reload: %s", exc)
+                with self._reload_task_lock:
+                    self._reload_scheduling_in_progress = False
+
+        try:
+            loop.call_soon_threadsafe(schedule_task)
+        except RuntimeError as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Event loop unavailable for credentials reload scheduling: %s",
+                    exc,
+                )
+            self._stop_file_watching()
+            self._main_loop = None
+            with self._reload_task_lock:
+                self._pending_reload_task = None
+                self._reload_scheduling_in_progress = False
 
     async def _handle_credentials_file_change(self) -> None:
         """Handle credentials file change event.
@@ -1616,7 +1688,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                 logger.warning(f"Could not calculate prompt tokens with tiktoken: {e}")
                 prompt_tokens = 0
 
-            # Create an async iterator that yields SSE-formatted chunks
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
                 response = None
                 generated_text = ""
@@ -1629,7 +1700,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                             params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            # Use a single timeout value for the entire request
                             timeout=int(DEFAULT_READ_TIMEOUT),
                             stream=True,
                         )
@@ -1658,8 +1728,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     if response.status_code >= 400:
                         self._handle_streaming_error(response)
 
-                    # Process streaming byte-by-byte for true real-time streaming
-                    # Use a larger chunk_size for better performance (512 bytes is a good balance)
                     line_buffer = ""
                     done = False
                     for chunk in response.iter_content(
@@ -1667,80 +1735,78 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     ):
                         if done:
                             break
+
                         try:
-                            # Decode the chunk and process character by character
                             chunk_str = chunk.decode("utf-8")
-                            for char in chunk_str:
-                                line_buffer += char
-                                if char == "\n":
-                                    decoded_line = line_buffer.rstrip("\r\n")
-                                    line_buffer = ""
-                                    if decoded_line.startswith("data: "):
-                                        data_str = decoded_line[6:].strip()
-                                        if data_str == "[DONE]":
-                                            done = True
-                                            break
-                                        try:
-                                            data = json.loads(data_str)
-                                            domain_chunk = self.translation_service.to_domain_stream_chunk(
-                                                chunk=data, source_format="code_assist"
-                                            )
-                                            # Accumulate generated text for usage calculation
-                                            if (
-                                                domain_chunk
-                                                and domain_chunk.get("choices")
-                                                and domain_chunk["choices"][0]
-                                                .get("delta", {})
-                                                .get("content")
-                                            ):
-                                                generated_text += domain_chunk[
-                                                    "choices"
-                                                ][0]["delta"]["content"]
-                                            # Always yield the chunk, regardless of content
-                                            # Create metadata using Pydantic models
-                                            metadata = create_gemini_response_metadata(
-                                                model="gemini-oauth",
-                                                usage=None,  # Streaming doesn't have usage yet
-                                                key_name=getattr(
-                                                    self, "_key_name", None
-                                                ),
-                                            ).model_dump()
-
-                                            # Add raw streaming data
-                                            metadata.update(
-                                                {
-                                                    "raw_tool_calls": domain_chunk.get(
-                                                        "choices", [{}]
-                                                    )[0]
-                                                    .get("delta", {})
-                                                    .get("tool_calls"),
-                                                    "raw_finish_reason": domain_chunk.get(
-                                                        "choices", [{}]
-                                                    )[
-                                                        0
-                                                    ].get(
-                                                        "finish_reason"
-                                                    ),
-                                                }
-                                            )
-
-                                            yield ProcessedResponse(
-                                                content=domain_chunk,
-                                                metadata=metadata,
-                                            )
-                                        except json.JSONDecodeError:
-                                            continue
                         except UnicodeDecodeError:
-                            # Skip invalid UTF-8 sequences
-                            continue
-                        except Exception as chunk_error:
-                            logger.error(
-                                f"Error processing stream chunk: {chunk_error}",
-                                exc_info=True,
-                            )
                             continue
 
-                    # Calculate and yield usage
+                        for char in chunk_str:
+                            line_buffer += char
+                            if char != "\n":
+                                continue
+
+                            decoded_line = line_buffer.rstrip("\r\n")
+                            line_buffer = ""
+
+                            if decoded_line.startswith("data: "):
+                                data_str = decoded_line[6:].strip()
+                                if data_str == "[DONE]":
+                                    done = True
+                                    break
+                                try:
+                                    data = json.loads(data_str)
+                                except json.JSONDecodeError:
+                                    continue
+
+                                domain_chunk = (
+                                    self.translation_service.to_domain_stream_chunk(
+                                        chunk=data, source_format="code_assist"
+                                    )
+                                )
+
+                                if (
+                                    domain_chunk
+                                    and domain_chunk.get("choices")
+                                    and domain_chunk["choices"][0]
+                                    .get("delta", {})
+                                    .get("content")
+                                ):
+                                    generated_text += domain_chunk["choices"][0][
+                                        "delta"
+                                    ]["content"]
+
+                                metadata = create_gemini_response_metadata(
+                                    model="gemini-oauth",
+                                    usage=None,
+                                    key_name=getattr(self, "_key_name", None),
+                                ).model_dump()
+
+                                metadata.update(
+                                    {
+                                        "raw_tool_calls": domain_chunk.get(
+                                            "choices", [{}]
+                                        )[0]
+                                        .get("delta", {})
+                                        .get("tool_calls"),
+                                        "raw_finish_reason": domain_chunk.get(
+                                            "choices", [{}]
+                                        )[0].get("finish_reason"),
+                                    }
+                                )
+
+                                yield ProcessedResponse(
+                                    content=domain_chunk,
+                                    metadata=metadata,
+                                )
+                            elif decoded_line.strip():
+                                yield ProcessedResponse(
+                                    content=self.translation_service.to_domain_stream_chunk(
+                                        chunk={"text": decoded_line},
+                                        source_format="raw_text",
+                                    )
+                                )
+
                     try:
                         completion_tokens = len(encoding.encode(generated_text))
                         usage = {
@@ -1768,7 +1834,6 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     yield ProcessedResponse(content=final_chunk)
 
                 except BackendError as e:
-                    # Propagate backend errors (e.g., quota exceeded) to the caller
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
                     raise
                 except Exception as e:
@@ -1778,8 +1843,9 @@ class GeminiOAuthPersonalConnector(GeminiBackend):
                     )
                     yield ProcessedResponse(content=error_chunk)
                 finally:
-                    if response:
-                        response.close()
+                    if response is not None:
+                        with contextlib.suppress(Exception):
+                            response.close()
 
             return StreamingResponseEnvelope(
                 content=stream_generator(),

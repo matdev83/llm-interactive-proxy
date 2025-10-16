@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -14,6 +15,8 @@ except ModuleNotFoundError:  # pragma: no cover - optional test dependency
 from src.connectors.gemini import GeminiBackend
 from src.core.common.exceptions import ServiceUnavailableError
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
@@ -79,9 +82,6 @@ async def test_chat_completions_streaming_success(
     )
 
     # Assert
-    from src.core.domain.responses import StreamingResponseEnvelope
-    from src.core.interfaces.response_processor_interface import ProcessedResponse
-
     assert isinstance(envelope, StreamingResponseEnvelope)
 
     first_chunk: dict[str, Any] | None = None
@@ -98,6 +98,66 @@ async def test_chat_completions_streaming_success(
     assert first_chunk is not None, "Expected at least one streamed chunk with content"
     first_delta = first_chunk["choices"][0]["delta"]
     assert first_delta.get("content", "").startswith("Hello")
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(HTTPXMock is None, reason="pytest_httpx not installed")
+async def test_chat_completions_streaming_cancel_request(
+    gemini_backend: GeminiBackend,
+    httpx_mock: HTTPXMock,
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
+):
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": True}
+    )
+
+    stream_url = (
+        f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:streamGenerateContent"
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=stream_url,
+        status_code=200,
+        stream=httpx.ByteStream(
+            b'data: {"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}\n\n'
+        ),
+        headers={
+            "Content-Type": "text/event-stream",
+            "x-goog-request-id": "req-123",
+        },
+    )
+
+    cancel_url = f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:cancel"
+    httpx_mock.add_response(
+        method="POST",
+        url=cancel_url,
+        status_code=200,
+        json={"status": "cancelled"},
+    )
+
+    envelope = await gemini_backend.chat_completions(
+        request_data=sample_chat_request_data,
+        processed_messages=sample_processed_messages,
+        effective_model="test-model",
+        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
+        api_key="FAKE_KEY",
+    )
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
+    assert envelope.cancel_callback is not None
+
+    first_chunk = await envelope.content.__anext__()
+    assert isinstance(first_chunk, ProcessedResponse)
+
+    await envelope.cancel_callback()
+
+    cancel_requests = [
+        req for req in httpx_mock.get_requests() if req.url == cancel_url
+    ]
+    assert cancel_requests, "Expected Gemini cancel request"
+    cancel_payload = json.loads(cancel_requests[0].content)
+    assert cancel_payload.get("requestId") == "req-123"
 
 
 class _StubStreamResponse:

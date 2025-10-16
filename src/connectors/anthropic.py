@@ -4,9 +4,11 @@ Anthropic backend connector - provides chat_completions and model discovery for 
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from typing import Any, cast
 
 import httpx
@@ -19,7 +21,11 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatRequest
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import (
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+    StreamingResponseHandle,
+)
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -190,12 +196,15 @@ class AnthropicBackend(LLMBackend):
             )
 
         if domain_request.stream:
-            stream_iterator = await self._handle_streaming_response(
+            stream_handle = await self._handle_streaming_response(
                 url, anthropic_payload, request_headers, effective_model
             )
             # Return a domain-level streaming envelope
             return StreamingResponseEnvelope(
-                content=stream_iterator, media_type="text/event-stream", headers={}
+                content=stream_handle.iterator,
+                media_type="text/event-stream",
+                headers={},
+                cancel_callback=stream_handle.cancel_callback,
             )
         else:
             response_envelope = await self._handle_non_streaming_response(
@@ -385,11 +394,14 @@ class AnthropicBackend(LLMBackend):
     # Streaming handling
     # -----------------------------------------------------------
     async def _handle_streaming_response(
-        self, url: str, payload: dict, headers: dict, model: str
-    ) -> AsyncIterator[ProcessedResponse]:
-        """Handle a streaming response from Anthropic and return an async iterator of ProcessedResponse objects."""
-        headers = ensure_loop_guard_header(headers)
-        request = self.client.build_request("POST", url, json=payload, headers=headers)
+        self, url: str, payload: dict[str, Any], headers: dict[str, str], model: str
+    ) -> StreamingResponseHandle:
+        """Handle a streaming response from Anthropic and provide cancellation support."""
+
+        request_headers = ensure_loop_guard_header(headers)
+        request = self.client.build_request(
+            "POST", url, json=payload, headers=request_headers
+        )
         try:
             response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
@@ -413,25 +425,130 @@ class AnthropicBackend(LLMBackend):
                 status_code=response.status_code,
             )
 
-        async def event_stream() -> AsyncGenerator[ProcessedResponse, None]:
-            # Forward raw text stream; central pipeline will handle normalization/repairs
-            processed_stream = response.aiter_text()
+        loop = asyncio.get_running_loop()
+        message_id_future: asyncio.Future[str | None] = loop.create_future()
+        cancel_lock = asyncio.Lock()
+        cancel_state = {"called": False}
+        cancel_headers = dict(request_headers)
 
-            async for chunk in processed_stream:
-                # If JSON repair is enabled centrally, the pipeline yields repaired content.
-                # We need to ensure it's properly formatted as SSE.
-                if chunk.startswith(("data: ", "id: ", ":")):
-                    # Already SSE formatted or a comment, yield directly
-                    yield ProcessedResponse(content=chunk)
+        def _capture_message_id(chunk_text: str) -> None:
+            if message_id_future.done():
+                return
+
+            try:
+                data_segments: list[str] = []
+                for line in chunk_text.splitlines():
+                    if line.startswith("data:"):
+                        value = line[5:].strip()
+                        if value:
+                            data_segments.append(value)
+                if not data_segments:
+                    stripped = chunk_text.strip()
+                    if stripped:
+                        data_segments.append(stripped)
+
+                for segment in data_segments:
+                    if segment in {"[DONE]", ""}:
+                        continue
+                    try:
+                        payload_obj = json.loads(segment)
+                    except json.JSONDecodeError:
+                        continue
+
+                    message_obj = payload_obj.get("message")
+                    if isinstance(message_obj, dict):
+                        message_id = message_obj.get("id")
+                        if isinstance(message_id, str) and message_id:
+                            message_id_future.set_result(message_id)
+                            return
+
+                    message_id = payload_obj.get("message_id") or payload_obj.get("id")
+                    if isinstance(message_id, str) and message_id.startswith("msg_"):
+                        message_id_future.set_result(message_id)
+                        return
+            except Exception:
+                # Best effort capture; ignore parsing errors
+                return
+
+        async def cancel_stream() -> None:
+            async with cancel_lock:
+                if cancel_state["called"]:
+                    return
+                cancel_state["called"] = True
+
+            message_id: str | None
+            if message_id_future.done():
+                message_id = message_id_future.result()
+            else:
+                try:
+                    message_id = await asyncio.wait_for(message_id_future, 0.5)
+                except asyncio.TimeoutError:
+                    message_id = None
+
+            if message_id:
+                cancel_url = f"{url.rstrip('/')}/{message_id}/cancel"
+                try:
+                    cancel_request = self.client.build_request(
+                        "POST",
+                        cancel_url,
+                        headers=ensure_loop_guard_header(cancel_headers),
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to build Anthropic cancel request - url=%s error=%s",
+                        cancel_url,
+                        exc,
+                        exc_info=True,
+                    )
                 else:
-                    # Assume it's a raw text chunk (either repaired JSON or non-JSON text)
-                    # and format it as an SSE data event.
-                    yield ProcessedResponse(content=f"data: {chunk}\n\n")
+                    try:
+                        cancel_response = await self.client.send(
+                            cancel_request, stream=False
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to send Anthropic cancel request - url=%s error=%s",
+                            cancel_url,
+                            exc,
+                            exc_info=True,
+                        )
+                    else:
+                        with contextlib.suppress(Exception):
+                            await cancel_response.aclose()
 
-            yield ProcessedResponse(content="data: [DONE]\n\n")
-            await response.aclose()
+            with contextlib.suppress(Exception):
+                await response.aclose()
 
-        return event_stream()
+        async def event_stream() -> AsyncGenerator[ProcessedResponse, None]:
+            try:
+                async for chunk in response.aiter_text():
+                    _capture_message_id(chunk)
+                    if chunk.startswith(("data: ", "id: ", ":")):
+                        yield ProcessedResponse(content=chunk)
+                    else:
+                        yield ProcessedResponse(content=f"data: {chunk}\n\n")
+
+                yield ProcessedResponse(content="data: [DONE]\n\n")
+            except httpx.HTTPError as exc:
+                raise ServiceUnavailableError(
+                    message=f"Streaming connection interrupted ({exc})"
+                ) from exc
+            finally:
+                if not message_id_future.done():
+                    message_id_future.set_result(None)
+                with contextlib.suppress(Exception):
+                    await response.aclose()
+
+        try:
+            response_headers = dict(response.headers)
+        except Exception:
+            response_headers = {}
+
+        return StreamingResponseHandle(
+            iterator=event_stream(),
+            cancel_callback=cancel_stream,
+            headers=response_headers,
+        )
 
     # -----------------------------------------------------------
     # Converters

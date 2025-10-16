@@ -717,6 +717,39 @@ class TestGeminiOAuthPersonalConnector:
 class TestFileWatchingFunctionality:
     """Test file watching functionality for credential changes."""
 
+    @pytest.mark.asyncio
+    async def test_schedule_credentials_reload_executes_task(self, connector):
+        """Scheduling a reload should run the async handler on the connector loop."""
+        connector._main_loop = asyncio.get_running_loop()
+
+        with patch.object(
+            connector,
+            "_handle_credentials_file_change",
+            new_callable=AsyncMock,
+        ) as mock_handler:
+            connector._schedule_credentials_reload()
+
+            if connector._pending_reload_task:
+                await connector._pending_reload_task
+
+            mock_handler.assert_awaited_once()
+
+    def test_schedule_credentials_reload_with_closed_loop_stops_watching(
+        self, connector
+    ):
+        """Scheduling reload should stop file watching when loop is closed."""
+        loop = asyncio.new_event_loop()
+        loop.close()
+        connector._main_loop = loop
+
+        stop_mock = MagicMock()
+        connector._stop_file_watching = stop_mock  # type: ignore[assignment]
+
+        connector._schedule_credentials_reload()
+
+        stop_mock.assert_called_once()
+        assert connector._pending_reload_task is None
+
     def test_start_file_watching_success(self, connector):
         """Test file watching starts successfully when credentials path exists."""
         from pathlib import Path
@@ -910,13 +943,11 @@ class TestFileWatchingFunctionality:
         event.is_directory = False
         event.src_path = str(connector._credentials_path)
 
-        with patch(
-            "asyncio.run_coroutine_threadsafe", return_value=MagicMock()
-        ) as mock_run:
+        with patch.object(connector, "_schedule_credentials_reload") as mock_schedule:
             handler.on_modified(event)
 
             # Should have scheduled the credentials reload
-            mock_run.assert_called_once()
+            mock_schedule.assert_called_once()
 
     def test_file_handler_on_modified_different_file(self, connector):
         """Test that file handler ignores events for different files."""
@@ -938,13 +969,11 @@ class TestFileWatchingFunctionality:
         event.is_directory = False
         event.src_path = "/test/.gemini/other_file.json"
 
-        with patch(
-            "asyncio.run_coroutine_threadsafe", return_value=MagicMock()
-        ) as mock_run:
+        with patch.object(connector, "_schedule_credentials_reload") as mock_schedule:
             handler.on_modified(event)
 
             # Should NOT have scheduled the credentials reload
-            mock_run.assert_not_called()
+            mock_schedule.assert_not_called()
 
     def test_file_handler_on_modified_no_event_loop(self, connector):
         """Test that file handler handles missing event loop gracefully."""

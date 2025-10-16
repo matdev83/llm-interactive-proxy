@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import sre_parse
+from collections.abc import AsyncIterator
 from sre_constants import MAXREPEAT
 from typing import Any, cast
 
@@ -12,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from src.core.common.exceptions import InitializationError, LLMProxyError
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.responses_api import (
     ResponsesRequest,
     enforce_json_schema_limits,
@@ -208,170 +210,18 @@ class ResponsesController:
             )
 
             # Check if this is a streaming response
-            from src.core.domain.responses import StreamingResponseEnvelope
-
             if isinstance(response, StreamingResponseEnvelope):
                 logger.debug(f"Returning streaming response - request_id={request_id}")
 
-                # For streaming responses, use FastAPI's StreamingResponse
-                async def stream_content():
-                    """Convert ProcessedResponse objects to Responses API SSE format."""
-                    import json
-                    import time
-
-                    response_id = f"resp_{int(time.time())}_{id(response)}"
-                    created_timestamp = int(time.time())
-                    last_chunk_model = domain_request.model
-
-                    async for chunk in response.content:
-                        try:
-                            chunk_content = ""
-                            chunk_metadata: dict[str, Any] = {}
-                            chunk_payload: dict[str, Any] | None = None
-
-                            if isinstance(chunk, ProcessedResponse):
-                                chunk_content = chunk.content or ""
-                                chunk_metadata = chunk.metadata or {}
-                                if isinstance(chunk.content, dict):
-                                    chunk_payload = chunk.content
-                            elif isinstance(chunk, dict):
-                                chunk_content = str(chunk.get("content", ""))
-                                chunk_metadata = chunk.get("metadata", {}) or {}
-                                chunk_payload = chunk
-                            elif hasattr(chunk, "content"):
-                                chunk_content = getattr(chunk, "content", "") or ""
-                                chunk_metadata = getattr(chunk, "metadata", {}) or {}
-                                if isinstance(chunk_content, dict):
-                                    chunk_payload = chunk_content
-                            elif isinstance(chunk, str):
-                                chunk_content = chunk
-                            elif isinstance(chunk, bytes):
-                                chunk_content = chunk.decode("utf-8")
-                            else:
-                                chunk_content = str(chunk)
-
-                            chunk_id = chunk_metadata.get("id") or response_id
-                            chunk_model = (
-                                chunk_metadata.get("model") or domain_request.model
-                            )
-                            chunk_created = (
-                                chunk_metadata.get("created") or created_timestamp
-                            )
-
-                            finish_reason = chunk_metadata.get("finish_reason")
-                            delta: dict[str, Any] = {}
-
-                            if chunk_payload and isinstance(chunk_payload, dict):
-                                chunk_id = chunk_payload.get("id", chunk_id)
-                                chunk_model = chunk_payload.get("model", chunk_model)
-                                chunk_created = chunk_payload.get(
-                                    "created", chunk_created
-                                )
-
-                                choices = chunk_payload.get("choices")
-                                if isinstance(choices, list) and choices:
-                                    primary_choice = choices[0] or {}
-                                    delta_payload = primary_choice.get("delta") or {}
-                                    if isinstance(delta_payload, dict):
-                                        delta = dict(delta_payload)
-                                    finish_reason = (
-                                        primary_choice.get("finish_reason")
-                                        or finish_reason
-                                    )
-
-                            if not delta and chunk_content:
-                                delta["content"] = chunk_content
-
-                            # Normalize delta content to string when present
-                            content_value = delta.get("content")
-                            if content_value is not None and not isinstance(
-                                content_value, str
-                            ):
-                                delta["content"] = json.dumps(content_value)
-
-                            # Merge tool calls from delta or chunk metadata
-                            tool_calls = delta.get("tool_calls") or chunk_metadata.get(
-                                "tool_calls"
-                            )
-                            if tool_calls:
-                                normalized_calls: list[dict[str, Any]] = []
-                                for tool_call in tool_calls:
-                                    if hasattr(tool_call, "model_dump"):
-                                        call_data = tool_call.model_dump()
-                                    elif isinstance(tool_call, dict):
-                                        call_data = dict(tool_call)
-                                    else:
-                                        function = getattr(tool_call, "function", None)
-                                        call_data = {
-                                            "id": getattr(tool_call, "id", ""),
-                                            "type": getattr(
-                                                tool_call, "type", "function"
-                                            ),
-                                            "function": {
-                                                "name": getattr(function, "name", ""),
-                                                "arguments": getattr(
-                                                    function, "arguments", "{}"
-                                                ),
-                                            },
-                                        }
-
-                                    function_payload = call_data.get("function")
-                                    if isinstance(function_payload, dict):
-                                        arguments = function_payload.get("arguments")
-                                        if isinstance(arguments, dict | list):
-                                            function_payload["arguments"] = json.dumps(
-                                                arguments
-                                            )
-                                        elif arguments is None:
-                                            function_payload["arguments"] = "{}"
-
-                                    normalized_calls.append(call_data)
-
-                                delta["tool_calls"] = normalized_calls
-
-                            if not delta:
-                                delta["content"] = ""
-
-                            choice_payload: dict[str, Any] = {
-                                "index": 0,
-                                "delta": delta,
-                            }
-                            if finish_reason:
-                                choice_payload["finish_reason"] = finish_reason
-
-                            streaming_chunk = {
-                                "id": chunk_id,
-                                "object": "response.chunk",
-                                "created": chunk_created,
-                                "model": chunk_model,
-                                "choices": [choice_payload],
-                            }
-
-                            last_chunk_model = chunk_model
-
-                            # Format as Server-Sent Events
-                            yield f"data: {json.dumps(streaming_chunk)}\n\n"
-
-                        except Exception as e:
-                            logger.warning(
-                                f"Error processing streaming chunk - request_id={request_id}, error={e}"
-                            )
-                            # Continue with next chunk instead of breaking the stream
-                            continue
-
-                    # Send final chunk to indicate stream completion
-                    final_chunk = {
-                        "id": response_id,
-                        "object": "response.chunk",
-                        "created": created_timestamp,
-                        "model": last_chunk_model,
-                        "choices": [{"index": 0, "finish_reason": "stop", "delta": {}}],
-                    }
-                    yield f"data: {json.dumps(final_chunk)}\n\n"
-                    yield "data: [DONE]\n\n"
+                stream_generator = self._stream_response_envelope(
+                    request=request,
+                    domain_request=domain_request,
+                    response=response,
+                    request_id=request_id,
+                )
 
                 return StreamingResponse(
-                    content=stream_content(),
+                    content=stream_generator,
                     status_code=200,
                     media_type="text/event-stream",
                     headers={
@@ -620,6 +470,240 @@ class ResponsesController:
                 }
             },
         )
+
+    def _stream_response_envelope(
+        self,
+        request: Request,
+        domain_request: Any,
+        response: StreamingResponseEnvelope,
+        request_id: str,
+    ) -> AsyncIterator[str]:
+        async def _generator() -> AsyncIterator[str]:
+            import contextlib
+            import json
+            import time
+
+            response_id = f"resp_{int(time.time())}_{id(response)}"
+            created_timestamp = int(time.time())
+            last_chunk_model = getattr(domain_request, "model", "unknown")
+            stream_terminated = False
+
+            cancel_lock = asyncio.Lock()
+            cancel_state = {"called": False}
+
+            async def trigger_cancel(reason: str) -> None:
+                cancel_cb = response.cancel_callback
+                if cancel_cb is None:
+                    return
+
+                async with cancel_lock:
+                    if cancel_state["called"]:
+                        return
+                    cancel_state["called"] = True
+
+                try:
+                    await cancel_cb()
+                    logger.info(
+                        "Dispatched backend cancellation - request_id=%s, reason=%s",
+                        request_id,
+                        reason,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to propagate cancellation upstream - request_id=%s, reason=%s, error=%s",
+                        request_id,
+                        reason,
+                        exc,
+                        exc_info=True,
+                    )
+
+            async def is_disconnected() -> bool:
+                checker = getattr(request, "is_disconnected", None)
+                if checker is None or not callable(checker):
+                    return False
+
+                try:
+                    result = checker()
+                    if asyncio.iscoroutine(result):
+                        return bool(await result)
+                    return bool(result)
+                except Exception:
+                    logger.debug(
+                        "Failed checking client disconnect status - request_id=%s",
+                        request_id,
+                        exc_info=True,
+                    )
+                    return False
+
+            try:
+                async for chunk in response.content:
+                    if await is_disconnected():
+                        stream_terminated = True
+                        await trigger_cancel("client_disconnect")
+                        break
+
+                    try:
+                        chunk_content = ""
+                        chunk_metadata: dict[str, Any] = {}
+                        chunk_payload: dict[str, Any] | None = None
+
+                        if isinstance(chunk, ProcessedResponse):
+                            chunk_content = chunk.content or ""
+                            chunk_metadata = chunk.metadata or {}
+                            if isinstance(chunk.content, dict):
+                                chunk_payload = chunk.content
+                        elif isinstance(chunk, dict):
+                            chunk_content = str(chunk.get("content", ""))
+                            chunk_metadata = chunk.get("metadata", {}) or {}
+                            chunk_payload = chunk
+                        elif hasattr(chunk, "content"):
+                            chunk_content = getattr(chunk, "content", "") or ""
+                            chunk_metadata = getattr(chunk, "metadata", {}) or {}
+                            if isinstance(chunk_content, dict):
+                                chunk_payload = chunk_content
+                        elif isinstance(chunk, str):
+                            chunk_content = chunk
+                        elif isinstance(chunk, bytes):
+                            chunk_content = chunk.decode("utf-8", errors="ignore")
+                        else:
+                            chunk_content = str(chunk)
+
+                        chunk_id = chunk_metadata.get("id") or response_id
+                        chunk_model = chunk_metadata.get("model") or getattr(
+                            domain_request, "model", "unknown"
+                        )
+                        chunk_created = (
+                            chunk_metadata.get("created") or created_timestamp
+                        )
+
+                        finish_reason = chunk_metadata.get("finish_reason")
+                        delta: dict[str, Any] = {}
+
+                        if chunk_payload and isinstance(chunk_payload, dict):
+                            chunk_id = chunk_payload.get("id", chunk_id)
+                            chunk_model = chunk_payload.get("model", chunk_model)
+                            chunk_created = chunk_payload.get("created", chunk_created)
+
+                            choices = chunk_payload.get("choices")
+                            if isinstance(choices, list) and choices:
+                                primary_choice = choices[0] or {}
+                                delta_payload = primary_choice.get("delta") or {}
+                                if isinstance(delta_payload, dict):
+                                    delta = dict(delta_payload)
+                                finish_reason = (
+                                    primary_choice.get("finish_reason") or finish_reason
+                                )
+
+                        if not delta and chunk_content:
+                            delta["content"] = chunk_content
+
+                        content_value = delta.get("content")
+                        if content_value is not None and not isinstance(
+                            content_value, str
+                        ):
+                            delta["content"] = json.dumps(content_value)
+
+                        tool_calls = delta.get("tool_calls") or chunk_metadata.get(
+                            "tool_calls"
+                        )
+                        if tool_calls:
+                            normalized_calls: list[dict[str, Any]] = []
+                            for tool_call in tool_calls:
+                                if hasattr(tool_call, "model_dump"):
+                                    call_data = tool_call.model_dump()
+                                elif isinstance(tool_call, dict):
+                                    call_data = dict(tool_call)
+                                else:
+                                    function = getattr(tool_call, "function", None)
+                                    call_data = {
+                                        "id": getattr(tool_call, "id", ""),
+                                        "type": getattr(tool_call, "type", "function"),
+                                        "function": {
+                                            "name": getattr(function, "name", ""),
+                                            "arguments": getattr(
+                                                function, "arguments", "{}"
+                                            ),
+                                        },
+                                    }
+
+                                function_payload = call_data.get("function")
+                                if isinstance(function_payload, dict):
+                                    arguments = function_payload.get("arguments")
+                                    if isinstance(arguments, dict | list):
+                                        function_payload["arguments"] = json.dumps(
+                                            arguments
+                                        )
+                                    elif arguments is None:
+                                        function_payload["arguments"] = "{}"
+
+                                normalized_calls.append(call_data)
+
+                            delta["tool_calls"] = normalized_calls
+
+                        if not delta:
+                            delta["content"] = ""
+
+                        choice_payload: dict[str, Any] = {
+                            "index": 0,
+                            "delta": delta,
+                        }
+                        if finish_reason:
+                            choice_payload["finish_reason"] = finish_reason
+
+                        streaming_chunk = {
+                            "id": chunk_id,
+                            "object": "response.chunk",
+                            "created": chunk_created,
+                            "model": chunk_model,
+                            "choices": [choice_payload],
+                        }
+
+                        last_chunk_model = chunk_model
+
+                        yield f"data: {json.dumps(streaming_chunk)}\n\n"
+
+                    except Exception as exc:
+                        logger.warning(
+                            "Error processing streaming chunk - request_id=%s, error=%s",
+                            request_id,
+                            exc,
+                            exc_info=True,
+                        )
+                        continue
+
+                if not stream_terminated:
+                    final_chunk = {
+                        "id": response_id,
+                        "object": "response.chunk",
+                        "created": created_timestamp,
+                        "model": last_chunk_model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "finish_reason": "stop",
+                                "delta": {},
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(final_chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+
+            except asyncio.CancelledError:
+                stream_terminated = True
+                await trigger_cancel("stream_cancelled")
+                raise
+            except Exception:
+                if not stream_terminated:
+                    await trigger_cancel("stream_error")
+                raise
+            finally:
+                if cancel_state["called"]:
+                    close_method = getattr(response.content, "aclose", None)
+                    if callable(close_method):
+                        with contextlib.suppress(Exception):
+                            await close_method()
+
+        return _generator()
 
     @staticmethod
     def _validate_json_schema(schema: dict[str, Any]) -> None:

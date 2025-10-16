@@ -43,6 +43,7 @@ as opposed to the personal OAuth backend which is for development/testing.
 
 # mypy: disable-error-code="no-untyped-call,no-untyped-def,no-any-return,has-type,var-annotated"
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -1385,8 +1386,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
                     )
 
                 finally:
-                    if response:  # Ensure response is defined before closing
-                        response.close()  # Use synchronous close
+                    if response is not None:
+                        with contextlib.suppress(Exception):
+                            response.close()
 
             return StreamingResponseEnvelope(
                 content=stream_generator(),
@@ -1411,8 +1413,6 @@ class GeminiCloudProjectConnector(GeminiBackend):
         }
         top_k = getattr(request_data, "top_k", None)
         if top_k is not None:
-            import contextlib
-
             with contextlib.suppress(Exception):
                 cfg["topK"] = int(top_k)
         return cfg

@@ -64,6 +64,8 @@ def test_command_service_respects_strict_command_env(
         session_service=Mock(),
         command_parser=CommandParser(),
         strict_command_detection=False,
+        command_state_service=Mock(),
+        command_policy_service=Mock(),
     )
 
     assert service.strict_command_detection is True

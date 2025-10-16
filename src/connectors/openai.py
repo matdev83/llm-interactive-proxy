@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 
 logger = logging.getLogger(__name__)
 
-from collections.abc import AsyncGenerator, AsyncIterator, Mapping
+from collections.abc import (
+    AsyncGenerator,
+    Mapping,
+)
 from typing import Any
 
 import httpx
@@ -19,7 +23,11 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import (
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+    StreamingResponseHandle,
+)
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import (
@@ -289,7 +297,7 @@ class OpenAIConnector(LLMBackend):
         if domain_request.stream:
             # Return a domain-level streaming envelope (raw bytes iterator)
             try:
-                content_iterator = await self._handle_streaming_response(
+                stream_handle = await self._handle_streaming_response(
                     url,
                     payload,
                     headers,
@@ -299,9 +307,10 @@ class OpenAIConnector(LLMBackend):
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
             return StreamingResponseEnvelope(
-                content=content_iterator,
+                content=stream_handle.iterator,
                 media_type="text/event-stream",
                 headers={},
+                cancel_callback=stream_handle.cancel_callback,
             )
         else:
             # Return a domain ResponseEnvelope for non-streaming
@@ -478,8 +487,8 @@ class OpenAIConnector(LLMBackend):
         headers: dict[str, str] | None,
         session_id: str,
         stream_format: str,
-    ) -> AsyncIterator[ProcessedResponse]:
-        """Return an AsyncIterator of ProcessedResponse objects (transport-agnostic)"""
+    ) -> StreamingResponseHandle:
+        """Return a streaming handle with iterator and cancellation callback."""
 
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
@@ -531,8 +540,43 @@ class OpenAIConnector(LLMBackend):
                 },
             )
 
+        loop = asyncio.get_running_loop()
+        response_id_future: asyncio.Future[str] = loop.create_future()
+        cancel_lock = asyncio.Lock()
+        cancel_state = {"called": False}
+        supports_protocol_cancel = stream_format in {"responses", "openai-responses"}
+        cancel_headers = dict(guarded_headers)
+        cancel_headers.setdefault("Content-Type", "application/json")
+        cancel_base_url = url.rstrip("/")
+
+        async def cancel_stream() -> None:
+            async with cancel_lock:
+                if cancel_state["called"]:
+                    return
+                cancel_state["called"] = True
+
+            if supports_protocol_cancel:
+                target_id: str | None = None
+                if response_id_future.done():
+                    target_id = response_id_future.result()
+                else:
+                    try:
+                        target_id = await asyncio.wait_for(response_id_future, 0.5)
+                    except asyncio.TimeoutError:
+                        target_id = None
+
+                if target_id:
+                    await self._send_openai_responses_cancel(
+                        base_url=cancel_base_url,
+                        headers=cancel_headers,
+                        response_id=target_id,
+                        session_id=session_id,
+                    )
+
+            with contextlib.suppress(Exception):
+                await response.aclose()
+
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
-            # Forward raw text stream; central pipeline will handle normalization/repairs
             async def text_generator() -> AsyncGenerator[str, None]:
                 try:
                     async for chunk in response.aiter_text():
@@ -546,20 +590,68 @@ class OpenAIConnector(LLMBackend):
 
             try:
                 async for chunk in text_generator():
+                    if (
+                        supports_protocol_cancel
+                        and isinstance(chunk, dict)
+                        and not response_id_future.done()
+                    ):
+                        chunk_id = chunk.get("id")
+                        if isinstance(chunk_id, str) and chunk_id:
+                            response_id_future.set_result(chunk_id)
                     yield ProcessedResponse(content=chunk)
             except httpx.HTTPError as exc:
                 raise ServiceUnavailableError(
                     message=f"Streaming connection interrupted ({exc})"
                 ) from exc
             finally:
-                import contextlib
-
                 with contextlib.suppress(Exception):
                     await response.aclose()
 
-        # For streaming responses, return raw bytes; response processing is
-        # handled at the adapter layer if needed.
-        return gen()
+        try:
+            response_headers = dict(response.headers)
+        except Exception:
+            response_headers = {}
+
+        return StreamingResponseHandle(
+            iterator=gen(),
+            cancel_callback=cancel_stream,
+            headers=response_headers,
+        )
+
+    async def _send_openai_responses_cancel(
+        self,
+        base_url: str,
+        headers: Mapping[str, str],
+        response_id: str,
+        session_id: str,
+    ) -> None:
+        cancel_url = f"{base_url}/{response_id}/cancel"
+        try:
+            request = self.client.build_request("POST", cancel_url, headers=headers)
+        except Exception as exc:
+            logger.debug(
+                "Failed to build cancellation request - session_id=%s, url=%s, error=%s",
+                session_id,
+                cancel_url,
+                exc,
+                exc_info=True,
+            )
+            return
+
+        try:
+            cancel_response = await self.client.send(request, stream=False)
+        except Exception as exc:
+            logger.warning(
+                "Failed to send cancellation request - session_id=%s, url=%s, error=%s",
+                session_id,
+                cancel_url,
+                exc,
+                exc_info=True,
+            )
+            return
+
+        with contextlib.suppress(Exception):
+            await cancel_response.aclose()
 
     async def responses(
         self,
@@ -661,7 +753,7 @@ class OpenAIConnector(LLMBackend):
         if domain_request.stream:
             # Return a domain-level streaming envelope
             try:
-                content_iterator = await self._handle_streaming_response(
+                stream_handle = await self._handle_streaming_response(
                     url,
                     payload,
                     guarded_headers,
@@ -671,9 +763,10 @@ class OpenAIConnector(LLMBackend):
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
             return StreamingResponseEnvelope(
-                content=content_iterator,
+                content=stream_handle.iterator,
                 media_type="text/event-stream",
                 headers={},
+                cancel_callback=stream_handle.cancel_callback,
             )
         else:
             # Return a domain ResponseEnvelope for non-streaming

@@ -18,6 +18,7 @@ import pytest
 from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import ServiceUnavailableError
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -169,6 +170,59 @@ class ErrorAsyncIterBytes:
 
     async def __anext__(self) -> bytes:
         raise self.error
+
+
+@pytest.mark.asyncio
+async def test_responses_stream_cancel_sends_cancel_request(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Ensure cancellation callback triggers protocol-specific cancel request."""
+    chunk = (
+        b'data: {"id": "resp_123","object":"response.chunk","model":"gpt-4o",'
+        b'"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}\n\n'
+    )
+    done = b"data: [DONE]\n\n"
+
+    streaming_response = MockResponse()
+    streaming_response.aiter_bytes = lambda: AsyncIterBytes([chunk, done])
+
+    cancel_response = MockResponse(status_code=204)
+
+    connector.client.build_request.side_effect = lambda *args, **kwargs: httpx.Request(
+        *args, **kwargs
+    )
+
+    send_calls: list[tuple[httpx.Request, bool]] = []
+
+    async def send(request: httpx.Request, stream: bool = False) -> MockResponse:
+        send_calls.append((request, stream))
+        if len(send_calls) == 1:
+            assert stream is True
+            return streaming_response
+        assert stream is False
+        return cancel_response
+
+    connector.client.send.side_effect = send
+
+    result = await connector._handle_streaming_response(
+        url="https://api.openai.com/v1/responses",
+        payload={"stream": True},
+        headers={"Authorization": "Bearer test"},
+        session_id="session-123",
+        stream_format="openai-responses",
+    )
+
+    first_chunk = await result.iterator.__anext__()
+    assert isinstance(first_chunk, ProcessedResponse)
+
+    await result.cancel_callback()
+
+    assert len(send_calls) == 2
+    cancel_request, cancel_stream_flag = send_calls[1]
+    assert cancel_stream_flag is False
+    assert cancel_request.method == "POST"
+    assert cancel_request.url.path.endswith("/responses/resp_123/cancel")
+    assert streaming_response.closed is True
 
 
 @pytest.fixture

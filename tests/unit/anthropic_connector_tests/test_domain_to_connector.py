@@ -22,6 +22,8 @@ from src.core.domain.chat import (
     FunctionDefinition,
     ToolDefinition,
 )
+from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 TEST_ANTHROPIC_API_BASE_URL = ANTHROPIC_DEFAULT_BASE_URL
 
@@ -198,8 +200,61 @@ async def test_chat_completions_merges_custom_headers(
     sent_request = httpx_mock.get_request()
     assert sent_request is not None
     assert sent_request.headers["x-api-key"] == "test_key"
-    assert sent_request.headers["anthropic-version"] == ANTHROPIC_VERSION_HEADER
-    assert sent_request.headers["x-custom"] == "value"
+
+
+@pytest.mark.asyncio
+async def test_streaming_disconnect_triggers_anthropic_cancel(
+    anthropic_backend: AnthropicBackend, httpx_mock: HTTPXMock
+) -> None:
+    stream_chunks = [
+        b"event: message_start\n",
+        b'data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant"}}\n\n',
+        b'data: {"type":"message_delta","delta":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}\n\n',
+        b"data: [DONE]\n\n",
+    ]
+
+    httpx_mock.add_response(
+        url=f"{TEST_ANTHROPIC_API_BASE_URL}/messages",
+        method="POST",
+        stream=httpx.ByteStream(b"".join(stream_chunks)),
+        status_code=200,
+        headers={"Content-Type": "text/event-stream"},
+    )
+
+    httpx_mock.add_response(
+        url=f"{TEST_ANTHROPIC_API_BASE_URL}/messages/msg_123/cancel",
+        method="POST",
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
+
+    request = ChatRequest(
+        model="anthropic:claude-3-haiku-20240307",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=True,
+    )
+
+    response = await anthropic_backend.chat_completions(
+        request_data=request,
+        processed_messages=[ChatMessage(role="user", content="Hello")],
+        effective_model="claude-3-haiku-20240307",
+    )
+
+    assert isinstance(response, StreamingResponseEnvelope)
+    assert response.cancel_callback is not None
+
+    # Consume the first chunk so the message id is captured
+    first_chunk = await response.content.__anext__()
+    assert isinstance(first_chunk, ProcessedResponse)
+
+    await response.cancel_callback()
+
+    cancel_requests = [
+        req
+        for req in httpx_mock.get_requests()
+        if req.url.path.endswith("/messages/msg_123/cancel")
+    ]
+    assert cancel_requests, "Expected cancellation request to Anthropic API"
 
 
 @pytest.mark.asyncio

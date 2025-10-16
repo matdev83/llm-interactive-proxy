@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,6 +36,7 @@ class StreamingResponseEnvelope(InternalDTO):
     content: AsyncIterator[ProcessedResponse]
     media_type: str = "text/event-stream"
     headers: dict[str, str] | None = None
+    cancel_callback: Callable[[], Awaitable[None]] | None = None
 
     @property
     def body_iterator(self) -> AsyncIterator[bytes]:
@@ -51,6 +52,15 @@ class StreamingResponseEnvelope(InternalDTO):
                     yield str(item.content).encode("utf-8")
 
         return _byte_iterator()
+
+
+@dataclass
+class StreamingResponseHandle:
+    """Wrapper for streaming iterator and protocol-specific cancellation callback."""
+
+    iterator: AsyncIterator[ProcessedResponse]
+    cancel_callback: Callable[[], Awaitable[None]]
+    headers: dict[str, str] | None = None
 
 
 # SECURITY: Removed builtins injection to prevent test/production contamination

@@ -309,7 +309,12 @@ class BackendRequestManager(IBackendRequestManager):
                 async def single_item_stream():
                     yield ProcessedResponse(content=retry_response.content)
 
-                return StreamingResponseEnvelope(content=single_item_stream())
+                return StreamingResponseEnvelope(
+                    content=single_item_stream(),
+                    media_type=stream_envelope.media_type,
+                    headers=stream_envelope.headers,
+                    cancel_callback=stream_envelope.cancel_callback,
+                )
 
         # If not empty, reconstruct the stream with the first chunk
         async def combined_stream():
@@ -318,7 +323,12 @@ class BackendRequestManager(IBackendRequestManager):
             async for chunk in stream_wrapper():
                 yield chunk
 
-        return StreamingResponseEnvelope(content=combined_stream())
+        return StreamingResponseEnvelope(
+            content=combined_stream(),
+            media_type=stream_envelope.media_type,
+            headers=stream_envelope.headers,
+            cancel_callback=stream_envelope.cancel_callback,
+        )
 
     async def _create_retry_request(
         self, original_request: ChatRequest, recovery_prompt: str

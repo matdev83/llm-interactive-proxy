@@ -78,9 +78,7 @@ class NewCommandService(ICommandService):
         self.session_service = session_service
         self.command_parser = command_parser
         if not strict_command_detection:
-            strict_command_detection = get_env_flag(
-                "STRICT_COMMAND_DETECTION", False
-            )
+            strict_command_detection = get_env_flag("STRICT_COMMAND_DETECTION", False)
         self.strict_command_detection = strict_command_detection
         self._app_state = app_state
         if command_state_service is None:
