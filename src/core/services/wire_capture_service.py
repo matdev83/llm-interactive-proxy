@@ -181,31 +181,34 @@ class WireCapture(IWireCapture):
         async with self._lock:
             # Rotation: if size exceeds max, perform multi-level rotation
             # Also rotate based on elapsed time if configured
-            if self._should_rotate_time():
-                self._perform_rotation()
+            if await self._should_rotate_time_async():
+                await self._perform_rotation_async()
             if self._max_bytes and self._max_bytes > 0:
                 try:
                     current_size = (
-                        os.path.getsize(self._file_path)
-                        if os.path.exists(self._file_path)
+                        await asyncio.to_thread(os.path.getsize, self._file_path)
+                        if await asyncio.to_thread(os.path.exists, self._file_path)
                         else 0
                     )
                     incoming_size = len(text.encode("utf-8"))
                     if current_size + incoming_size > self._max_bytes:
-                        self._perform_rotation()
+                        await self._perform_rotation_async()
                 except OSError as e:
                     # Log rotation errors but do not propagate
                     logger.warning(
                         "Error during wire capture rotation: %s", e, exc_info=True
                     )
             try:
-                with open(self._file_path, "a", encoding="utf-8") as f:
-                    f.write(text)
+                await asyncio.to_thread(self._write_to_file, self._file_path, text)
             except OSError as e:
                 logger.warning("Wire capture write failed: %s", e, exc_info=True)
                 return
             # Enforce total cap best-effort
-            self._enforce_total_cap()
+            await self._enforce_total_cap_async()
+
+    async def _should_rotate_time_async(self) -> bool:
+        """Async version of _should_rotate_time using asyncio.to_thread for I/O operations."""
+        return await asyncio.to_thread(self._should_rotate_time)
 
     def _should_rotate_time(self) -> bool:
         if not self._file_path or self._rotate_interval < 0:
@@ -221,7 +224,12 @@ class WireCapture(IWireCapture):
         except OSError:
             return False
 
+    async def _perform_rotation_async(self) -> None:
+        """Async version of _perform_rotation using asyncio.to_thread for I/O operations."""
+        await asyncio.to_thread(self._perform_rotation)
+
     def _perform_rotation(self) -> None:
+        """Synchronous version of rotation (kept for backward compatibility)."""
         if not self._file_path:
             return
         try:
@@ -243,6 +251,10 @@ class WireCapture(IWireCapture):
         except OSError as e:
             # Ignore rotation failures
             logger.warning("Error during wire capture rotation: %s", e)
+
+    async def _enforce_total_cap_async(self) -> None:
+        """Async version of _enforce_total_cap using asyncio.to_thread for I/O operations."""
+        await asyncio.to_thread(self._enforce_total_cap)
 
     def _enforce_total_cap(self) -> None:
         if not self._file_path or not self._total_cap or self._total_cap <= 0:
@@ -279,6 +291,12 @@ class WireCapture(IWireCapture):
                     os.remove(base)
         except OSError as e:
             logger.warning("Error enforcing total cap on wire capture logs: %s", e)
+
+    @staticmethod
+    def _write_to_file(file_path: str, text: str) -> None:
+        """Helper method to write text to file synchronously."""
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(text)
 
     async def shutdown(self) -> None:
         """No background tasks; nothing to do for classic capture."""
