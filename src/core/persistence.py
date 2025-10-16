@@ -586,9 +586,18 @@ class ConfigManager:
     def apply(self, data: dict[str, Any]) -> None:
         all_warnings: list[str] = []
 
-        self._apply_default_backend(data.get("default_backend"))
-        self._apply_interactive_mode(data.get("interactive_mode"))
-        self._apply_redact_api_keys(data.get("redact_api_keys_in_prompts"))
+        backends_data = data.get("backends", {})
+        session_data = data.get("session", {})
+        auth_data = data.get("auth", {})
+
+        if isinstance(backends_data, dict):
+            self._apply_default_backend(backends_data.get("default_backend"))
+
+        if isinstance(session_data, dict):
+            self._apply_interactive_mode(session_data.get("default_interactive_mode"))
+
+        if isinstance(auth_data, dict):
+            self._apply_redact_api_keys(auth_data.get("redact_api_keys_in_prompts"))
 
         failover_warnings = self._apply_failover_routes(data.get("failover_routes"))
         all_warnings.extend(failover_warnings)
@@ -601,8 +610,19 @@ class ConfigManager:
             logger.warning(warning)
 
     def collect(self) -> dict[str, Any]:
+        if not self.app_state or not self.app_state.app_config:
+            return {}
+
+        # Get backend configurations
+        backends_data = self.app_state.app_config.backends.model_dump(
+            exclude_none=True, exclude_defaults=True
+        )
+        # Ensure the live default_backend is saved
+        backends_data["default_backend"] = self.app_state.get_backend_type()
+
+        # Get session configuration
         interactive_mode = False
-        if self.service_provider is not None:
+        if self.service_provider:
             try:
                 from src.core.interfaces.session_service_interface import (
                     ISessionService,
@@ -615,48 +635,43 @@ class ConfigManager:
                     session_service, "default_interactive_mode", False
                 )
             except ServiceResolutionError as exc:
-                if self._should_raise_strict_errors():
-                    raise
-                logger.warning("Failed to get interactive mode: %s", exc)
+                logger.warning(
+                    "Failed to get interactive mode for persistence: %s", exc
+                )
             except Exception as exc:
-                if self._should_raise_strict_errors():
-                    raise ConfigurationError(
-                        "Unexpected error reading interactive mode from session service."
-                    ) from exc
-                logger.warning("Failed to get interactive mode: %s", exc)
+                logger.warning(
+                    "Unexpected error getting interactive mode for persistence: %s", exc
+                )
+        session_data = {"default_interactive_mode": interactive_mode}
 
-        config_data: dict[str, Any] = {
-            "default_backend": (
-                self.app_state.get_backend_type() if self.app_state else None
-            ),
-            "interactive_mode": interactive_mode,
-            "failover_routes": (
-                self.app_state.get_failover_routes() if self.app_state else {}
-            ),
-            "redact_api_keys_in_prompts": (
-                self.app_state.get_api_key_redaction_enabled()
-                if self.app_state
-                else False
-            ),
-            "command_prefix": (
-                self.app_state.get_command_prefix() if self.app_state else None
-            ),
+        # Get auth configuration
+        auth_data = {
+            "redact_api_keys_in_prompts": self.app_state.get_api_key_redaction_enabled()
         }
 
-        if self.app_state:
-            model_defaults = self.app_state.get_model_defaults()
-            if model_defaults:
-                model_defaults_dict = {}
-                for model_name, model_defaults_obj in model_defaults.items():
-                    if hasattr(model_defaults_obj, "model_dump"):
-                        model_defaults_dict[model_name] = model_defaults_obj.model_dump(
-                            exclude_none=True
-                        )
-                    else:
-                        model_defaults_dict[model_name] = model_defaults_obj
-                config_data["model_defaults"] = model_defaults_dict
+        # Get model defaults
+        model_defaults_data = {}
+        model_defaults = self.app_state.get_model_defaults()
+        if model_defaults:
+            for model_name, model_defaults_obj in model_defaults.items():
+                if hasattr(model_defaults_obj, "model_dump"):
+                    model_defaults_data[model_name] = model_defaults_obj.model_dump(
+                        exclude_none=True
+                    )
+                else:
+                    model_defaults_data[model_name] = model_defaults_obj
 
-        return config_data
+        config_data: dict[str, Any] = {
+            "backends": backends_data,
+            "session": session_data,
+            "auth": auth_data,
+            "failover_routes": self.app_state.get_failover_routes() or {},
+            "command_prefix": self.app_state.get_command_prefix(),
+            "model_defaults": model_defaults_data,
+        }
+
+        # Clean up empty sections
+        return {k: v for k, v in config_data.items() if v}
 
     def save(self) -> None:
         data = self.collect()

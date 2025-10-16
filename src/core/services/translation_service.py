@@ -137,6 +137,32 @@ class TranslationService:
             logger.debug(
                 f"Converting Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
             )
+
+            has_response_format = False
+            if isinstance(request, dict):
+                if request.get("response_format"):
+                    has_response_format = True
+            elif hasattr(request, "response_format") and getattr(
+                request, "response_format", None
+            ):
+                has_response_format = True
+
+            if not has_response_format:
+                raise ValidationError.from_exception_data(
+                    title="ResponsesRequest",
+                    line_errors=[
+                        {
+                            "type": "missing",
+                            "loc": ("response_format",),
+                            "input": (
+                                request
+                                if isinstance(request, dict)
+                                else getattr(request, "__dict__", {})
+                            ),
+                        }
+                    ],
+                )
+
             try:
                 domain_request = Translation.responses_to_domain_request(request)
                 logger.debug(

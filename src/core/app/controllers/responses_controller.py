@@ -87,13 +87,12 @@ class ResponsesController:
         # Extract request metadata for logging
         request_id = getattr(request.state, "request_id", None) or f"req-{id(request)}"
         model = responses_request.model
-        has_schema = bool(
-            getattr(responses_request, "response_format", None)
-            and getattr(responses_request.response_format, "json_schema", None)
-        )
+        response_format = responses_request.response_format
+        has_schema = bool(response_format and response_format.json_schema)
+
         schema_name = None
-        if has_schema:
-            json_schema = responses_request.response_format.json_schema
+        if has_schema and response_format and response_format.json_schema:
+            json_schema = response_format.json_schema
             schema_name = getattr(json_schema, "name", "unnamed")
 
             # Perform comprehensive JSON schema validation
@@ -127,15 +126,18 @@ class ResponsesController:
             translation_service = self._translation_service
 
             # Log schema validation attempt if schema is present
-            if has_schema:
+            if has_schema and response_format and response_format.json_schema:
                 logger.debug(
                     f"Schema validation requested - request_id={request_id}, schema_name={schema_name}, "
-                    f"strict={getattr(responses_request.response_format.json_schema, 'strict', True)}"
+                    f"strict={getattr(response_format.json_schema, 'strict', True)}"
                 )
 
-            domain_request = translation_service.to_domain_request(
-                responses_request, source_format="responses"
-            )
+            try:
+                domain_request = translation_service.to_domain_request(
+                    responses_request, source_format="responses"
+                )
+            except ValidationError as exc:
+                raise self._map_validation_error(exc) from exc
 
             logger.debug(
                 f"Request translation successful - request_id={request_id}, "

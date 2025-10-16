@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-
 from src.anthropic_converters import (
     _map_finish_reason,
     anthropic_to_openai_request,

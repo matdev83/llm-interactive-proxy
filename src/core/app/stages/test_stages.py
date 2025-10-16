@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 from src.core.config.app_config import AppConfig
@@ -28,6 +28,7 @@ _ORIGINAL_BACKEND_CALL_COMPLETION = _BackendService.call_completion
 
 if TYPE_CHECKING:
     import httpx
+
 
 class MockBackendStage(InitializationStage):
     """
@@ -76,7 +77,7 @@ class MockBackendStage(InitializationStage):
 
     def _resolve_httpx_client(
         self, services: ServiceCollection
-    ) -> "httpx.AsyncClient | None":
+    ) -> httpx.AsyncClient | None:
         """Try to resolve a shared httpx.AsyncClient from the DI container."""
         try:
             import httpx
@@ -561,7 +562,6 @@ class MockBackendStage(InitializationStage):
                                     "falling back to mock"
                                 )
                             # Fall back to mock behavior instead of raising error
-                            pass
                         else:
                             real_backend = AnthropicBackend(
                                 httpx_client, AppConfig(), translation_service
@@ -570,7 +570,9 @@ class MockBackendStage(InitializationStage):
                             # already reflect the patch. Cache and return the real
                             # backend so tests that patch connector class methods
                             # observe calls.
-                            mock_backend_service._backend_cache[backend_type] = real_backend
+                            mock_backend_service._backend_cache[backend_type] = (
+                                real_backend
+                            )
                             return real_backend
                 except Exception:
                     # Fall back to mock backend when real instantiation fails

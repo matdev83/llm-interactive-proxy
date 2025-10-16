@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
-from src.core.domain.replacement_rule import ReplacementMode
 from src.core.config.app_config import RewritingConfig
+from src.core.domain.replacement_rule import ReplacementMode
 from src.core.services.content_rewriter_service import ContentRewriterService
 
 
@@ -232,7 +232,9 @@ class TestContentRewriterService(unittest.TestCase):
 
     def test_app_config_overrides_default_config_path(self):
         alternate_dir = os.path.join(self.test_config_dir, "app_config_rules")
-        os.makedirs(os.path.join(alternate_dir, "replies", "010_replace"), exist_ok=True)
+        os.makedirs(
+            os.path.join(alternate_dir, "replies", "010_replace"), exist_ok=True
+        )
 
         with open(
             os.path.join(alternate_dir, "replies", "010_replace", "SEARCH.txt"),

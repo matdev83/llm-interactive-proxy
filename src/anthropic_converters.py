@@ -479,9 +479,7 @@ async def openai_stream_to_anthropic_stream(
                         "output_tokens": usage.get("completion_tokens", 0),
                     },
                 }
-                usage_event = (
-                    f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
-                )
+                usage_event = f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
                 logger.debug(f"YIELDING usage delta: {usage_event!r}")
                 events.append(usage_event)
             return False, events
@@ -501,9 +499,7 @@ async def openai_stream_to_anthropic_stream(
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             }
             start_payload = {"type": "message_start", "message": message_payload}
-            start_event = (
-                f"event: message_start\ndata: {json.dumps(start_payload)}\n\n"
-            )
+            start_event = f"event: message_start\ndata: {json.dumps(start_payload)}\n\n"
             logger.debug(f"YIELDING message_start: {start_event!r}")
             events.append(start_event)
             message_started = True
@@ -579,9 +575,7 @@ async def openai_stream_to_anthropic_stream(
                 active_tool_call_index = -1
             finish_payload = {
                 "type": "message_delta",
-                "delta": {
-                    "stop_reason": _map_finish_reason(choice["finish_reason"])
-                },
+                "delta": {"stop_reason": _map_finish_reason(choice["finish_reason"])},
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             }
             finish_event = (

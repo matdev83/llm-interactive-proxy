@@ -404,8 +404,11 @@ class ServiceCollection(IServiceCollection):
         self.add_instance(BackendRegistry, backend_registry)
         self.add_singleton(IUsageTrackingService, UsageTrackingService)
         self.add_singleton(ISessionService, SessionService)
+
         # ICommandService registered in register_core_services()
-        def _content_rewriter_factory(provider: IServiceProvider) -> ContentRewriterService:
+        def _content_rewriter_factory(
+            provider: IServiceProvider,
+        ) -> ContentRewriterService:
             app_config = provider.get_required_service(AppConfig)
             return ContentRewriterService(app_config=app_config)
 
