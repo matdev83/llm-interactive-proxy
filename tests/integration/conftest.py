@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
+from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
 
 
 @pytest.fixture(autouse=True)
@@ -30,11 +30,11 @@ def mock_client() -> AsyncMock:
 
 
 @pytest.fixture
-def gemini_oauth_personal_connector(
+def gemini_oauth_plan_connector(
     mock_client: AsyncMock,
-) -> GeminiOAuthPersonalConnector:
+) -> GeminiOAuthPlanConnector:
     """
-    Provides an initialized instance of the GeminiOAuthPersonalConnector
+    Provides an initialized instance of the GeminiOAuthPlanConnector
     for integration testing, with dependencies mocked.
     """
     from src.core.config.app_config import AppConfig
@@ -43,7 +43,7 @@ def gemini_oauth_personal_connector(
     config = AppConfig()
     translation_service = TranslationService()
 
-    connector = GeminiOAuthPersonalConnector(
+    connector = GeminiOAuthPlanConnector(
         client=mock_client,
         config=config,
         translation_service=translation_service,

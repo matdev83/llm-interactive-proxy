@@ -129,12 +129,20 @@ class ToolCallRepairService:
     def _process_text_match(self, name: str, args_string: str) -> dict[str, Any] | None:
         """Helper to process a detected textual tool call."""
         try:
+            # PERFORMANCE OPTIMIZATION: Avoid unnecessary JSON round-trip
             # Attempt to parse arguments as JSON, fallback to string if not
+            stripped_args = args_string.strip()
             try:
-                arguments = json.dumps(json.loads(args_string.strip()))
+                # Parse JSON to validate it, then use original string to avoid round-trip
+                json.loads(stripped_args)
+                arguments = (
+                    stripped_args
+                    if stripped_args.startswith(("{", "["))
+                    else json.dumps({"args": stripped_args})
+                )
             except json.JSONDecodeError:
                 arguments = json.dumps(
-                    {"args": args_string.strip()}
+                    {"args": stripped_args}
                 )  # Wrap as a simple JSON object
 
             return self._format_openai_tool_call(name, arguments)

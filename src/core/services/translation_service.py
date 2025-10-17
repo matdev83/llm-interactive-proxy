@@ -131,6 +131,11 @@ class TranslationService:
         )
 
         if isinstance(request, _Canonical | _ChatRequest):
+            # PERFORMANCE OPTIMIZATION: Avoid unnecessary round-trip serialization
+            # If the request is already CanonicalChatRequest, return it directly
+            if isinstance(request, _Canonical):
+                return request
+            # If it's a ChatRequest but not Canonical, convert efficiently
             return _Canonical.model_validate(request.model_dump())
 
         if source_format == "responses":

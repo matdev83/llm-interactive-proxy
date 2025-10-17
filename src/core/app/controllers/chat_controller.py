@@ -126,9 +126,10 @@ class ChatController:
             # Use already-validated request_data instead of re-parsing
             domain_request = request_data
 
-            logger.info(
-                f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
+                )
             if self._processor is None:
                 raise HTTPException(status_code=500, detail="Processor is None")
 

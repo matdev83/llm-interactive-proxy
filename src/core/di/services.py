@@ -1047,11 +1047,14 @@ def register_core_services(
 
             # Register config-driven steering handler (includes synthesized legacy apply_diff rule when enabled)
             try:
-                # Build effective rules from config using a deep copy so that
-                # we never retain references to the raw AppConfig structures.
-                import copy
-
-                effective_rules = copy.deepcopy(reactor_config.steering_rules or [])
+                # Build effective rules from config while avoiding expensive deep copy.
+                # Since steering_rules are configuration data (immutable during runtime),
+                # we can safely use a shallow copy for better performance.
+                effective_rules = (
+                    (reactor_config.steering_rules or []).copy()
+                    if reactor_config.steering_rules
+                    else []
+                )
 
                 # Synthesize legacy apply_diff rule if enabled and missing
                 if getattr(reactor_config, "apply_diff_steering_enabled", True):

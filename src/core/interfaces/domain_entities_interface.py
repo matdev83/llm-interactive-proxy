@@ -120,6 +120,10 @@ class ISessionStateMutator(ABC):
     def with_is_cline_agent(self, is_cline: bool) -> ISessionState:
         """Create a new state with updated is_cline_agent flag."""
 
+    @abstractmethod
+    def with_multiple_updates(self, **kwargs: Any) -> ISessionState:
+        """Create a new state with multiple updated attributes."""
+
 
 class ISessionState(IValueObject, ISessionStateMutator):
     """Interface for session state value objects."""

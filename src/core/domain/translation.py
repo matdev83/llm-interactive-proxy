@@ -448,10 +448,15 @@ class Translation(BaseTranslator):
 
         if isinstance(args, list | tuple):
             try:
-                return json.dumps(list(args))
+                # PERFORMANCE OPTIMIZATION: Avoid unnecessary list copying
+                # Use args directly if it's already a list, only convert tuples
+                return json.dumps(args if isinstance(args, list) else list(args))
             except TypeError:
                 # Handle lists with non-serializable items
-                sanitized_list = Translation._sanitize_list_for_json(list(args))
+                # PERFORMANCE OPTIMIZATION: Avoid unnecessary list copying
+                sanitized_list = Translation._sanitize_list_for_json(
+                    args if isinstance(args, list) else list(args)
+                )
                 return json.dumps(sanitized_list)
 
         # For primitive types that should be JSON serializable
@@ -570,7 +575,7 @@ class Translation(BaseTranslator):
                     )
                 elif isinstance(value, list | tuple):
                     sanitized_value = Translation._sanitize_list_for_json(
-                        list(value),
+                        value if isinstance(value, list) else list(value),
                         max_depth=max_depth,
                         _depth=_depth + 1,
                         _seen=_seen,
@@ -631,7 +636,7 @@ class Translation(BaseTranslator):
                 elif isinstance(item, list | tuple):
                     sanitized.append(
                         Translation._sanitize_list_for_json(
-                            list(item),
+                            item if isinstance(item, list) else list(item),
                             max_depth=max_depth,
                             _depth=_depth + 1,
                             _seen=_seen,

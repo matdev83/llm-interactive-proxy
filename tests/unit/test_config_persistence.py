@@ -6,7 +6,7 @@ import pytest
 @pytest.fixture
 def functional_backend() -> str:
     """Provide a known functional backend for tests to use."""
-    return "gemini"
+    return "gemini-oauth-plan"
 
 
 from fastapi import FastAPI
@@ -29,6 +29,7 @@ def manage_env_vars(monkeypatch: pytest.MonkeyPatch):
     env_vars_to_clear = [
         "DEFAULT_BACKEND",
         "LLM_BACKEND",
+        "DEFAULT_INTERACTIVE_MODE",
         "THINKING_BUDGET",
         "DISABLE_AUTH",
         "API_KEYS",

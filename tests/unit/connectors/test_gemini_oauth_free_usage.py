@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
+from src.connectors.gemini_oauth_free import GeminiOAuthFreeConnector
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 
@@ -17,7 +17,7 @@ async def test_chat_completions_with_tiktoken_usage_calculation():
     mock_config = MagicMock()
     mock_translation_service = MagicMock()
 
-    connector = GeminiOAuthPersonalConnector(
+    connector = GeminiOAuthFreeConnector(
         client=mock_client,
         config=mock_config,
         translation_service=mock_translation_service,
@@ -70,7 +70,7 @@ async def test_chat_completions_with_tiktoken_usage_calculation():
     )
 
     request_data = ChatRequest(
-        model="gemini-cli-oauth-personal:gemini-pro",
+        model="gemini-oauth-free:gemini-pro",
         messages=[ChatMessage(role="user", content="Hello")],
     )
 
@@ -113,7 +113,7 @@ async def test_chat_completions_streaming_with_tiktoken_usage_calculation():
     mock_config = MagicMock()
     mock_translation_service = MagicMock()
 
-    connector = GeminiOAuthPersonalConnector(
+    connector = GeminiOAuthFreeConnector(
         client=mock_client,
         config=mock_config,
         translation_service=mock_translation_service,
@@ -157,7 +157,7 @@ async def test_chat_completions_streaming_with_tiktoken_usage_calculation():
     )
 
     request_data = ChatRequest(
-        model="gemini-cli-oauth-personal:gemini-pro",
+        model="gemini-oauth-free:gemini-pro",
         messages=[ChatMessage(role="user", content="Hello stream")],
         stream=True,
     )
@@ -205,7 +205,7 @@ async def test_code_assist_streaming_cancel_callback_absent():
     mock_config = MagicMock()
     mock_translation_service = MagicMock()
 
-    connector = GeminiOAuthPersonalConnector(
+    connector = GeminiOAuthFreeConnector(
         client=mock_client,
         config=mock_config,
         translation_service=mock_translation_service,
@@ -246,7 +246,7 @@ async def test_code_assist_streaming_cancel_callback_absent():
     )
 
     request_data = ChatRequest(
-        model="gemini-cli-oauth-personal:gemini-pro",
+        model="gemini-oauth-free:gemini-pro",
         messages=[ChatMessage(role="user", content="Hello")],
         stream=True,
     )

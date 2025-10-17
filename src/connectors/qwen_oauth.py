@@ -47,6 +47,8 @@ logger = logging.getLogger(__name__)
 TOKEN_EXPIRY_BUFFER_SECONDS = 30.0
 CLI_REFRESH_THRESHOLD_SECONDS = 120.0
 CLI_REFRESH_COOLDOWN_SECONDS = 30.0
+TOKEN_REFRESH_MAX_WAIT_SECONDS = 30.0
+TOKEN_REFRESH_POLL_INTERVAL_SECONDS = 1.0
 CLI_REFRESH_COMMAND = [
     "qwen",
     "chat",
@@ -211,13 +213,45 @@ class QwenOAuthConnector(OpenAIConnector):
                     exc_info=True,
                 )
 
-    async def _poll_for_new_token(self) -> bool:
+    async def _poll_for_new_token(self, max_wait_seconds: float | None = None) -> bool:
         """Poll the credential file for an updated token after CLI refresh."""
-        for _ in range(5):
-            await asyncio.sleep(1)
+        if not self._is_token_expired():
+            return True
+
+        wait_window = (
+            TOKEN_REFRESH_MAX_WAIT_SECONDS
+            if max_wait_seconds is None
+            else max_wait_seconds
+        )
+        if wait_window <= 0:
+            return not self._is_token_expired()
+
+        deadline = time.time() + wait_window
+        attempts = 0
+
+        while time.time() < deadline:
+            remaining = deadline - time.time()
+            sleep_for = min(TOKEN_REFRESH_POLL_INTERVAL_SECONDS, remaining)
+            if sleep_for > 0:
+                await asyncio.sleep(sleep_for)
+            attempts += 1
             loaded = await self._load_oauth_credentials()
             if loaded and not self._is_token_expired():
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Qwen OAuth token refresh succeeded after %d poll attempts",
+                        attempts,
+                    )
                 return True
+
+        loaded = await self._load_oauth_credentials()
+        if loaded and not self._is_token_expired():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Qwen OAuth token refresh finalized after max wait window (%s seconds)",
+                    wait_window,
+                )
+            return True
 
         return not self._is_token_expired()
 

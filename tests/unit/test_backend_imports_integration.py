@@ -98,7 +98,8 @@ class TestBackendImportsIntegration:
             "anthropic-oauth",
             "gemini",
             "gemini-cli-cloud-project",
-            "gemini-cli-oauth-personal",
+            "gemini-oauth-free",
+            "gemini-oauth-plan",
             "openai",
             "openai-oauth",
             "openrouter",
@@ -141,11 +142,11 @@ class TestBackendImportsIntegration:
 
         # Now try to import some connector classes
         # These should work without any additional imports
-        from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
+        from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
         from src.connectors.openai import OpenAIConnector
 
         # Verify they are actual classes
-        assert isinstance(GeminiOAuthPersonalConnector, type)
+        assert isinstance(GeminiOAuthPlanConnector, type)
         assert isinstance(AnthropicBackend, type)
         assert isinstance(OpenAIConnector, type)
 
@@ -281,8 +282,8 @@ class TestBackendImportsErrorHandling:
             success = False
             error_msg = str(e)
 
-        assert success, (
-            f"Importing backend_imports should never raise an exception, "
-            f"but got: {error_msg if not success else 'N/A'}. "
-            "The auto-discovery mechanism should catch and log errors for individual connectors."
-        )
+            assert success, (
+                f"Importing backend_imports should never raise an exception, "
+                f"but got: {error_msg}. "
+                "The auto-discovery mechanism should catch and log errors for individual connectors."
+            )

@@ -5,38 +5,38 @@ Test quota exceeded detection for Gemini OAuth Personal connector.
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
+from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
 from src.core.common.exceptions import BackendError
+from src.core.services.translation_service import TranslationService
 
 
 class TestGeminiOAuthPersonalQuotaDetection:
     """Test quota exceeded detection functionality."""
 
-    @pytest.fixture
-    def connector(self) -> GeminiOAuthPersonalConnector:
-        """Create a GeminiOAuthPersonalConnector instance for testing."""
-        with (
-            patch("src.connectors.gemini_oauth_personal.httpx.AsyncClient"),
-            patch("src.connectors.gemini_oauth_personal.TranslationService"),
-            patch("src.connectors.gemini_oauth_personal.AppConfig"),
-        ):
 
-            from src.core.config.app_config import AppConfig
+@pytest.fixture
+def connector(self) -> GeminiOAuthPlanConnector:
+    """Create a GeminiOAuthPlanConnector instance for testing."""
+    from src.core.config.app_config import AppConfig
 
-            mock_config = Mock(spec=AppConfig)
-            mock_config.gemini_cli_oauth_path = None
+    mock_config = Mock(spec=AppConfig)
+    mock_config.gemini_cli_oauth_path = None
 
-            client = Mock()
-            translation_service = Mock()
+    client = Mock()
+    translation_service = Mock(spec=TranslationService)
 
-            return GeminiOAuthPersonalConnector(
-                client=client,
-                config=mock_config,
-                translation_service=translation_service,
-            )
+    # Explicitly mock the methods that will have their return_value set
+    translation_service.from_domain_to_gemini_request = Mock()
+    translation_service.to_domain_stream_chunk = Mock()
+
+    return GeminiOAuthPlanConnector(
+        client=client,
+        config=mock_config,
+        translation_service=translation_service,
+    )
 
     def test_mark_backend_unusable_sets_flags(
-        self, connector: GeminiOAuthPersonalConnector
+        self, connector: GeminiOAuthPlanConnector
     ) -> None:
         """Test that _mark_backend_unusable sets the correct flags."""
         # Initially, the backend should be non-functional but not quota exceeded
@@ -111,7 +111,7 @@ class TestGeminiOAuthPersonalQuotaDetection:
         assert condition_matches(500, error_detail_4) is False
 
     def test_quota_exceeded_error_marks_backend_unusable(
-        self, connector: GeminiOAuthPersonalConnector
+        self, connector: GeminiOAuthPlanConnector
     ) -> None:
         """Test that quota exceeded errors mark the backend as unusable."""
         # Mock a response with quota exceeded error
@@ -141,7 +141,7 @@ class TestGeminiOAuthPersonalQuotaDetection:
         assert "quota exceeded" in str(exc_info.value).lower()
 
     def test_non_quota_error_does_not_mark_backend_unusable(
-        self, connector: GeminiOAuthPersonalConnector
+        self, connector: GeminiOAuthPlanConnector
     ) -> None:
         """Test that non-quota 429 errors do not mark the backend as unusable."""
         # Mock a response with regular rate limit error
@@ -170,7 +170,7 @@ class TestGeminiOAuthPersonalQuotaDetection:
         assert "quota exceeded" not in str(exc_info.value).lower()
 
     def test_resource_exhausted_error_marks_backend_unusable(
-        self, connector: GeminiOAuthPersonalConnector
+        self, connector: GeminiOAuthPlanConnector
     ) -> None:
         """Test that resource exhausted errors are treated as quota exhaustion."""
 
@@ -194,7 +194,7 @@ class TestGeminiOAuthPersonalQuotaDetection:
 
     @pytest.mark.asyncio
     async def test_streaming_quota_error_propagates_backend_error(
-        self, connector: GeminiOAuthPersonalConnector
+        self, connector: GeminiOAuthPlanConnector
     ) -> None:
         """Ensure streaming quota errors are surfaced to callers."""
         connector.is_functional = True
@@ -235,15 +235,15 @@ class TestGeminiOAuthPersonalQuotaDetection:
 
         with (
             patch(
-                "src.connectors.gemini_oauth_personal.google.auth.transport.requests.AuthorizedSession",
+                "src.connectors.gemini_oauth_plan.google.auth.transport.requests.AuthorizedSession",
                 return_value=dummy_session,
             ),
             patch(
-                "src.connectors.gemini_oauth_personal.asyncio.to_thread",
+                "src.connectors.gemini_oauth_plan.asyncio.to_thread",
                 async_to_thread,
             ),
             patch(
-                "src.connectors.gemini_oauth_personal.tiktoken.get_encoding"
+                "src.connectors.gemini_oauth_plan.tiktoken.get_encoding"
             ) as mock_encoding,
         ):
             mock_encoding.return_value = Mock()

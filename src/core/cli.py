@@ -99,7 +99,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--static-route",
         dest="static_route",
         metavar="BACKEND:MODEL",
-        help="Force all requests to use this backend:model combination (e.g., gemini-cli-oauth-personal:gemini-2.5-pro)",
+        help="Force all requests to use this backend:model combination (e.g., gemini-oauth-plan:gemini-2.5-pro)",
     )
 
     def validate_model_alias(value: str) -> tuple[str, str]:
@@ -1233,7 +1233,12 @@ def _handle_application_build_error(error_msg: str) -> None:
                 "  - Or configure a different backend with --default-backend\n"
             )
             sys.stderr.write("  - Or use OAuth-based backends:\n")
-            sys.stderr.write("    * gemini-cli-oauth-personal (uses gemini CLI auth)\n")
+            sys.stderr.write(
+                "    * gemini-oauth-plan (uses gemini CLI auth for paid tier)\n"
+            )
+            sys.stderr.write(
+                "    * gemini-oauth-free (uses gemini CLI auth for free tier)\n"
+            )
             sys.stderr.write("    * qwen-oauth (uses qwen CLI auth)\n")
             sys.stderr.write("    * anthropic-oauth (uses Claude Code auth)\n")
             sys.stderr.write("    * openai-oauth (uses codex CLI auth)\n")

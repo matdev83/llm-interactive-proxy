@@ -7,6 +7,7 @@ These tests focus on the unique aspects of the QwenOAuthConnector:
 - API base URL handling
 """
 
+import asyncio
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
@@ -250,6 +251,49 @@ class TestQwenOAuthCredentials:
             result = await connector._refresh_token_if_needed()
             assert result is False
             mock_launch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_refresh_token_waits_for_delayed_cli_update(
+        self, connector, monkeypatch
+    ):
+        """Ensure refresh waits for credentials file update instead of failing fast."""
+        connector._oauth_credentials = {
+            "access_token": "old-token",
+            "refresh_token": "refresh-token",
+            "expiry_date": int((time.time() - 120) * 1000),
+        }
+
+        monkeypatch.setattr(connector, "_launch_cli_refresh_process", MagicMock())
+
+        load_calls = 0
+
+        async def fake_load(force_reload: bool = False) -> bool:
+            nonlocal load_calls
+            load_calls += 1
+            if load_calls >= 8:
+                connector._oauth_credentials["expiry_date"] = int(
+                    (time.time() + 3600) * 1000
+                )
+                connector._oauth_credentials["access_token"] = f"new-token-{load_calls}"
+            return True
+
+        connector._load_oauth_credentials = AsyncMock(  # type: ignore[assignment]
+            side_effect=fake_load
+        )
+
+        sleep_calls = 0
+
+        async def fake_sleep(_: float) -> None:
+            nonlocal sleep_calls
+            sleep_calls += 1
+
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        result = await connector._refresh_token_if_needed()
+
+        assert result is True
+        assert sleep_calls >= 7
+        assert connector._oauth_credentials["access_token"].startswith("new-token")
 
     @pytest.mark.asyncio
     async def test_get_headers(self, connector):

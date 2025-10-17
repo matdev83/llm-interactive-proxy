@@ -51,7 +51,8 @@ class TestBackendAutoDiscovery:
                 "anthropic-oauth",
                 "gemini",
                 "gemini-cli-cloud-project",
-                "gemini-cli-oauth-personal",
+                "gemini-oauth-free",
+                "gemini-oauth-plan",
                 "openai",
                 "openai-oauth",
                 "openrouter",
@@ -92,7 +93,7 @@ class TestBackendAutoDiscovery:
         forbidden_patterns = [
             "from .anthropic import",
             "from .openai import",
-            "from .gemini_oauth_personal import",
+            "from .gemini_oauth_plan import",
             "from .openrouter import",
         ]
 
@@ -108,9 +109,14 @@ class TestBackendAutoDiscovery:
         # by simulating the discovery process
 
         connectors_path = Path("src/connectors")
-
         # Get all Python files in connectors directory (excluding utilities)
-        skip_files = ("__init__", "base", "streaming_utils", "gemini_request_counter")
+        skip_files = (
+            "__init__",
+            "base",
+            "streaming_utils",
+            "gemini_request_counter",
+            "gemini_oauth_base",
+        )
         backend_files = [
             f.stem
             for f in connectors_path.glob("*.py")
@@ -189,8 +195,48 @@ class TestBackendRegistryInterface:
         """Test basic backend registration."""
         registry = BackendRegistry()
 
-        def mock_factory():
-            pass
+        from typing import Any
+
+        from src.connectors.base import LLMBackend
+        from src.core.domain.base import DomainModel
+        from src.core.domain.responses import (
+            ResponseEnvelope,
+            StreamingResponseEnvelope,
+        )
+        from src.core.interfaces.configuration import IAppIdentityConfig
+        from src.core.interfaces.model_bases import InternalDTO
+
+        class MockBackend(LLMBackend):
+            async def initialize(self, **kwargs: Any) -> None:
+                pass
+
+            def get_available_models(self) -> list[str]:
+                return ["mock-model"]
+
+            async def chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list[dict[str, Any]],
+                effective_model: str,
+                identity: IAppIdentityConfig | None = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
+                return ResponseEnvelope(content={}, usage={})
+
+            async def stream_chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list[dict[str, Any]],
+                effective_model: str,
+                identity: IAppIdentityConfig | None = None,
+                **kwargs: Any,
+            ):
+                yield {}
+
+        def mock_factory() -> MockBackend:
+            from src.core.config.app_config import AppConfig
+
+            return MockBackend(config=AppConfig())
 
         registry.register_backend("test-backend", mock_factory)
 
@@ -201,8 +247,48 @@ class TestBackendRegistryInterface:
         """Test that registering a duplicate backend logs a warning."""
         registry = BackendRegistry()
 
-        def mock_factory():
-            pass
+        from typing import Any
+
+        from src.connectors.base import LLMBackend
+        from src.core.domain.base import DomainModel
+        from src.core.domain.responses import (
+            ResponseEnvelope,
+            StreamingResponseEnvelope,
+        )
+        from src.core.interfaces.configuration import IAppIdentityConfig
+        from src.core.interfaces.model_bases import InternalDTO
+
+        class MockBackend(LLMBackend):
+            async def initialize(self, **kwargs: Any) -> None:
+                pass
+
+            def get_available_models(self) -> list[str]:
+                return ["mock-model"]
+
+            async def chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list[dict[str, Any]],
+                effective_model: str,
+                identity: IAppIdentityConfig | None = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
+                return ResponseEnvelope(content={}, usage={})
+
+            async def stream_chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list[dict[str, Any]],
+                effective_model: str,
+                identity: IAppIdentityConfig | None = None,
+                **kwargs: Any,
+            ):
+                yield {}
+
+        def mock_factory() -> MockBackend:
+            from src.core.config.app_config import AppConfig
+
+            return MockBackend(config=AppConfig())
 
         registry.register_backend("test-backend", mock_factory)
 
@@ -225,8 +311,48 @@ class TestBackendRegistryInterface:
         """Test that invalid backend name raises error."""
         registry = BackendRegistry()
 
-        def mock_factory():
-            pass
+        from typing import Any
+
+        from src.connectors.base import LLMBackend
+        from src.core.domain.base import DomainModel
+        from src.core.domain.responses import (
+            ResponseEnvelope,
+            StreamingResponseEnvelope,
+        )
+        from src.core.interfaces.configuration import IAppIdentityConfig
+        from src.core.interfaces.model_bases import InternalDTO
+
+        class MockBackend(LLMBackend):
+            async def initialize(self, **kwargs: Any) -> None:
+                pass
+
+            def get_available_models(self) -> list[str]:
+                return ["mock-model"]
+
+            async def chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list[dict[str, Any]],
+                effective_model: str,
+                identity: IAppIdentityConfig | None = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
+                return ResponseEnvelope(content={}, usage={})
+
+            async def stream_chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list[dict[str, Any]],
+                effective_model: str,
+                identity: IAppIdentityConfig | None = None,
+                **kwargs: Any,
+            ):
+                yield {}
+
+        def mock_factory() -> MockBackend:
+            from src.core.config.app_config import AppConfig
+
+            return MockBackend(config=AppConfig())
 
         with pytest.raises(ValueError, match="non-empty string"):
             registry.register_backend("", mock_factory)

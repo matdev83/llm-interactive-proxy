@@ -44,6 +44,9 @@ class WireCapture(IWireCapture):
             getattr(config.logging, "capture_total_max_bytes", 0) or 0
         )
         self._last_rotation_ts: float = time.time()
+        # PERFORMANCE OPTIMIZATION: Cache total size to avoid expensive file scanning on every write
+        self._cached_total_size: int = 0
+        self._size_cache_valid: bool = False
 
         # Ensure directory exists if configured
         if self._file_path:
@@ -179,6 +182,9 @@ class WireCapture(IWireCapture):
         if not self._file_path:
             return
         async with self._lock:
+            # PERFORMANCE OPTIMIZATION: Calculate incoming size once for both size checking and cap enforcement
+            incoming_size = len(text.encode("utf-8"))
+
             # Rotation: if size exceeds max, perform multi-level rotation
             # Also rotate based on elapsed time if configured
             if await self._should_rotate_time_async():
@@ -190,7 +196,6 @@ class WireCapture(IWireCapture):
                         if await asyncio.to_thread(os.path.exists, self._file_path)
                         else 0
                     )
-                    incoming_size = len(text.encode("utf-8"))
                     if current_size + incoming_size > self._max_bytes:
                         await self._perform_rotation_async()
                 except OSError as e:
@@ -204,7 +209,7 @@ class WireCapture(IWireCapture):
                 logger.warning("Wire capture write failed: %s", e, exc_info=True)
                 return
             # Enforce total cap best-effort
-            await self._enforce_total_cap_async()
+            await self._enforce_total_cap_async(incoming_size)
 
     async def _should_rotate_time_async(self) -> bool:
         """Async version of _should_rotate_time using asyncio.to_thread for I/O operations."""
@@ -248,13 +253,60 @@ class WireCapture(IWireCapture):
                 if os.path.exists(self._file_path):
                     os.replace(self._file_path, f"{self._file_path}.1")
             self._last_rotation_ts = time.time()
+            # PERFORMANCE OPTIMIZATION: Invalidate size cache after rotation
+            self._size_cache_valid = False
         except OSError as e:
             # Ignore rotation failures
             logger.warning("Error during wire capture rotation: %s", e)
 
-    async def _enforce_total_cap_async(self) -> None:
-        """Async version of _enforce_total_cap using asyncio.to_thread for I/O operations."""
+    async def _enforce_total_cap_async(self, incoming_size: int = 0) -> None:
+        """Optimized version that uses cached size to avoid expensive file scanning."""
+        if not self._file_path or not self._total_cap or self._total_cap <= 0:
+            return
+
+        # PERFORMANCE OPTIMIZATION: Use cached size and update incrementally
+        # Only recalculate from disk when cache is invalid
+        if not self._size_cache_valid:
+            await asyncio.to_thread(self._recalculate_total_size)
+
+        # Update cached size with incoming data
+        self._cached_total_size += incoming_size
+
+        # Only enforce if we're over the cap
+        if self._cached_total_size <= self._total_cap:
+            return
+
+        # We need to clean up files - use the slow path
         await asyncio.to_thread(self._enforce_total_cap)
+
+    def _recalculate_total_size(self) -> None:
+        """Recalculate total size from disk and update cache."""
+        if not self._file_path:
+            self._cached_total_size = 0
+            self._size_cache_valid = True
+            return
+
+        try:
+            total = 0
+            base = self._file_path
+            if os.path.exists(base):
+                with contextlib.suppress(OSError):
+                    total += os.path.getsize(base)
+
+            # Include rotated files up to some reasonable bound
+            max_scan = max(self._max_files or 0, 10)
+            for i in range(1, max_scan + 1):
+                p = f"{base}.{i}"
+                if os.path.exists(p):
+                    with contextlib.suppress(OSError):
+                        total += os.path.getsize(p)
+
+            self._cached_total_size = total
+            self._size_cache_valid = True
+        except OSError as e:
+            logger.warning("Error recalculating wire capture total size: %s", e)
+            self._cached_total_size = 0
+            self._size_cache_valid = False
 
     def _enforce_total_cap(self) -> None:
         if not self._file_path or not self._total_cap or self._total_cap <= 0:
@@ -274,6 +326,9 @@ class WireCapture(IWireCapture):
                         files.append((p, os.path.getsize(p)))
             total = sum(sz for _, sz in files)
             if total <= self._total_cap:
+                # PERFORMANCE OPTIMIZATION: Update cache with actual total
+                self._cached_total_size = total
+                self._size_cache_valid = True
                 return
             # Remove oldest rotated files first (highest index), then proceed downward
             for i in range(max_scan, 0, -1):
@@ -284,13 +339,20 @@ class WireCapture(IWireCapture):
                         os.remove(p)
                         total -= sz
                     if total <= self._total_cap:
+                        # PERFORMANCE OPTIMIZATION: Update cache after cleanup
+                        self._cached_total_size = total
+                        self._size_cache_valid = True
                         return
             # If still exceeding with only base file left, remove it entirely
             if os.path.exists(base):
                 with contextlib.suppress(OSError):
                     os.remove(base)
+                    self._cached_total_size = 0
+                    self._size_cache_valid = True
         except OSError as e:
             logger.warning("Error enforcing total cap on wire capture logs: %s", e)
+            # Invalidate cache on error
+            self._size_cache_valid = False
 
     @staticmethod
     def _write_to_file(file_path: str, text: str) -> None:

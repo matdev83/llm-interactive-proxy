@@ -1,21 +1,23 @@
+import httpx
 import pytest
-from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
+from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
 
 
-class _MockAsyncClient:
+class _MockAsyncClient(httpx.AsyncClient):
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[tuple[str, str]] = []
 
-    async def get(self, url: str, headers=None, timeout: float | int = 10.0):  # type: ignore[no-untyped-def]
-        self.calls.append(("GET", url))
+    async def get(self, url, headers=None, timeout: float | int = 10.0, **kwargs):  # type: ignore
+        self.calls.append(("GET", str(url)))
 
         class _Resp:
             status_code = 404
 
         return _Resp()
 
-    async def post(self, url: str, headers=None, json=None, timeout: float | int = 10.0):  # type: ignore[no-untyped-def]
-        self.calls.append(("POST", url))
+    async def post(self, url, headers=None, json=None, timeout: float | int = 10.0, **kwargs):  # type: ignore
+        self.calls.append(("POST", str(url)))
 
         class _Resp:
             status_code = 200
@@ -32,7 +34,7 @@ async def test_health_check_uses_load_code_assist_endpoint(
 
     config = AppConfig()
     translation_service = TranslationService()
-    backend = GeminiOAuthPersonalConnector(
+    backend = GeminiOAuthPlanConnector(
         client=_MockAsyncClient(),
         config=config,
         translation_service=translation_service,

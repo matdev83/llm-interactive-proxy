@@ -77,6 +77,7 @@ class BackendError(LLMProxyError):
     ):
         # let adapters map to 502 by default unless overridden
         status_code = kwargs.pop("status_code", 502)
+        self.code: str | None = kwargs.get("code")
         super().__init__(message, details, status_code=status_code, **kwargs)
         self.backend_name = backend_name
 

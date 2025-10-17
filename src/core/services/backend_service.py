@@ -3,8 +3,11 @@ from __future__ import annotations
 import inspect
 import logging
 import re
+import time
 from collections import OrderedDict
 from typing import Any, cast
+
+from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
@@ -208,7 +211,8 @@ class BackendService(IBackendService):
                 if match:
                     # Use match.expand to honor capture groups regardless of match span
                     new_model = match.expand(replacement)
-                    logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
                     return new_model
             except (re.error, AttributeError, TypeError) as e:
                 logger.warning(
@@ -248,6 +252,70 @@ class BackendService(IBackendService):
                     yield str(content).encode("utf-8")
 
         return _adapter()
+
+    def _normalize_provider_exception(
+        self, exc: Exception, backend_type: str
+    ) -> Exception:
+        """Translate provider exceptions into domain-specific errors when possible."""
+        if isinstance(exc, BackendError | RateLimitExceededError):
+            return exc
+
+        if isinstance(exc, HTTPException) and getattr(exc, "status_code", None) == 429:
+            detail_payload = getattr(exc, "detail", None)
+            message: str | None = None
+
+            if isinstance(detail_payload, dict):
+                message = detail_payload.get("message")
+                if not message:
+                    error_block = detail_payload.get("error")
+                    if isinstance(error_block, dict):
+                        message = error_block.get("message")
+            if not message and detail_payload is not None:
+                message = str(detail_payload)
+            if not message:
+                message = "Rate limit exceeded"
+
+            headers = getattr(exc, "headers", None)
+            retry_after_seconds: float | None = None
+            if isinstance(headers, dict):
+                retry_after_raw = headers.get("Retry-After") or headers.get(
+                    "retry-after"
+                )
+                if retry_after_raw is not None:
+                    try:
+                        retry_after_seconds = float(retry_after_raw)
+                    except (TypeError, ValueError):
+                        retry_after_seconds = None
+
+            reset_at = (
+                time.time() + retry_after_seconds
+                if isinstance(retry_after_seconds, int | float)
+                else None
+            )
+
+            if isinstance(
+                detail_payload,
+                dict | list | tuple | str | int | float | bool | type(None),
+            ):
+                serialized_detail = detail_payload
+            else:
+                serialized_detail = str(detail_payload)
+
+            details: dict[str, Any] = {
+                "backend": backend_type,
+                "status_code": 429,
+                "detail": serialized_detail,
+            }
+            if isinstance(headers, dict) and headers:
+                details["headers"] = dict(headers)
+
+            return RateLimitExceededError(
+                message=message,
+                details=details,
+                reset_at=reset_at,
+            )
+
+        return exc
 
     def _apply_reasoning_config(
         self, request: ChatRequest, session: Any
@@ -775,12 +843,13 @@ class BackendService(IBackendService):
             except (
                 Exception
             ) as call_exc:  # Catch all exceptions for comprehensive logging
+                call_exc = self._normalize_provider_exception(call_exc, backend_type)
                 # If the exception is already a BackendError or RateLimitExceededError,
                 # treat it specially; otherwise wrap or re-raise depending on allow_failover.
                 if isinstance(call_exc, BackendError | RateLimitExceededError):
                     if not allow_failover:
                         # Re-raise the original domain-specific exception
-                        raise  # Re-raise the original exception
+                        raise call_exc
                     last_error = call_exc
                 else:
                     if not allow_failover:
@@ -1068,9 +1137,11 @@ class BackendService(IBackendService):
             )
 
             if new_turn_count != turn_count or new_file_write_count != file_write_count:
-                new_state = session.state.with_planning_phase_turn_count(
-                    new_turn_count
-                ).with_planning_phase_file_write_count(new_file_write_count)
+                # Performance optimization: use single model_copy instead of chaining
+                new_state = session.state.with_multiple_updates(
+                    planning_phase_turn_count=new_turn_count,
+                    planning_phase_file_write_count=new_file_write_count,
+                )
 
                 session.update_state(new_state)
                 await self._session_service.update_session(session)
@@ -1132,9 +1203,12 @@ class BackendService(IBackendService):
             interactive_mode=current_config.interactive_mode,
         )
 
-        new_state = session.state.with_backend_config(
-            cast(IBackendConfig, restored_config)
-        ).with_planning_phase_original_route(None, None)
+        # Performance optimization: use single model_copy instead of chaining
+        new_state = session.state.with_multiple_updates(
+            backend_config=cast(IBackendConfig, restored_config),
+            planning_phase_original_backend=None,
+            planning_phase_original_model=None,
+        )
 
         session.update_state(new_state)
         await self._session_service.update_session(session)
@@ -1310,7 +1384,8 @@ class BackendService(IBackendService):
         context: RequestContext | None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute complex failover strategy for models with configured routes"""
-        logger.info(f"Using complex failover policy for model {effective_model}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Using complex failover policy for model {effective_model}")
         try:
             from src.core.domain.configuration.backend_config import (
                 BackendConfiguration,
@@ -1487,6 +1562,12 @@ class BackendService(IBackendService):
                     allow_failover=False,
                     context=context,
                 )
+
+        normalized_last_error = self._normalize_provider_exception(
+            last_error, backend_type
+        )
+        if isinstance(normalized_last_error, RateLimitExceededError | BackendError):
+            raise normalized_last_error
 
         # If no failover options available, raise the original error
         raise BackendError(

@@ -197,13 +197,68 @@ class ToolCallReactorService(IToolCallReactor):
 
         This method handles both size-based truncation and recursion error protection
         to prevent security handlers from being bypassed by problematic payloads.
+
+        PERFORMANCE OPTIMIZATION: Avoids expensive deepcopy operations by using
+        early size-based checks and safer JSON serialization for most cases.
         """
         if arguments is None:
             return None
 
-        # First handle recursion errors - this is a security-critical check
+        # FAST PATH: Handle simple, safe types without any copying
+        if isinstance(arguments, int | float | bool | str):
+            if isinstance(arguments, str):
+                encoded = arguments.encode("utf-8", errors="ignore")
+                if len(encoded) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
+                    return arguments
+                # Truncate string early without copying
+                truncated = encoded[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
+                return {
+                    "__truncated__": True,
+                    "preview": truncated.decode("utf-8", errors="ignore"),
+                    "omitted_bytes": len(encoded) - len(truncated),
+                }
+            return arguments
+
+        if isinstance(arguments, bytes | bytearray):
+            buffer = bytes(arguments)
+            if len(buffer) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
+                return buffer.decode("utf-8", errors="ignore")
+            # Truncate bytes early without copying
+            truncated = buffer[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
+            return {
+                "__truncated__": True,
+                "preview": truncated.decode("utf-8", errors="ignore"),
+                "omitted_bytes": len(buffer) - len(truncated),
+            }
+
+        # MEDIUM PATH: Try JSON serialization first (faster than deepcopy for most data)
         try:
-            # Try deep copy first to catch recursion errors early
+            # Use standard JSON serialization for consistency with original behavior
+            serialized = json.dumps(arguments, ensure_ascii=False)
+            encoded = serialized.encode("utf-8", errors="ignore")
+
+            if len(encoded) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
+                # Parse back to get a safe copy without deep recursion
+                try:
+                    return json.loads(serialized)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    # If parsing fails, return the serialized string
+                    return serialized
+            else:
+                # Truncate the JSON string early
+                truncated = encoded[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
+                return {
+                    "__truncated__": True,
+                    "preview": truncated.decode("utf-8", errors="ignore"),
+                    "omitted_bytes": len(encoded) - len(truncated),
+                }
+        except (TypeError, ValueError, RecursionError):
+            # JSON serialization failed, could be due to non-serializable objects or recursion
+            pass
+
+        # SLOW PATH: Fall back to deepcopy only when absolutely necessary
+        # This path is only taken for complex objects that can't be JSON serialized
+        try:
             deep_copied = copy.deepcopy(arguments)
         except RecursionError:
             logger.warning(
@@ -226,29 +281,7 @@ class ToolCallReactorService(IToolCallReactor):
                 cls._SNAPSHOT_REASON_KEY: cls._SNAPSHOT_REASON_ERROR,
             }
 
-        # Now handle size-based truncation on the safely copied data
-        if isinstance(deep_copied, str):
-            encoded = deep_copied.encode("utf-8", errors="ignore")
-            if len(encoded) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
-                return deep_copied
-            truncated = encoded[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
-            return {
-                "__truncated__": True,
-                "preview": truncated.decode("utf-8", errors="ignore"),
-                "omitted_bytes": len(encoded) - len(truncated),
-            }
-
-        if isinstance(deep_copied, bytes | bytearray):
-            buffer = bytes(deep_copied)
-            if len(buffer) <= cls._MAX_ARGUMENT_SNAPSHOT_BYTES:
-                return buffer.decode("utf-8", errors="ignore")
-            truncated = buffer[: cls._MAX_ARGUMENT_SNAPSHOT_BYTES]
-            return {
-                "__truncated__": True,
-                "preview": truncated.decode("utf-8", errors="ignore"),
-                "omitted_bytes": len(buffer) - len(truncated),
-            }
-
+        # Handle the deep copied data with size limits
         try:
             serialized = json.dumps(deep_copied, ensure_ascii=False)
         except (TypeError, ValueError):

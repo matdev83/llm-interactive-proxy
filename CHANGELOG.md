@@ -1,5 +1,14 @@
 # Changelog
 
+# 2025-10-17 - Gemini OAuth Backend Refactoring
+
+- **Refactor**: Split `gemini-oauth-personal` backend into two specialized backends for different use cases
+  - **New Backend**: `gemini-oauth-free` for free-tier Gemini API usage with appropriate quotas and limits
+  - **New Backend**: `gemini-oauth-plan` for paid Gemini API usage with enterprise features and higher quotas
+  - **Improved Separation**: Clear distinction between free and paid tiers eliminates confusion about feature availability
+  - **Migration**: Existing configurations automatically redirect to appropriate backend based on authentication type
+  - **Testing**: Comprehensive test suites created for both new backends with full coverage of OAuth flows and API interactions
+
 # 2025-10-16 - Command Pipeline Policy & Regression Coverage
 
 - **Dependency Injection**: Command services now require explicit `ICommandPolicyService`
@@ -268,7 +277,7 @@
 
 ## 2025-10-02 – Gemini Personal OAuth Auto-Refresh
 
-- **Startup Validation**: The `gemini-cli-oauth-personal` backend now confirms the stored OAuth token is still valid during initialization, failing fast when credentials are stale instead of deferring to the first request.
+- **Startup Validation**: The `gemini-oauth-plan` and `gemini-oauth-free` backends now confirm the stored OAuth token is still valid during initialization, failing fast when credentials are stale instead of deferring to the first request.
 - **Live Credential Watching**: Introduced a filesystem watcher for the Gemini CLI `oauth_creds.json` file so refreshed tokens are loaded into memory immediately without restarting the proxy.
 - **Proactive Refresh Flow**: Every request now checks remaining token lifetime; when the token is expired or inside a two-minute window the proxy launches the Gemini CLI refresh command in the background and polls for the updated token, eliminating manual intervention after Google's expiry change.
 
@@ -350,7 +359,7 @@
 ## 2025-09-11 – Enhanced Authentication Reliability with Stale Token Handling
 
 - **Major Enhancement**: Implemented comprehensive stale authentication token handling pattern across all file-backed OAuth backends
-  - **Affected Backends**: `gemini-cli-cloud-project`, `gemini-cli-oauth-personal`, `anthropic-oauth`, and `openai-oauth`
+  - **Affected Backends**: `gemini-cli-cloud-project`, `gemini-oauth-plan`, `gemini-oauth-free`, `anthropic-oauth`, and `openai-oauth`
   - **Startup Validation**: Enhanced initialization with fail-fast validation pipeline
     - File existence and readability checks
     - JSON structure validation
@@ -571,7 +580,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
 
 ## 2025-08-26 – Gemini CLI OAuth Personal Backend
 
-- **New Feature**: Added `gemini-cli-oauth-personal` backend for seamless integration with Google's Gemini API using OAuth 2.0 credentials
+- **New Feature**: Added `gemini-oauth-plan` and `gemini-oauth-free` backends for seamless integration with Google's Gemini API using OAuth 2.0 credentials
   - **OAuth Integration**: Reads OAuth credentials from `~/.gemini/oauth_creds.json` (created by Gemini CLI tool)
   - **Automatic Token Refresh**: Handles OAuth token expiration automatically using Google's token refresh endpoint
   - **Health Checks**: Performs lightweight connectivity and authentication validation on first use
@@ -579,7 +588,7 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - **Error Handling**: Comprehensive error handling for authentication failures, connectivity issues, and token refresh problems
   - **Testing**: Complete test suite with 28 tests covering all functionality including health checks, token refresh, and error scenarios
   - **Configuration**: Simple backend configuration requiring only `gemini_api_base_url` parameter
-  - **Usage**: Supports all standard proxy features including interactive commands (`!/backend(gemini-cli-oauth-personal)`, `!/oneoff(gemini-cli-oauth-personal:gemini-pro)`)
+  - **Usage**: Supports all standard proxy features including interactive commands (`!/backend(gemini-oauth-plan)`, `!/oneoff(gemini-oauth-plan:gemini-pro)`, `!/backend(gemini-oauth-free)`, `!/oneoff(gemini-oauth-free:gemini-pro)`)
 
 ## 2025-08-24 – Tool Call Repair and Streaming Safeguards
 

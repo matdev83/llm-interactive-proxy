@@ -12,6 +12,7 @@ This module provides a wire capture service that:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ import time
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.config.app_config import AppConfig
@@ -102,15 +103,27 @@ class BufferedWireCapture(IWireCapture):
     def __del__(self) -> None:
         """Cleanup resources when the instance is destroyed."""
         if self._flush_task and not self._flush_task.done():
-            # This is not a reliable mechanism, but it's a good indicator of a lifecycle issue.
-            # The logger may or may not be available at this point.
-            import contextlib
+            import logging
 
-            with contextlib.suppress(Exception):
-                logger.warning(
-                    "BufferedWireCapture was garbage collected without being shut down. "
-                    "Call shutdown() to ensure data is flushed and tasks are cleaned up."
-                )
+            def _can_write(handler: logging.Handler) -> bool:
+                stream = getattr(handler, "stream", None)
+                return stream is None or not getattr(stream, "closed", False)
+
+            def _safe_to_log() -> bool:
+                try:
+                    handlers = set(logger.handlers)
+                    root = logging.getLogger()
+                    handlers.update(root.handlers)
+                    return all(_can_write(h) for h in handlers)
+                except Exception:
+                    return False
+
+            if _safe_to_log():
+                with contextlib.suppress(Exception):
+                    logger.warning(
+                        "BufferedWireCapture was garbage collected without being shut down. "
+                        "Call shutdown() to ensure data is flushed and tasks are cleaned up."
+                    )
         self.force_shutdown_sync()
 
     def _initialize(self) -> None:
@@ -576,5 +589,13 @@ class BufferedWireCapture(IWireCapture):
 
         self._enabled = False
 
-        # Do not attempt to cancel tasks or flush buffers here, as it's not safe
-        # from a __del__ context, especially during interpreter shutdown.
+        # Best-effort cancellation of the background task without awaiting.
+        if self._flush_task and not self._flush_task.done():
+            with contextlib.suppress(Exception):
+                task = self._flush_task
+                if hasattr(task, "_log_destroy_pending"):
+                    cast(Any, task)._log_destroy_pending = False
+                loop = task.get_loop()
+                if not loop.is_closed():
+                    task.cancel()
+        self._flush_task = None

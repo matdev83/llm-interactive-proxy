@@ -50,14 +50,14 @@ class TestModelNameRewrites:
             model_aliases=[
                 ModelAliasRule(
                     pattern="^claude-3-sonnet-20240229$",
-                    replacement="gemini-cli-oauth-personal:gemini-1.5-flash",
+                    replacement="gemini-oauth-plan:gemini-1.5-flash",
                 ),
                 ModelAliasRule(
                     pattern="^gpt-(.*)", replacement="openrouter:openai/gpt-\\1"
                 ),
                 ModelAliasRule(
                     pattern="^(.*)$",
-                    replacement="gemini-cli-oauth-personal:gemini-1.5-pro",
+                    replacement="gemini-oauth-plan:gemini-1.5-pro",
                 ),
             ],
         )
@@ -112,7 +112,7 @@ class TestModelNameRewrites:
         # for a static replacement, the model name MUST be rewritten to the
         # corresponding replacement value.
         original_model = "claude-3-sonnet-20240229"
-        expected_model = "gemini-cli-oauth-personal:gemini-1.5-flash"
+        expected_model = "gemini-oauth-plan:gemini-1.5-flash"
 
         result = backend_service_with_aliases._apply_model_aliases(original_model)
         assert result == expected_model

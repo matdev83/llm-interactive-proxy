@@ -126,7 +126,8 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | Claude models via Messages API |
 | `anthropic-oauth` | Anthropic (OAuth) | Local OAuth token | Claude via OAuth credential flow |
 | `gemini` | Google Gemini | `GEMINI_API_KEY` | Metered API key |
-| `gemini-cli-oauth-personal` | Google Gemini (CLI) | OAuth (no key) | Free-tier personal OAuth like the Gemini CLI |
+| `gemini-oauth-plan` | Google Gemini (CLI) | OAuth (no key) | Users with active Google One (or future equivalent) subscription |
+| `gemini-oauth-free` | Google Gemini (CLI) | OAuth (no key) | Users with no active Google One (or future equivalent) subscription, allowing them to leverage free tier provided by google |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + `GOOGLE_CLOUD_PROJECT` (+ ADC) | Bills to your GCP project |
 | `gemini-cli-acp` | Google Gemini (CLI Agent) | OAuth (no key) | Uses gemini-cli as an agent via Agent Control Protocol (ACP) |
 | `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | Access to many hosted models |
@@ -141,12 +142,16 @@ Choose the Gemini integration that fits your environment.
 | Backend | Authentication | Cost | Best for |
 | - | - | - | - |
 | `gemini` | API key (`GEMINI_API_KEY`) | Metered (pay-per-use) | Production apps, high-volume usage |
-| `gemini-cli-oauth-personal` | OAuth (no API key) | Free tier with limits | Local development, testing, personal use |
+| `gemini-oauth-plan` | OAuth (no API key) | Google One subscription plan for individuals | Users with active Google One (or future equivalent) subscription |
+| `gemini-oauth-free` | OAuth (no API key) | Free tier with limits | Users with no active Google One (or future equivalent) subscription |
 | `gemini-cli-cloud-project` | OAuth + `GOOGLE_CLOUD_PROJECT` (ADC/service account) | Billed to your GCP project | Enterprise, team workflows, central billing |
 | `gemini-cli-acp` | OAuth (no API key) | Free tier with limits | AI agent workflows, project-aware coding tasks |
 
 Notes
 
+- `gemini-oauth-plan` is for users with an active Google One (or future equivalent) subscription tied to their personal account with oauth-based authentication.
+- `gemini-oauth-free` is for users with no active Google One (or future equivalent) subscription, allowing them to leverage the free tier provided by Google to all personal accounts.
+- For corporate accounts, the `gemini-cli-cloud-project` backend should be used.
 - Personal OAuth uses credentials from the local Google CLI/Code Assist-style flow and does not require a `GEMINI_API_KEY`.
 - The proxy now validates personal OAuth tokens on startup, watches the `oauth_creds.json` file for changes, and triggers the Gemini CLI in the background when tokens are close to expiring--no manual restarts required.
 - Cloud Project requires `GOOGLE_CLOUD_PROJECT` and Application Default Credentials (or a service account file).
@@ -161,14 +166,14 @@ export GEMINI_API_KEY="AIza..."
 python -m src.core.cli --default-backend gemini
 ```
 
-For `gemini-cli-oauth-personal` (free personal OAuth)
+For `gemini-oauth-free` (free personal OAuth)
 
 ```bash
 # Install and authenticate with the Google Gemini CLI (one-time):
 gemini auth
 
 # Then start the proxy using the personal OAuth backend
-python -m src.core.cli --default-backend gemini-cli-oauth-personal
+python -m src.core.cli --default-backend gemini-oauth-free
 ```
 
 For `gemini-cli-cloud-project` (GCP-billed)
@@ -539,7 +544,7 @@ Model aliases can be configured through three sources with the following precede
 # Multiple aliases
 --model-alias "^gpt-(.*)=openrouter:openai/gpt-\1" \
 --model-alias "^claude-(.*)=anthropic:claude-\1" \
---model-alias "^(.*)=gemini-cli-oauth-personal:gemini-1.5-pro"
+--model-alias "^(.*)=gemini-oauth-plan:gemini-1.5-pro"
 ```
 
 **2. Environment Variables (Medium Precedence)**
@@ -547,7 +552,7 @@ Model aliases can be configured through three sources with the following precede
 export MODEL_ALIASES='[
   {"pattern": "^gpt-(.*)", "replacement": "openrouter:openai/gpt-\\1"},
   {"pattern": "^claude-(.*)", "replacement": "anthropic:claude-\\1"},
-  {"pattern": "^(.*)$", "replacement": "gemini-cli-oauth-personal:gemini-1.5-pro"}
+  {"pattern": "^(.*)$", "replacement": "gemini-oauth-plan:gemini-1.5-pro"}
 ]'
 ```
 
@@ -556,7 +561,7 @@ export MODEL_ALIASES='[
 model_aliases:
   # Static replacement for specific model
   - pattern: "^claude-3-sonnet-20240229$"
-    replacement: "gemini-cli-oauth-personal:gemini-1.5-flash"
+    replacement: "gemini-oauth-plan:gemini-1.5-flash"
   
   # Dynamic replacement with capture groups
   - pattern: "^gpt-(.*)"
@@ -564,7 +569,7 @@ model_aliases:
   
   # Catch-all fallback for any other model
   - pattern: "^(.*)$"
-    replacement: "gemini-cli-oauth-personal:gemini-1.5-pro"
+    replacement: "gemini-oauth-plan:gemini-1.5-pro"
 ```
 
 ### Rule Processing
@@ -587,7 +592,7 @@ model_aliases:
 ```yaml
 model_aliases:
   - pattern: "^gpt-4o$"
-    replacement: "gemini-cli-oauth-personal:gemini-1.5-pro"
+    replacement: "gemini-oauth-plan:gemini-1.5-pro"
   - pattern: "^claude-3-opus.*"
     replacement: "anthropic:claude-3-sonnet-20240229"
 ```
@@ -596,7 +601,7 @@ model_aliases:
 ```bash
 # Development environment - use free models
 export MODEL_ALIASES='[
-  {"pattern": "^.*$", "replacement": "gemini-cli-oauth-personal:gemini-1.5-flash"}
+  {"pattern": "^.*$", "replacement": "gemini-oauth-plan:gemini-1.5-flash"}
 ]'
 
 # Production environment - use premium models
@@ -941,7 +946,7 @@ Then launch `claude`. You can switch models during a session:
 
 ### Gemini options
 
-- Metered API key (`gemini`), free personal OAuth (`gemini-cli-oauth-personal`), GCP-billed (`gemini-cli-cloud-project`), or agent mode (`gemini-cli-acp`). Pick one and set the required env vars.
+- Metered API key (`gemini`), free personal OAuth (`gemini-oauth-free`), paid personal OAuth (`gemini-oauth-plan`), GCP-billed (`gemini-cli-cloud-project`), or agent mode (`gemini-cli-acp`). Pick one and set the required env vars.
 
 ### Gemini CLI Agent with ACP
 
@@ -982,19 +987,19 @@ Use `--force-model` to override whatever model the client requests, useful for:
 
 - Testing a specific model with any client/agent without modifying client code
 - Enforcing a particular model across different sessions
-- Routing free-tier OAuth backends (e.g., `gemini-cli-oauth-personal`) to specific models
+- Routing free-tier OAuth backends (e.g., `gemini-oauth-free`) to specific models
 
 Example:
 
 ```bash
 python -m src.core.cli \
-  --default-backend gemini-cli-oauth-personal \
+  --default-backend gemini-oauth-plan \
   --force-model gemini-2.5-pro \
   --disable-auth \
   --port 8000
 ```
 
-Now any client requesting `gpt-4`, `claude-3-opus`, or any other model will actually use `gemini-2.5-pro` on the gemini-cli-oauth-personal backend.
+Now any client requesting `gpt-4`, `claude-3-opus`, or any other model will actually use `gemini-2.5-pro` on the gemini-oauth-plan backend.
 
 ### Override context window size for all models
 

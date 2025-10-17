@@ -167,6 +167,20 @@ class SessionState(ValueObject):
             }
         )
 
+    def with_multiple_updates(self, **updates: Any) -> SessionState:
+        """Create a new session state with multiple field updates in a single model_copy operation.
+
+        This is a performance optimization to avoid chaining multiple with_* methods,
+        which would create multiple intermediate copies.
+
+        Args:
+            **updates: Field names and values to update
+
+        Returns:
+            New SessionState with all updates applied
+        """
+        return self.model_copy(update=updates)
+
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):
     """Adapter that makes SessionState implement ISessionState interface."""
@@ -469,6 +483,14 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(SessionState, self._state).with_planning_phase_original_route(
             backend, model
         )
+        return SessionStateAdapter(new_state)
+
+    def with_multiple_updates(self, **updates: Any) -> ISessionState:
+        """Create a new session state with multiple field updates in a single model_copy operation.
+
+        This is a performance optimization to avoid chaining multiple with_* methods.
+        """
+        new_state = cast(SessionState, self._state).with_multiple_updates(**updates)
         return SessionStateAdapter(new_state)
 
     # Mutable convenience methods expected by legacy tests

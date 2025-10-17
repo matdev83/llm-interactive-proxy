@@ -41,7 +41,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that set command blocks backend changes when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
@@ -59,7 +59,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that set command blocks model changes when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
@@ -77,7 +77,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that set command blocks both backend and model changes when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
@@ -98,7 +98,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that set command allows non-backend/model parameters when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         handler = SetCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
@@ -133,7 +133,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that model command blocks model changes when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         handler = ModelCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
@@ -151,7 +151,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that model command blocks backend:model changes when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         handler = ModelCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
@@ -187,7 +187,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that model command allows unsetting model when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         handler = ModelCommandHandler(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())
@@ -204,7 +204,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that domain-level set command blocks backend/model when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         # Create mock state services
         state_reader = MagicMock()
@@ -233,7 +233,7 @@ class TestStaticRouteBlocking:
     ):
         """Test that domain-level model command blocks model changes when static route is enabled."""
         # Enable static routing
-        os.environ["STATIC_ROUTE"] = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        os.environ["STATIC_ROUTE"] = "gemini-oauth-plan:gemini-2.5-pro"
 
         command = ModelCommand(policy_service=policy_service)
         session = Session(session_id="test", state=SessionState())

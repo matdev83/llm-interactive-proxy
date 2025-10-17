@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `gemini-cli-oauth-personal` and `gemini-cloud-project` backends use the Gemini **Code Assist API** (`/v1internal:streamGenerateContent`), which supports a comprehensive set of generation parameters.
+The `gemini-oauth-plan`, `gemini-oauth-free` and `gemini-cloud-project` backends use the Gemini **Code Assist API** (`/v1internal:streamGenerateContent`), which supports a comprehensive set of generation parameters.
 
 ## [OK] Supported Parameters
 
@@ -80,8 +80,8 @@ You can set a global thinking budget for **all requests** using the `--thinking-
 ./.venv/Scripts/python.exe -m src.core.cli \
   --host 127.0.0.1 --port 8000 \
   --disable-auth \
-  --default-backend gemini-cli-oauth-personal \
-  --static-route gemini-cli-oauth-personal:gemini-2.5-pro \
+  --default-backend gemini-oauth-plan \
+  --static-route gemini-oauth-plan:gemini-2.5-pro \
   --thinking-budget 32768
 ```
 
@@ -250,4 +250,4 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ## Summary
 
-**Yes, you can set custom model parameters including temperature, reasoning tokens (via `thinkingConfig`), and many other advanced parameters when using the `gemini-cli-oauth-personal` and `gemini-cloud-project` backends. The parameters are automatically translated from OpenAI/Anthropic format and passed through to the Code Assist API.**
+**Yes, you can set custom model parameters including temperature, reasoning tokens (via `thinkingConfig`), and many other advanced parameters when using the `gemini-oauth-plan`, `gemini-oauth-free` and `gemini-cloud-project` backends. The parameters are automatically translated from OpenAI/Anthropic format and passed through to the Code Assist API.**

@@ -47,6 +47,7 @@ import contextlib
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -203,9 +204,7 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Credentials file modified: {event.src_path}")
             # Schedule credential reload in the connector's event loop
-            task = asyncio.create_task(self.connector._handle_credentials_file_change())
-            # Store reference to prevent task from being garbage collected
-            self.connector._pending_reload_task = task
+            self.connector._schedule_credentials_reload()
 
 
 class GeminiCloudProjectConnector(GeminiBackend):
@@ -239,7 +238,10 @@ class GeminiCloudProjectConnector(GeminiBackend):
         self._credential_validation_errors: list[str] = []
         self._initialization_failed = False
         self._last_validation_time = 0.0
-        self._pending_reload_task: asyncio.Task | None = None
+        self._pending_reload_task: asyncio.Future[Any] | None = None
+        self._reload_task_lock = threading.Lock()
+        self._reload_scheduling_in_progress = False
+        self._main_loop: asyncio.AbstractEventLoop | None = None
 
         # GCP Project ID is REQUIRED for this backend (CLI uses GOOGLE_CLOUD_PROJECT)
         self.gcp_project_id = (
@@ -424,6 +426,95 @@ class GeminiCloudProjectConnector(GeminiBackend):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Failed to start file watching: {e}")
 
+    def _schedule_credentials_reload(self) -> None:
+        """Schedule an asynchronous reload when the credentials file changes."""
+        with self._reload_task_lock:
+            if (
+                self._pending_reload_task is not None
+                and not self._pending_reload_task.done()
+            ):
+                return
+            if self._reload_scheduling_in_progress:
+                return
+            self._reload_scheduling_in_progress = True
+
+        async def reload_task() -> None:
+            await self._handle_credentials_file_change()
+
+        loop = self._main_loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            self._main_loop = loop
+
+        if loop is None:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Cannot schedule credentials reload: no running event loop available."
+                )
+            with self._reload_task_lock:
+                self._reload_scheduling_in_progress = False
+            return
+
+        if loop.is_closed():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping credentials reload scheduling: event loop is closed. Stopping file watcher."
+                )
+            self._stop_file_watching()
+            self._main_loop = None
+            with self._reload_task_lock:
+                self._pending_reload_task = None
+                self._reload_scheduling_in_progress = False
+            return
+
+        def _clear(_: asyncio.Future[Any]) -> None:
+            with self._reload_task_lock:
+                self._pending_reload_task = None
+                self._reload_scheduling_in_progress = False
+
+        def _assign_task(task: asyncio.Future[None]) -> None:
+            task.add_done_callback(_clear)
+            with self._reload_task_lock:
+                self._pending_reload_task = task
+                self._reload_scheduling_in_progress = False
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is loop:
+            task = loop.create_task(reload_task())
+            _assign_task(task)
+            return
+
+        def schedule_task() -> None:
+            try:
+                task = loop.create_task(reload_task())
+                _assign_task(task)
+            except Exception as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to schedule credentials reload: %s", exc)
+                with self._reload_task_lock:
+                    self._reload_scheduling_in_progress = False
+
+        try:
+            loop.call_soon_threadsafe(schedule_task)
+        except RuntimeError as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Event loop unavailable for credentials reload scheduling: %s",
+                    exc,
+                )
+            self._stop_file_watching()
+            self._main_loop = None
+            with self._reload_task_lock:
+                self._pending_reload_task = None
+                self._reload_scheduling_in_progress = False
+
     def _stop_file_watching(self) -> None:
         """Stop watching the credentials file."""
         observer = self._file_observer
@@ -507,7 +598,9 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 )
             return False
 
-        return self.is_backend_functional()
+        if not self.is_backend_functional():
+            self._recover()
+        return True
 
     def _get_adc_authorized_session(
         self,
@@ -585,11 +678,25 @@ class GeminiCloudProjectConnector(GeminiBackend):
 
     async def _refresh_token_if_needed(self) -> bool:
         """Refresh the access token if it's expired or close to expiring."""
+        if not self._oauth_credentials:
+            await self._load_oauth_credentials()
+
         if not self._is_token_expired():
+            if not self.is_backend_functional():
+                self._recover()
             return True
 
         async with self._token_refresh_lock:
+            if not self._oauth_credentials:
+                loaded = await self._load_oauth_credentials()
+                if not loaded or not self._oauth_credentials:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning("No OAuth credentials available for refresh.")
+                    return False
+
             if not self._is_token_expired():
+                if not self.is_backend_functional():
+                    self._recover()
                 return True
 
             if logger.isEnabledFor(logging.INFO):
@@ -597,23 +704,20 @@ class GeminiCloudProjectConnector(GeminiBackend):
                     "Access token expired or near expiry, attempting to refresh..."
                 )
 
-            if not self._oauth_credentials:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("No OAuth credentials available for refresh.")
-                return False
-
             try:
                 creds_dict = dict(self._oauth_credentials)
                 if "expiry_date" in creds_dict:
                     creds_dict["expiry"] = creds_dict.pop("expiry_date") / 1000
 
+                client_id, client_secret, scopes = _load_gemini_oauth_client_config()
+
                 credentials = google.oauth2.credentials.Credentials(
                     token=creds_dict.get("access_token"),
                     refresh_token=creds_dict.get("refresh_token"),
                     token_uri="https://oauth2.googleapis.com/token",
-                    client_id=_load_gemini_oauth_client_config()[0],
-                    client_secret=_load_gemini_oauth_client_config()[1],
-                    scopes=_load_gemini_oauth_client_config()[2],
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    scopes=scopes,
                 )
 
                 request = google.auth.transport.requests.Request()
@@ -637,6 +741,8 @@ class GeminiCloudProjectConnector(GeminiBackend):
                     logger.info(
                         "Successfully refreshed OAuth token for GCP project access."
                     )
+                if not self.is_backend_functional():
+                    self._recover()
                 return True
 
             except RefreshError as e:
@@ -726,6 +832,11 @@ class GeminiCloudProjectConnector(GeminiBackend):
             logger.info(
                 f"Initializing Gemini Cloud Project backend with enhanced validation for project: {self.gcp_project_id}"
             )
+
+        try:
+            self._main_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._main_loop = None
 
         # Ensure we have a project ID
         if not self.gcp_project_id:
@@ -982,6 +1093,13 @@ class GeminiCloudProjectConnector(GeminiBackend):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using Google Code Assist API with user's GCP project."""
         # Runtime validation with descriptive errors
+        if not await self._refresh_token_if_needed():
+            self._degrade(["Failed to refresh expired token"])
+            raise HTTPException(
+                status_code=502,
+                detail=f"No valid credentials found for backend {self.name}: Failed to refresh expired token",
+            )
+
         if not await self._validate_runtime_credentials():
             details = (
                 "; ".join(self._credential_validation_errors)
@@ -990,12 +1108,6 @@ class GeminiCloudProjectConnector(GeminiBackend):
             raise HTTPException(
                 status_code=502,
                 detail=f"No valid credentials found for backend {self.name}: {details}",
-            )
-
-        if not await self._refresh_token_if_needed():
-            raise HTTPException(
-                status_code=502,
-                detail=f"No valid credentials found for backend {self.name}: Failed to refresh expired token",
             )
 
         await self._ensure_healthy()

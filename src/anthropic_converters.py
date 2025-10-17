@@ -21,7 +21,8 @@ def anthropic_to_openai_request(
     return a plain dictionary - not a ``ChatCompletionRequest`` object.
     """
 
-    logger.debug("Converting Anthropic to OpenAI request: %r", anthropic_request)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Converting Anthropic to OpenAI request: %r", anthropic_request)
 
     messages: list[dict[str, Any]] = []
 
@@ -143,13 +144,15 @@ def anthropic_to_openai_request(
         result["tool_choice"] = _convert_anthropic_tool_choice(
             anthropic_request.tool_choice
         )
-    logger.debug("Converted Anthropic to OpenAI request: %r", result)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Converted Anthropic to OpenAI request: %r", result)
     return result
 
 
 def openai_to_anthropic_response(openai_response: Any) -> dict[str, Any]:
     """Convert an OpenAI chat completion response into Anthropic format."""
-    logger.debug("Converting OpenAI to Anthropic response: %r", openai_response)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Converting OpenAI to Anthropic response: %r", openai_response)
     oai_dict = _normalize_openai_response_to_dict(openai_response)
     # Defensive: handle empty or missing choices gracefully
     choices = oai_dict.get("choices") or []
@@ -437,7 +440,8 @@ async def openai_stream_to_anthropic_stream(
             logger.debug("Received [DONE] marker.")
             if active_tool_call_index != -1:
                 stop_block = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
-                logger.debug(f"YIELDING content_block_stop: {stop_block!r}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"YIELDING content_block_stop: {stop_block!r}")
                 events.append(stop_block)
                 active_tool_call_index = -1
             if not finish_reason_sent:
@@ -454,7 +458,8 @@ async def openai_stream_to_anthropic_stream(
                 events.append(final_delta_event)
                 finish_reason_sent = True
             stop_event = 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
-            logger.debug(f"YIELDING message_stop: {stop_event!r}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"YIELDING message_stop: {stop_event!r}")
             events.append(stop_event)
             logger.debug("Stream conversion complete.")
             return True, events
@@ -462,7 +467,8 @@ async def openai_stream_to_anthropic_stream(
         try:
             openai_chunk = json.loads(stripped_payload)
         except (json.JSONDecodeError, IndexError) as exc:
-            logger.debug(f"Skipping chunk due to parsing error: {exc}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Skipping chunk due to parsing error: {exc}")
             return False, events
 
         choices = openai_chunk.get("choices", [])

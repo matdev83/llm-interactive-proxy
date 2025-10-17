@@ -42,7 +42,8 @@ python -m src.core.cli --config path/to/config.yaml
 # Run with different backends
 python -m src.core.cli --default-backend openrouter
 python -m src.core.cli --default-backend gemini
-python -m src.core.cli --default-backend gemini-cli-oauth-personal
+python -m src.core.cli --default-backend gemini-oauth-plan
+python -m src.core.cli --default-backend gemini-oauth-free
 python -m src.core.cli --default-backend anthropic
 ```
 
@@ -515,7 +516,7 @@ Test complete request flows to ensure overall system functionality.
 
 ### Testing OAuth Backends
 
-OAuth backends like `gemini-cli-oauth-personal` have specific testing considerations:
+OAuth backends like `gemini-oauth-plan` and `gemini-oauth-free` have specific testing considerations:
 
 - **Credential Mocking**: Use `pathlib.Path.home` patches to mock `~/.gemini/oauth_creds.json` location
 - **Token Refresh**: Mock `_refresh_token_if_needed()` to test refresh behavior

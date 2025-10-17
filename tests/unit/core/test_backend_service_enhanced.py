@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
@@ -677,6 +678,50 @@ class TestBackendServiceCompletions:
             assert "Invalid response format" in str(
                 exc_info.value
             ) or "Backend call failed" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_call_completion_http_429_raises_rate_limit(
+        self, service, chat_request
+    ):
+        """Ensure HTTP 429 from backend surfaces as RateLimitExceededError."""
+        client = httpx.AsyncClient()
+        mock_backend = MockBackend(client)
+        mock_backend.chat_completions_mock.side_effect = HTTPException(
+            status_code=429,
+            detail={"error": {"message": "Too Many Requests", "type": "rate_limit"}},
+            headers={"Retry-After": "5"},
+        )
+
+        with (
+            patch.object(service, "_get_or_create_backend", return_value=mock_backend),
+            pytest.raises(RateLimitExceededError) as exc_info,
+        ):
+            await service.call_completion(chat_request, allow_failover=False)
+
+        error = exc_info.value
+        assert error.status_code == 429
+        assert "Too Many Requests" in error.message
+        assert error.details.get("backend") == BackendType.OPENAI
+
+    @pytest.mark.asyncio
+    async def test_call_completion_http_429_no_failover_routes(
+        self, service, chat_request
+    ):
+        """Verify default failover path also surfaces RateLimitExceededError."""
+        client = httpx.AsyncClient()
+        mock_backend = MockBackend(client)
+        mock_backend.chat_completions_mock.side_effect = HTTPException(
+            status_code=429,
+            detail="Rate limited",
+        )
+
+        with (
+            patch.object(service, "_get_or_create_backend", return_value=mock_backend),
+            pytest.raises(RateLimitExceededError) as exc_info,
+        ):
+            await service.call_completion(chat_request)
+
+        assert exc_info.value.status_code == 429
 
     @pytest.mark.asyncio
     async def test_call_completion_invalid_streaming_response(

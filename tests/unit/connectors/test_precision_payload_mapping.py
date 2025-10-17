@@ -7,7 +7,7 @@ import pytest
 from src.connectors.anthropic import AnthropicBackend
 from src.connectors.gemini import GeminiBackend
 from src.connectors.gemini_cloud_project import GeminiCloudProjectConnector
-from src.connectors.gemini_oauth_personal import GeminiOAuthPersonalConnector
+from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.config.app_config import AppConfig
@@ -169,7 +169,7 @@ def test_gemini_public_generation_config_clamping_and_topk() -> None:
 
 def test_gemini_oauth_personal_builds_topk() -> None:
     cfg = AppConfig()
-    backend = GeminiOAuthPersonalConnector(
+    backend = GeminiOAuthPlanConnector(
         httpx.AsyncClient(), cfg, translation_service=TranslationService()
     )
 

@@ -41,7 +41,7 @@ def test_model_listing_includes_oauth_backends(monkeypatch) -> None:
     monkeypatch.setattr(
         models_controller.backend_registry,
         "get_registered_backends",
-        lambda: ["gemini-cli-oauth-personal"],
+        lambda: ["gemini-oauth-plan"],
     )
 
     config = AppConfig()
@@ -59,14 +59,16 @@ def test_model_listing_includes_oauth_backends(monkeypatch) -> None:
             created_backends.append(backend_type)
             return DummyBackend()
 
+    from unittest.mock import Mock
+
     result = asyncio.run(
         _list_models_impl(
-            backend_service=object(),
+            backend_service=Mock(),
             config=config,
-            backend_factory=DummyFactory(),
+            backend_factory=DummyFactory(),  # type: ignore
         )
     )
 
     model_ids = {model["id"] for model in result["data"]}
-    assert "gemini-cli-oauth-personal:gemini-2.5-pro" in model_ids
-    assert created_backends == ["gemini-cli-oauth-personal"]
+    assert "gemini-oauth-plan:gemini-2.5-pro" in model_ids
+    assert created_backends == ["gemini-oauth-plan"]

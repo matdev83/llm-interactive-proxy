@@ -41,7 +41,7 @@ The existing features are too rigid. For example, `--static-route` is an all-or-
 model_aliases:
   # Statically replace a specific model
   - pattern: "^claude-3-sonnet-20240229$"
-    replacement: "gemini-cli-oauth-personal:gemini-1.5-flash"
+    replacement: "gemini-oauth-plan:gemini-1.5-flash"
 
   # Dynamically replace any GPT model, keeping the version
   - pattern: "^gpt-(.*)"
@@ -49,7 +49,7 @@ model_aliases:
 
   # Catch-all for any other model
   - pattern: ".*"
-    replacement: "gemini-cli-oauth-personal:gemini-1.5-pro"
+    replacement: "gemini-oauth-plan:gemini-1.5-pro"
 ```
 
 ### 4.2. Logic and Integration

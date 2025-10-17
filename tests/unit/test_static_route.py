@@ -26,7 +26,7 @@ class TestStaticRoute:
         config = MagicMock(spec=AppConfig)
         config.backends = MagicMock(spec=BackendSettings)
         config.backends.default_backend = "openai"
-        config.backends.static_route = "gemini-cli-oauth-personal:gemini-2.5-pro"
+        config.backends.static_route = "gemini-oauth-plan:gemini-2.5-pro"
         return config
 
     @pytest.fixture
@@ -125,7 +125,7 @@ class TestStaticRoute:
             request
         )
 
-        assert backend_type == "gemini-cli-oauth-personal"
+        assert backend_type == "gemini-oauth-plan"
         assert effective_model == "gemini-2.5-pro"
 
     @pytest.mark.asyncio
@@ -158,7 +158,7 @@ class TestStaticRoute:
             request
         )
 
-        assert backend_type == "gemini-cli-oauth-personal"
+        assert backend_type == "gemini-oauth-plan"
         assert effective_model == "gemini-2.5-pro"
 
 
@@ -169,10 +169,8 @@ class TestStaticRouteCLI:
         """Test that --static-route CLI argument is parsed correctly."""
         from src.core.cli import parse_cli_args
 
-        args = parse_cli_args(
-            ["--static-route", "gemini-cli-oauth-personal:gemini-2.5-pro"]
-        )
-        assert args.static_route == "gemini-cli-oauth-personal:gemini-2.5-pro"
+        args = parse_cli_args(["--static-route", "gemini-oauth-plan:gemini-2.5-pro"])
+        assert args.static_route == "gemini-oauth-plan:gemini-2.5-pro"
 
     def test_cli_args_parsing_without_static_route(self):
         """Test that static_route is None when not specified."""
@@ -193,17 +191,14 @@ class TestStaticRouteCLI:
             args = parse_cli_args(
                 [
                     "--static-route",
-                    "gemini-cli-oauth-personal:gemini-2.5-pro",
+                    "gemini-oauth-plan:gemini-2.5-pro",
                     "--default-backend",
                     "openai",
                 ]
             )
             config = apply_cli_args(args)
 
-            assert (
-                config.backends.static_route
-                == "gemini-cli-oauth-personal:gemini-2.5-pro"
-            )
+            assert config.backends.static_route == "gemini-oauth-plan:gemini-2.5-pro"
             assert config.backends.default_backend == "openai"
 
     def test_cli_rejects_force_model(self):

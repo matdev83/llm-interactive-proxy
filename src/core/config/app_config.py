@@ -532,7 +532,7 @@ class BackendSettings(DomainModel):
 
     default_backend: str = "openai"
     static_route: str | None = (
-        None  # Force all requests to backend:model (e.g., "gemini-cli-oauth-personal:gemini-2.5-pro")
+        None  # Force all requests to backend:model (e.g., "gemini-oauth-plan:gemini-2.5-pro")
     )
 
     def __init__(self, **data: Any) -> None:
@@ -625,7 +625,7 @@ class BackendSettings(DomainModel):
         # since they source credentials from local auth stores (e.g., CLI-managed files).
         oauth_like: set[str] = set()
         for name in registered:
-            if name.endswith("-oauth") or name.startswith("gemini-cli-oauth"):
+            if name.endswith("-oauth") or name.startswith("gemini-oauth"):
                 oauth_like.add(name)
             if name == "gemini-cli-cloud-project":
                 oauth_like.add(name)

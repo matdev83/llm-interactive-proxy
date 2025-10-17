@@ -160,8 +160,8 @@ def test_cli_thinking_budget_documentation() -> None:
     ./.venv/Scripts/python.exe -m src.core.cli \
       --host 127.0.0.1 --port 8000 \
       --disable-auth \
-      --default-backend gemini-cli-oauth-personal \
-      --static-route gemini-cli-oauth-personal:gemini-2.5-pro \
+      --default-backend gemini-oauth-plan \
+      --static-route gemini-oauth-plan:gemini-2.5-pro \
       --thinking-budget 32768
     
     This sets the thinkingBudget to 32768 tokens for ALL requests,

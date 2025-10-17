@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Any
@@ -416,8 +417,6 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             r"={3,}\s*(?:ERROR|NO TESTS|IMPORT ERROR|COLLECTION ERROR).*={3,}"
         )
 
-        import re
-
         # Check if last line matches any of the valid summary patterns
         if (
             re.search(summary_pattern, last_line, re.IGNORECASE)
@@ -438,8 +437,6 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             command_name: The name of the command (from CommandResult.name)
             command_message: The command output message (may contain original command)
         """
-        import re
-
         pytest_patterns = [
             r"^\s*pytest\b",  # pytest at start (with optional whitespace)
             r"^\s*python\s+-m\s+pytest\b",  # python -m pytest at start
@@ -492,8 +489,6 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         Returns:
             The extracted command string, or None if not found
         """
-        import re
-
         if not message:
             return None
 
@@ -631,8 +626,6 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         filtered_lines = []
 
-        import re
-
         passed_pattern = r"\bPASSED\b"
         timing_segment_pattern = (
             r"\b\d+(?:\.\d+)?s\s+(setup|call|teardown)\b|\bs\s+(setup|call|teardown)\b"
@@ -716,8 +709,6 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         filtered_lines = []
         lines_dropped = 0
-
-        import re
 
         passed_pattern = r"\bPASSED\b"
         timing_segment_pattern = (

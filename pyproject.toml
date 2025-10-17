@@ -387,3 +387,8 @@ ignore_names = [
 [tool.testmon]
 run_variant_expression = "','.join(sorted(str(v) for v in [sys.version_info[:2], sys.platform]))"
 historian = "git"
+
+
+[tool.llm-interactive-proxy.backends]
+gemini-oauth-plan = "src.connectors.gemini_oauth_plan:GeminiOAuthPlanConnector"
+gemini-oauth-free = "src.connectors.gemini_oauth_free:GeminiOAuthFreeConnector"
