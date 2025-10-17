@@ -85,6 +85,145 @@ class ResponseManager(IResponseManager):
 class AgentResponseFormatter(IAgentResponseFormatter):
     """Implementation of the agent response formatter."""
 
+    # Pre-compiled regex patterns for performance optimization
+    # These patterns are compiled once at class definition time instead of on every method call
+    _SUMMARY_PATTERN = re.compile(
+        r"={3,}\s*\d+\s+(failed|passed|error|warnings)(,\s*\d+\s+(passed|failed|error|warnings))*\s+in\s+\d+(?:\.\d+)?s\s*={3,}",
+        re.IGNORECASE,
+    )
+    _SESSION_START_PATTERN = re.compile(
+        r"={3,}\s*test session starts\s*={3,}", re.IGNORECASE
+    )
+    _ERROR_SUMMARY_PATTERN = re.compile(
+        r"={3,}\s*(?:ERROR|NO TESTS|IMPORT ERROR|COLLECTION ERROR).*={3,}",
+        re.IGNORECASE,
+    )
+    _SHORT_SUMMARY_PATTERN = re.compile(
+        r"\d+\s+(failed|passed|error|warnings)(,\s*\d+\s+(passed|failed|error|warnings))*\s+in\s+\d+(?:\.\d+)?s",
+        re.IGNORECASE,
+    )
+    _PASSED_PATTERN = re.compile(r"\bPASSED\b", re.IGNORECASE)
+    _TIMING_SEGMENT_PATTERN = re.compile(
+        r"\b\d+(?:\.\d+)?s\s+(setup|call|teardown)\b|\bs\s+(setup|call|teardown)\b",
+        re.IGNORECASE,
+    )
+    _WHITESPACE_PATTERN = re.compile(r"\s{2,}")
+
+    # Pre-compiled pytest command patterns
+    _PYTEST_PATTERNS = [
+        re.compile(r"^\s*pytest\b", re.IGNORECASE),
+        re.compile(r"^\s*python\s+-m\s+pytest\b", re.IGNORECASE),
+        re.compile(r"^\s*python3\s+-m\s+pytest\b", re.IGNORECASE),
+        re.compile(r"^\s*python.*pytest\.py\b", re.IGNORECASE),
+        re.compile(r"^\s*py\.test\b", re.IGNORECASE),
+        re.compile(r"^\s*[\/\\\.].*python.*-m\s+pytest\b", re.IGNORECASE),
+        re.compile(r"^\s*[\/\\\.].*python.*pytest\b", re.IGNORECASE),
+        re.compile(r"^\s*[\/\\\.].*pytest\b", re.IGNORECASE),
+        re.compile(r"^\s*[\/\\\.].*venv.*Scripts.*python.*pytest\b", re.IGNORECASE),
+        re.compile(r"^\s*[\/\\\.].*venv.*bin.*python.*pytest\b", re.IGNORECASE),
+        re.compile(r"\s&&\s*pytest\b", re.IGNORECASE),
+    ]
+
+    # Pre-compiled pytest indicator patterns
+    _PYTEST_INDICATORS = [
+        re.compile(r"test session starts", re.IGNORECASE),
+        re.compile(r"collected \d+ items", re.IGNORECASE),
+        re.compile(r"=== test session starts ===", re.IGNORECASE),
+        re.compile(r"PASSED.*FAILED", re.IGNORECASE),
+        re.compile(r"\d+ failed, \d+ passed", re.IGNORECASE),
+        re.compile(r"pytest-\d+\.\d+\.\d+", re.IGNORECASE),
+    ]
+
+    # Pre-compiled command extraction patterns to avoid repeated compilation
+    _COMMAND_EXTRACTION_PATTERNS = [
+        # Command execution patterns like: $ pytest, > pytest, etc.
+        re.compile(
+            r"^[>$]\s+("
+            + "|".join(
+                [
+                    r"pytest",
+                    r"python\s+-m\s+pytest",
+                    r"\.?[\/\\].*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
+                    r".*python.*pytest\.py",
+                    r"py\.test",
+                ]
+            )
+            + r")\b",
+            re.IGNORECASE,
+        ),
+        # Commands in error messages
+        re.compile(
+            r"Command\s*[:=]\s*['\"]("
+            + "|".join(
+                [
+                    r"pytest",
+                    r"python\s+-m\s+pytest",
+                    r"\.?[\/\\].*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
+                    r".*python.*pytest\.py",
+                    r"py\.test",
+                ]
+            )
+            + r").*?['\"]",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"Executed\s*command\s*[:=]\s*['\"]("
+            + "|".join(
+                [
+                    r"pytest",
+                    r"python\s+-m\s+pytest",
+                    r"\.?[\/\\].*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
+                    r".*python.*pytest\.py",
+                    r"py\.test",
+                ]
+            )
+            + r").*?['\"]",
+            re.IGNORECASE,
+        ),
+        # Commands at the start of lines - more specific to avoid matching traceback lines
+        re.compile(
+            r"^(\s*)("
+            + "|".join(
+                [
+                    r"pytest",
+                    r"python\s+-m\s+pytest",
+                    r"\.?[\/\\].*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
+                    r".*python.*pytest\.py",
+                    r"py\.test",
+                ]
+            )
+            + r")(\s|$)",
+            re.IGNORECASE,
+        ),
+        # Direct command patterns without prefixes
+        re.compile(
+            r"^("
+            + "|".join(
+                [
+                    r"pytest",
+                    r"python\s+-m\s+pytest",
+                    r"\.?[\/\\].*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
+                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
+                    r"\.?[\/\\].*python.*pytest",
+                    r"\.?[\/\\].*pytest",
+                    r".*python.*pytest\.py",
+                    r"py\.test",
+                ]
+            )
+            + r")(\s|$)",
+            re.IGNORECASE,
+        ),
+    ]
+
     def __init__(self, session_service=None) -> None:
         """Initialize the agent response formatter."""
         self._session_service = session_service
@@ -401,34 +540,16 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         last_line = lines[-1].strip()
 
-        # Pattern for pytest summary with test counts and timing
-        # Matches formats like:
-        # ==================== 1 failed, 2 passed in 0.05s ====================
-        # ========================== 15 passed in 0.12s =========================
-        # ================= 1 failed, 1 passed, 1 error in 0.05s =================
-        # ================= 1 failed, 2 passed, 3 warnings in 0.05s =================
-        summary_pattern = r"={3,}\s*\d+\s+(failed|passed|error|warnings)(,\s*\d+\s+(passed|failed|error|warnings))*\s+in\s+\d+(?:\.\d+)?s\s*={3,}"
-
-        # Pattern for pytest session start
-        session_start_pattern = r"={3,}\s*test session starts\s*={3,}"
-
-        # Pattern for pytest error summary (no tests collected, import errors, etc.)
-        error_summary_pattern = (
-            r"={3,}\s*(?:ERROR|NO TESTS|IMPORT ERROR|COLLECTION ERROR).*={3,}"
-        )
-
-        # Check if last line matches any of the valid summary patterns
+        # Check if last line matches any of the valid summary patterns using pre-compiled patterns
         if (
-            re.search(summary_pattern, last_line, re.IGNORECASE)
-            or re.search(session_start_pattern, last_line, re.IGNORECASE)
-            or re.search(error_summary_pattern, last_line, re.IGNORECASE)
+            self._SUMMARY_PATTERN.search(last_line)
+            or self._SESSION_START_PATTERN.search(last_line)
+            or self._ERROR_SUMMARY_PATTERN.search(last_line)
         ):
             return True
 
         # Also check for shorter summary formats that might not have equal signs
-        # Like: "1 failed, 2 passed in 0.05s" or "15 passed in 0.12s" or "1 failed, 2 passed, 3 warnings in 0.05s"
-        short_summary_pattern = r"\d+\s+(failed|passed|error|warnings)(,\s*\d+\s+(passed|failed|error|warnings))*\s+in\s+\d+(?:\.\d+)?s"
-        return bool(re.search(short_summary_pattern, last_line, re.IGNORECASE))
+        return bool(self._SHORT_SUMMARY_PATTERN.search(last_line))
 
     def _is_pytest_command(self, command_name: str, command_message: str = "") -> bool:
         """Check if a command name or message suggests it was executing pytest.
@@ -437,23 +558,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             command_name: The name of the command (from CommandResult.name)
             command_message: The command output message (may contain original command)
         """
-        pytest_patterns = [
-            r"^\s*pytest\b",  # pytest at start (with optional whitespace)
-            r"^\s*python\s+-m\s+pytest\b",  # python -m pytest at start
-            r"^\s*python3\s+-m\s+pytest\b",  # python3 -m pytest at start
-            r"^\s*python.*pytest\.py\b",  # python pytest.py at start
-            r"^\s*py\.test\b",  # py.test at start
-            r"^\s*[\/\\\.].*python.*-m\s+pytest\b",  # relative path python -m pytest
-            r"^\s*[\/\\\.].*python.*pytest\b",  # relative path python pytest
-            r"^\s*[\/\\\.].*pytest\b",  # relative path pytest
-            r"^\s*[\/\\\.].*venv.*Scripts.*python.*pytest\b",  # Windows venv paths
-            r"^\s*[\/\\\.].*venv.*bin.*python.*pytest\b",  # Unix venv paths
-            r"\s&&\s*pytest\b",  # && pytest (for source activate && pytest)
-        ]
-
-        # First check the command name directly
-        for pattern in pytest_patterns:
-            if re.search(pattern, command_name, re.IGNORECASE):
+        # First check the command name directly using pre-compiled patterns
+        for pattern in self._PYTEST_PATTERNS:
+            if pattern.search(command_name):
                 return True
 
         # If command name is a shell execution tool, try to extract actual command from message
@@ -471,8 +578,8 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             # Try to extract the actual command from the message
             actual_command = self._extract_command_from_tool_result(command_message)
             if actual_command:
-                for pattern in pytest_patterns:
-                    if re.search(pattern, actual_command, re.IGNORECASE):
+                for pattern in self._PYTEST_PATTERNS:
+                    if pattern.search(actual_command):
                         return True
 
         return False
@@ -492,100 +599,16 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         if not message:
             return None
 
-        # First, check for clear pytest indicators in the output
-        pytest_indicators = [
-            r"test session starts",
-            r"collected \d+ items",
-            r"=== test session starts ===",
-            r"PASSED.*FAILED",
-            r"\d+ failed, \d+ passed",
-            r"pytest-\d+\.\d+\.\d+",
-        ]
-
-        for indicator in pytest_indicators:
-            if re.search(indicator, message, re.IGNORECASE):
+        # First, check for clear pytest indicators in the output using pre-compiled patterns
+        for indicator_pattern in self._PYTEST_INDICATORS:
+            if indicator_pattern.search(message):
                 return "pytest"
 
-        # Look for command patterns in common output formats
-        # More specific patterns to avoid matching traceback lines
-        patterns = [
-            # Command execution patterns like: $ pytest, > pytest, etc.
-            r"^[>$]\s+("
-            + "|".join(
-                [
-                    r"pytest",
-                    r"python\s+-m\s+pytest",
-                    r"\.?[\/\\].*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
-                    r".*python.*pytest\.py",
-                    r"py\.test",
-                ]
-            )
-            + r")\b",
-            # Commands in error messages
-            r"Command\s*[:=]\s*['\"]("
-            + "|".join(
-                [
-                    r"pytest",
-                    r"python\s+-m\s+pytest",
-                    r"\.?[\/\\].*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
-                    r".*python.*pytest\.py",
-                    r"py\.test",
-                ]
-            )
-            + r").*?['\"]",
-            r"Executed\s*command\s*[:=]\s*['\"]("
-            + "|".join(
-                [
-                    r"pytest",
-                    r"python\s+-m\s+pytest",
-                    r"\.?[\/\\].*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
-                    r".*python.*pytest\.py",
-                    r"py\.test",
-                ]
-            )
-            + r").*?['\"]",
-            # Commands at the start of lines - more specific to avoid matching traceback lines
-            r"^(\s*)("
-            + "|".join(
-                [
-                    r"pytest",
-                    r"python\s+-m\s+pytest",
-                    r"\.?[\/\\].*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
-                    r".*python.*pytest\.py",
-                    r"py\.test",
-                ]
-            )
-            + r")(\s|$)",
-            # Direct command patterns without prefixes
-            r"^("
-            + "|".join(
-                [
-                    r"pytest",
-                    r"python\s+-m\s+pytest",
-                    r"\.?[\/\\].*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*Scripts.*python.*-m\s+pytest",
-                    r"\.?[\/\\].*venv.*bin.*python.*-m\s+pytest",
-                    r"\.?[\/\\].*python.*pytest",
-                    r"\.?[\/\\].*pytest",
-                    r".*python.*pytest\.py",
-                    r"py\.test",
-                ]
-            )
-            + r")(\s|$)",
-        ]
-
+        # Use pre-compiled patterns for better performance
         lines = message.split("\n")
         for line in lines:
-            for pattern in patterns:
-                match = re.search(pattern, line, re.IGNORECASE)
+            for pattern in self._COMMAND_EXTRACTION_PATTERNS:
+                match = pattern.search(line)
                 if match:
                     # Extract the pytest command (group 1 or 2 depending on pattern)
                     command = (
@@ -626,29 +649,14 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         filtered_lines = []
 
-        passed_pattern = r"\bPASSED\b"
-        timing_segment_pattern = (
-            r"\b\d+(?:\.\d+)?s\s+(setup|call|teardown)\b|\bs\s+(setup|call|teardown)\b"
-        )
-        # Pattern to match orphaned test names (standalone test paths without PASSED/FAILED/ERROR)
-        # NOTE: This pattern is too aggressive and can filter out valid output. Commented out for safety.
-        # orphaned_test_pattern = r"^(?:tests/|src/).*\.py::\w+"
-
         for line in lines_to_process:
-            # Drop PASSED lines entirely
-            if re.search(passed_pattern, line, re.IGNORECASE):
+            # Drop PASSED lines entirely using pre-compiled pattern
+            if self._PASSED_PATTERN.search(line):
                 continue
 
-            # Drop orphaned test names only when they don't include a status like FAILED/ERROR
-            # NOTE: This logic is too aggressive and can filter out valid output. Commented out for safety.
-            # if re.search(orphaned_test_pattern, line, re.IGNORECASE) and not re.search(
-            #     r"\b(FAILED|ERROR)\b", line, re.IGNORECASE
-            # ):
-            #     continue
-
-            # Remove timing segments inline while preserving core content
-            trimmed = re.sub(timing_segment_pattern, "", line, flags=re.IGNORECASE)
-            trimmed = re.sub(r"\s{2,}", " ", trimmed).strip()
+            # Remove timing segments inline while preserving core content using pre-compiled patterns
+            trimmed = self._TIMING_SEGMENT_PATTERN.sub("", line)
+            trimmed = self._WHITESPACE_PATTERN.sub(" ", trimmed).strip()
 
             if trimmed:
                 filtered_lines.append(trimmed)
@@ -710,31 +718,15 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         filtered_lines = []
         lines_dropped = 0
 
-        passed_pattern = r"\bPASSED\b"
-        timing_segment_pattern = (
-            r"\b\d+(?:\.\d+)?s\s+(setup|call|teardown)\b|\bs\s+(setup|call|teardown)\b"
-        )
-        # Pattern to match orphaned test names (standalone test paths without PASSED/FAILED/ERROR)
-        # NOTE: This pattern is too aggressive and can filter out valid output. Commented out for safety.
-        # orphaned_test_pattern = r"^(?:tests/|src/).*\.py::\w+"
-
         for line in lines_to_process:
-            # Drop PASSED lines entirely
-            if re.search(passed_pattern, line, re.IGNORECASE):
+            # Drop PASSED lines entirely using pre-compiled pattern
+            if self._PASSED_PATTERN.search(line):
                 lines_dropped += 1
                 continue
 
-            # Drop orphaned test names only when they don't include a status like FAILED/ERROR
-            # NOTE: This logic is too aggressive and can filter out valid output. Commented out for safety.
-            # if re.search(orphaned_test_pattern, line, re.IGNORECASE) and not re.search(
-            #     r"\b(FAILED|ERROR)\b", line, re.IGNORECASE
-            # ):
-            #     lines_dropped += 1
-            #     continue
-
-            # Remove timing segments inline while preserving core content
-            trimmed = re.sub(timing_segment_pattern, "", line, flags=re.IGNORECASE)
-            trimmed = re.sub(r"\s{2,}", " ", trimmed).strip()
+            # Remove timing segments inline while preserving core content using pre-compiled patterns
+            trimmed = self._TIMING_SEGMENT_PATTERN.sub("", line)
+            trimmed = self._WHITESPACE_PATTERN.sub(" ", trimmed).strip()
 
             if trimmed:
                 filtered_lines.append(trimmed)

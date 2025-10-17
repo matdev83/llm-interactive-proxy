@@ -15,25 +15,18 @@ class ToolCallRepairService:
     converting them into a structured OpenAI-compatible tool_calls format.
     """
 
+    # Pre-compiled regex patterns for performance optimization
+    # These patterns are compiled once at class definition time instead of on every instance creation
+    _JSON_PATTERN = re.compile(
+        r"(\{?\s*\"(function_call|tool)\":\s*\{.*\}\s*\})", re.DOTALL
+    )
+    _TEXT_PATTERN = re.compile(
+        r"(?:TOOL CALL|Function call|Call)\s*:\s*(\w+)\s*(.*)", re.IGNORECASE
+    )
+    _CODE_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*\}\s*)\s*```", re.DOTALL)
+
     def __init__(self, max_buffer_bytes: int | None = None) -> None:
         self._tool_call_buffers: dict[str, str] = {}
-        # Regex patterns for detecting tool calls in various formats
-        # Pattern 1: JSON-like structure with "function_call" or "tool" keys
-        # Changed `.*?` to `.*` to make it greedy for inner content.
-        self.json_pattern = re.compile(
-            r"(\{?\s*\"(function_call|tool)\":\s*\{.*\}\s*\})", re.DOTALL
-        )
-        # Pattern 2: Textual patterns like "TOOL CALL:" or "Function call:"
-        self.text_pattern = re.compile(
-            r"(?:TOOL CALL|Function call|Call)\s*:\s*(\w+)\s*(.*)", re.IGNORECASE
-        )
-        # Pattern 3: Code block with JSON inside (e.g., ```json { ... } ```)
-        # Changed `.*?` to `.*` to make it greedy for inner content.
-        self.code_block_pattern = re.compile(
-            r"```(?:json)?\s*(\{.*\}\s*)\s*```",
-            re.DOTALL,  # Added \s* before final } to match optional whitespace
-        )
-
         # Cap per-session buffer to guard against pathological streams
         self._max_buffer_bytes: int = max_buffer_bytes or (64 * 1024)  # default 64 KB
 
@@ -63,7 +56,7 @@ class ToolCallRepairService:
 
         # Attempt to detect using code block patterns only if backticks present
         if "```" in content:
-            match = self.code_block_pattern.search(content)
+            match = self._CODE_BLOCK_PATTERN.search(content)
             if match:
                 return self._process_json_match(match.group(1))
 
@@ -76,7 +69,7 @@ class ToolCallRepairService:
                 if processed:
                     return processed
             # Fallback to regex if balanced extraction failed
-            match = self.json_pattern.search(content)
+            match = self._JSON_PATTERN.search(content)
             if match:
                 return self._process_json_match(match.group(1))
 
@@ -86,7 +79,7 @@ class ToolCallRepairService:
             or ("Function call" in content)
             or ("Call:" in content)
         ):
-            match = self.text_pattern.search(content)
+            match = self._TEXT_PATTERN.search(content)
             if match:
                 return self._process_text_match(match.group(1), match.group(2))
 

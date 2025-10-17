@@ -92,6 +92,11 @@ class BufferedWireCapture(IWireCapture):
         self._total_bytes_written: int = 0
         self._enabled: bool = False
 
+        # PERFORMANCE OPTIMIZATION: Cache JSON serialization to avoid repeated encoding
+        self._content_length_cache: dict[int, int] = {}
+        self._json_cache: dict[int, str] = {}
+        self._cache_max_size: int = 1000  # Limit cache size to prevent memory leaks
+
         # Initialize redaction for wire capture data
         api_keys = discover_api_keys_from_config_and_env(config)
         self._redactor = APIKeyRedactor(api_keys)
@@ -187,6 +192,59 @@ class BufferedWireCapture(IWireCapture):
     def enabled(self) -> bool:
         """Return True if wire capture is enabled and functional."""
         return self._enabled
+
+    def _get_content_length_cached(self, payload: Any) -> int:
+        """Get content length with caching to avoid repeated JSON serialization."""
+        # Use object id as cache key for identity-based caching
+        payload_id = id(payload)
+
+        # Check cache first
+        if payload_id in self._content_length_cache:
+            return self._content_length_cache[payload_id]
+
+        # Calculate and cache the result
+        if isinstance(payload, dict | list):
+            content_length = len(
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            )
+        elif isinstance(payload, str):
+            content_length = len(payload.encode("utf-8"))
+        elif isinstance(payload, bytes):
+            content_length = len(payload)
+        else:
+            content_length = len(str(payload).encode("utf-8"))
+
+        # Maintain cache size limit
+        if len(self._content_length_cache) >= self._cache_max_size:
+            # Remove oldest entries (simple FIFO)
+            oldest_key = next(iter(self._content_length_cache))
+            del self._content_length_cache[oldest_key]
+
+        self._content_length_cache[payload_id] = content_length
+        return content_length
+
+    def _serialize_entry_cached(self, entry: WireCaptureEntry) -> str:
+        """Serialize entry to JSON with caching to avoid repeated serialization."""
+        # Use entry id as cache key
+        entry_id = id(entry)
+
+        # Check cache first
+        if entry_id in self._json_cache:
+            return self._json_cache[entry_id]
+
+        # Serialize and cache the result
+        json_line = json.dumps(
+            entry._asdict(), ensure_ascii=False, separators=(",", ":")
+        )
+
+        # Maintain cache size limit
+        if len(self._json_cache) >= self._cache_max_size:
+            # Remove oldest entries (simple FIFO)
+            oldest_key = next(iter(self._json_cache))
+            del self._json_cache[oldest_key]
+
+        self._json_cache[entry_id] = json_line
+        return json_line
 
     def _maybe_start_flush_task(self) -> None:
         """Start background flush task if not running and loop is available."""
@@ -350,25 +408,18 @@ class BufferedWireCapture(IWireCapture):
 
         # Determine content type and length
         content_type = "unknown"
-        content_length = 0
 
         if isinstance(payload, dict | list):
             content_type = "json"
-            try:
-                content_length = len(
-                    json.dumps(payload, ensure_ascii=False).encode("utf-8")
-                )
-            except Exception:
-                content_length = len(str(payload).encode("utf-8"))
         elif isinstance(payload, str):
             content_type = "text"
-            content_length = len(payload.encode("utf-8"))
         elif isinstance(payload, bytes):
             content_type = "bytes"
-            content_length = len(payload)
         else:
             content_type = "object"
-            content_length = len(str(payload).encode("utf-8"))
+
+        # PERFORMANCE OPTIMIZATION: Use cached content length calculation
+        content_length = self._get_content_length_cached(payload)
 
         # Build metadata
         entry_metadata = {
@@ -462,11 +513,11 @@ class BufferedWireCapture(IWireCapture):
         try:
             with open(self._file_path, "a", encoding="utf-8") as f:
                 for entry in entries:
-                    json_line = json.dumps(
-                        entry._asdict(), ensure_ascii=False, separators=(",", ":")
-                    )
+                    # PERFORMANCE OPTIMIZATION: Use cached JSON serialization
+                    json_line = self._serialize_entry_cached(entry)
                     f.write(json_line + "\n")
-                    self._total_bytes_written += len(json_line.encode("utf-8")) + 1
+                    # PERFORMANCE OPTIMIZATION: Avoid repeated encoding for length calculation
+                    self._total_bytes_written += len(json_line) + 1  # json_line is already a string
 
             # Check for rotation after writing
             self._check_rotation()
@@ -482,9 +533,8 @@ class BufferedWireCapture(IWireCapture):
 
         try:
             with open(self._file_path, "a", encoding="utf-8") as f:
-                json_line = json.dumps(
-                    entry._asdict(), ensure_ascii=False, separators=(",", ":")
-                )
+                # PERFORMANCE OPTIMIZATION: Use cached JSON serialization
+                json_line = self._serialize_entry_cached(entry)
                 f.write(json_line + "\n")
         except Exception:
             pass
@@ -577,6 +627,10 @@ class BufferedWireCapture(IWireCapture):
         async with self._buffer_lock:
             if self._buffer:
                 await self._flush_buffer()
+
+        # PERFORMANCE OPTIMIZATION: Clean up caches to prevent memory leaks
+        self._content_length_cache.clear()
+        self._json_cache.clear()
 
     def force_shutdown_sync(self) -> None:
         """Synchronous best-effort shutdown. Deprecated and unsafe from __del__."""

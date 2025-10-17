@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class _StreamBufferState:
     chunks: deque[str] = field(default_factory=deque)
+    # Cache encoded chunks and their lengths to avoid repeated UTF-8 encoding
+    encoded_chunks: deque[bytes] = field(default_factory=deque)
+    chunk_lengths: deque[int] = field(default_factory=deque)
     byte_length: int = 0
     truncation_logged: bool = False
 
@@ -66,8 +69,14 @@ class ContentAccumulationProcessor(IStreamProcessor):
 
         # Add content to buffer and update byte length incrementally
         if content.content:
+            # OPTIMIZATION: Encode content ONCE and cache both string and bytes
+            encoded_content = content.content.encode("utf-8")
+            content_length = len(encoded_content)
+
             state.chunks.append(content.content)
-            state.byte_length += len(content.content.encode("utf-8"))
+            state.encoded_chunks.append(encoded_content)
+            state.chunk_lengths.append(content_length)
+            state.byte_length += content_length
 
         # Enforce buffer size limit to prevent unbounded memory growth
         if state.byte_length > self._max_buffer_bytes:
@@ -79,12 +88,16 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 state.truncation_logged = True
 
             # Remove chunks from the left until we're under the limit
+            # OPTIMIZATION: Use cached lengths instead of re-encoding
             while state.chunks and state.byte_length > self._max_buffer_bytes:
-                removed_chunk = state.chunks.popleft()
-                state.byte_length -= len(removed_chunk.encode("utf-8"))
+                state.chunks.popleft()
+                state.encoded_chunks.popleft()
+                removed_length = state.chunk_lengths.popleft()
+                state.byte_length -= removed_length
 
         if content.is_done or content.is_cancellation:
-            # Join all buffer chunks into final content
+            # OPTIMIZATION: Use cached string chunks for final assembly
+            # We could use cached bytes and decode, but string join is already optimal for this use case
             final_content = "".join(state.chunks)
             self._states.pop(stream_id, None)
             return StreamingContent(

@@ -22,6 +22,10 @@ class ParsedCommand:
 class CommandParser:
     """Parses command invocations from message content."""
 
+    # Class-level pattern cache for performance optimization
+    # Avoids recompiling the same regex patterns repeatedly
+    _pattern_cache: dict[str, re.Pattern[str]] = {}
+
     def __init__(self, command_prefix: str = "!/"):
         """Initialize the parser with the desired command prefix."""
         self._command_prefix: str = ""

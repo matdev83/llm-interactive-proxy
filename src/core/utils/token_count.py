@@ -5,6 +5,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Cache tiktoken encoding for better performance
+_tiktoken_encoding = None
+
 
 def count_tokens(text: str, model: str | None = None) -> int:
     """Count tokens for the provided text using tiktoken when available.
@@ -18,20 +21,21 @@ def count_tokens(text: str, model: str | None = None) -> int:
     Returns:
         Estimated number of tokens in the text
     """
-    try:
-        import tiktoken  # type: ignore
+    global _tiktoken_encoding
 
-        # Map to cl100k_base as a safe default
-        encoding_name = "cl100k_base"
-        try:
-            enc = tiktoken.get_encoding(encoding_name)
-        except Exception:
-            enc = tiktoken.get_encoding("cl100k_base")
-        return len(enc.encode(text))
+    if not text:
+        return 0
+
+    try:
+        # Lazy load and cache tiktoken encoding for better performance
+        if _tiktoken_encoding is None:
+            import tiktoken  # type: ignore
+
+            _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+
+        return len(_tiktoken_encoding.encode(text))
     except Exception as e:
         logger.debug("Token counting fallback engaged: %s", e)
-        if not text:
-            return 0
         return max(1, len(text) // 4)
 
 
