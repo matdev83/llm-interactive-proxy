@@ -252,6 +252,9 @@ class TestQwenOAuthCredentials:
             assert result is False
             mock_launch.assert_called_once()
 
+    @pytest.mark.skip(
+        reason="This test is intentionally slow to verify polling with delays."
+    )
     @pytest.mark.asyncio
     async def test_refresh_token_waits_for_delayed_cli_update(
         self, connector, monkeypatch

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.handlers.base_handler import BaseCommandHandler
+from src.core.commands.models import Command
 from src.core.commands.registry import command
 from src.core.commands.session_state_adapter import SessionStateAdapter
 from src.core.commands.set_parameter_registry import build_set_parameter_handlers

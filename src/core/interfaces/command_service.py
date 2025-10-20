@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from src.core.commands.models import Command, CommandResultWrapper
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service_interface import ICommandService
 
@@ -25,6 +26,13 @@ class FunctionCommandService(ICommandService):
         self, messages: list[Any], session_id: str
     ) -> ProcessedResult:
         return await self._handler(messages, session_id)
+
+    async def execute_command(
+        self, command: Command, session_id: str
+    ) -> CommandResultWrapper:
+        raise NotImplementedError(
+            "The function-based command service does not support execute_command."
+        )
 
 
 def ensure_command_service(

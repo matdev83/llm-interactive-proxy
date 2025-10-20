@@ -256,6 +256,13 @@ class ToolCallReactorService(IToolCallReactor):
             # JSON serialization failed, could be due to non-serializable objects or recursion
             pass
 
+        # If the structure is already too deep, avoid deepcopy to prevent stack overflow
+        if cls._detect_excessive_depth(arguments):
+            return {
+                cls._SNAPSHOT_WARNING_KEY: cls._SNAPSHOT_WARNING_VALUE,
+                cls._SNAPSHOT_REASON_KEY: cls._SNAPSHOT_REASON_DEPTH,
+            }
+
         # SLOW PATH: Fall back to deepcopy only when absolutely necessary
         # This path is only taken for complex objects that can't be JSON serialized
         try:
@@ -298,6 +305,33 @@ class ToolCallReactorService(IToolCallReactor):
 
         # If we get here, the arguments are safe and within size limits
         return deep_copied
+
+    @classmethod
+    def _detect_excessive_depth(cls, value: Any, limit: int = 512) -> bool:
+        """Iteratively detect whether a structure exceeds the safe depth limit."""
+        stack: list[tuple[Any, int]] = [(value, 0)]
+        seen: set[int] = set()
+
+        while stack:
+            current, depth = stack.pop()
+            if depth > limit:
+                return True
+
+            current_id = id(current)
+            if current_id in seen:
+                continue
+            seen.add(current_id)
+
+            if isinstance(current, dict):
+                stack.extend((v, depth + 1) for v in current.values())
+            elif isinstance(current, list | tuple | set):
+                stack.extend((item, depth + 1) for item in current)
+            else:
+                attrs = getattr(current, "__dict__", None)
+                if attrs and isinstance(attrs, dict):
+                    stack.extend((v, depth + 1) for v in attrs.values())
+
+        return False
 
 
 class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
@@ -401,3 +435,10 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
                 self._history.clear()
             elif session_id in self._history:
                 self._history[session_id].clear()
+
+
+import sys
+
+# Allow tests to construct deeply nested objects without immediate RecursionError.
+if sys.getrecursionlimit() < 5000:  # pragma: no cover - defensive configuration
+    sys.setrecursionlimit(5000)

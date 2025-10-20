@@ -24,6 +24,11 @@ class PatternAnalyzer:
         self.config = config
         self.hasher = hasher
         self.history: list[LoopDetectionEvent] = []  # To store detected events
+        # Compiled regex for skipping chunks with markdown elements
+        self._skip_pattern = re.compile(
+            r"(^|\n)\s*((\|.*\|)|([|+-]{3,})|([*-+]|\d+\.)\s)|^[+-_=*\u2500-\u257F]+$",
+            re.MULTILINE,
+        )
         self.reset()
 
     def analyze_chunk(
@@ -54,15 +59,8 @@ class PatternAnalyzer:
             return False
 
         # Check for other markdown elements that should reset the state.
-        has_table = bool(re.search(r"(^|\n)\s*(\|.*\||[|+-]{3,})", new_content))
-        has_list_item = bool(re.search(r"(^|\n)\s*[*-+]\s", new_content)) or bool(
-            re.search(r"(^|\n)\s*\d+\.\s", new_content)
-        )
-        has_heading = bool(re.search(r"(^|\n)#+\s", new_content))
-        has_blockquote = bool(re.search(r"(^|\n)>\s", new_content))
-        is_divider = bool(re.match(r"^[+-_=*\u2500-\u257F]+$", new_content))
 
-        if has_table or has_list_item or has_heading or has_blockquote or is_divider:
+        if self._skip_pattern.search(new_content):
             self.reset()  # Full reset for these elements
             return False
 

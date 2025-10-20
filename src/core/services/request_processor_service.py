@@ -56,9 +56,16 @@ class RequestProcessor(IRequestProcessor):
         # Resolve session and update agent if needed
         session_id = await self._session_manager.resolve_session_id(context)
         session = await self._session_manager.get_session(session_id)
-        session = await self._session_manager.update_session_agent(
-            session, request_data.agent
+
+        incoming_agent = getattr(request_data, "agent", None) or getattr(
+            context, "agent", None
         )
+        session = await self._session_manager.update_session_agent(
+            session, incoming_agent
+        )
+        session_agent = getattr(session, "agent", None)
+        if session_agent:
+            request_data = request_data.model_copy(update={"agent": session_agent})
 
         logger.debug(f"Resolved session_id: {session_id}")
         logger.debug(

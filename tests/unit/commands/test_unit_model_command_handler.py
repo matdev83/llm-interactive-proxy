@@ -1,7 +1,7 @@
 import asyncio
 
-from src.core.commands.command import Command
 from src.core.commands.handlers.model_command_handler import ModelCommandHandler
+from src.core.commands.models import Command
 from src.core.domain.session import Session
 
 

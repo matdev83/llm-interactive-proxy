@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.handlers.failover_command_handler import FailoverCommandHandler
+from src.core.commands.models import Command, CommandResultWrapper
 from src.core.commands.parser import CommandParser
 from src.core.commands.pipeline import CommandMatchFilter, CommandTailExtractor
 from src.core.commands.registry import get_all_commands, get_command_handler
@@ -22,32 +23,6 @@ if TYPE_CHECKING:
     from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
-
-
-class CommandResultWrapper:
-    """Lightweight wrapper around command handler results.
-
-    Historically the wrapper was defined inside ``process_commands`` which meant
-    every invocation created a brand new class object.  Instances produced in
-    separate calls therefore had different types which broke identity-based
-    checks and made it impossible to import the wrapper for typing or
-    isinstance() checks.  By hoisting the class to module scope we ensure the
-    wrapper has a single, stable definition while keeping the behaviour
-    identical to the previous implementation.
-    """
-
-    def __init__(self, command_name: str, result: Any) -> None:
-        self.name = command_name
-        self.message = result.message
-        self.success = result.success
-        self.new_state = getattr(result, "new_state", None)
-        self._original_result = result
-
-    @property
-    def result(self) -> Any:
-        """Expose the original command result for callers that need it."""
-
-        return self._original_result
 
 
 class NewCommandService(ICommandService):
@@ -258,6 +233,22 @@ class NewCommandService(ICommandService):
             command_executed=command_executed,
             command_results=command_results,
         )
+
+    async def execute_command(
+        self, command: Command, session_id: str
+    ) -> CommandResultWrapper:
+        """Executes a single command and returns the result."""
+        session = await self._state_service.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session '{session_id}' not found.")
+
+        handler_class = get_command_handler(command.name)
+        if not handler_class:
+            raise ValueError(f"Command '{command.name}' not found.")
+
+        handler = self._create_handler(handler_class, session)
+        result = await handler.handle(command, session)
+        return CommandResultWrapper(command.name, result)
 
     def _create_handler(
         self,

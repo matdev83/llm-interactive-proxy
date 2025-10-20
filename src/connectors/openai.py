@@ -529,6 +529,9 @@ class OpenAIConnector(LLMBackend):
 
             if not isinstance(body, str):
                 body = str(body)
+            logger.warning(
+                "Backend %s returned HTTP %s with body: %s", url, status_code, body
+            )
             raise HTTPException(
                 status_code=status_code,
                 detail={
@@ -578,16 +581,57 @@ class OpenAIConnector(LLMBackend):
 
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
             async def text_generator() -> AsyncGenerator[str, None]:
+                async def iter_sse_messages() -> AsyncGenerator[str, None]:
+                    buffer = ""
+                    separator = "\n\n"
+                    alt_separator = "\r\n\r\n"
+                    try:
+                        async for chunk_bytes in response.aiter_bytes():
+                            chunk_text = (
+                                chunk_bytes.decode("utf-8", errors="replace")
+                                if isinstance(chunk_bytes, bytes | bytearray)
+                                else str(chunk_bytes)
+                            )
+                            buffer += chunk_text
+                            while True:
+                                if alt_separator in buffer:
+                                    event, buffer = buffer.split(alt_separator, 1)
+                                    separator_used = alt_separator
+                                elif separator in buffer:
+                                    event, buffer = buffer.split(separator, 1)
+                                    separator_used = separator
+                                else:
+                                    break
+                                if event:
+                                    yield event + separator_used
+                        if buffer:
+                            yield buffer
+                            buffer = ""
+                    except httpx.RequestError as exc:
+                        if buffer:
+                            yield buffer
+                            buffer = ""
+                        raise ServiceUnavailableError(
+                            message=f"Streaming connection interrupted ({exc})"
+                        ) from exc
+
                 try:
-                    async for chunk in response.aiter_text():
-                        yield self.translation_service.to_domain_stream_chunk(
-                            chunk, stream_format
-                        )
+                    if stream_format in {"openai", "responses", "openai-responses"}:
+                        async for message in iter_sse_messages():
+                            yield self.translation_service.to_domain_stream_chunk(
+                                message, stream_format
+                            )
+                    else:
+                        async for chunk in response.aiter_text():
+                            yield self.translation_service.to_domain_stream_chunk(
+                                chunk, stream_format
+                            )
                 except httpx.RequestError as exc:
                     raise ServiceUnavailableError(
                         message=f"Streaming connection interrupted ({exc})"
                     ) from exc
 
+            pending_error: Exception | None = None
             try:
                 async for chunk in text_generator():
                     if (
@@ -599,6 +643,8 @@ class OpenAIConnector(LLMBackend):
                         if isinstance(chunk_id, str) and chunk_id:
                             response_id_future.set_result(chunk_id)
                     yield ProcessedResponse(content=chunk)
+            except ServiceUnavailableError as exc:
+                pending_error = exc
             except httpx.HTTPError as exc:
                 raise ServiceUnavailableError(
                     message=f"Streaming connection interrupted ({exc})"
@@ -606,6 +652,8 @@ class OpenAIConnector(LLMBackend):
             finally:
                 with contextlib.suppress(Exception):
                     await response.aclose()
+            if pending_error:
+                raise pending_error
 
         try:
             response_headers = dict(response.headers)

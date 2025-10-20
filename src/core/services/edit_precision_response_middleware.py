@@ -19,24 +19,45 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
     next outbound request.
     """
 
+    # Pre-compiled regex patterns for performance optimization
+    # These patterns are compiled once at class definition time instead of on every instantiation
+    _DEFAULT_PATTERNS = [
+        re.compile(r"<diff_error>|diff_error", re.IGNORECASE | re.DOTALL),
+        re.compile(r"hunk\s+failed\s+to\s+apply", re.IGNORECASE | re.DOTALL),
+        re.compile(
+            r"No\s+sufficiently\s+similar\s+match\s+found", re.IGNORECASE | re.DOTALL
+        ),
+    ]
+
     def __init__(self, app_state: IApplicationState) -> None:
         super().__init__(priority=10)
         self._logger = logging.getLogger(__name__)
         self._app_state = app_state
-        # Load regex patterns (fallback to defaults if unavailable)
+
+        # Start with pre-compiled default patterns for performance
+        self._compiled = list(self._DEFAULT_PATTERNS)
+
+        # Load additional patterns from external config if available
         try:
             from src.core.services.edit_precision_patterns import (
                 get_response_patterns,
             )
 
-            patterns = get_response_patterns()
-        except Exception:
-            patterns = [
+            config_patterns = get_response_patterns()
+            # Only compile patterns that aren't already in defaults
+            default_pattern_strings = {
                 r"<diff_error>|diff_error",
                 r"hunk\s+failed\s+to\s+apply",
                 r"No\s+sufficiently\s+similar\s+match\s+found",
-            ]
-        self._compiled = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in patterns]
+            }
+            for pattern in config_patterns:
+                if pattern not in default_pattern_strings:
+                    self._compiled.append(
+                        re.compile(pattern, re.IGNORECASE | re.DOTALL)
+                    )
+        except Exception:
+            # Use only default patterns if config loading fails
+            pass
 
     async def process(
         self,

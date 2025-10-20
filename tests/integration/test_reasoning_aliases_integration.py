@@ -9,12 +9,12 @@ from unittest.mock import MagicMock
 
 import pytest
 import yaml
-from src.core.commands.command import Command
 from src.core.commands.handlers.reasoning_aliases import (
     MaxReasoningHandler,
     MediumReasoningHandler,
     NoThinkReasoningHandler,
 )
+from src.core.commands.models import Command
 from src.core.config.app_config import AppConfig
 from src.core.domain.configuration.reasoning_aliases_config import (
     ReasoningAliasesConfig,

@@ -225,26 +225,8 @@ class BufferedWireCapture(IWireCapture):
 
     def _serialize_entry_cached(self, entry: WireCaptureEntry) -> str:
         """Serialize entry to JSON with caching to avoid repeated serialization."""
-        # Use entry id as cache key
-        entry_id = id(entry)
-
-        # Check cache first
-        if entry_id in self._json_cache:
-            return self._json_cache[entry_id]
-
-        # Serialize and cache the result
-        json_line = json.dumps(
-            entry._asdict(), ensure_ascii=False, separators=(",", ":")
-        )
-
-        # Maintain cache size limit
-        if len(self._json_cache) >= self._cache_max_size:
-            # Remove oldest entries (simple FIFO)
-            oldest_key = next(iter(self._json_cache))
-            del self._json_cache[oldest_key]
-
-        self._json_cache[entry_id] = json_line
-        return json_line
+        # Serialize without object-identity caching to avoid stale reuse
+        return json.dumps(entry._asdict(), ensure_ascii=False, separators=(",", ":"))
 
     def _maybe_start_flush_task(self) -> None:
         """Start background flush task if not running and loop is available."""
@@ -517,7 +499,9 @@ class BufferedWireCapture(IWireCapture):
                     json_line = self._serialize_entry_cached(entry)
                     f.write(json_line + "\n")
                     # PERFORMANCE OPTIMIZATION: Avoid repeated encoding for length calculation
-                    self._total_bytes_written += len(json_line) + 1  # json_line is already a string
+                    self._total_bytes_written += (
+                        len(json_line) + 1
+                    )  # json_line is already a string
 
             # Check for rotation after writing
             self._check_rotation()

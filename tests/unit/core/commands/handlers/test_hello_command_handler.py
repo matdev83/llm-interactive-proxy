@@ -5,8 +5,8 @@ Unit tests for the HelloCommandHandler.
 from unittest.mock import MagicMock
 
 import pytest
-from src.core.commands.command import Command
 from src.core.commands.handlers.hello_command_handler import HelloCommandHandler
+from src.core.commands.models import Command
 from src.core.domain.session import Session, SessionState
 
 

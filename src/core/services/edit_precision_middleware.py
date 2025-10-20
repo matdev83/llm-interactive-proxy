@@ -31,6 +31,29 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
     - If detected, lowers temperature (and optionally top_p) for this request only
     """
 
+    # Pre-compiled regex patterns for performance optimization
+    # These patterns are compiled once at class definition time instead of on every instantiation
+    _DEFAULT_PATTERNS: list[re.Pattern[str]] = []
+
+    @classmethod
+    def _get_default_patterns(cls) -> list[re.Pattern[str]]:
+        """Get default patterns, compiling them only once."""
+        if not cls._DEFAULT_PATTERNS:
+            # Load patterns from configuration file if present, otherwise use empty list
+            try:
+                from src.core.services.edit_precision_patterns import (
+                    get_request_patterns,
+                )
+
+                base_patterns: list[str] = get_request_patterns()
+            except Exception:
+                base_patterns = []
+
+            cls._DEFAULT_PATTERNS = [
+                re.compile(p, re.IGNORECASE | re.DOTALL) for p in base_patterns
+            ]
+        return cls._DEFAULT_PATTERNS
+
     def __init__(
         self,
         *,
@@ -51,22 +74,13 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
             temperatures_config or EditPrecisionTemperaturesConfig()
         )
 
-        # Load patterns from configuration file if present, otherwise use defaults
-        try:
-            from src.core.services.edit_precision_patterns import (
-                get_request_patterns,
-            )
+        # Start with pre-compiled default patterns for performance
+        self._compiled = list(self._get_default_patterns())
 
-            base_patterns: list[str] = get_request_patterns()
-        except Exception:
-            base_patterns = []
-
+        # Add any extra patterns provided at runtime
         if extra_patterns:
-            base_patterns.extend(list(extra_patterns))
-
-        self._compiled = [
-            re.compile(p, re.IGNORECASE | re.DOTALL) for p in base_patterns
-        ]
+            for pattern in extra_patterns:
+                self._compiled.append(re.compile(pattern, re.IGNORECASE | re.DOTALL))
 
     async def process(
         self, request: ChatRequest, context: dict[str, Any] | None = None

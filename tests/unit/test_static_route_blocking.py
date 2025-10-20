@@ -4,9 +4,9 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
-from src.core.commands.command import Command
 from src.core.commands.handlers.model_command_handler import ModelCommandHandler
 from src.core.commands.handlers.set_command_handler import SetCommandHandler
+from src.core.commands.models import Command
 from src.core.config.app_config import AppConfig
 from src.core.domain.commands.model_command import ModelCommand
 from src.core.domain.commands.set_command import SetCommand

@@ -7,6 +7,7 @@ This module provides the implementation of the backend request manager interface
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any
 
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -43,11 +44,23 @@ class BackendRequestManager(IBackendRequestManager):
         self, request_data: ChatRequest, command_result: ProcessedResult
     ) -> ChatRequest | None:
         """Prepare backend request based on command processing results."""
-        backend_request: ChatRequest | None = request_data
+        if not command_result.command_executed:
+            return request_data
 
-        if command_result.command_executed and command_result.modified_messages:
-            # Check if all modified messages are essentially empty (just whitespace)
+        logger.debug(
+            "Command executed; modified_messages_count=%s, command_results_count=%s",
+            len(command_result.modified_messages or []),
+            len(command_result.command_results or []),
+        )
+
+        final_messages: list[ChatMessage] = list(request_data.messages)
+        messages_were_modified = False
+
+        # Process modified_messages: if they exist and have content, they replace original messages
+        if command_result.modified_messages:
+
             def _message_has_content(message: Any) -> bool:
+                # (Implementation remains the same)
                 role = (
                     message.get("role")
                     if isinstance(message, dict)
@@ -62,22 +75,13 @@ class BackendRequestManager(IBackendRequestManager):
                 )
                 if content is None:
                     return False
-                # If content is a string, check non-empty after strip
                 if isinstance(content, str):
-                    # Treat empty strings as acceptable content to allow backend validation paths
                     return True
-                # If content is a list (multimodal parts), treat non-empty as content
                 if isinstance(content, list):
                     return len(content) > 0
-                # Fallback for other types: truthiness
                 return bool(content)
 
-            has_content = any(
-                _message_has_content(m) for m in command_result.modified_messages
-            )
-
-            if has_content:
-                # Normalize messages to domain ChatMessage instances
+            if any(_message_has_content(m) for m in command_result.modified_messages):
                 normalized_messages: list[ChatMessage] = []
                 for m in command_result.modified_messages:
                     if isinstance(m, ChatMessage):
@@ -85,23 +89,40 @@ class BackendRequestManager(IBackendRequestManager):
                     elif isinstance(m, dict):
                         normalized_messages.append(ChatMessage(**m))
                     else:
-                        # Best-effort conversion
                         normalized_messages.append(
                             ChatMessage(
                                 role=getattr(m, "role", "user"),
                                 content=getattr(m, "content", ""),
                             )
                         )
-
-                # Preserve all original request fields (including tools/tool_choice)
-                backend_request = request_data.model_copy(
-                    update={"messages": normalized_messages}
-                )
+                final_messages = normalized_messages
+                messages_were_modified = True
             else:
                 # All modified messages are empty, skip backend call
-                backend_request = None
+                return None
 
-        return backend_request
+        # Process command_results: append tool outputs to the message list
+        if command_result.command_results:
+            extra_messages = []
+            for result in command_result.command_results:
+                extracted = self._extract_messages_from_command_result(result)
+                if extracted:
+                    extra_messages.extend(extracted)
+
+            if extra_messages:
+                logger.debug(
+                    "Appending %s command result messages to backend request",
+                    len(extra_messages),
+                )
+                final_messages.extend(extra_messages)
+                messages_were_modified = True
+
+        # If messages were changed, create a new request object
+        if messages_were_modified:
+            return request_data.model_copy(update={"messages": final_messages})
+
+        # If no changes, return the original request
+        return request_data
 
     async def process_backend_request(
         self,
@@ -113,6 +134,55 @@ class BackendRequestManager(IBackendRequestManager):
         return await self._process_backend_request_with_retry(
             backend_request, session_id, context
         )
+
+    @staticmethod
+    def _extract_messages_from_command_result(result: Any) -> list[ChatMessage]:
+        """Extract chat messages embedded in command results for backend replay."""
+
+        def _coerce_message(candidate: Any) -> ChatMessage | None:
+            """Convert a candidate object into a ChatMessage when possible."""
+            if isinstance(candidate, ChatMessage):
+                return candidate
+
+            if hasattr(candidate, "model_dump") and callable(candidate.model_dump):
+                try:
+                    dumped = candidate.model_dump()
+                    if isinstance(dumped, dict):
+                        return ChatMessage(**dumped)
+                except Exception:
+                    return None
+
+            if isinstance(candidate, dict):
+                try:
+                    return ChatMessage(**candidate)
+                except Exception:
+                    return None
+            return None
+
+        def _iter_candidates(value: Any) -> Iterable[Any]:
+            """Yield potential message representations from arbitrary structures."""
+            if value is None:
+                return ()
+
+            # Prefer explicit tool message containers if present
+            if hasattr(value, "tool_messages"):
+                tool_value = value.tool_messages
+                if isinstance(tool_value, list | tuple):
+                    return tuple(tool_value)
+                if tool_value is not None:
+                    return (tool_value,)
+
+            if isinstance(value, list | tuple):
+                return tuple(value)
+
+            return (value,)
+
+        messages: list[ChatMessage] = []
+        for candidate in _iter_candidates(result):
+            coerced = _coerce_message(candidate)
+            if coerced is not None:
+                messages.append(coerced)
+        return messages
 
     async def _process_backend_request_with_retry(
         self,
@@ -149,14 +219,18 @@ class BackendRequestManager(IBackendRequestManager):
 
                     # Process through response processor for empty response detection
                     # This works for both real implementations and mocks in tests
+                    middleware_context = {
+                        "original_request": backend_request,
+                        "backend_response": backend_response,
+                    }
+                    if processing_context:
+                        middleware_context.update(processing_context)
+
                     processed_response = (
                         await self._response_processor.process_response(
                             backend_response.content,
                             session_id,
-                            {
-                                "original_request": backend_request,
-                                "backend_response": backend_response,
-                            },
+                            middleware_context,
                         )
                     )
 

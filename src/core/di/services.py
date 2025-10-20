@@ -443,20 +443,32 @@ def register_core_services(
         )  # type: ignore[type-abstract]
 
     # Register command processor
-    def _command_processor_factory(provider: IServiceProvider) -> CommandProcessor:
+    def _command_processor_factory(provider: IServiceProvider) -> ICommandProcessor:
         # Get command service
         from typing import cast
+
+        from src.core.commands.tool_call_command_processor import (
+            ToolCallCommandProcessor,
+        )
+        from src.core.services.delegating_command_processor import (
+            DelegatingCommandProcessor,
+        )
 
         command_service: ICommandService = provider.get_required_service(
             cast(type, ICommandService)
         )
 
-        # Return command processor
-        return CommandProcessor(command_service)
+        # Create the processors
+        text_command_processor = CommandProcessor(command_service)
+        tool_call_command_processor = ToolCallCommandProcessor(command_service)
+
+        # Return the delegating processor
+        return DelegatingCommandProcessor(
+            tool_call_command_processor=tool_call_command_processor,
+            text_command_processor=text_command_processor,
+        )
 
     # Register command processor and bind to interface
-    _add_singleton(CommandProcessor, implementation_factory=_command_processor_factory)
-
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, ICommandProcessor),

@@ -287,7 +287,7 @@ class TranslationService:
             return Translation.gemini_to_domain_stream_chunk(chunk)
         elif source_format == "openai":
             return Translation.openai_to_domain_stream_chunk(chunk)
-        elif source_format == "openai-responses":
+        elif source_format == "openai-responses" or source_format == "responses":
             return Translation.responses_to_domain_stream_chunk(chunk)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_stream_chunk(chunk)
@@ -332,7 +332,22 @@ class TranslationService:
         )
 
     def from_domain_to_openai_stream_chunk(self, chunk: Any) -> dict[str, Any]:
-        """Translates a domain stream chunk to an OpenAI stream format."""
+        """Translates a domain stream chunk to the canonical OpenAI SSE format.
+
+        The canonical chunk shape returned here mirrors `chat.completion.chunk`
+        responses with a single choice that contains a `delta` payload. Tool calls
+        remain in `delta["tool_calls"]` while plain text is exposed via
+        `delta["content"]`. Tests rely on this structure to assert streaming
+        semantics, so changes to the contracted shape should be accompanied by
+        updated documentation and test fixtures."""
+        """Translates a domain stream chunk to the canonical OpenAI SSE format.
+
+        The canonical chunk shape returned here mirrors `chat.completion.chunk`
+        responses with a single choice that contains a `delta` payload. Tool calls
+        remain in `delta["tool_calls"]` while plain text is exposed via
+        `delta["content"]`. Tests rely on this structure to assert streaming
+        semantics, so changes to the contracted shape should be accompanied by
+        updated documentation and test fixtures."""
         # Normalize chunk dictionary to inspect delta/tool_calls/content values
         if isinstance(chunk, dict):
             chunk_dict = chunk
@@ -372,13 +387,21 @@ class TranslationService:
 
         first_choice = choices[0] or {}
         delta = first_choice.get("delta") or {}
+        tool_call_text = None
+        if isinstance(delta, dict) and "_tool_call_text" in delta:
+            tool_call_text = delta.get("_tool_call_text")
+            delta = dict(delta)
+            delta.pop("_tool_call_text", None)
 
         # Ensure we honor tool_calls semantics: no duplicate content alongside tool_calls
         tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
         if tool_calls:
             delta = dict(delta)
             delta["tool_calls"] = tool_calls
-            delta.pop("content", None)
+            if tool_call_text is not None:
+                delta["content"] = tool_call_text
+            else:
+                delta.pop("content", None)
         else:
             content = delta.get("content")
             if content is None:
@@ -386,6 +409,8 @@ class TranslationService:
             if content is not None:
                 delta = dict(delta)
                 delta["content"] = content
+            if tool_call_text is not None:
+                delta["content"] = tool_call_text
 
         normalized_choice = {
             "index": first_choice.get("index", 0),

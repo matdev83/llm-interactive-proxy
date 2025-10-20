@@ -255,11 +255,11 @@ class TestOpenAIResponsesBackendIntegration:
             "data: [DONE]\n\n",
         ]
 
-        async def mock_aiter_text():
+        async def mock_aiter_bytes():
             for chunk in streaming_chunks:
-                yield chunk
+                yield chunk.encode("utf-8")
 
-        mock_response.aiter_text = mock_aiter_text
+        mock_response.aiter_bytes = Mock(return_value=mock_aiter_bytes())
         mock_response.aclose = AsyncMock()
 
         mock_client.build_request.return_value = Mock()

@@ -1,11 +1,11 @@
 from unittest.mock import Mock
 
 import pytest
-from src.core.commands.command import Command
 from src.core.commands.handlers.reasoning_aliases import (
     SetModeCommandHandler,
     SetProviderCommandHandler,
 )
+from src.core.commands.models import Command
 from src.core.domain.configuration.reasoning_aliases_config import ReasoningMode
 from src.core.domain.session import Session
 

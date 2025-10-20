@@ -25,6 +25,8 @@ from src.core.domain.responses_api import (
     ResponseFormat,
     ResponsesRequest,
 )
+from src.core.domain.translation import Translation
+from src.core.services.tool_text_renderer import override_renderer
 from src.core.services.translation_service import TranslationService
 
 
@@ -153,8 +155,8 @@ class TestResponsesApiTranslation:
         """Test translating SSE-formatted Responses API streaming chunks."""
 
         sse_chunk = (
-            'data: {"id": "resp-123", "object": "response.chunk", '
-            '"choices": [{"delta": {"content": "partial"}}]}\n\n'
+            "event: response.output_text.delta\n"
+            'data: {"type": "response.output_text.delta", "delta": "partial"}\n\n'
         )
 
         domain_chunk = self.service.to_domain_stream_chunk(
@@ -163,6 +165,165 @@ class TestResponsesApiTranslation:
 
         assert isinstance(domain_chunk, dict)
         assert domain_chunk["choices"][0]["delta"]["content"] == "partial"
+
+        # The connector may label the format simply as "responses"
+        direct_domain_chunk = self.service.to_domain_stream_chunk(
+            sse_chunk, "responses"
+        )
+        assert isinstance(direct_domain_chunk, dict)
+        assert direct_domain_chunk["choices"][0]["delta"]["content"] == "partial"
+
+    def test_to_domain_stream_chunk_responses_message_item(self):
+        """Message completion events should flatten content."""
+
+        chunk = (
+            "event: response.output_item.done\n"
+            'data: {"type": "response.output_item.done", '
+            '"item": {"type": "message", "role": "assistant", '
+            '"content": [{"type": "output_text", "text": "Hello"}, '
+            '{"type": "output_text", "text": " world"}]}}\n\n'
+        )
+
+        domain_chunk = self.service.to_domain_stream_chunk(chunk, "responses")
+
+        delta = domain_chunk["choices"][0]["delta"]
+        assert delta["content"] == "Hello world"
+        assert delta["role"] == "assistant"
+
+    def test_to_domain_stream_chunk_responses_function_call(self):
+        """Function call output items should be mapped to tool_calls."""
+
+        chunk = (
+            "event: response.output_item.done\n"
+            'data: {"type": "response.output_item.done", '
+            '"item": {"type": "function_call", "call_id": "call_1", '
+            '"name": "do_work", "arguments": "{\\"value\\": 1}"}}\n\n'
+        )
+
+        domain_chunk = self.service.to_domain_stream_chunk(chunk, "responses")
+
+        tool_calls = domain_chunk["choices"][0]["delta"]["tool_calls"]
+        assert tool_calls[0]["function"]["name"] == "do_work"
+        assert tool_calls[0]["function"]["arguments"] == '{"value": 1}'
+
+    def test_responses_tool_call_indexes_are_zero_based(self):
+        """Codex tool calls should stream with zero-based indexes."""
+        response_id = "resp-tool-index"
+        Translation._reset_tool_call_state(response_id)
+
+        delta_payload = {
+            "id": response_id,
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_1",
+            "output_index": 1,
+            "delta": '{"command":["bash","-lc","ls"]}',
+        }
+        delta_chunk = (
+            "event: response.function_call_arguments.delta\n"
+            f"data: {json.dumps(delta_payload)}\n\n"
+        )
+        delta_domain = self.service.to_domain_stream_chunk(delta_chunk, "responses")
+        tool_delta = delta_domain["choices"][0]["delta"]["tool_calls"][0]
+        assert tool_delta["index"] == 0
+        assert tool_delta["id"] == "fc_1"
+
+        done_payload = {
+            "id": response_id,
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_1",
+            "output_index": 1,
+            "arguments": '{"command":["bash","-lc","ls"]}',
+        }
+        done_chunk = (
+            "event: response.function_call_arguments.done\n"
+            f"data: {json.dumps(done_payload)}\n\n"
+        )
+        done_domain = self.service.to_domain_stream_chunk(done_chunk, "responses")
+        done_tool = done_domain["choices"][0]["delta"]["tool_calls"][0]
+        assert done_tool["index"] == 0
+        assert done_domain["choices"][0]["finish_reason"] == "tool_calls"
+        final_payload = {
+            "id": response_id,
+            "type": "response.output_item.done",
+            "output_index": 1,
+            "item": {
+                "id": "fc_1",
+                "type": "function_call",
+                "name": "shell",
+                "arguments": '{"command":["bash","-lc","ls"]}',
+            },
+        }
+        final_chunk = (
+            "event: response.output_item.done\n"
+            f"data: {json.dumps(final_payload)}\n\n"
+        )
+        final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
+        final_tool = final_domain["choices"][0]["delta"]["tool_calls"][0]
+        assert final_tool["index"] == 0
+        assert final_domain["choices"][0]["finish_reason"] == "tool_calls"
+        final_tool_text = final_domain["choices"][0]["delta"]["_tool_call_text"]
+        assert final_tool_text.startswith("<execute_command>")
+        assert final_tool_text.endswith("</execute_command>")
+        assert "<command>bash -lc ls</command>" in final_tool_text
+        assert "content" not in final_domain["choices"][0]["delta"]
+
+        completed_payload = {
+            "type": "response.completed",
+            "response": {"id": response_id},
+        }
+        completed_chunk = (
+            "event: response.completed\n" f"data: {json.dumps(completed_payload)}\n\n"
+        )
+        completed_domain = self.service.to_domain_stream_chunk(
+            completed_chunk, "responses"
+        )
+        assert completed_domain["choices"][0]["finish_reason"] == "stop"
+        assert response_id not in Translation._codex_tool_call_index_base
+        assert response_id not in Translation._codex_tool_call_item_index
+
+    def test_tool_text_renderer_none_disables_text(self):
+        """Renderer override 'none' should suppress textual tool output."""
+        response_id = "resp-tool-none"
+        Translation._reset_tool_call_state(response_id)
+
+        final_payload = {
+            "id": response_id,
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "id": "fc_none",
+                "type": "function_call",
+                "name": "shell",
+                "arguments": '{"command":["bash","-lc","ls"]}',
+            },
+        }
+        final_chunk = (
+            "event: response.output_item.done\n"
+            f"data: {json.dumps(final_payload)}\n\n"
+        )
+
+        with override_renderer("none"):
+            final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
+
+        delta = final_domain["choices"][0]["delta"]
+        assert "content" not in delta
+        assert "_tool_call_text" not in delta
+        tool_calls = delta["tool_calls"]
+        assert tool_calls[0]["function"]["name"] == "shell"
+
+    def test_to_domain_stream_chunk_responses_completed_event(self):
+        """Completed events should mark finish_reason 'stop'."""
+
+        chunk = (
+            "event: response.completed\n"
+            'data: {"type": "response.completed", '
+            '"response": {"id": "resp-42", '
+            '"usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}}}\n\n'
+        )
+
+        domain_chunk = self.service.to_domain_stream_chunk(chunk, "responses")
+        assert domain_chunk["choices"][0]["finish_reason"] == "stop"
+        assert domain_chunk["usage"]["total_tokens"] == 15
 
     def test_to_domain_stream_chunk_responses_done_marker(self):
         """Test translating the [DONE] marker from Responses API streaming."""
@@ -753,9 +914,7 @@ class TestResponsesApiErrorHandling:
             },
         }
 
-        with pytest.raises(
-            ValidationError
-        ):  # Should raise validation error for missing model
+        with pytest.raises(ValueError, match="'model' is a required property"):
             self.service.to_domain_request(invalid_request, "responses")
 
     def test_responses_to_domain_request_missing_response_format(self):

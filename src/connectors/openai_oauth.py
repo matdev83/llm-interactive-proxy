@@ -24,6 +24,10 @@ import platform
 import threading
 import time
 import uuid
+from collections.abc import AsyncIterator
+from copy import deepcopy
+from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,10 +39,17 @@ from watchdog.observers import Observer
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
+from src.connectors._openai_oauth_capabilities import (
+    CodexCapabilityResolver,
+    CodexClientCapabilities,
+)
+from src.connectors._openai_oauth_request_translator import CodexRequestTranslator
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
+from src.core.services.tool_text_renderer import override_renderer
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -53,7 +64,7 @@ class OpenAICredentialsFileHandler(FileSystemEventHandler):
 
     def on_modified(self, event) -> None:  # type: ignore[no-untyped-def]
         """Handle file modification events."""
-        if not event.is_directory:
+        if not event.is_directory and isinstance(event.src_path, str):
             # Compare paths using Path objects to handle Windows/Unix differences
             try:
                 event_path = Path(event.src_path).resolve()
@@ -74,110 +85,85 @@ class OpenAICredentialsFileHandler(FileSystemEventHandler):
 
 class OpenAIOAuthConnector(OpenAIConnector):
     backend_type: str = "openai-oauth"
-    # Copied from the official Codex CLI prompt (codex-rs/core/gpt_5_codex_prompt.md)
-    CODex_SYSTEM_PROMPT: str = """You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.
+    CODEX_PROMPT_RESOURCE_PACKAGE = "src.resources.codex"
+    CODEX_PROMPT_RESOURCE_NAME = "gpt_5_codex_prompt.md"
+    CODEX_ORIGINATOR = "codex_cli_rs"
+    CODEX_VERSION_HEADER = "0.0.0"
 
-## General
+    @classmethod
+    @lru_cache(maxsize=1)
+    def _codex_system_prompt(cls) -> str:
+        """Load the Codex system prompt from bundled resources or vendor sources."""
+        try:
+            from importlib import resources as importlib_resources
 
-- The arguments to `shell` will be passed to execvp(). Most terminal commands should be prefixed with ["bash", "-lc"].
-- Always set the `workdir` param when using the shell function. Do not use `cd` unless absolutely necessary.
-- When searching for text or files, prefer using `rg` or `rg --files` respectively because `rg` is much faster than alternatives like `grep`. (If the `rg` command is not found, then use alternatives.)
+            return importlib_resources.read_text(
+                cls.CODEX_PROMPT_RESOURCE_PACKAGE,
+                cls.CODEX_PROMPT_RESOURCE_NAME,
+                encoding="utf-8",
+            )
+        except (FileNotFoundError, ModuleNotFoundError):
+            pass
+        except Exception as exc:  # pragma: no cover - diagnostic path
+            logger.warning(
+                "Failed to load Codex system prompt from package resources: %s", exc
+            )
 
-## Editing constraints
+        fallback_paths = [
+            Path(__file__).resolve().parents[2]
+            / "dev"
+            / "thrdparty"
+            / "codex"
+            / "codex-rs"
+            / "core"
+            / cls.CODEX_PROMPT_RESOURCE_NAME,
+            Path(__file__).resolve().parents[1]
+            / "resources"
+            / "codex"
+            / cls.CODEX_PROMPT_RESOURCE_NAME,
+        ]
+        for candidate in fallback_paths:
+            try:
+                if candidate.exists():
+                    return candidate.read_text(encoding="utf-8")
+            except Exception as exc:  # pragma: no cover - diagnostic path
+                logger.warning(
+                    "Failed loading Codex prompt from %s: %s", candidate, exc
+                )
 
-- Default to ASCII when editing or creating files. Only introduce non-ASCII or other Unicode characters when there is a clear justification and the file already uses them.
-- Add succinct code comments that explain what is going on if code is not self-explanatory. You should not add comments like "Assigns the value to the variable", but a brief comment might be useful ahead of a complex code block that the user would otherwise have to spend time parsing out. Usage of these comments should be rare.
-- Try to use apply_patch for single file edits, but it is fine to explore other options to make the edit if it does not work well. Do not use apply_patch for changes that are auto-generated (i.e. generating package.json or running a lint or format command like gofmt) or when scripting is more efficient (such as search and replacing a string across a codebase).
-- You may be in a dirty git worktree.
-    * NEVER revert existing changes you did not make unless explicitly requested, since these changes were made by the user.
-    * If asked to make a commit or code edits and there are unrelated changes to your work or changes that you didn't make in those files, don't revert those changes.
-    * If the changes are in files you've touched recently, you should read carefully and understand how you can work with the changes rather than reverting them.
-    * If the changes are in unrelated files, just ignore them and don't revert them.
-- While you are working, you might notice unexpected changes that you didn't make. If this happens, STOP IMMEDIATELY and ask the user how they would like to proceed.
-- **NEVER** use destructive commands like `git reset --hard` or `git checkout --` unless specifically requested or approved by the user.
+        raise RuntimeError(
+            "Codex system prompt not found. Ensure gpt_5_codex_prompt.md is bundled."
+        )
 
-## Plan tool
+    @staticmethod
+    def _sanitize_header_value(value: str) -> str:
+        """Replace characters outside the visible ASCII range with underscores."""
+        return "".join(ch if 32 <= ord(ch) <= 126 else "_" for ch in value)
 
-When using the planning tool:
-- Skip using the planning tool for straightforward tasks (roughly the easiest 25%).
-- Do not make single-step plans.
-- When you made a plan, update it after having performed one of the sub-tasks that you shared on the plan.
-
-## Codex CLI harness, sandboxing, and approvals
-
-The Codex CLI harness supports several different configurations for sandboxing and escalation approvals that the user can choose from.
-
-Filesystem sandboxing defines which files can be read or written. The options for `sandbox_mode` are:
-- **read-only**: The sandbox only permits reading files.
-- **workspace-write**: The sandbox permits reading files, and editing files in `cwd` and `writable_roots`. Editing files in other directories requires approval.
-- **danger-full-access**: No filesystem sandboxing - all commands are permitted.
-
-Network sandboxing defines whether network can be accessed without approval. Options for `network_access` are:
-- **restricted**: Requires approval
-- **enabled**: No approval needed
-
-Approvals are your mechanism to get user consent to run shell commands without the sandbox. Possible configuration options for `approval_policy` are
-- **untrusted**: The harness will escalate most commands for user approval, apart from a limited allowlist of safe "read" commands.
-- **on-failure**: The harness will allow all commands to run in the sandbox (if enabled), and failures will be escalated to the user for approval to run again without the sandbox.
-- **on-request**: Commands will be run in the sandbox by default, and you can specify in your tool call if you want to escalate a command to run without sandboxing. (Note that this mode is not always available. If it is, you'll see parameters for it in the `shell` command description.)
-- **never**: This is a non-interactive mode where you may NEVER ask for user approval before running commands. Instead, you must always persist and work around constraints to solve the task for the user. You MUST do your utmost best to finish the task and validate your work before yielding. If this mode is paired with `danger-full-access`, take advantage of it to deliver the best outcome for the user. Further, in this mode, your default testing philosophy is overridden: Even if you don't see local patterns for testing, you may add tests and scripts to validate your work. Just remove them before yielding.
-
-When you are running with `approval_policy == on-request`, and sandboxing enabled, here are scenarios where you'll need to request approval:
-- You need to run a command that writes to a directory that requires it (e.g. running tests that write to /var)
-- You need to run a GUI app (e.g., open/xdg-open/osascript) to open browsers or files.
-- You are running sandboxed and need to run a command that requires network access (e.g. installing packages)
-- If you run a command that is important to solving the user's query, but it fails because of sandboxing, rerun the command with approval. ALWAYS proceed to use the `with_escalated_permissions` and `justification` parameters - do not message the user before requesting approval for the command.
-- You are about to take a potentially destructive action such as an `rm` or `git reset` that the user did not explicitly ask for
-- (for all of these, you should weigh alternative paths that do not require approvals)
-
-When `sandbox_mode` is set to read-only, you'll need to request approval for any command that isn't a read.
-
-Although they introduce friction to the user because your work is paused until the user responds, you should leverage them when necessary to accomplish important work. If the completing the task requires escalated permissions, Do not let these settings or the sandbox deter you from attempting to accomplish the user's task unless it is set to "never", in which case never ask for approvals.
-
-## Special user requests
-
-- If the user makes a simple request (such as asking for the time) which you can fulfill by running a terminal command (such as `date`), you should do so.
-- If the user asks for a "review", default to a code review mindset: prioritise identifying bugs, risks, behavioural regressions, and missing tests. Findings must be the primary focus of the response - keep summaries or overviews brief and only after enumerating the issues. Present findings first (ordered by severity with file/line references), follow with open questions or assumptions, and offer a change-summary only as a secondary detail. If no findings are discovered, state that explicitly and mention any residual risks or testing gaps.
-
-## Presenting your work and final message
-
-You are producing plain text that will later be styled by the CLI. Follow these rules exactly. Formatting should make results easy to scan, but not feel mechanical. Use judgment to decide how much structure adds value.
-
-- Default: be very concise; friendly coding teammate tone.
-- Ask only when needed; suggest ideas; mirror the user's style.
-- For substantial work, summarize clearly; follow final-answer formatting.
-- Skip heavy formatting for simple confirmations.
-- Don't dump large files you've written; reference paths only.
-- No "save/copy this file" - User is on the same machine.
-- Offer logical next steps (tests, commits, build) briefly; add verify steps if you couldn't do something.
-- For code changes:
-  * Lead with a quick explanation of the change, and then give more details on the context covering where and why a change was made. Do not start this explanation with "summary", just jump right in.
-  * If there are natural next steps the user may want to take, suggest them at the end of your response. Do not make suggestions if there are no natural next steps.
-  * When suggesting multiple options, use numeric lists for the suggestions so the user can quickly respond with a single number.
-- The user does not command execution outputs. When asked to show the output of a command (e.g. `git show`), relay the important details in your answer or summarize the key lines so the user understands the result.
-
-### Final answer structure and style guidelines
-
-- Plain text; CLI handles styling. Use structure only when it helps scanability.
-- Headers: optional; short Title Case (1-3 words) wrapped in **…**; no blank line before the first bullet; add only if they truly help.
-- Bullets: use - ; merge related points; keep to one line when possible; 4-6 per list ordered by importance; keep phrasing consistent.
-- Monospace: backticks for commands/paths/env vars/code ids and inline examples; use for literal keyword bullets; never combine with **.
-- Code samples or multi-line snippets should be wrapped in fenced code blocks; include an info string as often as possible.
-- Structure: group related bullets; order sections general → specific → supporting; for subsections, start with a bolded keyword bullet, then items; match complexity to the task.
-- Tone: collaborative, concise, factual; present tense, active voice; self-contained; no "above/below"; parallel wording.
-- Don'ts: no nested bullets/hierarchies; no ANSI codes; don't cram unrelated keywords; keep keyword lists short—wrap/reformat if long; avoid naming formatting styles in answers.
-- Adaptation: code explanations → precise, structured with code refs; simple tasks → lead with outcome; big changes → logical walkthrough + rationale + next actions; casual one-offs → plain sentences, no headers/bullets.
-- File References: When referencing files in your response, make sure to include the relevant start line and always follow the below rules:
-  * Use inline code to make file paths clickable.
-  * Each reference should have a stand alone path. Even if it's the same file.
-  * Accepted: absolute, workspace-relative, a/ or b/ diff prefixes, or bare filename/suffix.
-  * Line/column (1-based, optional): :line[:column] or #Lline[Ccolumn] (column defaults to 1).
-  * Do not use URIs like file://, vscode://, or https://.
-  * Do not provide range of lines
-  * Examples: src/app.ts, src/app.ts:42, b/server/index.js#L10, C:\\repo\\project\\main.rs:12:5
-"""
-    CODEx_ORIGINATOR = "codex_cli_rs"
-    CODEx_VERSION_HEADER = "0.46.0"
+    @staticmethod
+    def _detect_terminal_user_agent() -> str:
+        """Best effort reproduction of codex-rs terminal::user_agent detection."""
+        term_program = os.getenv("TERM_PROGRAM", "").strip()
+        if term_program:
+            version = os.getenv("TERM_PROGRAM_VERSION", "").strip()
+            base = f"{term_program}/{version}" if version else term_program
+        elif wez := os.getenv("WEZTERM_VERSION", "").strip():
+            base = f"WezTerm/{wez}" if wez else "WezTerm"
+        elif os.getenv("KITTY_WINDOW_ID") or "kitty" in os.getenv("TERM", ""):
+            base = "kitty"
+        elif os.getenv("ALACRITTY_SOCKET") or os.getenv("TERM", "") == "alacritty":
+            base = "Alacritty"
+        elif konsole := os.getenv("KONSOLE_VERSION", "").strip():
+            base = f"Konsole/{konsole}" if konsole else "Konsole"
+        elif os.getenv("GNOME_TERMINAL_SCREEN"):
+            base = "gnome-terminal"
+        elif vte := os.getenv("VTE_VERSION", "").strip():
+            base = f"VTE/{vte}" if vte else "VTE"
+        elif os.getenv("WT_SESSION"):
+            base = "WindowsTerminal"
+        else:
+            base = os.getenv("TERM", "unknown")
+        return OpenAIOAuthConnector._sanitize_header_value(base)
 
     def __init__(
         self,
@@ -210,6 +196,9 @@ You are producing plain text that will later be styled by the CLI. Follow these 
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._reload_task_lock = threading.Lock()
         self._reload_scheduling_in_progress = False
+        self._capability_resolver = CodexCapabilityResolver()
+        self._request_translator = CodexRequestTranslator(self)
+        self._token_refresh_lock = asyncio.Lock()
 
         # Health checks are unnecessary for OAuth bearer flow in tests; disable by default
         import contextlib
@@ -226,13 +215,19 @@ You are producing plain text that will later be styled by the CLI. Follow these 
     def _codex_user_agent(self) -> str:
         """Build a Codex CLI compatible User-Agent string."""
         system_name = platform.system() or "UnknownOS"
-        system_version = platform.release() or "0"
-        arch = platform.machine() or "unknown"
-        python_runtime = f"python-{platform.python_version()}"
-        return (
-            f"{self.CODEx_ORIGINATOR}/{self.CODEx_VERSION_HEADER} "
-            f"({system_name} {system_version}; {arch}; {python_runtime})"
+        system_version = (
+            platform.version() or platform.release() or os.environ.get("OS", "0")
         )
+        arch = platform.machine() or "unknown"
+        terminal = self._detect_terminal_user_agent()
+        base = (
+            f"{self.CODEX_ORIGINATOR}/{self.CODEX_VERSION_HEADER} "
+            f"({system_name} {system_version}; {arch}; {terminal}) {terminal}"
+        )
+        sanitized = self._sanitize_header_value(base)
+        if sanitized.strip():
+            return sanitized
+        return f"{self.CODEX_ORIGINATOR}/{self.CODEX_VERSION_HEADER}"
 
     def _codex_account_id(self) -> str | None:
         """Return the ChatGPT account_id from cached credentials when available."""
@@ -264,7 +259,11 @@ You are producing plain text that will later be styled by the CLI. Follow these 
                     if isinstance(text, str):
                         parts.append(text)
                         continue
-                if hasattr(part, "model_dump") and callable(part.model_dump):
+                if (
+                    not isinstance(part, dict)
+                    and hasattr(part, "model_dump")
+                    and callable(part.model_dump)
+                ):
                     dumped = part.model_dump()
                     if isinstance(dumped, dict):
                         text = dumped.get("text")
@@ -280,48 +279,39 @@ You are producing plain text that will later be styled by the CLI. Follow these 
         # Fallback to message string representation
         return str(message)
 
-    def _build_user_instructions_block(self, request_data: Any) -> str:
-        """Compose the <user_instructions> block from system messages."""
-        system_messages: list[str] = []
-        messages = getattr(request_data, "messages", [])
-        for message in messages or []:
-            role = getattr(message, "role", None)
-            if role is None and isinstance(message, dict):
-                role = message.get("role")
-            if (role or "").lower() == "system":
-                system_messages.append(self._message_to_text(message))
-
-        body = "\n\n".join(msg for msg in system_messages if msg.strip())
-        return f"<user_instructions>\n\n{body}\n\n</user_instructions>"
-
     def _build_environment_context_block(
         self, request_data: Any, effective_model: str
     ) -> str:
         """Compose the <environment_context> block with best-effort metadata."""
         extra_body = getattr(request_data, "extra_body", {}) or {}
+        override = extra_body.get("codex_environment_context")
+        if isinstance(override, str) and override.strip():
+            return override
 
         cwd = extra_body.get("project_dir") or extra_body.get("cwd")
         if not cwd:
             cwd = os.getcwd()
 
-        sandbox_mode = extra_body.get("sandbox_mode") or "unknown"
-        approval_policy = extra_body.get("approval_policy") or "unknown"
-        network_access = extra_body.get("network_access") or "unknown"
-        shell = extra_body.get("shell") or os.environ.get("SHELL") or "bash"
+        sandbox_mode = extra_body.get("sandbox_mode") or "read-only"
+        approval_policy = extra_body.get("approval_policy") or "never"
+        network_access = extra_body.get("network_access") or "restricted"
+        shell_value = extra_body.get("shell") or os.environ.get("SHELL") or "bash"
+        if isinstance(shell_value, str) and "/" in shell_value:
+            shell_value = shell_value.rsplit("/", 1)[-1] or shell_value
+        shell = shell_value or "bash"
 
         lines = [
             "<environment_context>",
             f"  <cwd>{cwd}</cwd>",
-            f"  <model>{effective_model}</model>",
-            f"  <sandbox_mode>{sandbox_mode}</sandbox_mode>",
             f"  <approval_policy>{approval_policy}</approval_policy>",
+            f"  <sandbox_mode>{sandbox_mode}</sandbox_mode>",
             f"  <network_access>{network_access}</network_access>",
             f"  <shell>{shell}</shell>",
             "</environment_context>",
         ]
         return "\n".join(lines)
 
-    def _build_codex_tools(self) -> list[dict[str, Any]]:
+    def _default_codex_tools(self) -> list[dict[str, Any]]:
         """Return the tool definitions expected by the Codex Responses API."""
         return [
             {
@@ -359,20 +349,29 @@ You are producing plain text that will later be styled by the CLI. Follow these 
                 },
             },
             {
-                "type": "function",
+                "type": "custom",
                 "name": "apply_patch",
-                "description": "Applies a unified diff to the repository.",
-                "strict": False,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "patch": {
-                            "type": "string",
-                            "description": "Unified diff content to apply",
-                        }
-                    },
-                    "required": ["patch"],
-                    "additionalProperties": False,
+                "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+                "format": {
+                    "type": "grammar",
+                    "syntax": "lark",
+                    "definition": (
+                        "start: begin_patch hunk+ end_patch\n"
+                        'begin_patch: "*** Begin Patch" LF\n'
+                        'end_patch: "*** End Patch" LF?\n\n'
+                        "hunk: add_hunk | delete_hunk | update_hunk\n"
+                        'add_hunk: "*** Add File: " filename LF add_line+\n'
+                        'delete_hunk: "*** Delete File: " filename LF\n'
+                        'update_hunk: "*** Update File: " filename LF change_move? change?\n\n'
+                        "filename: /(.+)/\n"
+                        'add_line: "+" /(.*)/ LF -> line\n\n'
+                        'change_move: "*** Move to: " filename LF\n'
+                        "change: (change_context | change_line)+ eof_line?\n"
+                        'change_context: ("@@" | "@@ " /(.+)/) LF\n'
+                        'change_line: ("+" | "-" | " ") /(.*)/ LF\n'
+                        'eof_line: "*** End of File" LF\n\n'
+                        "%import common.LF\n"
+                    ),
                 },
             },
             {
@@ -394,95 +393,211 @@ You are producing plain text that will later be styled by the CLI. Follow these 
             },
         ]
 
+    def _resolve_tool_schema(
+        self, request_data: Any, capabilities: CodexClientCapabilities
+    ) -> list[dict[str, Any]]:
+        """Resolve the tool schema based on capability settings and request data."""
+        schema_mode = capabilities.tool_schema_mode
+        default_tools = self._default_codex_tools()
+
+        # Extract custom tools from the request, converting Pydantic models to dicts
+        custom_tools_req = getattr(request_data, "tools", []) or []
+        custom_tools: list[dict[str, Any]] = []
+        if custom_tools_req:
+            for tool in custom_tools_req:
+                if hasattr(tool, "model_dump"):
+                    custom_tools.append(tool.model_dump(exclude_none=True))
+                elif isinstance(tool, dict):
+                    custom_tools.append(tool)
+
+        if schema_mode == "custom_only":
+            return custom_tools
+
+        if schema_mode == "merge_custom":
+            if not custom_tools:
+                return default_tools
+            # Custom tools take precedence over defaults with the same name.
+            merged_tools = {tool["name"]: tool for tool in default_tools}
+            for tool in custom_tools:
+                merged_tools[tool["name"]] = tool
+            return list(merged_tools.values())
+
+        # Default behavior is "use_default"
+        return default_tools
+
+    def _is_native_responses_payload(self, request_data: Any) -> bool:
+        """Heuristically detect if a request payload is in the native Codex/Responses format."""
+        # Use a dict-like view of the request_data
+        if hasattr(request_data, "model_dump"):
+            data = request_data.model_dump()
+        elif isinstance(request_data, dict):
+            data = request_data
+        else:
+            return False
+
+        # Structural check: does it have an 'input' array?
+        if "input" in data and isinstance(data.get("input"), list):
+            return True
+
+        # Look for other distinctive fields that are not in standard OpenAI requests
+        return "prompt_cache_key" in data or "instructions" in data
+
+    def _resolve_capabilities(
+        self, request_data: Any, metadata: dict[str, Any] | None = None
+    ) -> CodexClientCapabilities:
+        """Resolve client capabilities for downstream translation."""
+        return self._capability_resolver.resolve(request_data, metadata)
+
     def _build_codex_input_items(
         self,
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        capabilities: CodexClientCapabilities | None = None,
     ) -> list[dict[str, Any]]:
         """Transform processed messages into Codex Responses `input` array."""
-        input_items: list[dict[str, Any]] = []
-        input_items.append(
-            {
-                "type": "message",
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": self._build_user_instructions_block(request_data),
-                    }
-                ],
-            }
+        resolved_capabilities = capabilities or self._resolve_capabilities(request_data)
+
+        return self._request_translator.build_input_items(
+            request_data,
+            processed_messages,
+            effective_model,
+            resolved_capabilities,
         )
-        input_items.append(
-            {
-                "type": "message",
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": self._build_environment_context_block(
-                            request_data, effective_model
-                        ),
-                    }
-                ],
-            }
-        )
-
-        for message in processed_messages or []:
-            role = getattr(message, "role", None)
-            if role is None and isinstance(message, dict):
-                role = message.get("role")
-            role = (role or "user").lower()
-
-            text = self._message_to_text(message)
-            if not text.strip():
-                continue
-
-            content_type = "output_text" if role == "assistant" else "input_text"
-            input_items.append(
-                {
-                    "type": "message",
-                    "role": "assistant" if role == "assistant" else "user",
-                    "content": [{"type": content_type, "text": text}],
-                }
-            )
-        return input_items
 
     def _build_codex_payload(
         self,
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        capabilities: CodexClientCapabilities | None = None,
     ) -> tuple[dict[str, Any], str]:
         """Create the request payload and conversation id for Codex Responses API."""
+        resolved_capabilities = capabilities or self._resolve_capabilities(request_data)
         conversation_id = str(uuid.uuid4())
+
+        # Scenario 1: Native Responses payload passthrough
+        if (
+            resolved_capabilities.codex_passthrough
+            and self._is_native_responses_payload(request_data)
+        ):
+            logger.debug("Executing native Codex/Responses payload passthrough.")
+            if hasattr(request_data, "model_dump"):
+                passthrough_payload = request_data.model_dump(exclude_none=True)
+            else:
+                passthrough_payload = deepcopy(request_data)
+
+            passthrough_payload.setdefault("model", effective_model)
+            if passthrough_payload.get("stream") is None:
+                stream_val = getattr(request_data, "stream", True)
+                passthrough_payload["stream"] = stream_val
+
+            # Ensure a conversation_id/prompt_cache_key exists, preferring existing ones
+            conv_id = (
+                passthrough_payload.get("conversation_id")
+                or passthrough_payload.get("session_id")
+                or passthrough_payload.get("prompt_cache_key")
+                or conversation_id
+            )
+            passthrough_payload["prompt_cache_key"] = conv_id
+            return passthrough_payload, conv_id
+
+        # Scenario 2: Build payload from scratch (translation)
         input_items = self._build_codex_input_items(
-            request_data, processed_messages, effective_model
+            request_data,
+            processed_messages,
+            effective_model,
+            capabilities=resolved_capabilities,
         )
 
+        reasoning_payload = getattr(request_data, "reasoning", None)
+        reasoning_effort = getattr(request_data, "reasoning_effort", None)
+        if not reasoning_payload:
+            reasoning_payload = {
+                "effort": (reasoning_effort or "high"),
+                "summary": "auto",
+            }
+
+        include_items: list[str] = (
+            ["reasoning.encrypted_content"] if reasoning_payload else []
+        )
+
+        system_prompt = self._resolve_system_prompt(request_data, resolved_capabilities)
         payload: dict[str, Any] = {
             "model": effective_model,
-            "instructions": self.CODex_SYSTEM_PROMPT,
             "input": input_items,
-            "tools": self._build_codex_tools(),
+            "tools": self._resolve_tool_schema(request_data, resolved_capabilities),
             "tool_choice": "auto",
             "parallel_tool_calls": False,
-            "reasoning": None,
+            "reasoning": reasoning_payload,
             "store": False,
             "stream": True,
-            "include": [],
+            "include": include_items,
             "prompt_cache_key": conversation_id,
         }
+        if system_prompt is not None:
+            payload["instructions"] = system_prompt
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Constructed Codex payload scaffold (protocol=%s, passthrough=%s)",
+                resolved_capabilities.protocol,
+                resolved_capabilities.codex_passthrough,
+            )
         return payload, conversation_id
+
+    def _resolve_system_prompt(
+        self, request_data: Any, capabilities: CodexClientCapabilities
+    ) -> str | None:
+        """Determine the system prompt based on capability settings and request data."""
+        prompt_mode = capabilities.prompt_mode or "codex_default"
+        extra_body = getattr(request_data, "extra_body", {}) or {}
+
+        custom_prompts: list[str] = []
+        request_prompt = getattr(request_data, "system_prompt", None)
+        if isinstance(request_prompt, str) and request_prompt.strip():
+            custom_prompts.append(request_prompt.strip())
+
+        # Extract from messages array
+        messages = getattr(request_data, "messages", [])
+        for message in messages or []:
+            role = getattr(message, "role", None)
+            if role is None and isinstance(message, dict):
+                role = message.get("role")
+            if (role or "").lower() == "system":
+                text = self._message_to_text(message)
+                if text.strip():
+                    custom_prompts.append(text.strip())
+
+        extra_prompt = extra_body.get("codex_system_prompt")
+        if isinstance(extra_prompt, str) and extra_prompt.strip():
+            custom_prompts.append(extra_prompt.strip())
+        elif isinstance(extra_prompt, list | tuple):
+            custom_prompts.extend(str(part).strip() for part in extra_prompt if part)
+
+        default_prompt = self._codex_system_prompt()
+
+        if prompt_mode == "codex_default":
+            return default_prompt
+
+        if prompt_mode == "merge_custom":
+            pieces = [default_prompt] + [p for p in custom_prompts if p]
+            return "\n\n".join(pieces)
+
+        if prompt_mode == "custom_only":
+            combined = "\n\n".join(p for p in custom_prompts if p)
+            return combined or None
+
+        # Unknown prompt mode: fall back to default Codex behavior
+        return default_prompt
 
     def _build_codex_headers(self, conversation_id: str) -> dict[str, str]:
         """Construct Codex-specific HTTP headers."""
         headers = self.get_headers() or {}
         headers["OpenAI-Beta"] = "responses=experimental"
         headers["Accept"] = "text/event-stream"
-        headers["version"] = self.CODEx_VERSION_HEADER
-        headers["originator"] = self.CODEx_ORIGINATOR
+        headers["version"] = self.CODEX_VERSION_HEADER
+        headers["originator"] = self.CODEX_ORIGINATOR
         headers["User-Agent"] = self._codex_user_agent()
         headers["conversation_id"] = conversation_id
         headers["session_id"] = conversation_id
@@ -502,36 +617,205 @@ You are producing plain text that will later be styled by the CLI. Follow these 
         domain_request: Any,
     ) -> Any:
         """Call the Codex-specific Responses API endpoint."""
+        capabilities = self._resolve_capabilities(request_data)
+
+        # Store capabilities in the processing context if available
+        if hasattr(domain_request, "processing_context"):
+            if domain_request.processing_context is None:
+                domain_request.processing_context = {}
+            domain_request.processing_context["codex_capabilities"] = capabilities
+
         payload, conversation_id = self._build_codex_payload(
-            request_data, processed_messages, effective_model
+            request_data,
+            processed_messages,
+            effective_model,
+            capabilities=capabilities,
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                logger.debug(
+                    "Codex payload input count=%s first_entries=%s tail_entries=%s",
+                    len(payload.get("input", [])),
+                    json.dumps(payload.get("input", [])[:6])[:600],
+                    json.dumps(payload.get("input", [])[-6:])[:600],
+                )
+            except Exception:
+                logger.debug("Codex payload input=<unserializable>")
         headers = self._build_codex_headers(conversation_id)
         url = "https://chatgpt.com/backend-api/codex/responses"
 
+        renderer_key = capabilities.tool_text_format or "codex_xml"
         session_id = getattr(domain_request, "session_id", None) or conversation_id
-        if getattr(domain_request, "stream", False):
-            stream_handle = await self._handle_streaming_response(
-                url,
-                payload,
-                headers,
-                session_id,
-                "responses",
-            )
-            from src.core.domain.responses import StreamingResponseEnvelope
 
-            return StreamingResponseEnvelope(
-                content=stream_handle.iterator,
-                media_type="text/event-stream",
-                headers={},
-                cancel_callback=stream_handle.cancel_callback,
-            )
+        async def _perform_request(
+            request_payload: dict[str, Any],
+            request_headers: dict[str, str],
+            request_session_id: str,
+        ) -> Any:
+            if getattr(domain_request, "stream", False):
+                with override_renderer(renderer_key):
+                    stream_handle = await self._handle_streaming_response(
+                        url,
+                        request_payload,
+                        request_headers,
+                        request_session_id,
+                        "responses",
+                    )
 
-        return await self._handle_non_streaming_response(
-            url,
-            payload,
-            headers,
-            session_id,
-        )
+                async def _rendered_iterator() -> AsyncIterator[Any]:
+                    with override_renderer(renderer_key):
+                        async for chunk in stream_handle.iterator:
+                            yield chunk
+
+                return StreamingResponseEnvelope(
+                    content=_rendered_iterator(),
+                    media_type="text/event-stream",
+                    headers=stream_handle.headers,
+                    cancel_callback=stream_handle.cancel_callback,
+                )
+
+            with override_renderer(renderer_key):
+                return await self._handle_non_streaming_response(
+                    url,
+                    request_payload,
+                    request_headers,
+                    request_session_id,
+                )
+
+        for attempt in range(2):
+            try:
+                return await _perform_request(payload, headers, session_id)
+            except httpx.HTTPStatusError as exc:
+                try:
+                    body = exc.response.json()
+                except json.JSONDecodeError:
+                    body = exc.response.text
+                logger.warning(
+                    "Codex API request failed with status %s: %s",
+                    exc.response.status_code,
+                    body,
+                )
+                # Re-raise as a standard HTTPException to be handled by the app
+                raise HTTPException(status_code=exc.response.status_code, detail=body)
+            except HTTPException as exc:
+                if exc.status_code == 401 and attempt == 0:
+                    refreshed = await self._refresh_access_token()
+                    if refreshed:
+                        payload, conversation_id = self._build_codex_payload(
+                            request_data,
+                            processed_messages,
+                            effective_model,
+                            capabilities=capabilities,
+                        )
+                        headers = self._build_codex_headers(conversation_id)
+                        session_id = (
+                            getattr(domain_request, "session_id", None)
+                            or conversation_id
+                        )
+                        continue
+                raise
+
+        # Should never reach here because loop either returns or raises.
+        raise RuntimeError("Unexpected fallthrough in Codex response handling.")
+
+    async def _refresh_access_token(self) -> bool:
+        """Attempt to refresh the Codex OAuth access token using the stored refresh token."""
+        async with self._token_refresh_lock:
+            logger.info(
+                "Attempting to refresh OpenAI OAuth access token after authentication failure."
+            )
+            # Always reload credentials in case another process already refreshed them.
+            await self._load_auth(force_reload=True)
+            if not self._auth_credentials:
+                logger.warning(
+                    "Cannot refresh OpenAI OAuth token: credentials not loaded."
+                )
+                return False
+
+            tokens = self._auth_credentials.get("tokens")
+            if not isinstance(tokens, dict):
+                logger.warning(
+                    "Cannot refresh OpenAI OAuth token: tokens payload missing in auth.json."
+                )
+                return False
+
+            refresh_token = tokens.get("refresh_token")
+            if not isinstance(refresh_token, str) or not refresh_token:
+                logger.warning(
+                    "Cannot refresh OpenAI OAuth token: refresh_token not present in auth.json."
+                )
+                return False
+
+            payload = {
+                "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "scope": "openid profile email",
+            }
+
+            try:
+                response = await self.client.post(
+                    "https://auth.openai.com/oauth/token",
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=15.0,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("Failed to refresh OpenAI OAuth token: %s", exc)
+                return False
+
+            if response.status_code >= 400:
+                body = response.text
+                logger.warning(
+                    "OpenAI OAuth token refresh failed with status %s: %s",
+                    response.status_code,
+                    body,
+                )
+                return False
+
+            try:
+                token_response = response.json()
+            except Exception as exc:
+                logger.warning("Failed to parse OAuth token refresh response: %s", exc)
+                return False
+
+            access_token = token_response.get("access_token")
+            new_refresh_token = token_response.get("refresh_token") or refresh_token
+            id_token = token_response.get("id_token")
+            if not isinstance(access_token, str) or not access_token:
+                logger.warning("OAuth token refresh response missing access_token.")
+                return False
+
+            updated_credentials = deepcopy(self._auth_credentials)
+            updated_tokens = updated_credentials.setdefault("tokens", {})
+            updated_tokens["access_token"] = access_token
+            updated_tokens["refresh_token"] = new_refresh_token
+            if isinstance(id_token, str) and id_token:
+                updated_tokens["id_token"] = id_token
+            if isinstance(self._auth_path, Path):
+                updated_credentials["last_refresh"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
+
+                try:
+                    with open(self._auth_path, "w", encoding="utf-8") as f:
+                        json.dump(updated_credentials, f, indent=2)
+                        f.write("\n")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to persist refreshed OAuth credentials: %s", exc
+                    )
+                    return False
+            else:
+                logger.warning(
+                    "Cannot persist refreshed OAuth credentials: auth path unknown."
+                )
+                return False
+
+            self._auth_credentials = updated_credentials
+            await self._load_auth(force_reload=True)
+            logger.info("Successfully refreshed OpenAI OAuth access token.")
+            return True
 
     # -----------------------------
     # Health Tracking API (stale token handling pattern)
@@ -1002,7 +1286,7 @@ You are producing plain text that will later be styled by the CLI. Follow these 
                 identity=identity,
                 **kwargs,
             )
-            # If we reach here, the call was successful - mark as recovered if we were degraded
+            # If we reach here, a call was successful - mark as recovered if we were degraded
             if not self.is_functional:
                 self._recover()
             return result

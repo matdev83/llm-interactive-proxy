@@ -74,31 +74,42 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         Returns:
             The processed response (potentially modified by handlers)
         """
-        if not self._enabled:
+        if not self._enabled or context.get("bypass_tool_call_reactor"):
             return response
 
-        # Extract tool calls from metadata first, then from content as fallback
+        # Extract tool calls from various possible locations
         tool_calls: list[dict[str, Any]] = []
-        try:
-            meta_calls = getattr(response, "metadata", {}).get("tool_calls")
-            if isinstance(meta_calls, list):
-                for raw_call in meta_calls:
-                    normalized_call = self._normalize_tool_call(raw_call)
-                    if normalized_call is not None:
-                        tool_calls.append(normalized_call)
-        except Exception as e:
-            logger.debug(
-                f"Error extracting tool calls from metadata: {e}", exc_info=True
-            )
 
+        # Priority 1: Direct 'tool_calls' attribute (e.g., on ChatMessage)
+        if (
+            hasattr(response, "tool_calls")
+            and response.tool_calls
+            and isinstance(response.tool_calls, list)
+        ):
+            for raw_call in response.tool_calls:
+                normalized = self._normalize_tool_call(raw_call)
+                if normalized:
+                    tool_calls.append(normalized)
+
+        # Priority 2: 'tool_calls' within a 'metadata' attribute
         if not tool_calls:
-            if not hasattr(response, "content"):
-                return response
+            try:
+                meta_calls = getattr(response, "metadata", {}).get("tool_calls")
+                if isinstance(meta_calls, list):
+                    for raw_call in meta_calls:
+                        normalized = self._normalize_tool_call(raw_call)
+                        if normalized:
+                            tool_calls.append(normalized)
+            except Exception as e:
+                logger.debug(
+                    "Error extracting tool calls from metadata: %s", e, exc_info=True
+                )
 
-            if not response.content:
-                return response
-
-            tool_calls = self._extract_tool_calls(response.content)
+        # Priority 3: Extract from 'content' attribute as a fallback
+        if not tool_calls:
+            content = getattr(response, "content", None)
+            if content:
+                tool_calls = self._extract_tool_calls(content)
         if not tool_calls:
             return response
 

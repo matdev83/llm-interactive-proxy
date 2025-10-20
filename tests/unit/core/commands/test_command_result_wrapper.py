@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
+from src.core.commands.models import Command, CommandResultWrapper
 from src.core.commands.parser import CommandParser
-from src.core.commands.service import CommandResultWrapper
 from src.core.domain.chat import ChatMessage
 from src.core.domain.command_results import CommandResult
 from src.core.domain.session import Session

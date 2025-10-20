@@ -4,8 +4,8 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from src.core.commands.command import Command
 from src.core.commands.handlers.set_command_handler import SetCommandHandler
+from src.core.commands.models import Command
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
 from src.core.domain.session import Session, SessionState
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 from httpx import Response
@@ -208,6 +209,7 @@ class TestCustomModelParameters:
         mock_http_client: MockHTTPClient,
     ) -> None:
         """Test that reasoning_effort is included in thinkingConfig for Gemini."""
+        os.environ.pop("THINKING_BUDGET", None)
         backend = backend_factory.create_backend("gemini", mock_app_config)
         await backend.initialize(
             api_key="test-key",

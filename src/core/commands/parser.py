@@ -3,20 +3,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Any
 
-from src.core.commands.command import Command
-
-
-@dataclass(frozen=True)
-class ParsedCommand:
-    """Represents a command parsed from raw text."""
-
-    command: Command
-    matched_text: str
-    start: int
-    end: int
+from src.core.commands.models import Command, ParsedCommand
 
 
 class CommandParser:

@@ -5,9 +5,9 @@ Unit tests for the HelpCommandHandler.
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.commands.command import Command
 from src.core.commands.handlers.hello_command_handler import HelloCommandHandler
 from src.core.commands.handlers.help_command_handler import HelpCommandHandler
+from src.core.commands.models import Command
 from src.core.domain.session import Session, SessionState
 from src.core.interfaces.command_service_interface import ICommandService
 

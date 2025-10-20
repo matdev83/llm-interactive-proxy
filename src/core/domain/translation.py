@@ -4,7 +4,7 @@ import json
 import logging
 import mimetypes
 import os
-from typing import Any
+from typing import Any, cast
 
 _MAX_SANITIZE_DEPTH = 100
 
@@ -19,6 +19,7 @@ from src.core.domain.chat import (
     FunctionCall,
     ToolCall,
 )
+from src.core.services.tool_text_renderer import render_tool_call_text
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,47 @@ class Translation(BaseTranslator):
     """
     A class for translating requests and responses between different API formats.
     """
+
+    _codex_tool_call_index_base: dict[str, int] = {}
+    _codex_tool_call_item_index: dict[str, dict[str, int]] = {}
+
+    @classmethod
+    def _reset_tool_call_state(cls, response_id: str | None) -> None:
+        if not response_id:
+            return
+        cls._codex_tool_call_index_base.pop(response_id, None)
+        cls._codex_tool_call_item_index.pop(response_id, None)
+
+    @classmethod
+    def _assign_tool_call_index(
+        cls,
+        response_id: str | None,
+        output_index: Any,
+        item_id: str | None,
+    ) -> int:
+        if not response_id:
+            return 0
+
+        if not isinstance(output_index, int):
+            if item_id:
+                return cls._codex_tool_call_item_index.get(response_id, {}).get(
+                    item_id, 0
+                )
+            return 0
+
+        base = cls._codex_tool_call_index_base.get(response_id)
+        if base is None or output_index < base:
+            cls._codex_tool_call_index_base[response_id] = output_index
+            base = output_index
+
+        index = output_index - base
+        if index < 0:
+            index = 0
+
+        if item_id:
+            cls._codex_tool_call_item_index.setdefault(response_id, {})[item_id] = index
+
+        return index
 
     @staticmethod
     def validate_json_against_schema(
@@ -1253,7 +1295,15 @@ class Translation(BaseTranslator):
             stripped_chunk = chunk.strip()
 
             if not stripped_chunk:
-                return {"error": "Invalid chunk format: empty string"}
+                return {
+                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": None},
+                    ],
+                }
 
             if stripped_chunk.startswith(":"):
                 # Comment/heartbeat lines (e.g., ": ping") should be ignored by emitting
@@ -1285,6 +1335,10 @@ class Translation(BaseTranslator):
             try:
                 chunk = json.loads(stripped_chunk)
             except json.JSONDecodeError as exc:
+                logger.warning(
+                    "Responses stream chunk JSON decode failed: %s",
+                    stripped_chunk[:300],
+                )
                 return {
                     "error": "Invalid chunk format: expected JSON after 'data:' prefix",
                     "details": {"message": str(exc)},
@@ -1306,6 +1360,36 @@ class Translation(BaseTranslator):
         """Translate an OpenAI Responses streaming chunk to canonical format."""
         import json
         import time
+        import uuid
+
+        def _heartbeat_chunk(finish_reason: str | None = None) -> dict[str, Any]:
+            """Return a minimal chunk used for comments/heartbeats."""
+            return {
+                "id": f"resp-{uuid.uuid4().hex[:16]}",
+                "object": "response.chunk",
+                "created": int(time.time()),
+                "model": "unknown",
+                "choices": [
+                    {"index": 0, "delta": {}, "finish_reason": finish_reason},
+                ],
+            }
+
+        def _extract_text(value: Any) -> str:
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                if "text" in value:
+                    return _extract_text(value["text"])
+                if "content" in value:
+                    return _extract_text(value["content"])
+                if "value" in value:
+                    return _extract_text(value["value"])
+            if isinstance(value, list):
+                parts = [_extract_text(v) for v in value]
+                return "".join(part for part in parts if part)
+            if value is None:
+                return ""
+            return str(value)
 
         if isinstance(chunk, bytes | bytearray):
             try:
@@ -1315,6 +1399,7 @@ class Translation(BaseTranslator):
                     "error": "Invalid chunk format: unable to decode bytes",
                 }
 
+        event_type_from_sse: str | None = None
         if isinstance(chunk, str):
             stripped_chunk = chunk.strip()
 
@@ -1322,33 +1407,48 @@ class Translation(BaseTranslator):
                 return {"error": "Invalid chunk format: empty string"}
 
             if stripped_chunk.startswith(":"):
-                return {
-                    "id": f"resp-{int(time.time())}",
-                    "object": "response.chunk",
-                    "created": int(time.time()),
-                    "model": "unknown",
-                    "choices": [
-                        {"index": 0, "delta": {}, "finish_reason": None},
-                    ],
-                }
+                # Comment/heartbeat line (e.g., ": ping")
+                return _heartbeat_chunk()
 
-            if stripped_chunk.startswith("data:"):
-                stripped_chunk = stripped_chunk[5:].strip()
+            data_parts: list[str] = []
+            has_data_prefix = False
+            for raw_line in chunk.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                if line.startswith(":"):
+                    return _heartbeat_chunk()
+                if line.startswith("event:"):
+                    event_type_from_sse = line[6:].strip()
+                    continue
+                if line.startswith("data:"):
+                    has_data_prefix = True
+                    payload = line[5:].strip()
+                    if payload.startswith("event:") and not event_type_from_sse:
+                        event_type_from_sse = payload[6:].strip()
+                        continue
+                    data_parts.append(payload)
+                    continue
+                data_parts.append(line)
+
+            stripped_chunk = "\n".join(part for part in data_parts if part).strip()
+
+            if not has_data_prefix:
+                return _heartbeat_chunk()
+
+            if not stripped_chunk:
+                return _heartbeat_chunk()
 
             if stripped_chunk == "[DONE]":
-                return {
-                    "id": f"resp-{int(time.time())}",
-                    "object": "response.chunk",
-                    "created": int(time.time()),
-                    "model": "unknown",
-                    "choices": [
-                        {"index": 0, "delta": {}, "finish_reason": "stop"},
-                    ],
-                }
+                return _heartbeat_chunk(finish_reason="stop")
 
             try:
                 chunk = json.loads(stripped_chunk)
             except json.JSONDecodeError as exc:
+                logger.warning(
+                    "Responses stream chunk JSON decode failed: %s",
+                    stripped_chunk[:300],
+                )
                 return {
                     "error": "Invalid chunk format: expected JSON after 'data:' prefix",
                     "details": {"message": str(exc)},
@@ -1357,90 +1457,389 @@ class Translation(BaseTranslator):
         if not isinstance(chunk, dict):
             return {"error": "Invalid chunk format: expected a dictionary"}
 
-        chunk_id = chunk.get("id", f"resp-{int(time.time())}")
-        created = chunk.get("created", int(time.time()))
-        model = chunk.get("model", "unknown")
-        object_type = chunk.get("object", "response.chunk")
-        choices = chunk.get("choices") or []
-
-        if not isinstance(choices, list) or not choices:
-            choices = [
-                {"index": 0, "delta": {}, "finish_reason": None},
-            ]
-
-        primary_choice = choices[0] or {}
-        finish_reason = primary_choice.get("finish_reason")
-        delta = primary_choice.get("delta") or {}
-
-        if not isinstance(delta, dict):
-            delta = {"content": str(delta)}
-
-        content_value = delta.get("content")
-        if isinstance(content_value, list):
-            text_parts: list[str] = []
-            for part in content_value:
-                if not isinstance(part, dict):
-                    continue
-                part_type = part.get("type")
-                if part_type in {"output_text", "text", "input_text"}:
-                    text_value = part.get("text") or part.get("value") or ""
-                    if text_value:
-                        text_parts.append(str(text_value))
-            delta["content"] = "".join(text_parts)
-        elif isinstance(content_value, dict):
-            delta["content"] = json.dumps(content_value)
-        elif content_value is None:
-            delta.pop("content", None)
+        response_payload = chunk.get("response")
+        if isinstance(response_payload, dict):
+            chunk_id = response_payload.get("id")
+            created = response_payload.get("created")
+            model = response_payload.get("model")
         else:
-            delta["content"] = str(content_value)
+            chunk_id = None
+            created = None
+            model = None
 
-        tool_calls = delta.get("tool_calls")
-        if isinstance(tool_calls, list):
-            normalized_tool_calls: list[dict[str, Any]] = []
-            for tool_call in tool_calls:
-                if isinstance(tool_call, dict):
-                    call_data = dict(tool_call)
-                else:
-                    function = getattr(tool_call, "function", None)
-                    call_data = {
-                        "id": getattr(tool_call, "id", ""),
-                        "type": getattr(tool_call, "type", "function"),
+        chunk_id = chunk_id or chunk.get("id") or f"resp-{uuid.uuid4().hex[:16]}"
+        created = created or chunk.get("created") or int(time.time())
+        model = model or chunk.get("model") or "unknown"
+        object_type = chunk.get("object") or "response.chunk"
+        index = chunk.get("index", 0)
+        event_type = (
+            (chunk.get("type") or event_type_from_sse or "").strip()
+            if chunk.get("type") or event_type_from_sse
+            else ""
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                logger.debug(
+                    "Responses event type=%s payload=%s",
+                    event_type or "<none>",
+                    json.dumps(chunk)[:400],
+                )
+            except Exception:
+                logger.debug(
+                    "Responses event type=%s payload=<non-serializable>",
+                    event_type or "<none>",
+                )
+
+        def _build_chunk(
+            delta: dict[str, Any] | None = None,
+            finish_reason: str | None = None,
+        ) -> dict[str, Any]:
+            return {
+                "id": chunk_id,
+                "object": object_type,
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": index,
+                        "delta": delta or {},
+                        "finish_reason": finish_reason,
+                    }
+                ],
+            }
+
+        if event_type == "response.output_text.delta":
+            delta_payload = chunk.get("delta")
+            text = _extract_text(delta_payload)
+            if not text:
+                return _build_chunk()
+            delta_map: dict[str, Any] = {"content": text}
+            if isinstance(delta_payload, dict):
+                role = delta_payload.get("role")
+                if role:
+                    delta_map["role"] = role
+            delta_map.setdefault("role", "assistant")
+            return _build_chunk(delta_map)
+
+        if event_type == "response.reasoning_summary_text.delta":
+            summary_text = _extract_text(chunk.get("delta"))
+            return _build_chunk({"reasoning_summary": summary_text})
+
+        if event_type == "response.reasoning_text.delta":
+            reasoning_text = _extract_text(chunk.get("delta"))
+            return _build_chunk({"reasoning_content": reasoning_text})
+
+        if event_type == "response.function_call_arguments.delta":
+            call_id = chunk.get("item_id") or chunk.get("call_id")
+            name = chunk.get("name") or ""
+            delta_payload = chunk.get("delta") or {}
+            if isinstance(delta_payload, str):
+                arguments_fragment = delta_payload
+            else:
+                arguments_fragment = _extract_text(delta_payload)
+                if not isinstance(arguments_fragment, str):
+                    arguments_fragment = json.dumps(delta_payload)
+            if arguments_fragment is None:
+                arguments_fragment = ""
+            tool_index = Translation._assign_tool_call_index(
+                chunk_id, chunk.get("output_index"), call_id
+            )
+            function_payload: dict[str, Any] = {
+                "arguments": arguments_fragment,
+            }
+            if name:
+                function_payload["name"] = name
+            delta = {
+                "tool_calls": [
+                    {
+                        "index": tool_index,
+                        "id": call_id or "",
+                        "type": "function",
+                        "function": function_payload,
+                    }
+                ]
+            }
+            return _build_chunk(delta)
+
+        if event_type == "response.function_call_arguments.done":
+            call_id = chunk.get("item_id") or chunk.get("call_id")
+            name = chunk.get("name") or ""
+            arguments = chunk.get("arguments")
+            if isinstance(arguments, dict | list):
+                arguments = json.dumps(arguments)
+            elif arguments is None:
+                arguments = "{}"
+            else:
+                arguments = str(arguments)
+            tool_index = Translation._assign_tool_call_index(
+                chunk_id, chunk.get("output_index"), call_id
+            )
+            tool_text = render_tool_call_text(
+                name,
+                arguments,
+                call_id,
+                {"event": event_type, "chunk_id": chunk_id},
+            )
+            delta = {
+                "tool_calls": [
+                    {
+                        "index": tool_index,
+                        "id": call_id or "",
+                        "type": "function",
                         "function": {
-                            "name": getattr(function, "name", ""),
-                            "arguments": getattr(function, "arguments", "{}"),
+                            "name": name,
+                            "arguments": arguments,
                         },
                     }
+                ]
+            }
+            if tool_text:
+                delta["_tool_call_text"] = tool_text  # type: ignore[assignment]
+            return _build_chunk(delta, "tool_calls")
 
-                function_payload = call_data.get("function") or {}
-                if isinstance(function_payload, dict):
-                    arguments = function_payload.get("arguments")
-                    if isinstance(arguments, dict | list):
-                        function_payload["arguments"] = json.dumps(arguments)
-                    elif arguments is None:
-                        function_payload["arguments"] = "{}"
-                    else:
-                        function_payload["arguments"] = str(arguments)
+        if event_type == "response.output_item.done":
+            item = chunk.get("item") or {}
+            item_type = item.get("type")
 
-                normalized_tool_calls.append(call_data)
+            if logger.isEnabledFor(logging.DEBUG):
+                try:
+                    logger.debug(
+                        "Responses output_item.done item=%s",
+                        json.dumps(item)[:400],
+                    )
+                except Exception:
+                    logger.debug("Responses output_item.done item=<non-serializable>")
 
-            if normalized_tool_calls:
-                delta["tool_calls"] = normalized_tool_calls
-            else:
-                delta.pop("tool_calls", None)
+            if item_type == "message":
+                text = _extract_text(item.get("content", []))
+                message_delta: dict[str, Any] = {"content": text} if text else {}
+                role = item.get("role")
+                if role:
+                    message_delta["role"] = role
+                return _build_chunk(message_delta or None)
 
-        return {
-            "id": chunk_id,
-            "object": object_type,
-            "created": created,
-            "model": model,
-            "choices": [
-                {
-                    "index": primary_choice.get("index", 0),
-                    "delta": delta,
-                    "finish_reason": finish_reason,
+            if item_type == "function_call":
+                arguments = item.get("arguments", "{}")
+                if not isinstance(arguments, str):
+                    arguments = json.dumps(arguments)
+                call_id = (
+                    item.get("call_id")
+                    or item.get("id")
+                    or f"call_{uuid.uuid4().hex[:8]}"
+                )
+                tool_index = Translation._assign_tool_call_index(
+                    chunk_id, chunk.get("output_index"), call_id
+                )
+                tool_text = render_tool_call_text(
+                    item.get("name", ""),
+                    arguments,
+                    call_id,
+                    {"event": event_type, "chunk_id": chunk_id},
+                )
+                delta = {
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "index": tool_index,
+                            "type": "function",
+                            "function": {
+                                "name": item.get("name", ""),
+                                "arguments": arguments,
+                            },
+                        }
+                    ]
                 }
-            ],
-        }
+                if tool_text:
+                    delta["_tool_call_text"] = tool_text  # type: ignore[assignment]
+                return _build_chunk(delta, "tool_calls")
+
+            if item_type == "custom_tool_call":
+                input_payload = item.get("input", "")
+                if not isinstance(input_payload, str):
+                    input_payload = json.dumps(input_payload)
+                call_id = (
+                    item.get("call_id")
+                    or item.get("id")
+                    or f"custom_{uuid.uuid4().hex[:8]}"
+                )
+                tool_index = Translation._assign_tool_call_index(
+                    chunk_id, chunk.get("output_index"), call_id
+                )
+                tool_text = render_tool_call_text(
+                    item.get("name", ""),
+                    input_payload,
+                    call_id,
+                    {"event": event_type, "chunk_id": chunk_id},
+                )
+                delta = {
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "index": tool_index,
+                            "type": "function",
+                            "function": {
+                                "name": item.get("name", ""),
+                                "arguments": input_payload or "{}",
+                            },
+                        }
+                    ]
+                }
+                if tool_text:
+                    delta["_tool_call_text"] = tool_text  # type: ignore[assignment]
+
+                return _build_chunk(delta)
+
+            if item_type == "local_shell_call":
+                action = item.get("action") or {}
+                arguments = action if isinstance(action, str) else json.dumps(action)
+                call_id = (
+                    item.get("call_id")
+                    or item.get("id")
+                    or f"shell_{uuid.uuid4().hex[:8]}"
+                )
+                tool_index = Translation._assign_tool_call_index(
+                    chunk_id, chunk.get("output_index"), call_id
+                )
+                tool_text = render_tool_call_text(
+                    "shell",
+                    arguments,
+                    call_id,
+                    {"event": event_type, "chunk_id": chunk_id},
+                )
+                delta = {
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "index": tool_index,
+                            "type": "function",
+                            "function": {
+                                "name": "shell",
+                                "arguments": arguments,
+                            },
+                        }
+                    ]
+                }
+                if tool_text:
+                    delta["_tool_call_text"] = tool_text  # type: ignore[assignment]
+
+                return _build_chunk(delta)
+
+            return _build_chunk()
+
+        if event_type == "response.completed":
+            response_info = chunk.get("response") or {}
+            result = _build_chunk({}, "stop")
+            usage = response_info.get("usage")
+            if usage:
+                result["usage"] = usage
+            response_id = response_info.get("id") or chunk_id
+            if response_id:
+                result["response_id"] = response_id
+                Translation._reset_tool_call_state(response_id)
+            return result
+
+        if event_type == "response.created":
+            response_info = chunk.get("response") or {}
+            response_id = response_info.get("id") or chunk_id
+            if response_id:
+                Translation._reset_tool_call_state(response_id)
+            created_delta: dict[str, Any] = {}
+            if response_id:
+                created_delta["response_id"] = response_id
+            created_delta["role"] = "assistant"
+            return _build_chunk(created_delta or None)
+
+        if event_type == "response.failed":
+            response_info = chunk.get("response") or {}
+            error_payload = response_info.get("error") or chunk.get("error") or {}
+            Translation._reset_tool_call_state(response_info.get("id") or chunk_id)
+            return {
+                "error": "Responses stream reported failure",
+                "details": error_payload,
+            }
+
+        if event_type in {
+            "response.output_text.done",
+            "response.output_item.added",
+            "response.custom_tool_call_input.done",
+            "response.custom_tool_call_input.delta",
+            "response.function_call_arguments.delta",
+            "response.in_progress",
+            "response.content_part.done",
+        }:
+            return _build_chunk()
+
+        if "choices" in chunk:
+            choices = chunk.get("choices") or []
+            if not isinstance(choices, list) or not choices:
+                return _build_chunk()
+
+            primary_choice = choices[0] or {}
+            finish_reason = primary_choice.get("finish_reason")
+            raw_delta = primary_choice.get("delta") or {}
+            if isinstance(raw_delta, dict):
+                delta = cast(dict[str, Any], dict(raw_delta))
+            else:
+                delta = {"content": cast(Any, str(raw_delta))}
+
+            content_value = delta.get("content")
+            if isinstance(content_value, list):
+                text_parts: list[str] = []
+                for part in content_value:
+                    if not isinstance(part, dict):
+                        continue
+                    part_type = part.get("type")
+                    if part_type in {"output_text", "text", "input_text"}:
+                        text_value = part.get("text") or part.get("value") or ""
+                        if text_value:
+                            text_parts.append(str(text_value))
+                delta["content"] = cast(Any, "".join(text_parts))
+            elif isinstance(content_value, dict):
+                delta["content"] = cast(Any, json.dumps(content_value))
+            elif content_value is None:
+                delta.pop("content", None)
+            else:
+                delta["content"] = cast(Any, str(content_value))
+
+            tool_calls = delta.get("tool_calls")
+            if isinstance(tool_calls, list):
+                normalized_tool_calls: list[dict[str, Any]] = []
+                for tool_call in tool_calls:
+                    if isinstance(tool_call, dict):
+                        call_data = dict(tool_call)
+                    else:
+                        function = getattr(tool_call, "function", None)
+                        call_data = {
+                            "id": getattr(tool_call, "id", ""),
+                            "type": getattr(tool_call, "type", "function"),
+                            "function": {
+                                "name": getattr(function, "name", ""),
+                                "arguments": getattr(function, "arguments", "{}"),
+                            },
+                        }
+
+                    function_payload = call_data.get("function") or {}
+                    if isinstance(function_payload, dict):
+                        arguments = function_payload.get("arguments")
+                        if isinstance(arguments, dict | list):
+                            function_payload["arguments"] = json.dumps(arguments)
+                        elif arguments is None:
+                            function_payload["arguments"] = "{}"
+                        else:
+                            function_payload["arguments"] = str(arguments)
+
+                    normalized_tool_calls.append(call_data)
+
+                if normalized_tool_calls:
+                    delta["tool_calls"] = normalized_tool_calls
+                else:
+                    delta.pop("tool_calls", None)
+
+            return _build_chunk(delta, finish_reason)
+
+        # Default: emit an empty chunk to keep the stream progressing.
+        return _build_chunk()
 
     @staticmethod
     def openrouter_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -2503,7 +2902,18 @@ class Translation(BaseTranslator):
 
         if isinstance(request, dict):
             request_payload = _prepare_payload(request)
-            responses_request = ResponsesRequest(**request_payload)
+            if not request_payload.get("model"):
+                raise ValueError("'model' is a required property")
+            other_params = {
+                k: v
+                for k, v in request_payload.items()
+                if k not in ["model", "messages"]
+            }
+            responses_request = ResponsesRequest(
+                model=request_payload.get("model") or "",
+                messages=request_payload.get("messages") or [],
+                **other_params,
+            )
         elif hasattr(request, "model_dump"):
             request_payload = _prepare_payload(request.model_dump())
             responses_request = (
@@ -2538,7 +2948,16 @@ class Translation(BaseTranslator):
                     Translation._normalize_responses_input_to_messages(input_value)
                 )
 
-            responses_request = ResponsesRequest(**request_payload)
+            other_params = {
+                k: v
+                for k, v in request_payload.items()
+                if k not in ["model", "messages"]
+            }
+            responses_request = ResponsesRequest(
+                model=request_payload.get("model") or "",
+                messages=request_payload.get("messages") or [],
+                **other_params,
+            )
 
         # Prepare extra_body with response format
         extra_body = dict(responses_request.extra_body or {})

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 import pytest
 from src.core.common.exceptions import ToolCallReactorError
@@ -227,18 +226,16 @@ class TestToolCallReactorService:
     ):
         """Deeply nested tool arguments should not break the reactor."""
 
-        def _build_nested_dict(depth: int) -> dict[str, Any]:
-            result: dict[str, Any] = {}
-            current: dict[str, Any] = result
-            for _ in range(depth):
-                next_level: dict[str, Any] = {}
-                current["level"] = next_level
-                current = next_level
-            return result
+        # Create a custom object that will cause RecursionError during deepcopy
+        class RecursiveObject:
+            def __init__(self, depth=0):
+                self.depth = depth
+                if depth < 1000:  # Create deep recursion that exceeds Python's limit
+                    self.child = RecursiveObject(depth + 1)
+                self.self_ref = self
 
-        # Build a deeply nested structure that will trigger recursion error
-        # Use a higher depth to ensure we exceed the recursion limit consistently
-        nested_arguments = _build_nested_dict(2000)
+        # This object will cause RecursionError in deepcopy due to deep nesting
+        nested_arguments = {"recursive_obj": RecursiveObject()}
 
         context = ToolCallContext(
             session_id="test_session",

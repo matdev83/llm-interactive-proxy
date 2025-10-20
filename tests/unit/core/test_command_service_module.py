@@ -1,4 +1,5 @@
 import pytest
+from src.core.commands.models import Command, CommandResultWrapper
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service import ensure_command_service
 from src.core.interfaces.command_service_interface import ICommandService
@@ -12,6 +13,15 @@ class ConcreteCommandService(ICommandService):
             modified_messages=messages,
             command_executed=True,
             command_results=[session_id],
+        )
+
+    async def execute_command(
+        self, command: Command, session_id: str
+    ) -> CommandResultWrapper:
+        return CommandResultWrapper(
+            command=command,
+            result=f"executed {command.name}",
+            tool_messages=[],
         )
 
 

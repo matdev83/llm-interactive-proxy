@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.core.commands.command import Command
 from src.core.commands.handler import ICommandHandler
+from src.core.commands.models import Command
 from src.core.commands.registry import command
 from src.core.commands.session_state_adapter import SessionStateAdapter
 from src.core.domain.command_results import CommandResult
