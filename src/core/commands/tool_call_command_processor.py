@@ -85,6 +85,10 @@ class ToolCallCommandProcessor(ICommandProcessor):
                 content=parsed.output_text,
                 name=parsed.canonical_name,
                 tool_call_id=matched_call.id,
+                metadata={
+                    "is_proxy_tool_output": True,
+                    "tool_call_id": matched_call.id,
+                },
             )
             normalized_messages[index] = replacement
             textual_tool_messages.append(index)
@@ -143,12 +147,20 @@ class ToolCallCommandProcessor(ICommandProcessor):
                     content=result.message,
                     tool_call_id=tool_call.id,
                     name=command_name,
+                    metadata={
+                        "is_proxy_tool_output": True,
+                        "tool_call_id": tool_call.id,
+                    },
                 )
             return ChatMessage(
                 role="tool",
                 content=f"Error executing tool {command_name}: {getattr(result, 'message', 'Unknown error')}",
                 tool_call_id=tool_call.id,
                 name=command_name,
+                metadata={
+                    "is_proxy_tool_output": True,
+                    "tool_call_id": tool_call.id,
+                },
             )
 
         except Exception:
@@ -158,6 +170,10 @@ class ToolCallCommandProcessor(ICommandProcessor):
                 content=f"Exception executing tool {command_name}",
                 tool_call_id=tool_call.id,
                 name=command_name,
+                metadata={
+                    "is_proxy_tool_output": True,
+                    "tool_call_id": tool_call.id,
+                },
             )
 
     @staticmethod

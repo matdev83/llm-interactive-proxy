@@ -97,6 +97,7 @@ class ChatMessage(DomainModel):
     name: str | None = None
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
+    metadata: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the message to a dictionary."""
@@ -212,6 +213,7 @@ class ChatCompletionChoiceMessage(DomainModel):
     role: str
     content: str | None = None
     tool_calls: list[ToolCall] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class ChatCompletionChoice(DomainModel):

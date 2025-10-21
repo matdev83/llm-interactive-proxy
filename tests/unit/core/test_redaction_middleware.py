@@ -57,7 +57,7 @@ async def test_redaction_middleware_redacts_text_and_parts() -> None:
     assert isinstance(second, list)
     texts = []
     for p in second:
-        if hasattr(p, "text"):
+        if isinstance(p, MessageContentPartText):
             texts.append(p.text)
         elif isinstance(p, dict) and "text" in p:
             texts.append(p["text"])
@@ -163,3 +163,128 @@ async def test_redaction_middleware_filters_function_role_like_tool() -> None:
     assert func_msg.role == "function"
     assert isinstance(func_msg.content, str)
     assert "!/help" in func_msg.content
+
+
+@pytest.mark.asyncio
+async def test_redaction_middleware_removes_command_response_pairs() -> None:
+    """Verify that user commands and their corresponding proxy responses are removed."""
+    # Arrange
+    mw = RedactionMiddleware(api_keys=[], command_prefix="!/")
+
+    req = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="Some previous message"),
+            # This is the pair that should be removed
+            ChatMessage(role="user", content="!/backend(test)"),
+            ChatMessage(
+                role="assistant",
+                content="Proxy command executed.",
+                metadata={"is_proxy_response": True},
+            ),
+            # This is the substantive prompt that should remain
+            ChatMessage(role="user", content="Now, please write a poem."),
+        ],
+    )
+
+    # Act
+    processed = await mw.process(req)
+
+    # Assert
+    # The command and the marked response should be gone.
+    assert len(processed.messages) == 2
+    assert processed.messages[0].content == "Some previous message"
+    assert processed.messages[1].content == "Now, please write a poem."
+    # Verify that no proxy responses remain
+    for msg in processed.messages:
+        if msg.metadata:
+            assert not msg.metadata.get("is_proxy_response")
+
+
+@pytest.mark.asyncio
+async def test_redaction_middleware_respects_custom_command_prefix() -> None:
+    """Ensure proxy command removal respects runtime command prefix overrides."""
+    mw = RedactionMiddleware(api_keys=[], command_prefix="#/")
+
+    req = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="#/backend(test)"),
+            ChatMessage(
+                role="assistant",
+                content="Proxy command executed.",
+                metadata={"is_proxy_response": True},
+            ),
+            ChatMessage(role="user", content="Follow-up task"),
+        ],
+    )
+
+    processed = await mw.process(req)
+
+    assert len(processed.messages) == 1
+    assert processed.messages[0].content == "Follow-up task"
+
+
+@pytest.mark.asyncio
+async def test_redaction_middleware_limits_proxy_tool_outputs() -> None:
+    """Older proxy-generated tool outputs should be removed before backend call."""
+
+    mw = RedactionMiddleware(api_keys=[], command_prefix="!/")
+    mw._MAX_PROXY_TOOL_OUTPUTS = 2  # type: ignore[attr-defined]
+
+    tool_messages = [
+        ChatMessage(
+            role="tool",
+            content=f"result {idx}",
+            metadata={"is_proxy_tool_output": True, "tool_call_id": f"call-{idx}"},
+        )
+        for idx in range(5)
+    ]
+
+    req = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="Task start"),
+            *tool_messages,
+            ChatMessage(role="assistant", content="summary"),
+        ],
+    )
+
+    processed = await mw.process(req)
+
+    remaining_tools = [
+        msg
+        for msg in processed.messages
+        if msg.metadata and msg.metadata.get("is_proxy_tool_output")
+    ]
+
+    assert len(remaining_tools) == 2
+    assert {msg.content for msg in remaining_tools} == {"result 3", "result 4"}
+    assert processed.messages[0].content == "Task start"
+    assert processed.messages[-1].content == "summary"
+
+
+@pytest.mark.asyncio
+async def test_redaction_middleware_preserves_non_proxy_tool_outputs() -> None:
+    """Tool outputs without proxy metadata must be forwarded unchanged."""
+
+    mw = RedactionMiddleware(api_keys=[], command_prefix="!/")
+    mw._MAX_PROXY_TOOL_OUTPUTS = 1  # type: ignore[attr-defined]
+
+    req = ChatRequest(
+        model="gpt-4o",
+        messages=[
+            ChatMessage(role="user", content="Question"),
+            ChatMessage(role="tool", content="external tool response"),
+            ChatMessage(
+                role="tool",
+                content="proxy response",
+                metadata={"is_proxy_tool_output": True},
+            ),
+        ],
+    )
+
+    processed = await mw.process(req)
+
+    tool_contents = [msg.content for msg in processed.messages if msg.role == "tool"]
+    assert tool_contents == ["external tool response", "proxy response"]

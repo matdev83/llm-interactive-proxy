@@ -49,23 +49,34 @@ class TestGeminiOAuthPlanConnector:
         """Test that the project ID is discovered correctly for the paid plan."""
         from unittest.mock import Mock
 
-        # Mock the auth session to return successful responses for tier selection and onboarding
+        # Mock the auth session to return successful responses for loadCodeAssist and onboardUser
         mock_auth_session = Mock()
 
-        # Mock the tier selection response
-        tier_selection_response = Mock()
-        tier_selection_response.status_code = 200
-        tier_selection_response.json.return_value = {}
+        # Mock the loadCodeAssist response (no current tier, needs onboarding)
+        load_code_assist_response = Mock()
+        load_code_assist_response.status_code = 200
+        load_code_assist_response.json.return_value = {
+            "currentTier": None,  # No current tier, needs onboarding
+            "allowedTiers": [{"id": "standard-tier", "isDefault": True}],
+        }
 
-        # Mock the onboarding response
-        onboarding_response = Mock()
-        onboarding_response.status_code = 200
-        onboarding_response.json.return_value = {"projectId": "test-project-id"}
+        # Mock the onboardUser response (long-running operation)
+        onboard_user_response = Mock()
+        onboard_user_response.status_code = 200
+        onboard_user_response.json.return_value = {
+            "done": True,
+            "response": {
+                "cloudaicompanionProject": {
+                    "id": "test-project-id",
+                    "name": "test-project",
+                }
+            },
+        }
 
         # Configure the mock to return different responses for different calls
         mock_auth_session.post.side_effect = [
-            tier_selection_response,  # First call (tier selection)
-            onboarding_response,  # Second call (onboarding)
+            load_code_assist_response,  # First call (loadCodeAssist)
+            onboard_user_response,  # Second call (onboardUser)
         ]
 
         # The gemini_api_base_url needs to be set for the method to work
@@ -79,20 +90,34 @@ class TestGeminiOAuthPlanConnector:
 
         # Verify that the correct calls were made
         assert mock_auth_session.post.call_count == 2
-        # Check the first call (tier selection)
+        # Check the first call (loadCodeAssist)
         mock_auth_session.post.assert_any_call(
-            "https://cloudcode-pa.googleapis.com/v1internal/userTier:select",
-            json={"userTierId": "paid-tier"},
-            headers={"Content-Type": "application/json"},
-        )
-        # Check the second call (onboarding)
-        mock_auth_session.post.assert_called_with(
-            "https://cloudcode-pa.googleapis.com/v1internal/onboard",
+            "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
             json={
-                "userTierId": "paid-tier",
-                "cloudaicompanionProject": {
-                    "name": "cloudaicompanionProject",
+                "cloudaicompanionProject": None,
+                "metadata": {
+                    "ideType": "IDE_UNSPECIFIED",
+                    "platform": "PLATFORM_UNSPECIFIED",
+                    "pluginType": "GEMINI",
+                    "duetProject": None,
                 },
             },
             headers={"Content-Type": "application/json"},
+            timeout=30.0,
+        )
+        # Check the second call (onboardUser)
+        mock_auth_session.post.assert_called_with(
+            "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
+            json={
+                "tierId": "standard-tier",
+                "cloudaicompanionProject": None,
+                "metadata": {
+                    "ideType": "IDE_UNSPECIFIED",
+                    "platform": "PLATFORM_UNSPECIFIED",
+                    "pluginType": "GEMINI",
+                    "duetProject": None,
+                },
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=30.0,
         )

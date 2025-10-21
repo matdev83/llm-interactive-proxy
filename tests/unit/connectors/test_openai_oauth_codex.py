@@ -1,6 +1,7 @@
 import json
-from unittest.mock import AsyncMock
 from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
 import pytest_asyncio

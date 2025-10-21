@@ -37,8 +37,6 @@ if TYPE_CHECKING:
 
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.common.exceptions import (
-    APIConnectionError,
-    APITimeoutError,
     AuthenticationError,
     BackendError,
     ServiceUnavailableError,
@@ -1390,70 +1388,50 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             # Use the auth_session.request exactly like KiloCode
             # Add ?alt=sse for server-sent events streaming
             # Use tuple for (connect_timeout, read_timeout) to handle large responses
+            # REMOVED: Duplicate non-streaming request that was causing 429 errors
+            # The actual streaming request is made in stream_generator() method
+            with contextlib.suppress(Exception):
+                # Skip the duplicate request - we'll handle everything in streaming mode
+                pass
+
+            # FIXED: Make direct non-streaming API call instead of calling streaming method
+            # This prevents duplicate requests that cause 429 quota exhaustion errors
+            response = None
+            generated_text = ""
+
             try:
+                # Make direct API call for non-streaming mode
                 response = await asyncio.to_thread(
                     auth_session.request,
                     method="POST",
                     url=url,
-                    params={"alt": "sse"},  # Important: KiloCode uses SSE streaming
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    # Use a single timeout value for the entire request
-                    timeout=int(DEFAULT_READ_TIMEOUT),
-                )
-            except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
-                raise APITimeoutError(
-                    message="Code Assist API call timed out",
-                    backend_name=self.name,
-                ) from te
-            except requests.exceptions.RequestException as rexc:  # type: ignore[attr-defined]
-                raise APIConnectionError(
-                    message="Failed to connect to Code Assist API",
-                    backend_name=self.name,
-                ) from rexc
-
-            # Process the response
-            if response.status_code >= 400:
-                try:
-                    error_detail = response.json()
-                except Exception:
-                    error_detail = response.text
-
-                raise BackendError(
-                    message=f"Code Assist API error: {error_detail}",
-                    code="code_assist_error",
-                    status_code=response.status_code,
+                    timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
                 )
 
-            # Parse SSE stream response
-            generated_text = ""
-            response_text = response.text
-            for line in response_text.split("\n"):
-                if line.startswith("data: "):
-                    data_str = line[6:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(data_str)
-                        # Extract content from the chunk
-                        chunk_response = (
-                            self.translation_service.to_domain_stream_chunk(
-                                chunk=data,
-                                source_format="code_assist",
-                            )
-                        )
-                        if (
-                            chunk_response
-                            and chunk_response.get("choices")
-                            and chunk_response["choices"][0]
-                            .get("delta", {})
-                            .get("content")
-                        ):
-                            generated_text += chunk_response["choices"][0]["delta"][
-                                "content"
-                            ]
-                    except json.JSONDecodeError:
-                        continue
+                if response.status_code >= 400:
+                    self._handle_streaming_error(response)
+
+                # Parse the non-streaming response
+                response_data = response.json()
+
+                # Extract the generated text from the response
+                candidates = response_data.get("candidates", [])
+                if candidates and len(candidates) > 0:
+                    candidate = candidates[0]
+                    content = candidate.get("content", {})
+                    parts = content.get("parts", [])
+                    if parts and len(parts) > 0:
+                        generated_text = parts[0].get("text", "")
+
+            except Exception as e:
+                logger.error(f"Error in non-streaming API call: {e}", exc_info=True)
+                raise BackendError(f"Non-streaming API call failed: {e}") from e
+            finally:
+                if response is not None:
+                    with contextlib.suppress(Exception):
+                        response.close()
 
             # Manually calculate token usage since the API doesn't provide it
             try:
@@ -1476,7 +1454,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 full_prompt = "\n".join(prompt_text_parts)
 
                 prompt_tokens = len(encoding.encode(full_prompt))
-                completion_tokens = len(encoding.encode(generated_text))
+                # Calculate completion tokens from the actual response
+                completion_tokens = (
+                    len(encoding.encode(generated_text)) if generated_text else 0
+                )
                 total_tokens = prompt_tokens + completion_tokens
                 usage = create_gemini_usage_info(
                     prompt_tokens=prompt_tokens,
@@ -1700,7 +1681,66 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                         return
 
                     if response.status_code >= 400:
-                        self._handle_streaming_error(response)
+                        # Graceful error handling - yield error chunk instead of raising exception
+                        try:
+                            error_detail = response.json()
+                        except Exception:
+                            error_detail = response.text
+
+                        error_message = ""
+                        if isinstance(error_detail, dict):
+                            error_message = error_detail.get("error", {}).get(
+                                "message", ""
+                            )
+
+                        message_lower = error_message.lower()
+                        is_quota_error = (
+                            response.status_code == 429
+                            and isinstance(error_detail, dict)
+                            and (
+                                "quota exceeded" in message_lower
+                                or "resource exhausted" in message_lower
+                                or "allowance" in message_lower
+                            )
+                        )
+
+                        if is_quota_error:
+                            self._mark_backend_unusable()
+                            # Yield quota error chunk instead of raising exception
+                            error_chunk = {
+                                "id": f"chatcmpl-error-{int(time.time())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": effective_model,
+                                "choices": [
+                                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                                ],
+                                "error": {
+                                    "message": f"Quota exhausted: {error_detail}",
+                                    "type": "quota_exceeded",
+                                    "code": 429,
+                                },
+                            }
+                            yield ProcessedResponse(content=error_chunk)
+                            return
+                        else:
+                            # Yield general error chunk instead of raising exception
+                            error_chunk = {
+                                "id": f"chatcmpl-error-{int(time.time())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": effective_model,
+                                "choices": [
+                                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                                ],
+                                "error": {
+                                    "message": f"API error: {error_detail}",
+                                    "type": "api_error",
+                                    "code": response.status_code,
+                                },
+                            }
+                            yield ProcessedResponse(content=error_chunk)
+                            return
 
                     line_buffer = ""
                     done = False

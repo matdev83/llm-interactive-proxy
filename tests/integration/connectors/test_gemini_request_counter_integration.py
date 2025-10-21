@@ -27,7 +27,9 @@ async def test_request_counter_incremented_on_request(
     # Mock the actual request call to avoid network access and threading issues with respx
     mock_response = requests.Response()
     mock_response.status_code = 200
-    mock_response._content = b'data: {"candidates": [{"content": {"parts": [{"text": "response"}]}}]}\n\ndata: [DONE]\n\n'
+    mock_response._content = (
+        b'{"candidates": [{"content": {"parts": [{"text": "response"}]}}]}'
+    )
 
     # Mock other dependencies
     with (

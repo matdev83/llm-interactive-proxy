@@ -30,16 +30,16 @@ Deliverable: connector no longer depends on Kilo-specific code paths; capability
 
 ---
 
-## Phase 2 – Refactor translation pipeline (In Progress)
+## Phase 2 – Refactor translation pipeline (Completed)
 1. **Frontend adapter isolation**  
-   - Extract inbound request normalization into dedicated units (e.g., Chat → Canonical request, Responses → Canonical request) independent of backend handling.
+   - Extracted inbound request normalization into a dedicated `CodexRequestTranslator` class, separating it from the main connector logic.
 2. **Backend adapter rework**  
-   - Implement passthrough detection based on structural cues/capability flag.  
-   - Rebuild payload construction to consult capability settings for prompt/tool schema injection.
+   - Implemented passthrough detection using structural cues and a `codex_passthrough` capability flag.
+   - Rebuilt payload construction to consult capability settings for prompt and tool schema injection, removing hardcoded values.
 3. **Stream adapter cleanup**  
-   - Ensure streaming translation produces canonical chunks without embedded client text; textual rendering will occur in a later step.
+   - Modified the streaming translation to produce canonical chunks without embedded client text, deferring textual rendering to a later step.
 
-Deliverable: clean separation of frontend normalization, backend payload building, and canonical stream output.
+Deliverable: A clean separation of frontend normalization, backend payload building, and canonical stream output has been achieved. The connector is now more modular and configurable.
 
 ---
 
@@ -98,4 +98,3 @@ Deliverable: comprehensive automated coverage affirming backward compatibility a
 Deliverable: ready-to-share documentation and POC validation results; baseline reference implementation for future enhancements.
 
 ---
-

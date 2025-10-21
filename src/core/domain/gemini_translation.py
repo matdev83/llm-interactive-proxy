@@ -83,6 +83,10 @@ def gemini_content_to_chat_messages(
                     tool_call_id=(
                         tool_call_id if isinstance(tool_call_id, str) else None
                     ),
+                    metadata={
+                        "is_proxy_tool_output": True,
+                        "source": "gemini_translation",
+                    },
                 )
             )
 
@@ -118,6 +122,10 @@ def gemini_content_to_chat_messages(
                 tool_message_kwargs: dict[str, Any] = {
                     "role": "tool",
                     "content": response_content,
+                    "metadata": {
+                        "is_proxy_tool_output": True,
+                        "source": "gemini_translation",
+                    },
                 }
 
                 name = function_response.get("name")

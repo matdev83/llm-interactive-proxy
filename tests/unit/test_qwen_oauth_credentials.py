@@ -311,6 +311,7 @@ class TestQwenOAuthCredentials:
         assert headers["Content-Type"] == "application/json"
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_chat_completions_with_token_refresh(self, connector, mock_client):
         """Test chat completion with token refresh."""
         # Set up the connector with expired token

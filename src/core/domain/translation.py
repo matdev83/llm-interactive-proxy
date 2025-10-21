@@ -19,7 +19,7 @@ from src.core.domain.chat import (
     FunctionCall,
     ToolCall,
 )
-from src.core.services.tool_text_renderer import render_tool_call_text
+from src.core.services.tool_text_renderer import render_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -1575,12 +1575,12 @@ class Translation(BaseTranslator):
             tool_index = Translation._assign_tool_call_index(
                 chunk_id, chunk.get("output_index"), call_id
             )
-            tool_text = render_tool_call_text(
-                name,
-                arguments,
-                call_id,
-                {"event": event_type, "chunk_id": chunk_id},
+            tool_call_obj = ToolCall(
+                id=call_id or "",
+                type="function",
+                function=FunctionCall(name=name, arguments=arguments),
             )
+            tool_text = render_tool_call(tool_call_obj)
             delta = {
                 "tool_calls": [
                     {
@@ -1631,12 +1631,14 @@ class Translation(BaseTranslator):
                 tool_index = Translation._assign_tool_call_index(
                     chunk_id, chunk.get("output_index"), call_id
                 )
-                tool_text = render_tool_call_text(
-                    item.get("name", ""),
-                    arguments,
-                    call_id,
-                    {"event": event_type, "chunk_id": chunk_id},
+                tool_call_obj = ToolCall(
+                    id=call_id,
+                    type="function",
+                    function=FunctionCall(
+                        name=item.get("name", ""), arguments=arguments
+                    ),
                 )
+                tool_text = render_tool_call(tool_call_obj)
                 delta = {
                     "tool_calls": [
                         {
@@ -1666,12 +1668,14 @@ class Translation(BaseTranslator):
                 tool_index = Translation._assign_tool_call_index(
                     chunk_id, chunk.get("output_index"), call_id
                 )
-                tool_text = render_tool_call_text(
-                    item.get("name", ""),
-                    input_payload,
-                    call_id,
-                    {"event": event_type, "chunk_id": chunk_id},
+                tool_call_obj = ToolCall(
+                    id=call_id,
+                    type="function",
+                    function=FunctionCall(
+                        name=item.get("name", ""), arguments=input_payload
+                    ),
                 )
+                tool_text = render_tool_call(tool_call_obj)
                 delta = {
                     "tool_calls": [
                         {
@@ -1701,12 +1705,12 @@ class Translation(BaseTranslator):
                 tool_index = Translation._assign_tool_call_index(
                     chunk_id, chunk.get("output_index"), call_id
                 )
-                tool_text = render_tool_call_text(
-                    "shell",
-                    arguments,
-                    call_id,
-                    {"event": event_type, "chunk_id": chunk_id},
+                tool_call_obj = ToolCall(
+                    id=call_id,
+                    type="function",
+                    function=FunctionCall(name="shell", arguments=arguments),
                 )
+                tool_text = render_tool_call(tool_call_obj)
                 delta = {
                     "tool_calls": [
                         {

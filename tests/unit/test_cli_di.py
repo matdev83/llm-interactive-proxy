@@ -256,7 +256,8 @@ def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         mock_build_app.return_value = MagicMock()
 
         try:
-            cli.main(["--log", str(log_file)])
+            # Use a different port to avoid conflicts during parallel test execution
+            cli.main(["--log", str(log_file), "--port", "9999"])
 
             file_handlers = [
                 h for h in root_logger.handlers if isinstance(h, logging.FileHandler)

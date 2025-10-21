@@ -58,7 +58,16 @@ def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
                     payload = json.dumps(part.function_response)
                 except (TypeError, ValueError):
                     payload = str(part.function_response)
-                messages.append(ChatMessage(role="tool", content=payload))
+                messages.append(
+                    ChatMessage(
+                        role="tool",
+                        content=payload,
+                        metadata={
+                            "is_proxy_tool_output": True,
+                            "source": "gemini_function_response",
+                        },
+                    )
+                )
             elif getattr(part, "function_call", None):
                 try:
                     if part.function_call is not None:

@@ -2,11 +2,15 @@
 Test quota exceeded detection for Gemini OAuth Personal connector.
 """
 
+from typing import cast
 from unittest.mock import AsyncMock, Mock, create_autospec, patch
 
 import pytest
 from src.connectors.gemini_oauth_free import GeminiOAuthFreeConnector
+from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.common.exceptions import BackendError
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
 class TestGeminiOAuthFreeQuotaDetection:
@@ -195,22 +199,9 @@ class TestGeminiOAuthFreeQuotaDetection:
         connector.is_functional = True
         connector._oauth_credentials = {"access_token": "token"}
         connector.gemini_api_base_url = "https://example.com"
-        connector._discover_project_id = AsyncMock(return_value="test-project")
-        connector._refresh_token_if_needed = AsyncMock(return_value=True)
-        mock_from_domain = Mock()
-        mock_from_domain.return_value = {
-            "contents": [],
-            "generationConfig": {},
-        }
-        connector.translation_service.from_domain_to_gemini_request = mock_from_domain
-
-        mock_to_domain = Mock()
-        mock_to_domain.return_value = {
-            "choices": [],
-        }
-        connector.translation_service.to_domain_stream_chunk = mock_to_domain
-        connector._request_counter = Mock()
-        connector._request_counter.increment = Mock()
+        connector._discover_project_id = AsyncMock(return_value="test-project")  # type: ignore[method-assign]
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[method-assign]
+        connector._request_counter = _build_counter_mock(connector._request_counter)
 
         quota_error = {
             "error": {
@@ -245,19 +236,39 @@ class TestGeminiOAuthFreeQuotaDetection:
             patch(
                 "src.connectors.gemini_oauth_base.tiktoken.get_encoding"
             ) as mock_encoding,
+            patch.object(
+                connector.translation_service,
+                "from_domain_to_gemini_request",
+                return_value={"contents": [], "generationConfig": {}},
+            ),
+            patch.object(
+                connector.translation_service,
+                "to_domain_stream_chunk",
+                return_value={"choices": []},
+            ),
         ):
             mock_encoding.return_value = Mock()
             mock_encoding.return_value.encode.return_value = []
 
-            request = Mock()
-            request.stream = True
-            request.messages = []
-            request.extra_body = {}
+            request = CanonicalChatRequest(
+                model="gemini-2.5-pro",
+                messages=[ChatMessage(role="user", content="hello")],
+                stream=True,
+            )
 
             envelope = await connector._chat_completions_code_assist_streaming(
                 request, [], "gemini-2.5-pro"
             )
 
             stream = envelope.content
-            with pytest.raises(BackendError):
-                await stream.__anext__()
+            chunk = await stream.__anext__()
+            assert isinstance(chunk, ProcessedResponse)
+            assert chunk.content
+            assert chunk.content["error"]["code"] == 429
+            assert "quota" in chunk.content["error"]["message"].lower()
+
+
+def _build_counter_mock(counter: DailyRequestCounter | None) -> DailyRequestCounter:
+    mock_counter = create_autospec(DailyRequestCounter, instance=True)
+    mock_counter.increment.return_value = None
+    return cast(DailyRequestCounter, mock_counter)

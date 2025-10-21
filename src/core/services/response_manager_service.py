@@ -322,7 +322,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
                 # Create the message
                 choice_message = ChatCompletionChoiceMessage(
-                    role="assistant", content=message
+                    role="assistant",
+                    content=message,
+                    metadata={"is_proxy_response": True},  # Mark as proxy response
                 )
 
                 # Create the choice

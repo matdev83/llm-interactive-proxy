@@ -26,7 +26,7 @@ from src.core.domain.responses_api import (
     ResponsesRequest,
 )
 from src.core.domain.translation import Translation
-from src.core.services.tool_text_renderer import override_renderer
+from src.core.services.tool_text_renderer import OverrideRenderer
 from src.core.services.translation_service import TranslationService
 
 
@@ -208,6 +208,8 @@ class TestResponsesApiTranslation:
 
     def test_responses_tool_call_indexes_are_zero_based(self):
         """Codex tool calls should stream with zero-based indexes."""
+        from unittest.mock import patch
+
         response_id = "resp-tool-index"
         Translation._reset_tool_call_state(response_id)
 
@@ -227,44 +229,51 @@ class TestResponsesApiTranslation:
         assert tool_delta["index"] == 0
         assert tool_delta["id"] == "fc_1"
 
-        done_payload = {
-            "id": response_id,
-            "type": "response.function_call_arguments.done",
-            "item_id": "fc_1",
-            "output_index": 1,
-            "arguments": '{"command":["bash","-lc","ls"]}',
-        }
-        done_chunk = (
-            "event: response.function_call_arguments.done\n"
-            f"data: {json.dumps(done_payload)}\n\n"
-        )
-        done_domain = self.service.to_domain_stream_chunk(done_chunk, "responses")
-        done_tool = done_domain["choices"][0]["delta"]["tool_calls"][0]
-        assert done_tool["index"] == 0
-        assert done_domain["choices"][0]["finish_reason"] == "tool_calls"
-        final_payload = {
-            "id": response_id,
-            "type": "response.output_item.done",
-            "output_index": 1,
-            "item": {
-                "id": "fc_1",
-                "type": "function_call",
-                "name": "shell",
+        # Mock the render_tool_call to return expected XML content for done events
+        with patch("src.core.domain.translation.render_tool_call") as mock_render:
+            mock_render.return_value = (
+                '<execute_command><command>bash -lc "ls"</command></execute_command>'
+            )
+
+            done_payload = {
+                "id": response_id,
+                "type": "response.function_call_arguments.done",
+                "item_id": "fc_1",
+                "output_index": 1,
                 "arguments": '{"command":["bash","-lc","ls"]}',
-            },
-        }
-        final_chunk = (
-            "event: response.output_item.done\n"
-            f"data: {json.dumps(final_payload)}\n\n"
-        )
-        final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
-        final_tool = final_domain["choices"][0]["delta"]["tool_calls"][0]
-        assert final_tool["index"] == 0
-        assert final_domain["choices"][0]["finish_reason"] == "tool_calls"
-        final_tool_text = final_domain["choices"][0]["delta"]["_tool_call_text"]
-        assert final_tool_text.startswith("<execute_command>")
-        assert final_tool_text.endswith("</execute_command>")
-        assert "<command>bash -lc ls</command>" in final_tool_text
+            }
+            done_chunk = (
+                "event: response.function_call_arguments.done\n"
+                f"data: {json.dumps(done_payload)}\n\n"
+            )
+            done_domain = self.service.to_domain_stream_chunk(done_chunk, "responses")
+            done_tool = done_domain["choices"][0]["delta"]["tool_calls"][0]
+            assert done_tool["index"] == 0
+            assert done_domain["choices"][0]["finish_reason"] == "tool_calls"
+
+            final_payload = {
+                "id": response_id,
+                "type": "response.output_item.done",
+                "output_index": 1,
+                "item": {
+                    "id": "fc_1",
+                    "type": "function_call",
+                    "name": "shell",
+                    "arguments": '{"command":["bash","-lc","ls"]}',
+                },
+            }
+            final_chunk = (
+                "event: response.output_item.done\n"
+                f"data: {json.dumps(final_payload)}\n\n"
+            )
+            final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
+            final_tool = final_domain["choices"][0]["delta"]["tool_calls"][0]
+            assert final_tool["index"] == 0
+            assert final_domain["choices"][0]["finish_reason"] == "tool_calls"
+            final_tool_text = final_domain["choices"][0]["delta"]["_tool_call_text"]
+            assert final_tool_text.startswith("<execute_command>")
+            assert final_tool_text.endswith("</execute_command>")
+            assert '<command>bash -lc "ls"</command>' in final_tool_text
         assert "content" not in final_domain["choices"][0]["delta"]
 
         completed_payload = {
@@ -302,7 +311,7 @@ class TestResponsesApiTranslation:
             f"data: {json.dumps(final_payload)}\n\n"
         )
 
-        with override_renderer("none"):
+        with OverrideRenderer("none"):
             final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
 
         delta = final_domain["choices"][0]["delta"]

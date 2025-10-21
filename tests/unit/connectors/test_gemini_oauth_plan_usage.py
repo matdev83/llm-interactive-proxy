@@ -40,6 +40,19 @@ async def test_chat_completions_with_tiktoken_usage_calculation():
     mock_sse_response = MagicMock()
     mock_sse_response.text = 'data: {"choices": [{"delta": {"content": "World"}}], "finish_reason": "stop"}\n\ndata: [DONE]\n'
     mock_sse_response.status_code = 200
+    mock_sse_response.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "World",
+                        }
+                    ]
+                }
+            }
+        ]
+    }
 
     # Mock the auth_session and its request method
     mock_auth_session = MagicMock()

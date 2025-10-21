@@ -351,31 +351,42 @@ class BackendRequestManager(IBackendRequestManager):
         """
         is_empty = True
         first_chunk = None
+        original_stream = stream_envelope.content
 
-        async def stream_wrapper():
+        async def new_stream_generator():
             nonlocal is_empty, first_chunk
-            async for chunk in stream_envelope.content:
-                if is_empty:
-                    is_empty = False
-                    first_chunk = chunk
-                yield chunk
+            try:
+                first_chunk = await original_stream.__anext__()
+                is_empty = False
+                yield first_chunk
+                async for chunk in original_stream:
+                    yield chunk
+            except StopAsyncIteration:
+                # This is where we handle an empty stream
+                pass
 
-        # Consume one item to see if the stream is empty
+        # We need a way to "peek" at the stream.
+        # The new_stream_generator will be consumed. We need a "re-peekable" version.
+        peeking_stream = new_stream_generator()
+
         try:
-            # We need to manually iterate to check for the first item
-            first_chunk = await stream_wrapper().__anext__()
+            # This call will consume the first item of peeking_stream
+            await peeking_stream.__anext__()
             is_empty = False
         except StopAsyncIteration:
+            is_empty = True
+
+        if is_empty:
             # Stream is empty, trigger retry
             logger.info("Empty stream detected, retrying with recovery prompt.")
             recovery_prompt = "The previous response was empty, please try again."
             retry_request = await self._create_retry_request(
                 original_request, recovery_prompt
             )
-            # The result of a retry could be streaming or not, but the original request was for a stream
             retry_response = await self._backend_processor.process_backend_request(
                 request=retry_request, session_id=session_id, context=context
             )
+
             if isinstance(retry_response, StreamingResponseEnvelope):
                 return retry_response
             else:
@@ -390,11 +401,15 @@ class BackendRequestManager(IBackendRequestManager):
                     cancel_callback=stream_envelope.cancel_callback,
                 )
 
-        # If not empty, reconstruct the stream with the first chunk
+        # If not empty, we need to reconstruct the stream.
+        # The peeking_stream has been consumed by one item.
+        # We need to create a new stream that yields the first_chunk and then the rest of the original_stream.
         async def combined_stream():
+            # Yield the first chunk that we peeked at
             if first_chunk is not None:
                 yield first_chunk
-            async for chunk in stream_wrapper():
+            # Yield the rest of the items from the original stream
+            async for chunk in original_stream:
                 yield chunk
 
         return StreamingResponseEnvelope(

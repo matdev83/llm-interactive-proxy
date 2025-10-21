@@ -49,7 +49,7 @@ from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
-from src.core.services.tool_text_renderer import override_renderer
+from src.core.services.tool_text_renderer import OverrideRenderer
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -488,9 +488,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 passthrough_payload = deepcopy(request_data)
 
             passthrough_payload.setdefault("model", effective_model)
-            if passthrough_payload.get("stream") is None:
-                stream_val = getattr(request_data, "stream", True)
-                passthrough_payload["stream"] = stream_val
+            passthrough_payload["stream"] = getattr(request_data, "stream", True)
 
             # Ensure a conversation_id/prompt_cache_key exists, preferring existing ones
             conv_id = (
@@ -646,14 +644,16 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
         renderer_key = capabilities.tool_text_format or "codex_xml"
         session_id = getattr(domain_request, "session_id", None) or conversation_id
+        stream_val = getattr(request_data, "stream", False)
 
         async def _perform_request(
             request_payload: dict[str, Any],
             request_headers: dict[str, str],
             request_session_id: str,
+            is_streaming_request: bool,
         ) -> Any:
-            if getattr(domain_request, "stream", False):
-                with override_renderer(renderer_key):
+            if is_streaming_request:
+                with OverrideRenderer(renderer_key):
                     stream_handle = await self._handle_streaming_response(
                         url,
                         request_payload,
@@ -663,7 +663,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
                     )
 
                 async def _rendered_iterator() -> AsyncIterator[Any]:
-                    with override_renderer(renderer_key):
+                    with OverrideRenderer(renderer_key):
                         async for chunk in stream_handle.iterator:
                             yield chunk
 
@@ -673,18 +673,18 @@ class OpenAIOAuthConnector(OpenAIConnector):
                     headers=stream_handle.headers,
                     cancel_callback=stream_handle.cancel_callback,
                 )
-
-            with override_renderer(renderer_key):
-                return await self._handle_non_streaming_response(
-                    url,
-                    request_payload,
-                    request_headers,
-                    request_session_id,
-                )
+            else:
+                with OverrideRenderer(renderer_key):
+                    return await self._handle_non_streaming_response(
+                        url,
+                        request_payload,
+                        request_headers,
+                        request_session_id,
+                    )
 
         for attempt in range(2):
             try:
-                return await _perform_request(payload, headers, session_id)
+                return await _perform_request(payload, headers, session_id, stream_val)
             except httpx.HTTPStatusError as exc:
                 try:
                     body = exc.response.json()
@@ -701,17 +701,9 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 if exc.status_code == 401 and attempt == 0:
                     refreshed = await self._refresh_access_token()
                     if refreshed:
-                        payload, conversation_id = self._build_codex_payload(
-                            request_data,
-                            processed_messages,
-                            effective_model,
-                            capabilities=capabilities,
-                        )
-                        headers = self._build_codex_headers(conversation_id)
-                        session_id = (
-                            getattr(domain_request, "session_id", None)
-                            or conversation_id
-                        )
+                        # FIXED: Only refresh token, reuse same payload and conversation_id
+                        # No need to rebuild payload - just update authorization
+                        # Keep same conversation_id to maintain session continuity
                         continue
                 raise
 

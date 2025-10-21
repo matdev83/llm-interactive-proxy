@@ -69,8 +69,6 @@ if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
 from src.core.common.exceptions import (
-    APIConnectionError,
-    APITimeoutError,
     AuthenticationError,
     BackendError,
 )
@@ -455,6 +453,7 @@ class GeminiCloudProjectConnector(GeminiBackend):
                     "Cannot schedule credentials reload: no running event loop available."
                 )
             with self._reload_task_lock:
+                self._pending_reload_task = None
                 self._reload_scheduling_in_progress = False
             return
 
@@ -1209,81 +1208,28 @@ class GeminiCloudProjectConnector(GeminiBackend):
             if "safetySettings" in gemini_request:
                 code_assist_request["safetySettings"] = gemini_request["safetySettings"]
 
-            # Prepare request body with USER'S project ID
-            request_body = {
-                "model": effective_model,
-                "project": project_id,  # User's GCP project
-                "user_prompt_id": self._generate_user_prompt_id(request_data),
-                "request": code_assist_request,
-            }
-
-            url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Making Code Assist API call with project {project_id}")
 
-            # Use tuple for (connect_timeout, read_timeout) to handle large responses
-            try:
-                response = await asyncio.to_thread(
-                    auth_session.request,
-                    method="POST",
-                    url=url,
-                    params={"alt": "sse"},
-                    json=request_body,
-                    headers={"Content-Type": "application/json"},
-                    timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
-                )
-            except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
-                raise APITimeoutError(
-                    message="Code Assist API call timed out",
-                    backend_name=self.name,
-                ) from te
-            except requests.exceptions.RequestException as rexc:  # type: ignore[attr-defined]
-                raise APIConnectionError(
-                    message="Failed to connect to Code Assist API",
-                    backend_name=self.name,
-                ) from rexc
-
-            if response.status_code >= 400:
-                try:
-                    error_detail = response.json()
-                except Exception:
-                    error_detail = response.text
-
-                if response.status_code == 403:
-                    raise BackendError(
-                        message=f"Permission denied for project {project_id}. {error_detail}",
-                        code="permission_denied",
-                        status_code=403,
-                    )
-                raise BackendError(
-                    message=f"Code Assist API error: {error_detail}",
-                    code="code_assist_error",
-                    status_code=response.status_code,
-                )
-
-            # Parse SSE stream response
+            # REMOVED: SSE parsing from non-streaming response
+            # This is now handled in the stream_generator() method
+            # For non-streaming mode, we'll need to collect the response from streaming
             generated_text = ""
             domain_response = None
 
-            response_text = response.text
-            for line in response_text.split("\n"):
-                if line.startswith("data: "):
-                    data_str = line[6:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(data_str)
-                        domain_response = self.translation_service.to_domain_response(
-                            response=data,
-                            source_format="code_assist",
-                        )
-                        if (
-                            domain_response.choices
-                            and domain_response.choices[0].message.content
-                        ):
-                            generated_text += domain_response.choices[0].message.content
-                    except json.JSONDecodeError:
-                        continue
+            # Collect response from streaming generator for non-streaming mode
+            stream_envelope = await self._chat_completions_streaming(
+                request_data, processed_messages, effective_model, **kwargs
+            )
+
+            async for chunk in stream_envelope.content:
+                if chunk.content:
+                    choice = (
+                        chunk.content["choices"][0] if chunk.content["choices"] else {}
+                    )
+                    delta = choice.get("delta", {})
+                    if delta.get("content"):
+                        generated_text += delta["content"]
 
             # Convert to OpenAI-compatible format using the translation service
             if not domain_response:
@@ -1418,16 +1364,68 @@ class GeminiCloudProjectConnector(GeminiBackend):
                         return
 
                     if response.status_code >= 400:
+                        # Graceful error handling - yield error chunk instead of raising exception
                         try:
                             error_detail = response.json()
                         except Exception:
                             error_detail = response.text
 
-                        raise BackendError(
-                            message=f"Code Assist API streaming error: {error_detail}",
-                            code="code_assist_error",
-                            status_code=response.status_code,
+                        error_message = ""
+                        if isinstance(error_detail, dict):
+                            error_message = error_detail.get("error", {}).get(
+                                "message", ""
+                            )
+
+                        message_lower = error_message.lower()
+                        is_quota_error = (
+                            response.status_code == 429
+                            and isinstance(error_detail, dict)
+                            and (
+                                "quota exceeded" in message_lower
+                                or "resource exhausted" in message_lower
+                                or "allowance" in message_lower
+                            )
                         )
+
+                        if is_quota_error:
+                            # Mark backend as unusable for quota exhaustion
+                            # Note: GeminiCloudProjectConnector doesn't have _mark_backend_unusable
+                            # but this is handled at a higher level
+                            # Yield quota error chunk instead of raising exception
+                            error_chunk = {
+                                "id": f"chatcmpl-error-{int(time.time())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": effective_model,
+                                "choices": [
+                                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                                ],
+                                "error": {
+                                    "message": f"Quota exhausted: {error_detail}",
+                                    "type": "quota_exceeded",
+                                    "code": 429,
+                                },
+                            }
+                            yield ProcessedResponse(content=error_chunk)
+                            return
+                        else:
+                            # Yield general error chunk instead of raising exception
+                            error_chunk = {
+                                "id": f"chatcmpl-error-{int(time.time())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": effective_model,
+                                "choices": [
+                                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                                ],
+                                "error": {
+                                    "message": f"API error: {error_detail}",
+                                    "type": "api_error",
+                                    "code": response.status_code,
+                                },
+                            }
+                            yield ProcessedResponse(content=error_chunk)
+                            return
 
                     # Process the streaming response using iter_content for real-time streaming
                     # Use iter_content instead of iter_lines to avoid buffering complete lines
