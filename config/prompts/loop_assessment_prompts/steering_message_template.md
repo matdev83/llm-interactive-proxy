@@ -1,0 +1,2 @@
+[SYSTEM NOTICE] Potential conversation loop detected. {reasoning}
+Please step back and reflect on your recent actions. Analyze errors you have made and try to self-correct. Plan how to avoid making the same mistake in the future. You cannot expect that repeating the same actions will produce different outcomes. Please think and carefully plan before proceeding.

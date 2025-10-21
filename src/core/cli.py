@@ -485,6 +485,51 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Disable steering for full pytest suite commands (overrides config)",
     )
 
+    # LLM Assessment arguments
+    assessment_group = parser.add_argument_group(
+        "LLM Assessment", "Options for LLM-based conversation assessment"
+    )
+    assessment_group.add_argument(
+        "--enable-llm-assessment",
+        action="store_const",
+        const=True,
+        dest="llm_assessment_enabled",
+        default=None,
+        help="Enable LLM-based conversation assessment for detecting unproductive patterns",
+    )
+    assessment_group.add_argument(
+        "--disable-llm-assessment",
+        action="store_const",
+        const=False,
+        dest="llm_assessment_enabled",
+        help="Explicitly disable LLM-based conversation assessment",
+    )
+    assessment_group.add_argument(
+        "--llm-assessment-turn-threshold",
+        type=int,
+        help="Number of turns before assessment is activated (default: 30, replicates gemini-cli LLM_CHECK_AFTER_TURNS)",
+    )
+    assessment_group.add_argument(
+        "--llm-assessment-confidence-threshold",
+        type=float,
+        help="Confidence threshold for triggering interventions (default: 0.9)",
+    )
+    assessment_group.add_argument(
+        "--llm-assessment-backend",
+        type=str,
+        help="Backend to use for assessment (e.g., openai, anthropic, gemini)",
+    )
+    assessment_group.add_argument(
+        "--llm-assessment-model",
+        type=str,
+        help="Model to use for assessment (e.g., gpt-4o-mini, claude-3-haiku-20240307)",
+    )
+    assessment_group.add_argument(
+        "--llm-assessment-history-window",
+        type=int,
+        help="Number of recent conversation turns to include in assessment (default: 20, replicates gemini-cli LLM_LOOP_CHECK_HISTORY_COUNT)",
+    )
+
     # Security and process options
     parser.add_argument(
         "--allow-admin",
@@ -906,6 +951,57 @@ def apply_cli_args(
             "session.pytest_full_suite_steering_enabled",
             args.pytest_full_suite_steering_enabled,
             "--enable/disable-pytest-full-suite-steering",
+        )
+
+    # LLM Assessment configuration
+    if getattr(args, "llm_assessment_enabled", None) is not None:
+        session["llm_assessment_enabled"] = args.llm_assessment_enabled
+        record_cli(
+            "assessment.enabled",
+            args.llm_assessment_enabled,
+            "--enable/disable-llm-assessment",
+        )
+
+    if getattr(args, "llm_assessment_turn_threshold", None) is not None:
+        session["llm_assessment_turn_threshold"] = args.llm_assessment_turn_threshold
+        record_cli(
+            "assessment.turn_threshold",
+            args.llm_assessment_turn_threshold,
+            "--llm-assessment-turn-threshold",
+        )
+
+    if getattr(args, "llm_assessment_confidence_threshold", None) is not None:
+        session["llm_assessment_confidence_threshold"] = (
+            args.llm_assessment_confidence_threshold
+        )
+        record_cli(
+            "assessment.confidence_threshold",
+            args.llm_assessment_confidence_threshold,
+            "--llm-assessment-confidence-threshold",
+        )
+
+    if getattr(args, "llm_assessment_backend", None) is not None:
+        session["llm_assessment_backend"] = args.llm_assessment_backend
+        record_cli(
+            "assessment.backend",
+            args.llm_assessment_backend,
+            "--llm-assessment-backend",
+        )
+
+    if getattr(args, "llm_assessment_model", None) is not None:
+        session["llm_assessment_model"] = args.llm_assessment_model
+        record_cli(
+            "assessment.model",
+            args.llm_assessment_model,
+            "--llm-assessment-model",
+        )
+
+    if getattr(args, "llm_assessment_history_window", None) is not None:
+        session["llm_assessment_history_window"] = args.llm_assessment_history_window
+        record_cli(
+            "assessment.history_window",
+            args.llm_assessment_history_window,
+            "--llm-assessment-history-window",
         )
 
     # Planning phase configuration

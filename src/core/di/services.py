@@ -968,6 +968,92 @@ def register_core_services(
         TranslationService, implementation_factory=_translation_service_factory
     )
 
+    # Register assessment services if enabled
+    if app_config and app_config.assessment.enabled:
+        logger.info(
+            "LLM Assessment System ACTIVATED - Monitoring conversations for unproductive patterns"
+        )
+
+        # Initialize assessment prompts first
+        from src.core.services.assessment_prompts import initialize_prompts
+
+        try:
+            initialize_prompts()
+            logger.info("Assessment prompts loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load assessment prompts: {e}")
+            raise
+
+        # Import assessment services only when needed to avoid circular imports
+        from src.core.interfaces.assessment_service_interface import (
+            IAssessmentBackendService,
+            IAssessmentRepository,
+            IAssessmentService,
+            ITurnCounterService,
+        )
+        from src.core.repositories.assessment_repository import (
+            InMemoryAssessmentRepository,
+        )
+        from src.core.services.assessment_backend_service import (
+            AssessmentBackendService,
+        )
+        from src.core.services.assessment_service import AssessmentService
+        from src.core.services.turn_counter_service import TurnCounterService
+
+        # Assessment repository
+        def _assessment_repository_factory(
+            provider: IServiceProvider,
+        ) -> InMemoryAssessmentRepository:
+            return InMemoryAssessmentRepository()
+
+        _add_singleton(
+            IAssessmentRepository, implementation_factory=_assessment_repository_factory  # type: ignore[type-abstract]
+        )
+
+        # Turn counter service
+        def _turn_counter_service_factory(
+            provider: IServiceProvider,
+        ) -> TurnCounterService:
+            repository = provider.get_required_service(IAssessmentRepository)  # type: ignore[type-abstract]
+            config = provider.get_required_service(AppConfig).assessment
+            return TurnCounterService(repository, config)
+
+        _add_singleton(
+            ITurnCounterService, implementation_factory=_turn_counter_service_factory  # type: ignore[type-abstract]
+        )
+
+        # Assessment backend service
+
+        def _assessment_backend_service_factory(
+            provider: IServiceProvider,
+        ) -> AssessmentBackendService:
+            backend_service = provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
+            config = provider.get_required_service(AppConfig).assessment
+            return AssessmentBackendService(backend_service, config)
+
+        _add_singleton(
+            IAssessmentBackendService,
+            implementation_factory=_assessment_backend_service_factory,  # type: ignore[type-abstract]
+        )
+
+        # Core assessment service
+
+        def _assessment_service_factory(
+            provider: IServiceProvider,
+        ) -> AssessmentService:
+            backend_service = provider.get_required_service(IAssessmentBackendService)  # type: ignore[type-abstract]
+            config = provider.get_required_service(AppConfig).assessment
+            return AssessmentService(backend_service, config)
+
+        _add_singleton(
+            IAssessmentService, implementation_factory=_assessment_service_factory  # type: ignore[type-abstract]
+        )
+
+        logger.info(
+            f"Assessment services registered: backend={app_config.assessment.backend}, "
+            f"model={app_config.assessment.model}, threshold={app_config.assessment.turn_threshold}"
+        )
+
     with contextlib.suppress(Exception):
         services.add_singleton(
             cast(type, IToolCallRepairService),

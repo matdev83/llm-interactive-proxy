@@ -1,5 +1,18 @@
 # Changelog
 
+## [2025-01-21]
+
+### Added
+- **LLM Assessment System**: Intelligent conversation quality monitoring inspired by Google's gemini-cli
+  - Automatically detects unproductive patterns like repetitive tool calls and cognitive loops
+  - Event-driven assessment triggers after configurable turn thresholds (default: 30 turns)
+  - Confidence-based intervention system (default: 0.9 threshold) with steering message injection
+  - Dynamic frequency adjustment based on assessment confidence levels
+  - Multi-backend support - works with OpenAI, Anthropic, Gemini, and other configured backends
+  - Comprehensive configuration via CLI arguments, environment variables, and YAML
+  - Graceful degradation - assessment failures never break main conversation flow
+  - Complete documentation in README.md with configuration examples and use cases
+
 # 2025-10-17 - Gemini OAuth Backend Refactoring
 
 - **Refactor**: Split `gemini-oauth-personal` backend into two specialized backends for different use cases

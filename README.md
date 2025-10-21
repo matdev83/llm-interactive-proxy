@@ -63,9 +63,86 @@ This project is a swiss-army knife for anyone working with language models and a
 - **Model Name Rewrites (NEW)**: Dynamically rewrite model names using powerful regex-based rules. Route all GPT requests to OpenRouter, replace specific models with alternatives, or create catch-all fallbacks - all configurable via CLI, environment variables, or config files.
 - **Planning-Phase Strong Model Overrides (NEW)**: Optionally route the first part of a session to a stronger model and override its parameters (e.g., temperature, top_p, reasoning effort, thinking budget) to maximize planning quality; automatically switch back to the default model after a set number of turns or file writes.
 - **Automatic Tool Call Repair**: If a model generates invalid tool calls, the proxy automatically corrects them before they can cause errors in your agent.
+- **LLM-Based Conversation Assessment**: Automatically detect when conversations become stuck in unproductive patterns using a smaller LLM to assess conversation quality. Inspired by Google's gemini-cli, this feature monitors conversation turns and provides steering messages when repetitive actions or cognitive loops are detected.
 - **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
 - **Block Harmful Tool Calls**: Prevent potentially destructive actions, such as deleting your git repository, by detecting and blocking harmful tool calls at the proxy level.
 - **Maximize Free Tiers with API Key Rotation**: Aggregate all your API keys and use auto-rotation to seamlessly switch between them, allowing you to take full advantage of multiple free-tier allowances.
+
+## LLM Assessment System
+
+The proxy includes an intelligent conversation assessment system that monitors conversation quality and detects unproductive patterns, inspired by Google's gemini-cli project. This feature uses a smaller, faster LLM to periodically analyze conversation history and provide steering when the main conversation becomes stuck.
+
+### Key Features
+
+- **Automatic Pattern Detection**: Identifies repetitive tool calls, cognitive loops, and lack of progress
+- **Event-Driven Assessment**: Triggers after configurable turn thresholds (default: 30 turns)
+- **Confidence-Based Intervention**: Only intervenes when confidence is high (default: 0.9 threshold)
+- **Dynamic Frequency Adjustment**: Adjusts assessment frequency based on confidence levels
+- **Multi-Backend Support**: Works with any configured backend (OpenAI, Anthropic, Gemini, etc.)
+
+### Configuration
+
+**CLI Arguments**:
+```bash
+--enable-llm-assessment                    # Enable the assessment system
+--llm-assessment-backend openai            # Backend to use for assessment
+--llm-assessment-model gpt-4o-mini         # Model for assessment (recommend fast, cheap models)
+--llm-assessment-turn-threshold 30         # Turns before first assessment (default: 30)
+--llm-assessment-confidence-threshold 0.9  # Confidence threshold for intervention
+--llm-assessment-history-window 20         # Recent turns to analyze (default: 20)
+```
+
+**Environment Variables**:
+```bash
+export LLM_ASSESSMENT_ENABLED=true
+export LLM_ASSESSMENT_BACKEND=openai
+export LLM_ASSESSMENT_MODEL=gpt-4o-mini
+export LLM_ASSESSMENT_TURN_THRESHOLD=30
+export LLM_ASSESSMENT_CONFIDENCE_THRESHOLD=0.9
+export LLM_ASSESSMENT_HISTORY_WINDOW=20
+```
+
+**YAML Configuration**:
+```yaml
+llm_assessment:
+  enabled: true
+  backend: openai
+  model: gpt-4o-mini
+  turn_threshold: 30
+  confidence_threshold: 0.9
+  history_window: 20
+  intervals:
+    min: 5      # Minimum turns between assessments
+    max: 15     # Maximum turns between assessments
+    default: 3  # Default interval adjustment
+```
+
+### Use Cases
+
+- **Long Coding Sessions**: Detect when an AI assistant gets stuck repeatedly calling the same tools
+- **Complex Problem Solving**: Identify cognitive loops where the assistant expresses confusion or asks the same questions
+- **Resource Conservation**: Automatically intervene in unproductive conversations to save API costs
+- **Quality Assurance**: Ensure conversations maintain forward progress toward task completion
+
+### Example Usage
+
+```bash
+# Basic setup with OpenAI for assessment
+python -m src.core.cli \
+  --enable-llm-assessment \
+  --llm-assessment-backend openai \
+  --llm-assessment-model gpt-4o-mini
+
+# Custom thresholds for more sensitive detection
+python -m src.core.cli \
+  --enable-llm-assessment \
+  --llm-assessment-backend anthropic \
+  --llm-assessment-model claude-3-haiku-20240307 \
+  --llm-assessment-turn-threshold 20 \
+  --llm-assessment-confidence-threshold 0.8
+```
+
+The system operates transparently in the background, only intervening when it detects genuine unproductive patterns with high confidence. Assessment failures never break the main conversation flow.
 
 ## Killer Features
 

@@ -1,6 +1,5 @@
 --allow-admin
 --anthropic-port
---anthropic-port
 --auth-brute-force-initial-block
 --auth-brute-force-max-block
 --auth-brute-force-multiplier
@@ -23,6 +22,7 @@
 --disable-edit-precision
 --disable-interactive-commands
 --disable-interactive-mode
+--disable-llm-assessment
 --disable-pytest-compression
 --disable-pytest-full-suite-steering
 --disable-redact-api-keys-in-prompts
@@ -34,6 +34,7 @@
 --edit-precision-temperature
 --enable-brute-force-protection
 --enable-edit-precision
+--enable-llm-assessment
 --enable-planning-phase
 --enable-pytest-compression
 --enable-pytest-full-suite-steering
@@ -43,6 +44,11 @@
 --gemini-api-key
 --help
 --host
+--llm-assessment-backend
+--llm-assessment-confidence-threshold
+--llm-assessment-history-window
+--llm-assessment-model
+--llm-assessment-turn-threshold
 --log
 --log-level
 --model-alias

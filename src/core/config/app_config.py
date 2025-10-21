@@ -84,6 +84,7 @@ def _collect_api_keys_from_env(
 
 
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
+from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.domain.configuration.header_config import (
     HeaderConfig,
     HeaderOverrideMode,
@@ -745,6 +746,7 @@ class AppConfig(DomainModel, IConfig):
 
     # Rewriting settings
     rewriting: RewritingConfig = Field(default_factory=RewritingConfig)
+    assessment: AssessmentConfig = Field(default_factory=AssessmentConfig)
 
     # Reasoning aliases settings
     reasoning_aliases: ReasoningAliasesConfig = Field(
@@ -1137,6 +1139,49 @@ class AppConfig(DomainModel, IConfig):
                 "PYTEST_FULL_SUITE_STEERING_MESSAGE",
                 None,
                 path="session.pytest_full_suite_steering_message",
+                resolution=resolution,
+            ),
+            # Assessment configuration from environment
+            "llm_assessment_enabled": _env_to_bool(
+                "LLM_ASSESSMENT_ENABLED",
+                False,
+                env,
+                path="assessment.enabled",
+                resolution=resolution,
+            ),
+            "llm_assessment_turn_threshold": _env_to_int(
+                "LLM_ASSESSMENT_TURN_THRESHOLD",
+                30,
+                env,
+                path="assessment.turn_threshold",
+                resolution=resolution,
+            ),
+            "llm_assessment_confidence_threshold": _env_to_float(
+                "LLM_ASSESSMENT_CONFIDENCE_THRESHOLD",
+                0.9,
+                env,
+                path="assessment.confidence_threshold",
+                resolution=resolution,
+            ),
+            "llm_assessment_backend": _get_env_value(
+                env,
+                "LLM_ASSESSMENT_BACKEND",
+                None,
+                path="assessment.backend",
+                resolution=resolution,
+            ),
+            "llm_assessment_model": _get_env_value(
+                env,
+                "LLM_ASSESSMENT_MODEL",
+                None,
+                path="assessment.model",
+                resolution=resolution,
+            ),
+            "llm_assessment_history_window": _env_to_int(
+                "LLM_ASSESSMENT_HISTORY_WINDOW",
+                20,
+                env,
+                path="assessment.history_window",
                 resolution=resolution,
             ),
             "planning_phase": {

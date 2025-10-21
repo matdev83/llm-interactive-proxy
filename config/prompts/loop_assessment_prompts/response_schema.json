@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "description": "Your reasoning on if the conversation is looping without forward progress."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "A number between 0.0 and 1.0 representing your confidence that the conversation is in an unproductive state."
+    }
+  },
+  "required": ["reasoning", "confidence"]
+}
