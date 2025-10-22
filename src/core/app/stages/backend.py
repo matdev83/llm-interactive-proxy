@@ -69,6 +69,9 @@ class BackendStage(InitializationStage):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Failed to import connectors: {e}")
 
+        # Validate static_route backend early - fail fast if invalid
+        self._validate_static_route_backend(config)
+
         self._register_backend_registry(services)
         self._register_translation_service(services)
         self._register_backend_factory(services)
@@ -638,3 +641,26 @@ class BackendStage(InitializationStage):
                         )
 
         return functional_backends
+
+    def _validate_static_route_backend(self, config: AppConfig) -> None:
+        """Validate that static_route backend exists and is registered.
+
+        Raises:
+            ValueError: If static_route specifies an invalid backend name
+        """
+        if not config.backends.static_route:
+            return
+
+        static_backend = config.backends.static_route.split(":", 1)[0]
+        registered_backends = backend_registry.get_registered_backends()
+
+        if static_backend not in registered_backends:
+            available_backends = ", ".join(sorted(registered_backends))
+            raise ValueError(
+                f"Invalid backend '{static_backend}' specified in --static-route parameter.\n"
+                f"Backend '{static_backend}' is not registered.\n"
+                f"Available backends: {available_backends}\n"
+                f"Current static_route value: '{config.backends.static_route}'\n"
+                f"Expected format: <backend_name>:<model_name>\n"
+                f"Example: --static-route gemini-oauth-plan:gemini-2.5-pro"
+            )

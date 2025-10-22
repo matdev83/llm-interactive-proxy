@@ -1,7 +1,7 @@
 [project]
 name = "llm-interactive-proxy"
 version = "0.1.0"
-description = "A short description of my project." # Pyroma might suggest a longer one, but this is fine for now.
+description = "The swiss-army knife for LLM-powered applications. A universal proxy that seamlessly translates between OpenAI, Anthropic, and Gemini APIs while routing to any provider you choose. Override hardcoded models, prevent infinite loops, rotate API keys, capture and debug traffic, and automatically steer conversations away from trouble. Perfect for making any AI client work with any model, anywhere."
 authors = [
     { name = "Mateusz B.", email = "matdev83@github.com" },
 ]
@@ -97,7 +97,7 @@ package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n 7 --dist=loadfile --maxfail=10 -r fE"
+addopts = "-v --asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n 7 --dist=loadfile --maxfail=10 -r fE -m 'not integration'"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "INFO"

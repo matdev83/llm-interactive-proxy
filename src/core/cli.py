@@ -489,21 +489,23 @@ def build_cli_parser() -> argparse.ArgumentParser:
     assessment_group = parser.add_argument_group(
         "LLM Assessment", "Options for LLM-based conversation assessment"
     )
-    assessment_group.add_argument(
-        "--enable-llm-assessment",
+    assessment_toggle_group = assessment_group.add_mutually_exclusive_group()
+    assessment_toggle_group.add_argument(
+        "--enable-llm-loop-assessment",
         action="store_const",
         const=True,
-        dest="llm_assessment_enabled",
+        dest="llm_loop_assessment_enabled",
         default=None,
-        help="Enable LLM-based conversation assessment for detecting unproductive patterns",
+        help="Enable LLM-based conversation loop assessment for detecting unproductive patterns",
     )
-    assessment_group.add_argument(
-        "--disable-llm-assessment",
+    assessment_toggle_group.add_argument(
+        "--disable-llm-loop-assessment",
         action="store_const",
         const=False,
-        dest="llm_assessment_enabled",
-        help="Explicitly disable LLM-based conversation assessment",
+        dest="llm_loop_assessment_enabled",
+        help="Disable LLM-based conversation loop assessment",
     )
+
     assessment_group.add_argument(
         "--llm-assessment-turn-threshold",
         type=int,
@@ -515,14 +517,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Confidence threshold for triggering interventions (default: 0.9)",
     )
     assessment_group.add_argument(
-        "--llm-assessment-backend",
-        type=str,
-        help="Backend to use for assessment (e.g., openai, anthropic, gemini)",
-    )
-    assessment_group.add_argument(
         "--llm-assessment-model",
         type=str,
-        help="Model to use for assessment (e.g., gpt-4o-mini, claude-3-haiku-20240307)",
+        dest="llm_assessment_model",
+        metavar="BACKEND:MODEL",
+        help="Consolidated backend and model for loop assessment (e.g., openai:gpt-4o-mini)",
     )
     assessment_group.add_argument(
         "--llm-assessment-history-window",
@@ -554,10 +553,73 @@ def build_cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _validate_llm_loop_assessment_config(args: argparse.Namespace) -> None:
+    """Validate LLM loop assessment configuration.
+
+    Raises:
+        ValueError: If assessment is enabled but the model is missing or invalid.
+    """
+    # Check if assessment is enabled
+    assessment_enabled = getattr(args, "llm_loop_assessment_enabled", None)
+    if not assessment_enabled:
+        return
+
+    # Get the consolidated model string
+    model_str = getattr(args, "llm_assessment_model", None)
+
+    # The model must be provided when assessment is enabled
+    if not model_str or not model_str.strip():
+        raise ValueError(
+            "LLM assessment model must be specified when --enable-llm-loop-assessment is used.\n"
+            "Use --llm-assessment-model BACKEND:MODEL\n"
+            "Example: --llm-assessment-model openai:gpt-4o-mini"
+        )
+
+    # Validate the format
+    if ":" not in model_str:
+        raise ValueError(
+            "Invalid format for --llm-assessment-model. Expected BACKEND:MODEL.\n"
+            "Example: --llm-assessment-model openai:gpt-4o-mini"
+        )
+
+    backend, model = model_str.split(":", 1)
+    backend = backend.strip()
+    model = model.strip()
+    if not backend or not model:
+        raise ValueError(
+            "Invalid format for --llm-assessment-model. Both backend and model must be specified.\n"
+            "Example: --llm-assessment-model openai:gpt-4o-mini"
+        )
+
+    # Validate backend exists
+    try:
+        import importlib
+
+        importlib.import_module("src.connectors")
+        from src.core.services.backend_registry import backend_registry
+
+        registered_backends = backend_registry.get_registered_backends()
+        if backend not in registered_backends:
+            available_backends = ", ".join(sorted(registered_backends))
+            raise ValueError(
+                f"Invalid backend '{backend}' specified for LLM loop assessment.\n"
+                f"Available backends: {available_backends}\n"
+                f"Use a valid backend in the format BACKEND:MODEL."
+            )
+    except ImportError:
+        # If we can't import connectors, skip backend validation
+        pass
+
+
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments with full feature parity to original CLI."""
     parser = build_cli_parser()
-    return parser.parse_args(argv)
+    parsed_args = parser.parse_args(argv)
+
+    # Validate LLM loop assessment configuration
+    _validate_llm_loop_assessment_config(parsed_args)
+
+    return parsed_args
 
 
 def apply_cli_args(
@@ -954,12 +1016,12 @@ def apply_cli_args(
         )
 
     # LLM Assessment configuration
-    if getattr(args, "llm_assessment_enabled", None) is not None:
-        session["llm_assessment_enabled"] = args.llm_assessment_enabled
+    if getattr(args, "llm_loop_assessment_enabled", None) is not None:
+        session["llm_assessment_enabled"] = args.llm_loop_assessment_enabled
         record_cli(
             "assessment.enabled",
-            args.llm_assessment_enabled,
-            "--enable/disable-llm-assessment",
+            args.llm_loop_assessment_enabled,
+            "--enable-llm-loop-assessment",
         )
 
     if getattr(args, "llm_assessment_turn_threshold", None) is not None:
@@ -980,19 +1042,19 @@ def apply_cli_args(
             "--llm-assessment-confidence-threshold",
         )
 
-    if getattr(args, "llm_assessment_backend", None) is not None:
-        session["llm_assessment_backend"] = args.llm_assessment_backend
+    if getattr(args, "llm_assessment_model", None) is not None:
+        model_str = args.llm_assessment_model
+        backend, model = model_str.split(":", 1)
+        session["llm_assessment_backend"] = backend
+        session["llm_assessment_model"] = model
         record_cli(
             "assessment.backend",
-            args.llm_assessment_backend,
-            "--llm-assessment-backend",
+            backend,
+            "--llm-assessment-model",
         )
-
-    if getattr(args, "llm_assessment_model", None) is not None:
-        session["llm_assessment_model"] = args.llm_assessment_model
         record_cli(
             "assessment.model",
-            args.llm_assessment_model,
+            model,
             "--llm-assessment-model",
         )
 

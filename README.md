@@ -10,8 +10,69 @@
 
 This project is a swiss-army knife for anyone working with language models and agentic workflows. It sits between any LLM-aware client and any LLM backend, presenting multiple front-end APIs (OpenAI, Anthropic, Gemini) while routing to whichever provider you choose. With the proxy you can translate, reroute, and augment requests on the fly, execute chat-embedded commands, override models, rotate API keys, prevent leaks, and inspect traffic -- all from a single drop-in gateway.
 
+## Architecture
+
+```mermaid
+graph TD
+    subgraph "Clients / Applications"
+        A[OpenAI Client]
+        B[Anthropic Client]
+        C[Gemini Client]
+        D[Any LLM-Aware App]
+    end
+
+    subgraph "LLM Interactive Proxy"
+        direction LR
+        subgraph "Front-end APIs"
+            FE_OpenAI["/v1/chat/completions"]
+            FE_Anthropic["/anthropic/v1/messages"]
+            FE_Gemini["/v1beta/models"]
+        end
+
+        CoreProxy["Core Proxy Logic<br/>(Routing, Translation, Commands, Safety)"]
+
+        subgraph "Back-end Connectors"
+            BE_OpenAI[OpenAI]
+            BE_Anthropic[Anthropic]
+            BE_Gemini[Gemini]
+            BE_OpenRouter[OpenRouter]
+            BE_Etc[... and others]
+        end
+
+        FE_OpenAI --> CoreProxy
+        FE_Anthropic --> CoreProxy
+        FE_Gemini --> CoreProxy
+
+        CoreProxy --> BE_OpenAI
+        CoreProxy --> BE_Anthropic
+        CoreProxy --> BE_Gemini
+        CoreProxy --> BE_OpenRouter
+        CoreProxy --> BE_Etc
+    end
+
+    subgraph "LLM Providers"
+        P_OpenAI[OpenAI API]
+        P_Anthropic[Anthropic API]
+        P_Gemini[Google Gemini API]
+        P_OpenRouter[OpenRouter API]
+        P_Etc[...]
+    end
+
+    A --> FE_OpenAI
+    B --> FE_Anthropic
+    C --> FE_Gemini
+    D --> FE_OpenAI
+
+    BE_OpenAI --> P_OpenAI
+    BE_Anthropic --> P_Anthropic
+    BE_Gemini --> P_Gemini
+    BE_OpenRouter --> P_OpenRouter
+    BE_Etc --> P_Etc
+```
+
 ## Contents
 
+- [Architecture](#architecture)
 - [Use Cases](#use-cases)
 - [Killer Features](#killer-features)
 - [Supported APIs (Front-Ends) and Providers (Back-Ends)](#supported-apis-front-ends-and-providers-back-ends)

@@ -196,7 +196,7 @@ class AssessmentMiddleware:
 
         logger.info(
             f"Injected steering message for session {assessment_result.session_id}: "
-            f"'{steering_content[:100]}...'"
+            f"reasoning={assessment_result.reasoning[:50]}..."
         )
 
         return modified_request

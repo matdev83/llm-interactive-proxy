@@ -3,7 +3,7 @@ import os
 import socket
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from src.constants import DEFAULT_COMMAND_PREFIX
@@ -141,6 +141,13 @@ def test_cli_backend_choices_match_registry() -> None:
     with patch("src.core.cli.argparse.ArgumentParser") as MockArgumentParser:
         # The return_value of the class mock is the instance that will be created
         mock_parser_instance = MockArgumentParser.return_value
+
+        # Configure the mock parser to return a namespace with proper defaults
+        # to prevent validation errors in _validate_llm_loop_assessment_config
+        mock_args = Mock()
+        mock_args.llm_loop_assessment_enabled = None  # Default to disabled
+        mock_args.llm_assessment_model = None  # Default to None
+        mock_parser_instance.parse_args.return_value = mock_args
 
         # Call the function that creates the parser
         parse_cli_args([])

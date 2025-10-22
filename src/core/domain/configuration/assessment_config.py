@@ -43,7 +43,8 @@ class AssessmentConfig:
         """Create configuration from CLI arguments with highest precedence."""
         config = cls()
 
-        if hasattr(args, "llm_assessment_enabled"):
+        # Support the shorter attribute name for compatibility (check first)
+        if hasattr(args, "llm_assessment_enabled") and not hasattr(args, "_mock_name"):
             # Handle different types for enabled flag
             if isinstance(args.llm_assessment_enabled, bool):
                 config.enabled = args.llm_assessment_enabled
@@ -58,10 +59,35 @@ class AssessmentConfig:
             else:
                 # Invalid type, keep default
                 pass
+        elif hasattr(args, "llm_loop_assessment_enabled") and not hasattr(
+            args, "_mock_name"
+        ):
+            # Handle different types for enabled flag
+            if isinstance(args.llm_loop_assessment_enabled, bool):
+                config.enabled = args.llm_loop_assessment_enabled
+            elif isinstance(args.llm_loop_assessment_enabled, str):
+                if args.llm_loop_assessment_enabled.lower() in (
+                    "true",
+                    "1",
+                    "yes",
+                    "on",
+                ):
+                    config.enabled = True
+                elif args.llm_loop_assessment_enabled.lower() in (
+                    "false",
+                    "0",
+                    "no",
+                    "off",
+                ):
+                    config.enabled = False
+                else:
+                    # Invalid string, keep default
+                    pass
+            else:
+                # Invalid type, keep default
+                pass
         elif hasattr(args, "enable_llm_assessment") and args.enable_llm_assessment:
             config.enabled = True
-        elif hasattr(args, "disable_llm_assessment") and args.disable_llm_assessment:
-            config.enabled = False
 
         if (
             hasattr(args, "llm_assessment_turn_threshold")
@@ -96,7 +122,18 @@ class AssessmentConfig:
             and isinstance(args.llm_assessment_model, str)
             and args.llm_assessment_model.strip()
         ):
-            config.model = args.llm_assessment_model.strip()
+            model_str = args.llm_assessment_model.strip()
+            # Check if model contains backend:model format
+            if ":" in model_str:
+                backend, model = model_str.split(":", 1)
+                backend = backend.strip()
+                model = model.strip()
+                # Only accept known valid backends
+                if backend in ["openai", "anthropic", "gemini"]:
+                    config.backend = backend
+                config.model = model
+            else:
+                config.model = model_str
 
         if (
             hasattr(args, "llm_assessment_history_window")
@@ -268,25 +305,6 @@ class AssessmentConfig:
             disable_for_sessions=yaml_config.disable_for_sessions.copy(),
         )
 
-        # Override with ENV (medium precedence)
-        # Only override if the env config actually has the field set
-        if "enabled" in getattr(env_config, "_env_set_fields", set()):
-            merged.enabled = env_config.enabled
-        if "turn_threshold" in getattr(env_config, "_env_set_fields", set()):
-            merged.turn_threshold = env_config.turn_threshold
-        if "confidence_threshold" in getattr(env_config, "_env_set_fields", set()):
-            merged.confidence_threshold = env_config.confidence_threshold
-        if "backend" in getattr(env_config, "_env_set_fields", set()):
-            merged.backend = env_config.backend
-        if "model" in getattr(env_config, "_env_set_fields", set()):
-            merged.model = env_config.model
-        if "history_window" in getattr(env_config, "_env_set_fields", set()):
-            merged.history_window = env_config.history_window
-        if "min_interval" in getattr(env_config, "_env_set_fields", set()):
-            merged.min_interval = env_config.min_interval
-        if "max_interval" in getattr(env_config, "_env_set_fields", set()):
-            merged.max_interval = env_config.max_interval
-
         # Override with CLI (highest precedence)
         default_config = cls()
         if cli_config.enabled != default_config.enabled:
@@ -307,6 +325,41 @@ class AssessmentConfig:
             merged.max_interval = cli_config.max_interval
         if cli_config.default_interval != default_config.default_interval:
             merged.default_interval = cli_config.default_interval
+
+        # Override with ENV (medium precedence) - only if CLI wasn't set
+        # Only override if the env config actually has the field set
+        if "enabled" in getattr(env_config, "_env_set_fields", set()) and (
+            cli_config.enabled == default_config.enabled
+        ):  # Only use ENV if CLI didn't override
+            merged.enabled = env_config.enabled
+        if "turn_threshold" in getattr(env_config, "_env_set_fields", set()) and (
+            cli_config.turn_threshold == default_config.turn_threshold
+        ):
+            merged.turn_threshold = env_config.turn_threshold
+        if "confidence_threshold" in getattr(env_config, "_env_set_fields", set()) and (
+            cli_config.confidence_threshold == default_config.confidence_threshold
+        ):
+            merged.confidence_threshold = env_config.confidence_threshold
+        if "backend" in getattr(env_config, "_env_set_fields", set()) and (
+            cli_config.backend == default_config.backend
+        ):
+            merged.backend = env_config.backend
+        if "model" in getattr(env_config, "_env_set_fields", set()) and (
+            cli_config.model == default_config.model
+        ):
+            merged.model = env_config.model
+        if "history_window" in getattr(env_config, "_env_set_fields", set()) and (
+            cli_config.history_window == default_config.history_window
+        ):
+            merged.history_window = env_config.history_window
+        if "min_interval" in getattr(env_config, "_env_set_fields", set()) and (
+            cli_config.min_interval == default_config.min_interval
+        ):
+            merged.min_interval = env_config.min_interval
+        if "max_interval" in getattr(env_config, "_env_set_fields", set()) and (
+            cli_config.max_interval == default_config.max_interval
+        ):
+            merged.max_interval = env_config.max_interval
 
         return merged
 

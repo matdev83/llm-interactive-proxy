@@ -66,3 +66,4 @@ class ResponseBuffer:
         self.buffer.clear()
         self.total_length = 0
         self.stored_length = 0
+        self._cached_content = None  # Invalidate cache

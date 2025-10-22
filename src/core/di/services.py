@@ -7,7 +7,6 @@ and resolving services from the container.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 from collections.abc import Callable
@@ -269,27 +268,33 @@ def register_core_services(
         services: The service collection to register services with
         app_config: Optional application configuration
     """
+    logger: logging.Logger = logging.getLogger(__name__)
     # Register AppConfig and IConfig
     if app_config is not None:
         services.add_instance(AppConfig, app_config)
         # Also register it as IConfig for interface resolution
-        with contextlib.suppress(Exception):
+        try:
             services.add_instance(
                 cast(type, IConfig),
                 app_config,
             )  # type: ignore[type-abstract]
+        except Exception as e:
+            logger.warning(f"Failed to register IConfig interface: {e}")
+            # Continue without interface registration if it fails
     else:
         # Register default AppConfig as IConfig for testing and basic functionality
         default_config = AppConfig()
         services.add_instance(AppConfig, default_config)
-        with contextlib.suppress(Exception):
+        try:
             services.add_instance(
                 cast(type, IConfig),
                 default_config,
             )  # type: ignore[type-abstract]
+        except Exception as e:
+            logger.warning(f"Failed to register default IConfig interface: {e}")
+            # Continue without interface registration if it fails
 
     # Helper wrappers to make registration idempotent and provide debug logging
-    logger: logging.Logger = logging.getLogger(__name__)
 
     def _registered(service_type: type) -> bool:
         desc = getattr(services, "_descriptors", None)
@@ -388,10 +393,13 @@ def register_core_services(
     # Register session service and bind to interface
     _add_singleton(SessionService, implementation_factory=_session_service_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, ISessionService), implementation_factory=_session_service_factory
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register ISessionService interface: {e}")
+        # Continue if concrete SessionService is registered
 
     # Register command state service
     from src.core.interfaces.command_state_service_interface import (
@@ -409,13 +417,16 @@ def register_core_services(
         CommandStateService, implementation_factory=_command_state_service_factory
     )
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, ICommandStateService),
             implementation_factory=lambda provider: provider.get_required_service(
                 CommandStateService
             ),
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register ICommandStateService interface: {e}")
+        # Continue if concrete CommandStateService is registered
 
     # Register command policy service
     from src.core.interfaces.command_policy_service_interface import (
@@ -434,13 +445,16 @@ def register_core_services(
         CommandPolicyService, implementation_factory=_command_policy_service_factory
     )
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, ICommandPolicyService),
             implementation_factory=lambda provider: provider.get_required_service(
                 CommandPolicyService
             ),
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register ICommandPolicyService interface: {e}")
+        # Continue if concrete CommandPolicyService is registered
 
     # Register command processor
     def _command_processor_factory(provider: IServiceProvider) -> ICommandProcessor:
@@ -469,11 +483,14 @@ def register_core_services(
         )
 
     # Register command processor and bind to interface
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, ICommandProcessor),
             implementation_factory=_command_processor_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register ICommandProcessor interface: {e}")
+        # Continue without interface registration if it fails
 
     # Register backend processor
     def _backend_processor_factory(provider: IServiceProvider) -> BackendProcessor:
@@ -496,23 +513,29 @@ def register_core_services(
     # Register backend processor and bind to interface
     _add_singleton(BackendProcessor, implementation_factory=_backend_processor_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IBackendProcessor),
             implementation_factory=_backend_processor_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IBackendProcessor interface: {e}")
+        # Continue if concrete BackendProcessor is registered
 
     # Register response handlers
     _add_singleton(DefaultNonStreamingResponseHandler)
     _add_singleton(DefaultStreamingResponseHandler)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, INonStreamingResponseHandler), DefaultNonStreamingResponseHandler
         )
         services.add_singleton(
             cast(type, IStreamingResponseHandler), DefaultStreamingResponseHandler
         )
+    except Exception as e:
+        logger.warning(f"Failed to register response handler interfaces: {e}")
+        # Continue if concrete handlers are registered
 
     # Register MiddlewareApplicationManager and IMiddlewareApplicationManager with configured middleware list
     def _middleware_application_manager_factory(
@@ -602,11 +625,16 @@ def register_core_services(
         MiddlewareApplicationManager,
         implementation_factory=_middleware_application_manager_factory,
     )
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IMiddlewareApplicationManager),
             implementation_factory=_middleware_application_manager_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(
+            f"Failed to register IMiddlewareApplicationManager interface: {e}"
+        )
+        # Continue if concrete MiddlewareApplicationManager is registered
 
     # Register MiddlewareApplicationProcessor used inside the streaming pipeline
     def _middleware_application_processor_factory(
@@ -647,10 +675,16 @@ def register_core_services(
             provider.get_required_service(MiddlewareApplicationManager)
         )
 
+        # Get loop detector for non-streaming responses
+        from src.core.interfaces.loop_detector_interface import ILoopDetector
+
+        loop_detector = provider.get_service(cast(type, ILoopDetector))
+
         return ResponseProcessor(
-            app_state=app_state,
             response_parser=response_parser,
             middleware_application_manager=middleware_application_manager,
+            app_state=app_state,
+            loop_detector=loop_detector,
             stream_normalizer=stream_normalizer,
             middleware_list=middleware_manager._middleware,
         )
@@ -660,11 +694,14 @@ def register_core_services(
         ResponseProcessor, implementation_factory=_response_processor_factory
     )
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IResponseProcessor),
             implementation_factory=_response_processor_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IResponseProcessor interface: {e}")
+        # Continue if concrete ResponseProcessor is registered
 
     def _application_state_factory(
         provider: IServiceProvider,
@@ -676,12 +713,15 @@ def register_core_services(
     def _app_settings_factory(provider: IServiceProvider) -> AppSettings:
         # Get app_state from IApplicationState if available
         app_state: Any | None = None
-        with contextlib.suppress(Exception):
+        try:
             app_state_service: IApplicationState | None = provider.get_service(
                 ApplicationStateService
             )
             if app_state_service:
                 app_state = app_state_service.get_setting("service_provider")
+        except Exception as e:
+            logger.debug(f"Could not get app_state from ApplicationStateService: {e}")
+            app_state = None
 
         # Create app settings
         return AppSettings(app_state)
@@ -689,19 +729,25 @@ def register_core_services(
     # Register app settings and bind to interface
     _add_singleton(AppSettings, implementation_factory=_app_settings_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IAppSettings), implementation_factory=_app_settings_factory
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IAppSettings interface: {e}")
+        # Continue if concrete AppSettings is registered
 
     # Register application state service
     _add_singleton(ApplicationStateService)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IApplicationState),
             implementation_factory=_application_state_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IApplicationState interface: {e}")
+        # Continue if concrete ApplicationStateService is registered
 
     # Register secure state service
     def _secure_state_factory(provider: IServiceProvider) -> SecureStateService:
@@ -710,7 +756,7 @@ def register_core_services(
 
     _add_singleton(SecureStateService, implementation_factory=_secure_state_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, ISecureStateAccess), implementation_factory=_secure_state_factory
         )  # type: ignore[type-abstract]
@@ -718,6 +764,9 @@ def register_core_services(
             cast(type, ISecureStateModification),
             implementation_factory=_secure_state_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register secure state interfaces: {e}")
+        # Continue if concrete SecureStateService is registered
 
     # Register secure command factory
     def _secure_command_factory(provider: IServiceProvider) -> SecureCommandFactory:
@@ -736,10 +785,13 @@ def register_core_services(
 
     _add_singleton(SessionManager, implementation_factory=_session_manager_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, ISessionManager), implementation_factory=_session_manager_factory
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register ISessionManager interface: {e}")
+        # Continue if concrete SessionManager is registered
 
     # Register agent response formatter
     def _agent_response_formatter_factory(
@@ -752,11 +804,14 @@ def register_core_services(
         AgentResponseFormatter, implementation_factory=_agent_response_formatter_factory
     )
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IAgentResponseFormatter),
             implementation_factory=_agent_response_formatter_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IAgentResponseFormatter interface: {e}")
+        # Continue if concrete AgentResponseFormatter is registered
 
     # Register response manager
     def _response_manager_factory(provider: IServiceProvider) -> ResponseManager:
@@ -766,11 +821,14 @@ def register_core_services(
 
     _add_singleton(ResponseManager, implementation_factory=_response_manager_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IResponseManager),
             implementation_factory=_response_manager_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IResponseManager interface: {e}")
+        # Continue if concrete ResponseManager is registered
 
     # Register backend request manager
     def _backend_request_manager_factory(
@@ -787,11 +845,14 @@ def register_core_services(
         BackendRequestManager, implementation_factory=_backend_request_manager_factory
     )
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IBackendRequestManager),
             implementation_factory=_backend_request_manager_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IBackendRequestManager interface: {e}")
+        # Continue if concrete BackendRequestManager is registered
 
     # Register stream normalizer
     def _stream_normalizer_factory(provider: IServiceProvider) -> StreamNormalizer:
@@ -817,7 +878,14 @@ def register_core_services(
                 loop_detection_processor = provider.get_required_service(
                     LoopDetectionProcessor
                 )
-            except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "LoopDetectionProcessor successfully registered for streaming"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register LoopDetectionProcessor for streaming: {e}"
+                )
                 loop_detection_processor = None
             middleware_application_processor = provider.get_required_service(
                 MiddlewareApplicationProcessor
@@ -854,11 +922,14 @@ def register_core_services(
 
     _add_singleton(StreamNormalizer, implementation_factory=_stream_normalizer_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IStreamNormalizer),
             implementation_factory=_stream_normalizer_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IStreamNormalizer interface: {e}")
+        # Continue if concrete StreamNormalizer is registered
 
     # Register ResponseParser
     def _response_parser_factory(provider: IServiceProvider) -> ResponseParser:
@@ -866,10 +937,13 @@ def register_core_services(
         return ResponseParser()
 
     _add_singleton(ResponseParser, implementation_factory=_response_parser_factory)
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IResponseParser), implementation_factory=_response_parser_factory
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IResponseParser interface: {e}")
+        # Continue if concrete ResponseParser is registered
 
     # Register individual stream processors
     def _loop_detection_processor_factory(
@@ -1054,11 +1128,14 @@ def register_core_services(
             f"model={app_config.assessment.model}, threshold={app_config.assessment.turn_threshold}"
         )
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IToolCallRepairService),
             implementation_factory=_tool_call_repair_service_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IToolCallRepairService interface: {e}")
+        # Continue if concrete ToolCallRepairService is registered
 
     # Register tool call repair processor
     def _tool_call_repair_processor_factory(
@@ -1362,13 +1439,19 @@ def register_core_services(
 
         # Get failover coordinator (optional for test environments)
         failover_coordinator = None
-        with contextlib.suppress(Exception):
+        try:
             failover_coordinator = provider.get_service(IFailoverCoordinator)  # type: ignore[type-abstract]
+        except Exception as e:
+            logger.debug(f"FailoverCoordinator not available: {e}")
 
         # Get backend config provider or create one
         backend_config_provider = None
-        with contextlib.suppress(Exception):
+        try:
             backend_config_provider = provider.get_service(IBackendConfigProvider)  # type: ignore[type-abstract]
+        except Exception as e:
+            logger.debug(
+                f"BackendConfigProvider not available, will create default: {e}"
+            )
 
         # If not available, create one with the app config
         if backend_config_provider is None:
@@ -1407,10 +1490,13 @@ def register_core_services(
     # Register backend service and bind to interface
     _add_singleton(BackendService, implementation_factory=_backend_service_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         services.add_singleton(
             cast(type, IBackendService), implementation_factory=_backend_service_factory
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IBackendService interface: {e}")
+        # Continue if concrete BackendService is registered
 
     # Register FailoverService first (dependency of FailoverCoordinator)
     def _failover_service_factory(provider: IServiceProvider) -> FailoverService:
@@ -1435,13 +1521,16 @@ def register_core_services(
         FailoverCoordinator, implementation_factory=_failover_coordinator_factory
     )
 
-    with contextlib.suppress(Exception):
+    try:
         from src.core.interfaces.failover_interface import IFailoverCoordinator
 
         services.add_singleton(
             cast(type, IFailoverCoordinator),
             implementation_factory=_failover_coordinator_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IFailoverCoordinator interface: {e}")
+        # Continue if concrete FailoverCoordinator is registered
 
     # Register request processor
     def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
@@ -1464,11 +1553,14 @@ def register_core_services(
     # Register request processor and bind to interface
     _add_singleton(RequestProcessor, implementation_factory=_request_processor_factory)
 
-    with contextlib.suppress(Exception):
+    try:
         _add_singleton(
             cast(type, IRequestProcessor),
             implementation_factory=_request_processor_factory,
         )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register IRequestProcessor interface: {e}")
+        # Continue if concrete RequestProcessor is registered
 
 
 def get_service(service_type: type[T]) -> T | None:

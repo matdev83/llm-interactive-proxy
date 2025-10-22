@@ -6,6 +6,7 @@ as defined in the PRD and architecture documents, following the principle of:
 CLI Arguments > Environment Variables > YAML Configuration > Default Values.
 """
 
+import argparse
 import os
 from tempfile import NamedTemporaryFile
 from unittest.mock import Mock
@@ -32,11 +33,10 @@ class TestConfigurationPrecedenceBehavior:
         """
         # Given
         cli_args = Mock()
-        cli_args.llm_assessment_enabled = True
+        cli_args.llm_loop_assessment_enabled = True
         cli_args.llm_assessment_turn_threshold = 25
         cli_args.llm_assessment_confidence_threshold = 0.85
-        cli_args.llm_assessment_backend = "anthropic"
-        cli_args.llm_assessment_model = "claude-3-sonnet"
+        cli_args.llm_assessment_model = "anthropic:claude-3-sonnet"
         cli_args.llm_assessment_history_window = 30
 
         # Set conflicting environment variables
@@ -294,7 +294,7 @@ class TestConfigurationPrecedenceBehavior:
         """
         # Given
         # Invalid CLI arguments
-        cli_args = Mock()
+        cli_args = argparse.Namespace()
         cli_args.llm_assessment_enabled = "not_a_boolean"  # Invalid
         cli_args.llm_assessment_turn_threshold = -5  # Invalid (negative)
         cli_args.llm_assessment_confidence_threshold = 1.5  # Invalid (> 1.0)

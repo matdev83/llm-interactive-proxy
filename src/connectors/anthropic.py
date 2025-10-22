@@ -376,9 +376,12 @@ class AnthropicBackend(LLMBackend):
         # Let httpx raise for HTTP errors so callers/tests receive HTTPStatusError
         try:
             response.raise_for_status()
-        except Exception:
-            # Re-raise to preserve httpx.HTTPStatusError
+        except httpx.HTTPStatusError:
+            # Re-raise HTTP errors as-is for proper error handling
             raise
+        except Exception as e:
+            logger.error(f"Unexpected error in Anthropic response handling: {e}")
+            raise ServiceUnavailableError(f"Anthropic API error: {e}") from e
 
         data = response.json()
         converted_response = self.translation_service.to_domain_response(
@@ -414,7 +417,8 @@ class AnthropicBackend(LLMBackend):
 
             try:
                 body_text = (await response.aread()).decode("utf-8")
-            except Exception:
+            except (UnicodeDecodeError, httpx.ReadError) as e:
+                logger.warning(f"Failed to read Anthropic error response body: {e}")
                 body_text = ""
             finally:
                 await response.aclose()
@@ -466,8 +470,9 @@ class AnthropicBackend(LLMBackend):
                     if isinstance(message_id, str) and message_id.startswith("msg_"):
                         message_id_future.set_result(message_id)
                         return
-            except Exception:
-                # Best effort capture; ignore parsing errors
+            except (json.JSONDecodeError, KeyError, AttributeError) as e:
+                # Best effort capture; ignore expected parsing errors
+                logger.debug(f"Failed to parse message ID from chunk: {e}")
                 return
 
         async def cancel_stream() -> None:
@@ -615,7 +620,8 @@ class AnthropicBackend(LLMBackend):
                 for m in models
                 if isinstance(m, dict)
             ]
-        except Exception:
+        except (TypeError, KeyError, AttributeError) as e:
+            logger.warning(f"Failed to parse Anthropic model list: {e}")
             self.available_models = []
         return cast(list[dict[str, Any]], models)
 

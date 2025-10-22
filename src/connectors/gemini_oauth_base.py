@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -86,6 +87,58 @@ CLI_REFRESH_COMMAND = [
 DEFAULT_CONNECTION_TIMEOUT = 60.0
 # Read timeout: time between chunks during streaming (much longer for large responses)
 DEFAULT_READ_TIMEOUT = 300.0  # 5 minutes to handle large file reads and long responses
+
+# Graceful degradation configuration
+DEFAULT_RETRY_DELAYS = [6, 12]  # Wait 6s, then 12s between retries
+DEFAULT_MAX_TOTAL_ATTEMPTS = 6  # Maximum total attempts across all models
+DEFAULT_COOLDOWN_DURATION = 300.0  # 5 minutes cooldown after exhaustion
+DEFAULT_RECOVERY_PROBE_INTERVAL = 60.0  # Check recovery every minute
+
+
+@dataclass
+class GracefulDegradationConfig:
+    """Configuration for graceful degradation behavior."""
+
+    enabled: bool = True
+    retry_delays: list[float] = field(
+        default_factory=lambda: list(DEFAULT_RETRY_DELAYS)
+    )
+    max_total_attempts: int = DEFAULT_MAX_TOTAL_ATTEMPTS
+    cooldown_duration: float = DEFAULT_COOLDOWN_DURATION
+    enable_recovery_probing: bool = True
+    recovery_probe_interval: float = DEFAULT_RECOVERY_PROBE_INTERVAL
+
+    @classmethod
+    def from_config(cls, config: AppConfig) -> "GracefulDegradationConfig":
+        """Create configuration from AppConfig."""
+        return cls(
+            enabled=config.get("graceful_degradation_enabled", True),
+            retry_delays=config.get(
+                "graceful_degradation_retry_delays", DEFAULT_RETRY_DELAYS
+            ),
+            max_total_attempts=config.get(
+                "graceful_degradation_max_attempts", DEFAULT_MAX_TOTAL_ATTEMPTS
+            ),
+            cooldown_duration=config.get(
+                "graceful_degradation_cooldown", DEFAULT_COOLDOWN_DURATION
+            ),
+            enable_recovery_probing=config.get(
+                "graceful_degradation_recovery_probing", True
+            ),
+            recovery_probe_interval=config.get(
+                "graceful_degradation_probe_interval", DEFAULT_RECOVERY_PROBE_INTERVAL
+            ),
+        )
+
+
+@dataclass
+class ModelRetryState:
+    """State tracking for model retry attempts."""
+
+    attempts: int = 0
+    cooldown_until: float = 0.0
+    last_probe_attempt: float = 0.0
+    probe_success_count: int = 0
 
 
 class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
@@ -188,6 +241,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             persistence_path=Path("data/gemini_oauth_request_count.json"), limit=1000
         )
 
+        # Initialize graceful degradation
+        self._degradation_config = GracefulDegradationConfig.from_config(self.config)
+        self._model_retry_states: dict[str, ModelRetryState] = {}
+        self._total_attempts = 0
+        self._permanently_failed = False
+        self._recovery_probe_task: asyncio.Task[Any] | None = None
+
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
 
@@ -223,11 +283,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
         # Required fields for OAuth credentials
         required_fields = ["access_token"]
-        for field in required_fields:
-            if field not in credentials:
-                errors.append(f"Missing required field: {field}")
-            elif not isinstance(credentials[field], str) or not credentials[field]:
-                errors.append(f"Invalid {field}: must be a non-empty string")
+        for f in required_fields:
+            if f not in credentials:
+                errors.append(f"Missing required field: {f}")
+            elif not isinstance(credentials[f], str) or not credentials[f]:
+                errors.append(f"Invalid {f}: must be a non-empty string")
 
         # Optional refresh token validation
         if "refresh_token" in credentials and (
@@ -397,8 +457,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         observer = self._file_observer
         if observer:
             try:
-                observer.stop()
-                observer.join()
+                if observer.is_alive():
+                    observer.stop()
+                    observer.join()
                 self._file_observer = None
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Stopped watching credentials file")
@@ -1241,26 +1302,47 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             # Check if streaming is requested
             is_streaming = getattr(request_data, "stream", False)
 
-            if is_streaming:
-                return await self._chat_completions_code_assist_streaming(
-                    request_data=request_data,
-                    processed_messages=processed_messages,
-                    effective_model=model_name,
-                    **kwargs,
-                )
-            else:
-                return await self._chat_completions_code_assist(
-                    request_data=request_data,
-                    processed_messages=processed_messages,
-                    effective_model=model_name,
-                    **kwargs,
-                )
+            try:
+                if is_streaming:
+                    return await self._chat_completions_code_assist_streaming(
+                        request_data=request_data,
+                        processed_messages=processed_messages,
+                        effective_model=model_name,
+                        **kwargs,
+                    )
+                else:
+                    return await self._chat_completions_code_assist(
+                        request_data=request_data,
+                        processed_messages=processed_messages,
+                        effective_model=model_name,
+                        **kwargs,
+                    )
+            except BackendError as e:
+                # Handle 429 errors with graceful degradation
+                if getattr(e, "status_code", None) == 429:
+                    if self._degradation_config.enabled:
+                        return await self._handle_429_with_graceful_degradation(
+                            original_model=model_name,
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            **kwargs,
+                        )
+                    else:
+                        # Graceful degradation disabled, use original behavior
+                        self._mark_backend_unusable()
+                        raise
+                else:
+                    # Re-raise non-429 BackendErrors
+                    raise
 
         except HTTPException:
             # Re-raise HTTP exceptions directly
             raise
-        except (AuthenticationError, BackendError):
-            # Re-raise domain exceptions
+        except AuthenticationError:
+            # Re-raise authentication errors
+            raise
+        except BackendError:
+            # Re-raise backend errors (already handled 429 above)
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
@@ -1277,8 +1359,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        _in_graceful_degradation: bool = False,
         **kwargs: Any,
-    ) -> ResponseEnvelope:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using the Code Assist API.
 
         This method implements the Code Assist API calls that match the Gemini CLI
@@ -1328,9 +1411,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 )
                 if message_count > 0 and hasattr(canonical_request, "messages"):
                     last_msg = canonical_request.messages[-1]
-                    last_msg_preview = str(getattr(last_msg, "content", ""))[:100]
                     logger.debug(
-                        f"Last message role={getattr(last_msg, 'role', 'unknown')}, content preview={last_msg_preview}"
+                        f"Last message role={getattr(last_msg, 'role', 'unknown')}, content length={len(str(getattr(last_msg, 'content', '')))}"
                     )
 
             # Convert from canonical/domain format to Gemini API format
@@ -1411,13 +1493,49 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 )
 
                 if response.status_code >= 400:
-                    self._handle_streaming_error(response)
+                    if response.status_code == 429:
+                        # Prevent recursive graceful degradation calls
+                        if _in_graceful_degradation:
+                            # When in graceful degradation, just fail gracefully instead of trying again
+                            self._mark_backend_unusable()
+                            raise BackendError(
+                                message="Rate limit exceeded during graceful degradation",
+                                code="rate_limit_exceeded",
+                                status_code=429,
+                            )
+
+                        # Handle 429 with graceful degradation
+                        return await self._handle_429_with_graceful_degradation(
+                            original_model=effective_model,
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            **kwargs,
+                        )
+                    else:
+                        self._handle_streaming_error(response)
 
                 # Parse the non-streaming response
                 response_data = response.json()
 
-                # Extract the generated text from the response
-                candidates = response_data.get("candidates", [])
+                # Handle unexpected response formats
+                if isinstance(response_data, list):
+                    # If response_data is a list, try to find the first dict with candidates
+                    candidates = []
+                    for item in response_data:
+                        if isinstance(item, dict) and "candidates" in item:
+                            candidates = item.get("candidates", [])
+                            break
+                    if not candidates:
+                        logger.warning(
+                            "List response from Gemini API contained no candidates. This may be due to safety settings or other content filters."
+                        )
+                elif isinstance(response_data, dict):
+                    # Expected format
+                    candidates = response_data.get("candidates", [])
+                else:
+                    raise BackendError(
+                        f"Unexpected response format: {type(response_data).__name__}"
+                    )
                 if candidates and len(candidates) > 0:
                     candidate = candidates[0]
                     content = candidate.get("content", {})
@@ -1567,9 +1685,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 )
                 if message_count > 0 and hasattr(canonical_request, "messages"):
                     last_msg = canonical_request.messages[-1]
-                    last_msg_preview = str(getattr(last_msg, "content", ""))[:100]
                     logger.debug(
-                        f"[STREAMING] Last message role={getattr(last_msg, 'role', 'unknown')}, content preview={last_msg_preview}"
+                        f"[STREAMING] Last message role={getattr(last_msg, 'role', 'unknown')}, content length={len(str(getattr(last_msg, 'content', '')))}"
                     )
 
             # Convert from canonical/domain format to Gemini API format
@@ -1681,6 +1798,72 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                         return
 
                     if response.status_code >= 400:
+                        # Handle 429 with graceful degradation
+                        if response.status_code == 429:
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    f"Received 429 response in streaming, attempting graceful degradation for model {effective_model}"
+                                )
+                            try:
+                                degraded_response = (
+                                    await self._handle_429_with_graceful_degradation(
+                                        original_model=effective_model,
+                                        request_data=request_data,
+                                        processed_messages=processed_messages,
+                                        **kwargs,
+                                    )
+                                )
+                                if logger.isEnabledFor(logging.INFO):
+                                    logger.info(
+                                        f"Graceful degradation succeeded for model {effective_model}"
+                                    )
+
+                                # If the degraded response is streaming, yield its chunks
+                                if isinstance(
+                                    degraded_response, StreamingResponseEnvelope
+                                ):
+                                    async for chunk in degraded_response.content:
+                                        yield chunk
+                                else:
+                                    # Convert non-streaming response to streaming chunks
+                                    # This is a fallback case, shouldn't normally happen
+                                    final_chunk = (
+                                        self.translation_service.to_domain_stream_chunk(
+                                            chunk=None, source_format="code_assist"
+                                        )
+                                    )
+                                    yield ProcessedResponse(content=final_chunk)
+                                return
+                            except Exception as e:
+                                # If graceful degradation fails, return a user-friendly error instead of raw 429
+                                if logger.isEnabledFor(logging.WARNING):
+                                    logger.warning(
+                                        f"Graceful degradation failed for model {effective_model}: {e}"
+                                    )
+
+                                # Return a user-friendly error message instead of the raw 429 error
+                                error_chunk = {
+                                    "id": f"chatcmpl-error-{int(time.time())}",
+                                    "object": "chat.completion.chunk",
+                                    "created": int(time.time()),
+                                    "model": effective_model,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {},
+                                            "finish_reason": "stop",
+                                        }
+                                    ],
+                                    "error": {
+                                        "message": "Service temporarily unavailable due to rate limiting. Please try again in a few minutes.",
+                                        "type": "service_unavailable",
+                                        "code": 503,  # Use 503 instead of 429 to indicate service unavailability
+                                    },
+                                }
+                                yield ProcessedResponse(content=error_chunk)
+                                return
+
+                        # For non-429 errors, yield error chunk
                         # Graceful error handling - yield error chunk instead of raising exception
                         try:
                             error_detail = response.json()
@@ -1751,8 +1934,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                             break
 
                         try:
-                            chunk_str = chunk.decode("utf-8")
-                        except UnicodeDecodeError:
+                            chunk_str = (chunk if isinstance(chunk, bytes) else str(chunk).encode()).decode("utf-8")  # type: ignore[union-attr]
+                        except (UnicodeDecodeError, AttributeError):
                             continue
 
                         for char in chunk_str:
@@ -2031,6 +2214,341 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
         return openai_response
 
+    def _get_fallback_model(self, original_model: str) -> str | None:
+        """Get the fallback model for a given model.
+
+        Args:
+            original_model: The model that needs fallback
+
+        Returns:
+            The fallback model name, or None if no fallback available
+        """
+        fallback_map = {
+            "gemini-2.5-pro": "gemini-2.5-flash",
+            "gemini-2.5-flash": None,  # No fallback for flash
+            "gemini-2.5-flash-lite": None,
+            "gemini-2.5-pro-preview-05-06": "gemini-2.5-flash",
+            "gemini-2.5-pro-preview-06-05": "gemini-2.5-flash",
+            "gemini-2.5-flash-preview-05-20": None,
+            "gemini-2.0-flash": "gemini-1.5-flash",
+            "gemini-1.5-pro": "gemini-1.5-flash",
+            "gemini-1.5-flash": None,
+        }
+        return fallback_map.get(original_model)
+
+    def _is_in_cooldown(self, model: str) -> bool:
+        """Check if a model is currently in cooldown.
+
+        Args:
+            model: The model to check
+
+        Returns:
+            True if model is in cooldown, False otherwise
+        """
+        state = self._model_retry_states.get(model)
+        if not state:
+            return False
+        return time.time() < state.cooldown_until
+
+    def _set_cooldown(self, model: str) -> None:
+        """Put a model into cooldown state.
+
+        Args:
+            model: The model to put in cooldown
+        """
+        if model not in self._model_retry_states:
+            self._model_retry_states[model] = ModelRetryState()
+
+        state = self._model_retry_states[model]
+        state.cooldown_until = time.time() + self._degradation_config.cooldown_duration
+        state.attempts = 0  # Reset attempts after cooldown
+        state.probe_success_count = 0
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Model {model} put in cooldown until {state.cooldown_until}")
+
+    async def _probe_model_recovery(
+        self, model: str, bypass_interval_check: bool = False
+    ) -> bool:
+        """Probe if a model has recovered from cooldown.
+
+        Args:
+            model: The model to probe
+            bypass_interval_check: If True, bypass the interval check (for testing)
+
+        Returns:
+            True if model has recovered, False otherwise
+        """
+        if not self._degradation_config.enable_recovery_probing:
+            return False
+
+        state = self._model_retry_states.get(model)
+        if not state or not self._is_in_cooldown(model):
+            return True
+
+        # Check if enough time has passed since last probe
+        now = time.time()
+        if (
+            not bypass_interval_check
+            and now - state.last_probe_attempt
+            < self._degradation_config.recovery_probe_interval
+        ):
+            return False
+
+        state.last_probe_attempt = now
+
+        try:
+            # Make a simple test request to check if model is working
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Probing recovery for model {model}")
+
+            # Create a minimal test request
+            test_request = type(
+                "TestRequest",
+                (),
+                {
+                    "messages": [{"role": "user", "content": "test"}],
+                    "stream": False,
+                    "max_tokens": 10,
+                    "temperature": 0.1,
+                },
+            )()
+
+            # Try the API call
+            await self._chat_completions_code_assist(
+                request_data=test_request,
+                processed_messages=[{"role": "user", "content": "test"}],
+                effective_model=model,
+            )
+
+            # If we get here, the probe succeeded
+            state.probe_success_count += 1
+
+            # Need 2 successful probes to recover
+            if state.probe_success_count >= 2:
+                state.cooldown_until = (
+                    time.time() - 1
+                )  # Clear cooldown (set to past time)
+                state.attempts = 0
+                state.probe_success_count = 0
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"Model {model} recovered from cooldown")
+                return True
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Model {model} probe {state.probe_success_count}/2 succeeded"
+                )
+
+        except Exception as e:
+            # Probe failed, reset success count
+            state.probe_success_count = 0
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Model {model} recovery probe failed: {e}")
+
+        return False
+
+    async def _handle_429_with_graceful_degradation(
+        self,
+        original_model: str,
+        request_data: Any,
+        processed_messages: list[Any],
+        _in_graceful_degradation: bool = False,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Handle 429 errors with graceful degradation.
+
+        This method implements the expected behavior:
+        1. For gemini-2.5-pro: retry with delays, then fallback to gemini-2.5-flash
+        2. For gemini-2.5-flash: retry with delays, then mark backend as unusable
+        """
+        # Prevent recursive graceful degradation calls
+        if _in_graceful_degradation:
+            raise BackendError(
+                message="Recursive graceful degradation detected",
+                code="recursive_graceful_degradation",
+                status_code=429,
+            )
+
+        if not self._degradation_config.enabled:
+            # If graceful degradation is disabled, use original behavior
+            self._mark_backend_unusable()
+            raise BackendError(
+                message="Rate limit exceeded and graceful degradation is disabled",
+                code="rate_limit_exceeded",
+                status_code=429,
+            )
+
+        models_to_try = [original_model]
+        fallback_model = self._get_fallback_model(original_model)
+        if fallback_model:
+            models_to_try.append(fallback_model)
+
+        for _, model in enumerate(models_to_try):
+            # Reset attempts for this model if needed
+            if model not in self._model_retry_states:
+                self._model_retry_states[model] = ModelRetryState()
+
+            state = self._model_retry_states[model]
+
+            # If model is in cooldown, try to recover it first
+            if self._is_in_cooldown(model):
+                # For inline recovery, we need to fully recover the model (2 successful probes)
+                # Keep trying until either recovery succeeds or we give up
+                recovered = False
+                max_inline_probes = 4  # Prevent infinite loops
+                for _ in range(max_inline_probes):
+                    # Store probe success count before the call to detect partial progress
+                    current_state: ModelRetryState | None = (
+                        self._model_retry_states.get(model)
+                    )
+                    old_probe_count = (
+                        current_state.probe_success_count if current_state else 0
+                    )
+
+                    if await self._probe_model_recovery(
+                        model, bypass_interval_check=True
+                    ):
+                        # Check if fully recovered
+                        if not self._is_in_cooldown(model):
+                            recovered = True
+                            break
+                        # Partial success, continue probing
+                        continue
+                    else:
+                        # Check if we made progress (probe succeeded but didn't fully recover yet)
+                        new_probe_count = (
+                            current_state.probe_success_count if current_state else 0
+                        )
+                        if new_probe_count > old_probe_count:
+                            # Partial progress made, continue probing
+                            continue
+                        else:
+                            # Actual probe failed, stop trying
+                            break
+
+                if recovered:
+                    # Model recovered, we can use it
+                    pass
+                else:
+                    # Still in cooldown, skip to next model
+                    continue
+
+            # Try the model with retries
+            for attempt in range(len(self._degradation_config.retry_delays) + 1):
+                self._total_attempts += 1
+
+                if self._total_attempts >= self._degradation_config.max_total_attempts:
+                    self._permanently_failed = True
+                    self.is_functional = False
+                    raise BackendError(
+                        message="Maximum total attempts exceeded in graceful degradation",
+                        code="max_attempts_exceeded",
+                        status_code=429,
+                    )
+
+                state.attempts = attempt
+
+                try:
+                    if attempt == 0:
+                        # First attempt, no delay
+                        pass
+                    else:
+                        # Retry with delay
+                        delay_idx = min(
+                            attempt - 1, len(self._degradation_config.retry_delays) - 1
+                        )
+                        delay = self._degradation_config.retry_delays[delay_idx]
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                f"Retrying model {model} after {delay}s delay (attempt {attempt})"
+                            )
+                        await asyncio.sleep(delay)
+
+                    # Make the API call
+                    # IMPORTANT: Always use non-streaming method for graceful degradation
+                    # to prevent recursive 429 loops from streaming SSE processing
+                    return await self._chat_completions_code_assist(
+                        request_data=request_data,
+                        processed_messages=processed_messages,
+                        effective_model=model,
+                        _in_graceful_degradation=True,
+                        **kwargs,
+                    )
+
+                except BackendError as e:
+                    if getattr(e, "status_code", None) != 429:
+                        # Non-429 error, re-raise immediately
+                        raise
+
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Model {model} returned 429 on attempt {attempt + 1}"
+                        )
+
+                    # If this was our last attempt for this model, move to next model
+                    if attempt >= len(self._degradation_config.retry_delays):
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                f"Model {model} exhausted after {attempt + 1} attempts"
+                            )
+                        break
+
+            # If we get here, all attempts for this model failed
+            if model == original_model:
+                # Original model failed, put it in cooldown
+                self._set_cooldown(model)
+
+                # Start recovery probing task if enabled
+                if self._degradation_config.enable_recovery_probing and (
+                    self._recovery_probe_task is None
+                    or self._recovery_probe_task.done()
+                ):
+                    self._recovery_probe_task = asyncio.create_task(
+                        self._recovery_probing_loop()
+                    )
+            elif model == fallback_model:
+                # Fallback model failed, mark backend as unusable
+                if fallback_model == "gemini-2.5-flash" or not fallback_model:
+                    # Flash model failed or no fallback, mark backend unusable
+                    self._mark_backend_unusable()
+                    self._permanently_failed = True
+                    self.is_functional = False
+
+        # If we get here, all models failed
+        self._mark_backend_unusable()
+        self._permanently_failed = True
+        raise BackendError(
+            message="All models exhausted in graceful degradation",
+            code="all_models_exhausted",
+            status_code=429,
+        )
+
+    async def _recovery_probing_loop(self) -> None:
+        """Background task to probe for model recovery."""
+        if not self._degradation_config.enable_recovery_probing:
+            return
+
+        while True:
+            try:
+                await asyncio.sleep(self._degradation_config.recovery_probe_interval)
+
+                # Check each model in cooldown
+                models_in_cooldown = [
+                    model
+                    for model in self._model_retry_states
+                    if self._is_in_cooldown(model)
+                ]
+
+                for model in models_in_cooldown:
+                    await self._probe_model_recovery(model)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Error in recovery probing loop: {e}")
+
     @abc.abstractmethod
     async def _discover_project_id(self, auth_session) -> str:
         """Discover or retrieve the project ID for Code Assist API."""
@@ -2043,3 +2561,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             with contextlib.suppress(Exception):
                 self._cli_refresh_process.terminate()
         self._cli_refresh_process = None
+
+        # Cancel recovery probe task if running
+        if self._recovery_probe_task and not self._recovery_probe_task.done():
+            with contextlib.suppress(Exception):
+                # Check if event loop is still running before cancelling
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop and not loop.is_closed():
+                        self._recovery_probe_task.cancel()
+                except RuntimeError:
+                    # No event loop running, task will be cleaned up by garbage collector
+                    pass
+        self._recovery_probe_task = None

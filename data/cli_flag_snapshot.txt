@@ -22,7 +22,7 @@
 --disable-edit-precision
 --disable-interactive-commands
 --disable-interactive-mode
---disable-llm-assessment
+--disable-llm-loop-assessment
 --disable-pytest-compression
 --disable-pytest-full-suite-steering
 --disable-redact-api-keys-in-prompts
@@ -34,7 +34,7 @@
 --edit-precision-temperature
 --enable-brute-force-protection
 --enable-edit-precision
---enable-llm-assessment
+--enable-llm-loop-assessment
 --enable-planning-phase
 --enable-pytest-compression
 --enable-pytest-full-suite-steering
@@ -44,7 +44,6 @@
 --gemini-api-key
 --help
 --host
---llm-assessment-backend
 --llm-assessment-confidence-threshold
 --llm-assessment-history-window
 --llm-assessment-model

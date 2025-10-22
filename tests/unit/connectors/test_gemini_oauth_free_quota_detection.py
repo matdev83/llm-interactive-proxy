@@ -264,8 +264,11 @@ class TestGeminiOAuthFreeQuotaDetection:
             chunk = await stream.__anext__()
             assert isinstance(chunk, ProcessedResponse)
             assert chunk.content
-            assert chunk.content["error"]["code"] == 429
-            assert "quota" in chunk.content["error"]["message"].lower()
+            assert chunk.content["error"]["code"] == 503
+            assert (
+                "service temporarily unavailable"
+                in chunk.content["error"]["message"].lower()
+            )
 
 
 def _build_counter_mock(counter: DailyRequestCounter | None) -> DailyRequestCounter:

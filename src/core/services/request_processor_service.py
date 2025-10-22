@@ -445,42 +445,28 @@ class RequestProcessor(IRequestProcessor):
                     )
                     redaction_context = {"commands_disabled": commands_disabled}
 
-                    # Debug logging before redaction
+                    # Debug logging before redaction (minimal for performance)
                     if (
                         logger.isEnabledFor(logging.DEBUG)
                         and backend_request
                         and backend_request.messages
                     ):
-                        original_content = (
-                            getattr(backend_request.messages[0], "content", "")
-                            if backend_request.messages
-                            else ""
-                        )
-                        if original_content is None:
-                            original_content = ""
                         logger.debug(
-                            f"Content before redaction: {original_content[:100]}..."
+                            f"Processing redaction for {len(backend_request.messages)} messages"
                         )
 
                     backend_request = await redaction.process(
                         backend_request, redaction_context
                     )
 
-                    # Debug logging after redaction
+                    # Debug logging after redaction (minimal for performance)
                     if (
                         logger.isEnabledFor(logging.DEBUG)
                         and backend_request
                         and backend_request.messages
                     ):
-                        redacted_content = (
-                            getattr(backend_request.messages[0], "content", "")
-                            if backend_request.messages
-                            else ""
-                        )
-                        if redacted_content is None:
-                            redacted_content = ""
                         logger.debug(
-                            f"Content after redaction: {redacted_content[:100]}..."
+                            f"Redaction completed for {len(backend_request.messages)} messages"
                         )
             except Exception as e:
                 # Redaction is best-effort; never block requests on failure
@@ -653,17 +639,15 @@ class RequestProcessor(IRequestProcessor):
         backend_request = backend_request.model_copy(update={"extra_body": extra_body})
 
         # Process backend request with retry handling
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"Calling backend for session {session_id} with request: {backend_request}"
-            )
+        logger.info(
+            f"Calling backend for session {session_id} with model: {getattr(backend_request, 'model', 'unknown')}"
+        )
         backend_response = await self._backend_request_manager.process_backend_request(
             backend_request, session_id, context
         )
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"Backend response for session {session_id}: {backend_response}"
-            )
+        logger.info(
+            f"Backend response for session {session_id}: {type(backend_response).__name__}"
+        )
 
         # Update session history with the backend interaction
         await self._session_manager.update_session_history(

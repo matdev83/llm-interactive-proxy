@@ -75,7 +75,10 @@ def anthropic_to_openai_request(
             if passthrough_parts and not text_parts:
                 try:
                     openai_msg["content"] = json.dumps(passthrough_parts)
-                except Exception:
+                except (TypeError, ValueError) as e:
+                    logger.warning(
+                        f"JSON serialization failed for passthrough_parts: {e}"
+                    )
                     openai_msg["content"] = str(passthrough_parts)
             else:
                 combined_text = "".join(text_parts)
@@ -93,7 +96,8 @@ def anthropic_to_openai_request(
                     tc if isinstance(tc, dict) else tc.model_dump()
                     for tc in msg_tool_calls
                 ]
-            except Exception:
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"Failed to convert tool_calls to dict format: {e}")
                 openai_msg["tool_calls"] = list(msg_tool_calls or [])
 
         msg_tool_call_id = getattr(msg, "tool_call_id", None)
@@ -123,7 +127,8 @@ def anthropic_to_openai_request(
                 if isinstance(anthropic_request.metadata, dict)
                 else dict(anthropic_request.metadata)
             )
-        except Exception:
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to convert metadata to dict: {e}")
             metadata_dict = {}
         user_id = metadata_dict.get("user_id") or metadata_dict.get("user")
         if user_id is not None:
@@ -228,7 +233,8 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
             msg_obj["tool_calls"] = [
                 tc.model_dump(exclude_none=True) for tc in tool_calls
             ]
-        except Exception:
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Failed to convert tool_calls using model_dump: {e}")
             msg_obj["tool_calls"] = list(tool_calls or [])
     usage_obj = getattr(openai_response, "usage", None)
     return {
@@ -295,7 +301,8 @@ def _build_content_blocks(
         args_raw = fn.get("arguments", "{}")
         try:
             args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-        except Exception:
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"Failed to parse tool arguments JSON: {e}")
             args = {"_raw": args_raw}
         content_blocks.append(
             {
@@ -359,7 +366,8 @@ def _convert_tool_use_block(block: dict[str, Any]) -> dict[str, Any]:
             if arguments_obj is not None and not isinstance(arguments_obj, str)
             else arguments_obj or "{}"
         )
-    except Exception:
+    except (TypeError, ValueError) as e:
+        logger.warning(f"Failed to serialize tool arguments: {e}")
         arguments_str = json.dumps({"_raw": arguments_obj})
 
     return {
@@ -723,10 +731,14 @@ def extract_anthropic_usage(response: Any) -> dict[str, int]:
             usage_obj = response.usage
             input_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
             output_tokens = int(getattr(usage_obj, "output_tokens", 0) or 0)
-    except Exception:  # pragma: no cover - never break caller on edge-cases
+    except (
+        AttributeError,
+        TypeError,
+        ValueError,
+    ) as e:  # pragma: no cover - never break caller on edge-cases
         if logging.getLogger(__name__).isEnabledFor(logging.DEBUG):
             logging.getLogger(__name__).debug(
-                "Failed to extract anthropic usage", exc_info=True
+                f"Failed to extract anthropic usage: {e}", exc_info=True
             )
 
     return {
