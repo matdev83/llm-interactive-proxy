@@ -12,6 +12,7 @@ class ResponseBuffer:
         self.buffer: deque[str | bytes] = deque()
         self.total_length = 0
         self.stored_length = 0
+        self._cached_content: str | None = None  # Cache for the joined content
 
     def append(self, text: str) -> None:
         """Append text to the buffer and maintain sliding window."""
@@ -21,6 +22,7 @@ class ResponseBuffer:
         self.buffer.append(text)
         self.stored_length += len(text)
         self.total_length += len(text)  # total_length tracks all content ever added
+        self._cached_content = None  # Invalidate cache
 
         # Trim from the left if buffer exceeds max_size
         while self.stored_length > self.max_size and self.buffer:
@@ -39,11 +41,13 @@ class ResponseBuffer:
 
     def get_content(self) -> str:
         """Get the current buffer content as a string."""
-        # Convert bytes to string for joining
-        return "".join(
-            item.decode("utf-8") if isinstance(item, bytes) else str(item)
-            for item in self.buffer
-        )
+        if self._cached_content is None:
+            # Convert bytes to string for joining
+            self._cached_content = "".join(
+                item.decode("utf-8") if isinstance(item, bytes) else str(item)
+                for item in self.buffer
+            )
+        return self._cached_content
 
     def get_recent_content(self, length: int) -> str:
         """Get the most recent content up to specified length."""
