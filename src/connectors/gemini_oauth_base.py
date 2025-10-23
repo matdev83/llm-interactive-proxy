@@ -1421,6 +1421,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         except BackendError:
             # Re-raise backend errors (already handled 429 above)
             raise
+        except InvalidRequestError:
+            # Let context window overflows bubble up for clients to handle
+            raise
         except Exception as e:
             # Convert other exceptions to BackendError
             logger.error(
@@ -1709,6 +1712,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             raise
         except BackendError as e:
             logger.error(f"Backend error during API call: {e}", exc_info=True)
+            raise
+        except InvalidRequestError as e:
+            logger.warning("Request blocked locally: %s", e)
             raise
         except Exception as e:
             logger.error(f"Unexpected error during API call: {e}", exc_info=True)
@@ -2318,6 +2324,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 logger.error(
                     f"Backend error during streaming API call: {e}", exc_info=True
                 )
+            raise
+        except InvalidRequestError as e:
+            logger.warning("Streaming request blocked locally: %s", e)
             raise
         except Exception as e:
             logger.error(

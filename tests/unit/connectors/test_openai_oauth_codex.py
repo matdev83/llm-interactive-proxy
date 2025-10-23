@@ -138,6 +138,72 @@ async def test_build_codex_payload_merge_custom_prompt(
 
 
 @pytest.mark.asyncio
+async def test_codex_default_mode_merges_client_system_prompt(
+    connector: OpenAIOAuthConnector,
+) -> None:
+    chat_request = ChatRequest(
+        messages=[
+            ChatMessage(role="system", content="Prioritize security fixes."),
+            ChatMessage(role="user", content="hello"),
+        ],
+        model="gpt-5-codex",
+    )
+
+    payload, _ = connector._build_codex_payload(
+        chat_request, chat_request.messages, "gpt-5-codex"
+    )
+
+    instructions = payload.get("instructions") or ""
+    assert "You are Codex" in instructions
+    assert "Prioritize security fixes." in instructions
+    assert instructions.index("You are Codex") < instructions.index(
+        "Prioritize security fixes."
+    )
+
+
+@pytest.mark.asyncio
+async def test_codex_xml_mode_handles_structured_tool_calls(
+    connector: OpenAIOAuthConnector,
+) -> None:
+    tool_call = ToolCall(
+        id="call_structured",
+        function=FunctionCall(name="shell", arguments='{"command":["ls"]}'),
+    )
+    assistant_msg = ChatMessage(role="assistant", tool_calls=[tool_call])
+    tool_msg = ChatMessage(
+        role="tool",
+        content='{"output": "files", "exit_code": 0}',
+        tool_call_id="call_structured",
+    )
+    user_msg = ChatMessage(role="user", content="List files")
+    chat_request = ChatRequest(
+        messages=[user_msg, assistant_msg, tool_msg],
+        model="gpt-5-codex",
+        extra_body={"codex_capabilities": {"tool_text_format": "codex_xml"}},
+    )
+
+    items = connector._build_codex_input_items(
+        chat_request, chat_request.messages, "gpt-5-codex"
+    )
+
+    function_calls = [item for item in items if item["type"] == "function_call"]
+    outputs = [item for item in items if item["type"] == "function_call_output"]
+
+    assert len(function_calls) == 1
+    assert len(outputs) == 1
+
+    call_entry = function_calls[0]
+    output_entry = outputs[0]
+
+    assert call_entry["call_id"] == "call_structured"
+    assert call_entry["name"] == "shell"
+    assert json.loads(call_entry["arguments"])["command"] == ["ls"]
+
+    parsed_output = json.loads(output_entry["output"])
+    assert parsed_output["output"] == '{"output": "files", "exit_code": 0}'
+
+
+@pytest.mark.asyncio
 async def test_codex_passthrough_skips_translation(
     connector: OpenAIOAuthConnector, mocker: MockerFixture
 ) -> None:

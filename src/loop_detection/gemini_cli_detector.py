@@ -31,6 +31,20 @@ CONTENT_LOOP_THRESHOLD = 10  # Number of repetitions needed to trigger
 CONTENT_CHUNK_SIZE = 50  # Size of chunks for hashing and comparison
 MAX_HISTORY_LENGTH = 1000  # Maximum content to keep in memory
 
+# Pre-compiled regex patterns for performance optimization
+_DIVIDER_PATTERN = re.compile(r"^[+\-_=*\u2500-\u257F]+$")
+_HEADING_PATTERN = re.compile(r"^#{1,6}\s+")
+_BLOCKQUOTE_PATTERN = re.compile(r"^>\s+")
+_LIST_PATTERN = re.compile(r"^(?:[*+\-]|\d+\.)\s+")
+_TABLE_PATTERN = re.compile(r"^\+[-+]+\+")
+_TABLE_HEADER_PATTERN = re.compile(r"^\|")
+
+# Combined markdown structure pattern for single-pass checking
+_MARKDOWN_STRUCTURE_PATTERN = re.compile(
+    r"^(#{1,6}\s+|>\s+|(?:[*+\-]|\d+\.)\s+|\|.*\|.*|\+[-+]+\+)",
+    re.MULTILINE
+)
+
 
 class GeminiCliLoopDetector(ILoopDetector):
     """
@@ -129,7 +143,7 @@ class GeminiCliLoopDetector(ILoopDetector):
         """
         # Track code fences and dividers (clear content boundaries)
         num_fences = content.count("```")
-        is_divider = bool(re.match(r"^[+\-_=*\u2500-\u257F]+$", content.strip()))
+        is_divider = bool(_DIVIDER_PATTERN.match(content.strip()))
 
         # Only reset on code fences or dividers, NOT on markdown elements like
         # lists/headings/tables/blockquotes, as these might be part of the repeating pattern itself!
@@ -168,22 +182,15 @@ class GeminiCliLoopDetector(ILoopDetector):
         if not stripped:
             return False
 
-        # Headings (e.g. # Title)
-        if re.match(r"^#{1,6}\s+", stripped):
+        # Use combined pattern for single-pass checking
+        if _MARKDOWN_STRUCTURE_PATTERN.match(stripped):
             return True
-
-        # Blockquotes (e.g. > Quote)
-        if re.match(r"^>\s+", stripped):
-            return True
-
-        # Lists (unordered *, -, + or ordered 1.)
-        if re.match(r"^(?:[*+\-]|\d+\.)\s+", stripped):
-            return True
-
-        # Markdown tables (header or separator rows)
+            
+        # Special case for tables with pipe characters
         if stripped.startswith("|") and stripped.count("|") >= 2:
             return True
-        return bool(re.match(r"^\+[-+]+\+", stripped))
+            
+        return False
 
     def _truncate_and_update(self) -> None:
         """

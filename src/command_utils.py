@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 # "# foo" lines that might precede a user command.
 COMMENT_LINE_PATTERN = re.compile(r"^\s*#[^\n]*\n?", re.MULTILINE)
 
+# Pre-compiled regex patterns for performance optimization
+_TOOL_RESULT_PATTERNS = [
+    re.compile(r'^\s*\[\w+(?:\s+for\s+[\'"][^\'"]*[\'"])?\]\s+Result:', re.IGNORECASE),
+    re.compile(r"^\s*\[\w+\]\s+Result:", re.IGNORECASE),
+]
+
 
 def is_content_effectively_empty(content: Any) -> bool:
     """Checks if message content is effectively empty after processing."""
@@ -73,19 +79,11 @@ def is_original_purely_command(
 
 def is_tool_call_result(text: str) -> bool:
     """Check if the text appears to be a tool call result rather than direct user input."""
-    # Tool call results typically start with patterns like:
-    # "[tool_name for 'arg'] Result:"
-    # "[attempt_completion] Result:"
-    # "[read_file for 'filename'] Result:"
-    tool_result_patterns = [
-        r'^\s*\[\w+(?:\s+for\s+[\'"][^\'"]+[\'"])?\]\s+Result:',
-        r"^\s*\[\w+\]\s+Result:",
-    ]
-
-    for pattern in tool_result_patterns:
-        if re.match(pattern, text, re.IGNORECASE):
+    # Use pre-compiled patterns for performance optimization
+    for pattern in _TOOL_RESULT_PATTERNS:
+        if pattern.match(text):
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Detected tool call result pattern: %s", pattern)
+                logger.debug("Detected tool call result pattern")
             return True
     return False
 

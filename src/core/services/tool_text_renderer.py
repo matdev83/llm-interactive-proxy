@@ -68,6 +68,9 @@ class RendererRegistry:
             "none": NoOpRenderer(),
             "xml": XmlRenderer(),
         }
+        self._aliases: dict[str, str] = {
+            "codex_xml": "xml",
+        }
 
     def register(self, name: str, renderer: ToolTextRenderer) -> None:
         """Register a new renderer."""
@@ -75,7 +78,9 @@ class RendererRegistry:
 
     def get(self, name: str) -> ToolTextRenderer:
         """Get a renderer by name."""
-        return self._renderers.get(name, NoOpRenderer())
+        key = (name or "none").strip()
+        key = self._aliases.get(key, key)
+        return self._renderers.get(key, self._renderers["none"])
 
 
 _renderer_registry = RendererRegistry()

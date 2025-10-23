@@ -21,6 +21,29 @@ _TOOL_NAME_ALIASES: dict[str, str] = {
     "view_image": "view_image",
 }
 
+# Pre-compiled regex patterns for performance optimization
+_TOOL_RESULT_PATTERN = re.compile(
+    r"\[(?P<label>[^\]]+)\]\s*Result:\s*(?P<body>.*)",
+    re.DOTALL | re.IGNORECASE
+)
+_EXIT_CODE_PATTERN = re.compile(r"Exit code:\s*(-?\d+)")
+_CWD_PATTERN = re.compile(
+    r"working directory ['\"]([^'\"]+)['\"]", re.IGNORECASE
+)
+_OUTPUT_LABEL_PATTERN = re.compile(r"\n(?:Output|Error|Stdout|Stderr):")
+_COMMAND_PATTERN = re.compile(r"<command>(.*?)</command>", re.DOTALL)
+_CWD_PATTERN_XML = re.compile(r"<cwd>(.*?)</cwd>", re.DOTALL)
+_DIFF_PATTERN = re.compile(r"<diff>(.*?)</diff>", re.DOTALL)
+_PATH_PATTERN = re.compile(r"<path>(.*?)</path>", re.DOTALL)
+
+# Comprehensive pattern for single-pass extraction
+_COMPREHENSIVE_EXTRACTION_PATTERN = re.compile(
+    r"(?P<exit_code>Exit code:\s*(-?\d+))|"
+    r"(?P<cwd>working directory ['\"]([^'\"]+)['\"])|"
+    r"(?P<output_label>\n(?:Output|Error|Stdout|Stderr):)",
+    re.IGNORECASE
+)
+
 
 @dataclass(frozen=True)
 class TextToolInvocation:
@@ -65,11 +88,7 @@ def parse_textual_tool_result(text: str) -> TextToolResult | None:
     if not stripped or not stripped.startswith("[") or " Result" not in stripped:
         return None
 
-    match = re.match(
-        r"\[(?P<label>[^\]]+)\]\s*Result:\s*(?P<body>.*)",
-        stripped,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
+    match = _TOOL_RESULT_PATTERN.match(stripped)
     if not match:
         return None
 
@@ -84,25 +103,25 @@ def parse_textual_tool_result(text: str) -> TextToolResult | None:
     if " for " in label:
         command_text = label.split(" for ", 1)[1].strip().strip("'\" ")
 
+    # Use comprehensive pattern for single-pass extraction
     exit_code: int | None = None
-    exit_match = re.search(r"Exit code:\s*(-?\d+)", body)
-    if exit_match:
-        try:
-            exit_code = int(exit_match.group(1))
-        except ValueError:
-            exit_code = None
-
     cwd: str | None = None
-    cwd_match = re.search(
-        r"working directory ['\"]([^'\"]+)['\"]", body, flags=re.IGNORECASE
-    )
-    if cwd_match:
-        cwd = cwd_match.group(1)
-
     output_section = body
-    output_label_match = re.search(r"\n(?:Output|Error|Stdout|Stderr):", body)
-    if output_label_match:
-        output_section = body[output_label_match.end() :]
+    
+    for match in _COMPREHENSIVE_EXTRACTION_PATTERN.finditer(body):
+        if match.group("exit_code"):
+            try:
+                exit_code = int(match.group(2))  # Group 2 is the captured number
+            except ValueError:
+                exit_code = None
+        elif match.group("cwd"):
+            cwd_match = _CWD_PATTERN.search(match.group("cwd"))
+            if cwd_match:
+                cwd = cwd_match.group(1)
+            else:
+                cwd = match.group("cwd")
+        elif match.group("output_label"):
+            output_section = body[match.end():]
     output_text = output_section.strip()
 
     return TextToolResult(
@@ -116,12 +135,12 @@ def parse_textual_tool_result(text: str) -> TextToolResult | None:
 
 
 def _parse_execute_command_invocation(text: str) -> TextToolInvocation | None:
-    command_match = re.search(r"<command>(.*?)</command>", text, flags=re.DOTALL)
+    command_match = _COMMAND_PATTERN.search(text)
     if not command_match:
         return None
 
     command_text = command_match.group(1).strip()
-    cwd_match = re.search(r"<cwd>(.*?)</cwd>", text, flags=re.DOTALL)
+    cwd_match = _CWD_PATTERN_XML.search(text)
     cwd = cwd_match.group(1).strip() if cwd_match else None
 
     try:
@@ -142,12 +161,12 @@ def _parse_execute_command_invocation(text: str) -> TextToolInvocation | None:
 
 
 def _parse_apply_diff_invocation(text: str) -> TextToolInvocation | None:
-    diff_match = re.search(r"<diff>(.*?)</diff>", text, flags=re.DOTALL)
+    diff_match = _DIFF_PATTERN.search(text)
     if not diff_match:
         return None
 
     patch_text = diff_match.group(1).strip()
-    path_match = re.search(r"<path>(.*?)</path>", text, flags=re.DOTALL)
+    path_match = _PATH_PATTERN.search(text)
     path_value = path_match.group(1).strip() if path_match else None
 
     arguments: dict[str, Any] = {"patch": patch_text}
@@ -163,7 +182,7 @@ def _parse_apply_diff_invocation(text: str) -> TextToolInvocation | None:
 
 
 def _parse_view_image_invocation(text: str) -> TextToolInvocation | None:
-    path_match = re.search(r"<path>(.*?)</path>", text, flags=re.DOTALL)
+    path_match = _PATH_PATTERN.search(text)
     if not path_match:
         return None
 

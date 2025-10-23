@@ -19,6 +19,12 @@ from src.core.interfaces.session_service_interface import ISessionService
 
 logger = logging.getLogger(__name__)
 
+# Pre-compiled regex patterns for performance optimization
+_WINDOWS_PATH_PATTERN = re.compile(r'\b[a-zA-Z]:\\(?:[^:"*?<>|\r\n\s\\]*(?:\\[^:"*?<>|\r\n\s\\]*)*)\b')
+_UNC_PATH_PATTERN = re.compile(r'\\{2}[^\\]+(?:\\[^\\:\r\n\s]*)*(?:\\[^\\:\r\n\s]*)*\b')
+_UNIX_PATH_PATTERN = re.compile(r'(?:^|\s)(/[^/\\:\r\n\s]*(?:/[^/\\:\r\n\s]*)*)\b')
+_UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
+
 
 class ProjectDirectoryResolutionService:
     """Resolve absolute project directories using a dedicated backend model."""
@@ -82,32 +88,93 @@ class ProjectDirectoryResolutionService:
 
     def _normalize_unc_path(self, path: str) -> str:
         """Normalize UNC path backslashes to the expected format (\\\\server\\share\\folder)."""
-        import re
+        # Handle various UNC path formats:
+        # 1. Reduce excessive backslashes (3+) to exactly 2
+        # 2. Ensure path starts with exactly 2 backslashes
+        # 3. Clean up mixed separator patterns
 
-        # Simple normalization: reduce any sequence of 3+ backslashes to exactly 2
-        # but preserve 2-backslash sequences
-        return re.sub(r"\\{3,}", "\\\\", path)
+        # First, reduce any sequence of 3+ backslashes to exactly 2
+        path = _UNC_NORMALIZE_PATTERN.sub("\\\\", path)
+
+        # Ensure path starts with exactly 2 backslashes
+        if path.startswith("\\\\"):
+            return path
+        elif path.startswith("\\") and not path.startswith("\\\\"):
+            # Single backslash - this might be malformed UNC
+            # Try to normalize by adding another backslash if it looks like a server name
+            remaining = path[1:]
+            if remaining and not remaining.startswith("\\") and "\\" in remaining:
+                return "\\\\" + remaining
+
+        return path
 
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
         """Try to find an absolute path in the prompt using regex."""
-        # More specific patterns first
+        # Use pre-compiled patterns for performance optimization
         patterns = [
-            # Windows drive path (e.g., C:\\Users\\...)
-            re.compile(r'\b[a-zA-Z]:\\[^:"*?<>|\r\n]*'),
-            # UNC path (e.g., \\\\server\\share\\...)
-            re.compile(r"\\{2,}[^\\]+(?:\\{1,2}[^\\]+)*"),
-            # Unix/Linux absolute path (e.g., /home/user/...)
-            re.compile(r"/(?:[\w.-]+/)*[\w.-]+/?"),
+            _WINDOWS_PATH_PATTERN,
+            _UNC_PATH_PATTERN,
+            _UNIX_PATH_PATTERN,
         ]
         for pattern in patterns:
             match = pattern.search(prompt_text)
             if match:
-                found_path = match.group(0)
+                found_path = match.group(1) if match.lastindex else match.group(0)
+                # Clean up any leading whitespace for Unix paths
+                found_path = found_path.strip()
+
+                # Validate the path looks like an absolute path
+                if not self._looks_like_absolute_path(found_path):
+                    continue
+
+                # Post-process to extract directory portion for Windows paths with files
+                found_path = self._extract_directory_from_path(found_path)
+
                 # Normalize UNC paths
                 if found_path.startswith("\\\\"):
                     return self._normalize_unc_path(found_path)
                 return found_path
         return None
+
+    def _extract_directory_from_path(self, path: str) -> str:
+        """Extract directory portion from a path that may include a filename."""
+        # For Windows paths, check if the last component is a file (has extension)
+        if path.endswith(('.js', '.py', '.jsx', '.ts', '.tsx', '.java', '.cpp', '.c', '.h', '.hpp', '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.scala', '.sh', '.bat', '.cmd', '.ps1', '.html', '.htm', '.css', '.scss', '.less', '.json', '.xml', '.yaml', '.yml', '.md', '.txt', '.log', '.sql', '.db', '.sqlite', '.env', '.config', '.ini', '.conf')):
+            # Extract directory portion manually for cross-platform compatibility
+            last_backslash = path.rfind('\\')
+            if last_backslash != -1:
+                return path[:last_backslash]
+            # For Unix paths
+            last_slash = path.rfind('/')
+            if last_slash != -1:
+                return path[:last_slash]
+
+        # For paths ending with common directory names without files, extract one more level up
+        # This handles cases like "project/src" where we want just "project"
+        path_lower = path.lower()
+        if any(path_lower.endswith('\\' + dir_name) or path_lower.endswith('/' + dir_name) for dir_name in ['src', 'lib', 'bin', 'include', 'static', 'assets', 'public', 'docs', 'tests', 'test']):
+            # Find the parent directory
+            last_backslash = path.rfind('\\')
+            if last_backslash != -1:
+                parent_path = path[:last_backslash]
+                # Extract one more level to get to the project root
+                parent_last_backslash = parent_path.rfind('\\')
+                if parent_last_backslash != -1:
+                    return parent_path[:parent_last_backslash]
+            # For Unix paths
+            last_slash = path.rfind('/')
+            if last_slash != -1:
+                parent_path = path[:last_slash]
+                parent_last_slash = parent_path.rfind('/')
+                if parent_last_slash != -1:
+                    return parent_path[:parent_last_slash]
+
+        # For UNC paths or if no extension found, check if path contains common file indicators
+        if any(indicator in path for indicator in ['\\src\\', '\\lib\\', '\\bin\\', '\\include\\', '\\static\\', '\\assets\\', '\\public\\', '\\docs\\', '\\tests\\', '\\test\\']):
+            # Path likely ends with a directory structure
+            return path.rstrip('\\')  # Remove trailing backslash
+
+        return path
 
     async def maybe_resolve_project_directory(
         self, session: Session, request: ChatRequest

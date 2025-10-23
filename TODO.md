@@ -1,4 +1,0 @@
-- [x] Review the newest sections of `logs/proxy.log` and `logs/wire_capture.log` to investigate the later `INVALID_ARGUMENT` (input tokens exceeded 65536) error observed during the interrupted live session.
-- [ ] Implement gemini OAuth prompt-size guard before Code Assist call (predict overflow, skip backend)
-- [ ] Emit structured 400 error with context_window overflow details and log occurrence
-- [ ] Add/update tests or docs covering new guard behaviour

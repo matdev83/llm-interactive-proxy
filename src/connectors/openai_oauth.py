@@ -576,7 +576,19 @@ class OpenAIOAuthConnector(OpenAIConnector):
         default_prompt = self._codex_system_prompt()
 
         if prompt_mode == "codex_default":
-            return default_prompt
+            if not custom_prompts:
+                return default_prompt
+            pieces = [default_prompt] + [
+                piece for piece in custom_prompts if piece
+            ]
+            merged: list[str] = []
+            for piece in pieces:
+                normalized = piece.strip()
+                if not normalized:
+                    continue
+                if normalized not in merged:
+                    merged.append(normalized)
+            return "\n\n".join(merged) if merged else default_prompt
 
         if prompt_mode == "merge_custom":
             pieces = [default_prompt] + [p for p in custom_prompts if p]
@@ -607,6 +619,15 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
         return headers
 
+    def _select_renderer_key(
+        self, capabilities: CodexClientCapabilities
+    ) -> str:
+        """Map capability preference to a registered renderer key."""
+        preferred = capabilities.tool_text_format or "codex_xml"
+        if preferred == "codex_xml":
+            return "xml"
+        return preferred
+
     async def _call_codex_responses_api(
         self,
         request_data: Any,
@@ -621,7 +642,15 @@ class OpenAIOAuthConnector(OpenAIConnector):
         if hasattr(domain_request, "processing_context"):
             if domain_request.processing_context is None:
                 domain_request.processing_context = {}
-            domain_request.processing_context["codex_capabilities"] = capabilities
+            domain_request.processing_context["codex_capabilities"] = (
+                capabilities.to_dict()
+            )
+            domain_request.processing_context[
+                "bypass_tool_call_reactor"
+            ] = capabilities.bypass_tool_call_reactor
+            domain_request.processing_context[
+                "tool_text_format"
+            ] = capabilities.tool_text_format
 
         payload, conversation_id = self._build_codex_payload(
             request_data,
@@ -642,7 +671,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
         headers = self._build_codex_headers(conversation_id)
         url = "https://chatgpt.com/backend-api/codex/responses"
 
-        renderer_key = capabilities.tool_text_format or "codex_xml"
+        renderer_key = self._select_renderer_key(capabilities)
         session_id = getattr(domain_request, "session_id", None) or conversation_id
         stream_val = getattr(request_data, "stream", False)
 
