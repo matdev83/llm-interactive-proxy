@@ -393,6 +393,18 @@ class PlanningPhaseConfig(DomainModel):
     overrides: dict[str, Any] | None = None
 
 
+class SessionContinuityConfig(DomainModel):
+    """Configuration for intelligent session continuity detection."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    fuzzy_matching: bool = True
+    max_session_age_seconds: int = 604800  # 7 days
+    fingerprint_message_count: int = 5
+    client_key_includes_ip: bool = True
+
+
 class SessionConfig(DomainModel):
     """Session management configuration."""
 
@@ -424,6 +436,9 @@ class SessionConfig(DomainModel):
     pytest_full_suite_steering_message: str | None = None
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
     max_per_session_backends: int = 32
+    session_continuity: SessionContinuityConfig = Field(
+        default_factory=SessionContinuityConfig
+    )
 
     @model_validator(mode="before")
     @classmethod

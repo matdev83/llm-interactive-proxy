@@ -31,9 +31,9 @@ from src.core.interfaces.streaming_response_processor_interface import IStreamNo
 
 # from src.core.interfaces.secure_state_interface import ISecureStateService # Removed unresolved import
 from src.core.services.application_state_service import ApplicationStateService
+from src.core.services.intelligent_session_resolver import IntelligentSessionResolver
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.secure_state_service import SecureStateService
-from src.core.services.session_resolver_service import DefaultSessionResolver
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 from .base import InitializationStage
@@ -211,22 +211,28 @@ class CoreServicesStage(InitializationStage):
     ) -> None:
         """Register session resolver as singleton instance."""
         try:
-            # from src.core.interfaces.session_resolver_interface import ISessionResolver # Already imported
-            # from src.core.services.session_resolver_service import ( # Already imported
-            #     DefaultSessionResolver,
-            # )
+            from typing import cast
+
+            from src.core.interfaces.repositories_interface import ISessionRepository
 
             def session_resolver_factory(
                 provider: IServiceProvider,
-            ) -> DefaultSessionResolver:
+            ) -> IntelligentSessionResolver:
+                """Factory for creating IntelligentSessionResolver with dependencies."""
                 cfg: AppConfig = provider.get_required_service(AppConfig)
-                return DefaultSessionResolver(cfg)
+                session_repo: ISessionRepository = provider.get_required_service(
+                    cast(type, ISessionRepository)
+                )
+                return IntelligentSessionResolver(
+                    session_repository=session_repo,
+                    config=cfg,
+                )
 
             # Register as singleton instance using factory
             services.add_singleton(
-                DefaultSessionResolver, implementation_factory=session_resolver_factory
+                IntelligentSessionResolver,
+                implementation_factory=session_resolver_factory,
             )
-            from typing import cast  # Already imported at top
 
             services.add_singleton(
                 cast(type, ISessionResolver),
@@ -234,7 +240,7 @@ class CoreServicesStage(InitializationStage):
             )
 
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered session resolver instance")
+                logger.debug("Registered intelligent session resolver instance")
 
             # from src.core.services.secure_state_service import SecureStateService # Already imported
 

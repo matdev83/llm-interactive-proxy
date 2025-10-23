@@ -40,6 +40,30 @@ class ISessionRepository(IRepository["Session"], ABC):
     async def cleanup_expired(self, max_age_seconds: int) -> int:
         pass
 
+    @abstractmethod
+    async def update_fingerprint(self, session_id: str, fingerprint: str) -> None:
+        """Update the conversation fingerprint for a session."""
+
+    @abstractmethod
+    async def update_client_session(self, session_id: str, client_key: str) -> None:
+        """Track a session as belonging to a specific client."""
+
+    @abstractmethod
+    async def find_by_client_and_fingerprint(
+        self, client_key: str, fingerprint: str
+    ) -> Session | None:
+        """Find a session by client key and conversation fingerprint."""
+
+    @abstractmethod
+    async def find_recent_sessions_by_client(
+        self, client_key: str, max_age_seconds: int
+    ) -> list[Session]:
+        """Find recent sessions for a client."""
+
+    @abstractmethod
+    async def get_session_fingerprint(self, session_id: str) -> str | None:
+        """Get the fingerprint for a session."""
+
 
 class IConfigRepository(ABC):
     @abstractmethod

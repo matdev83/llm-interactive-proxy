@@ -40,6 +40,7 @@ from src.core.interfaces.middleware_application_manager_interface import (
     IMiddlewareApplicationManager,
 )
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
+from src.core.interfaces.repositories_interface import ISessionRepository
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_handler_interface import (
     INonStreamingResponseHandler,
@@ -781,7 +782,13 @@ def register_core_services(
     def _session_manager_factory(provider: IServiceProvider) -> SessionManager:
         session_service = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
         session_resolver = provider.get_required_service(ISessionResolver)  # type: ignore[type-abstract]
-        return SessionManager(session_service, session_resolver)
+        # Get session repository for fingerprint tracking
+        session_repository = provider.get_service(cast(type, ISessionRepository))  # type: ignore[type-abstract]
+        return SessionManager(
+            session_service,
+            session_resolver,
+            session_repository=session_repository,
+        )
 
     _add_singleton(SessionManager, implementation_factory=_session_manager_factory)
 

@@ -457,6 +457,49 @@ path is detected, the proxy logs the failure and continues without setting a dir
 - Keep your existing tools; just point them to the proxy endpoint.
 - The proxy handles streaming, retries/failover (if enabled), and output repair.
 
+## Intelligent Session Management
+
+The proxy uses **message history fingerprinting** to automatically detect conversation continuity without requiring clients to send session IDs. This eliminates context loss issues common with stateless LLM clients.
+
+### How It Works
+
+1. **Automatic Session Detection**: When a client sends a request without an `x-session-id` header, the proxy analyzes the message history to determine if it's a continuation of an existing conversation or a genuinely new session.
+
+2. **Message Fingerprinting**: The proxy computes a stable hash from the last 5 messages (configurable) to create a unique conversation fingerprint.
+
+3. **Fuzzy Matching**: If an exact fingerprint match isn't found, the proxy uses fuzzy matching to detect if the current request's messages contain the history from a recent session.
+
+4. **Multi-Conversation Support**: Different conversations from the same client (different fingerprints) automatically get different sessions.
+
+5. **Long-Lived Sessions**: Sessions can resume after hours or days of inactivity (configurable max age: 7 days default).
+
+### Benefits
+
+- **Zero client changes required**: Works with any LLM client (Kilo Code, Cline, Cursor, etc.)
+- **Prevents context loss**: Mid-conversation context is never lost due to missing session IDs
+- **Concurrent conversations**: Same client can have multiple active conversations simultaneously
+- **Transparent operation**: Clients don't need to know about the proxy's session management
+
+### Configuration
+
+```yaml
+session:
+  session_continuity:
+    enabled: true                       # Enable intelligent session detection
+    fuzzy_matching: true                # Enable fuzzy matching for continuations
+    max_session_age_seconds: 604800     # 7 days
+    fingerprint_message_count: 5        # Number of messages to fingerprint
+    client_key_includes_ip: true        # Include client IP in fingerprinting
+```
+
+### Explicit Session Control
+
+Clients can still explicitly control sessions by sending the `x-session-id` header, which takes precedence over automatic detection:
+
+```bash
+curl -H "x-session-id: my-custom-session-123" ...
+```
+
 ## Security
 
 - Do not store provider API keys in config files; use environment variables only.
@@ -515,7 +558,12 @@ High-performance format with structured JSON entries, one per line:
 }
 ```
 
-**Direction values**: `outbound_request`, `inbound_response`, `stream_start`, `stream_chunk`, `stream_end`
+**Direction values**: `inbound_request`, `outbound_request`, `inbound_response`, `stream_start`, `stream_chunk`, `stream_end`
+
+- `inbound_request`: Client → Proxy (request received from client)
+- `outbound_request`: Proxy → Backend (request sent to LLM backend)
+- `inbound_response`: Backend → Proxy (response received from backend)
+- `stream_start`, `stream_chunk`, `stream_end`: Streaming response markers
 
 #### Legacy Formats
 

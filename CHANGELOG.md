@@ -1,5 +1,25 @@
 # Changelog
 
+## [2025-10-23]
+
+### Added
+- **Intelligent Session Management**: Autonomous session continuity detection via message history fingerprinting
+  - **Context Loss Prevention**: Eliminates session loss for stateless clients (e.g., Kilo Code, Cursor) that don't send session IDs
+  - **Message History Fingerprinting**: Computes stable hashes from conversation sequences to detect continuity
+  - **Fuzzy Matching**: Identifies conversation continuations even when exact fingerprints don't match (e.g., extended conversations)
+  - **Client Identification**: Generates stable client keys from IP + User-Agent for session association
+  - **Zero Client Changes Required**: Fully autonomous - works without any modifications to LLM clients or agents
+  - **Wire Capture Enhancement**: Added `inbound_request` direction to capture client→proxy requests for debugging
+  - **Configuration Options**:
+    - `session.session_continuity.enabled` (default: true)
+    - `session.session_continuity.fuzzy_matching` (default: true)
+    - `session.session_continuity.max_session_age_seconds` (default: 604800 - 7 days)
+    - `session.session_continuity.fingerprint_message_count` (default: 5)
+    - `session.session_continuity.client_key_includes_ip` (default: true)
+  - **Backward Compatible**: Explicit session IDs via `x-session-id` header still take priority
+  - **Testing**: Comprehensive unit and integration tests for fingerprinting and session resolution
+  - **Documentation**: Full feature documentation added to README.md
+
 ## [2025-01-21]
 
 ### Added

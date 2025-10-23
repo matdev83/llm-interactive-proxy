@@ -53,6 +53,9 @@ class RequestProcessor(IRequestProcessor):
         if not isinstance(request_data, ChatRequest):
             raise TypeError("request_data must be of type ChatRequest")
 
+        # Attach domain_request to context for intelligent session resolution
+        context.domain_request = request_data  # type: ignore
+
         # Resolve session and update agent if needed
         session_id = await self._session_manager.resolve_session_id(context)
         session = await self._session_manager.get_session(session_id)
@@ -653,6 +656,17 @@ class RequestProcessor(IRequestProcessor):
         await self._session_manager.update_session_history(
             request_data, backend_request, backend_response, session_id
         )
+
+        # Update session fingerprint for continuity detection
+        if hasattr(self._session_manager, "update_session_fingerprint"):
+            try:
+                await self._session_manager.update_session_fingerprint(
+                    session_id, list(backend_request.messages)
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Failed to update session fingerprint: {e}", exc_info=True
+                )
 
         return backend_response
 

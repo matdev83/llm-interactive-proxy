@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import os
 import socket
 from pathlib import Path
@@ -7,13 +8,20 @@ from unittest.mock import Mock, patch
 
 import pytest
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.core.app.application_builder import ApplicationBuilder
+from src.core.app.stages.core_services import CoreServicesStage
+from src.core.app.stages.infrastructure import InfrastructureStage
 from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
 from src.core.config.app_config import AppConfig, ParameterResolution
 from src.core.config.parameter_resolution import ParameterSource
+from src.core.interfaces.tool_call_reactor_interface import IToolCallHandler
 
 # Make sure all connectors are imported and registered
 from src.core.services import backend_imports  # noqa: F401
 from src.core.services.backend_registry import backend_registry
+from src.core.services.tool_call_handlers.pytest_full_suite_handler import (
+    PytestFullSuiteHandler,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -482,3 +490,100 @@ def test_cli_api_keys_are_stored_as_lists(
     # The environment variable should not be set
     if env_var:
         assert os.environ.get(env_var) == "test-key"
+
+
+def test_steering_handler_is_enabled_via_cli_flag():
+    """
+    Integration test to verify that the --enable-pytest-full-suite-steering
+    flag results in a correctly configured and enabled PytestFullSuiteHandler
+    in the application's dependency injection container.
+    """
+    # Arrange: Set up CLI arguments to enable the feature
+    args = argparse.Namespace(
+        config_file=None,
+        pytest_full_suite_steering_enabled=True,
+        # Add other necessary default args to avoid errors
+        host="127.0.0.1",
+        port=8001,
+        anthropic_port=8002,
+        timeout=None,
+        command_prefix=None,
+        force_context_window=None,
+        thinking_budget=None,
+        log_file=None,
+        capture_file=None,
+        capture_max_bytes=None,
+        capture_truncate_bytes=None,
+        capture_max_files=None,
+        capture_rotate_interval_seconds=None,
+        capture_total_max_bytes=None,
+        log_level=None,
+        default_backend="openai",
+        static_route=None,
+        model_aliases=None,
+        openrouter_api_key=None,
+        openrouter_api_base_url=None,
+        gemini_api_key=None,
+        gemini_api_base_url=None,
+        zai_api_key=None,
+        disable_interactive_mode=None,
+        disable_redact_api_keys_in_prompts=True,
+        disable_auth=True,
+        trusted_ips=None,
+        force_set_project=None,
+        project_dir_resolution_model=None,
+        disable_interactive_commands=None,
+        disable_accounting=None,
+        strict_command_detection=None,
+        brute_force_protection_enabled=None,
+        auth_max_failed_attempts=None,
+        auth_brute_force_ttl=None,
+        auth_initial_block_seconds=None,
+        auth_block_multiplier=None,
+        auth_max_block_seconds=None,
+        pytest_compression_enabled=None,
+        llm_loop_assessment_enabled=None,
+        llm_assessment_turn_threshold=None,
+        llm_assessment_confidence_threshold=None,
+        llm_assessment_model=None,
+        llm_assessment_history_window=None,
+        enable_planning_phase=None,
+        planning_phase_strong_model=None,
+        planning_phase_max_turns=None,
+        planning_phase_max_file_writes=None,
+        planning_phase_temperature=None,
+        planning_phase_top_p=None,
+        planning_phase_reasoning_effort=None,
+        planning_phase_thinking_budget=None,
+        edit_precision_enabled=None,
+        edit_precision_temperature=None,
+        edit_precision_min_top_p=None,
+        edit_precision_override_top_p=None,
+        edit_precision_target_top_k=None,
+        edit_precision_override_top_k=None,
+        edit_precision_exclude_agents_regex=None,
+        allow_admin=True,  # To prevent privilege errors in test environments
+    )
+
+    # Act: Build the application configuration and the service container
+    config = _unwrap_config(apply_cli_args(args))
+
+    builder = ApplicationBuilder()
+    builder.add_stage(InfrastructureStage())
+    builder.add_stage(CoreServicesStage())
+
+    # We need to run the async build process
+    loop = asyncio.get_event_loop()
+    app = loop.run_until_complete(builder.build(config))
+    container = app.state.injector
+
+    # Assert: Check the container for the handler
+    all_handlers = container.get_all(IToolCallHandler)
+    pytest_handler = next(
+        (h for h in all_handlers if isinstance(h, PytestFullSuiteHandler)), None
+    )
+
+    assert (
+        pytest_handler is not None
+    ), "PytestFullSuiteHandler should be present in the container."
+    assert pytest_handler._enabled is True, "PytestFullSuiteHandler should be enabled."

@@ -67,6 +67,31 @@ class WireCapture(IWireCapture):
     def enabled(self) -> bool:
         return bool(self._file_path)
 
+    async def capture_inbound_request(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        request_payload: Any,
+    ) -> None:
+        """Capture inbound request from client to proxy."""
+        if not self.enabled():
+            return
+        # Extract model from payload
+        model = "N/A"
+        if hasattr(request_payload, "model"):
+            model = str(request_payload.model)
+        header = self._format_header(
+            direction="INBOUND_REQUEST",
+            context=context,
+            session_id=session_id,
+            backend="client",
+            model=model,
+            key_name=None,
+        )
+        body = _safe_json_dump(request_payload)
+        await self._append(f"{header}\n{body}\n")
+
     async def capture_outbound_request(
         self,
         *,

@@ -74,15 +74,20 @@ class ControllerStage(InitializationStage):
             """Factory function for creating ChatController."""
             from typing import cast
 
+            from src.core.interfaces.wire_capture_interface import IWireCapture
+
             request_processor: IRequestProcessor = provider.get_required_service(
                 cast(type, IRequestProcessor)
             )
             translation_service = (
                 ChatController._resolve_translation_service_from_provider(provider)
             )
+            # Get wire capture service if available
+            wire_capture = provider.get_service(cast(type, IWireCapture))
             return ChatController(
                 request_processor,
                 translation_service=translation_service,
+                wire_capture=wire_capture,
             )
 
         # Register as singleton

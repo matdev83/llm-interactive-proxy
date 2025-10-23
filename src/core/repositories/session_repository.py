@@ -90,6 +90,34 @@ class PersistentSessionRepository(ISessionRepository):
         # For now, just use the in-memory implementation
         return await self._memory_repo.cleanup_expired(max_age_seconds)
 
+    async def update_fingerprint(self, session_id: str, fingerprint: str) -> None:
+        """Update the conversation fingerprint for a session."""
+        await self._memory_repo.update_fingerprint(session_id, fingerprint)
+
+    async def update_client_session(self, session_id: str, client_key: str) -> None:
+        """Associate a session with a client identifier."""
+        await self._memory_repo.update_client_session(session_id, client_key)
+
+    async def find_by_client_and_fingerprint(
+        self, client_key: str, fingerprint: str
+    ) -> Session | None:
+        """Find a session by client key and conversation fingerprint."""
+        return await self._memory_repo.find_by_client_and_fingerprint(
+            client_key, fingerprint
+        )
+
+    async def find_recent_sessions_by_client(
+        self, client_key: str, max_age_seconds: int
+    ) -> list[Session]:
+        """Find recent sessions for a client."""
+        return await self._memory_repo.find_recent_sessions_by_client(
+            client_key, max_age_seconds
+        )
+
+    async def get_session_fingerprint(self, session_id: str) -> str | None:
+        """Get the conversation fingerprint for a session."""
+        return await self._memory_repo.get_session_fingerprint(session_id)
+
     # Future methods for storage persistence
     # async def _save_session_to_storage(self, session: Session) -> None:
     #     ...

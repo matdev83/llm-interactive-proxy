@@ -42,11 +42,14 @@ class ChatController:
         self,
         request_processor: IRequestProcessor,
         translation_service: ITranslationService | None = None,
+        wire_capture: Any | None = None,
     ) -> None:
         """Initialize the controller.
 
         Args:
             request_processor: The request processor service
+            translation_service: Optional translation service
+            wire_capture: Optional wire capture service
         """
         self._processor = request_processor
         self._translation_service = (
@@ -54,6 +57,7 @@ class ChatController:
             if translation_service is not None
             else self._resolve_translation_service_from_provider(None)
         )
+        self._wire_capture = wire_capture
 
     @staticmethod
     def _resolve_translation_service_from_provider(
@@ -248,6 +252,20 @@ class ChatController:
             # Ensure session_id is available in context if provided in request
             if domain_request.session_id:
                 ctx.session_id = domain_request.session_id
+
+            # Capture inbound request for wire capture debugging
+            if self._wire_capture and self._wire_capture.enabled():
+                try:
+                    await self._wire_capture.capture_inbound_request(
+                        context=ctx,
+                        session_id=getattr(ctx, "session_id", None),
+                        request_payload=domain_request,
+                    )
+                except Exception:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Wire capture (inbound request) failed", exc_info=True
+                        )
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, domain_request)

@@ -23,6 +23,16 @@ class IWireCapture(ABC):
         """
 
     @abstractmethod
+    async def capture_inbound_request(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        request_payload: Any,
+    ) -> None:
+        """Capture inbound request from client to proxy."""
+
+    @abstractmethod
     async def capture_outbound_request(
         self,
         *,

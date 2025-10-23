@@ -239,6 +239,46 @@ class BufferedWireCapture(IWireCapture):
             # Still no running loop; skip silently.
             return
 
+    async def capture_inbound_request(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        request_payload: Any,
+    ) -> None:
+        """Capture inbound request from client to proxy.
+
+        Args:
+            context: Request context with client information
+            session_id: Session ID if available
+            request_payload: Request payload (usually ChatRequest)
+        """
+        if not self.enabled():
+            return
+        # Ensure background task runs in async contexts
+        self._maybe_start_flush_task()
+
+        # Extract model from request payload if available
+        model = "N/A"
+        if hasattr(request_payload, "model"):
+            model = str(request_payload.model)
+        elif isinstance(request_payload, dict):
+            model = str(request_payload.get("model", "N/A"))
+
+        entry = self._create_entry(
+            direction="inbound_request",
+            source=self._get_client_info(context),
+            destination="proxy",
+            context=context,
+            session_id=session_id,
+            backend="client",
+            model=model,
+            key_name=None,
+            payload=request_payload,
+        )
+
+        await self._buffer_entry(entry)
+
     async def capture_outbound_request(
         self,
         *,

@@ -75,6 +75,37 @@ class StructuredWireCapture(IWireCapture):
     def enabled(self) -> bool:
         return bool(self._file_path)
 
+    async def capture_inbound_request(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        request_payload: Any,
+    ) -> None:
+        """Capture inbound request from client to proxy."""
+        if not self.enabled():
+            return
+
+        # Extract model from payload
+        model = "N/A"
+        if hasattr(request_payload, "model"):
+            model = str(request_payload.model)
+
+        # Create structured JSON entry
+        entry = self._create_json_entry(
+            flow="client_to_proxy",
+            direction="request",
+            context=context,
+            session_id=session_id,
+            backend="client",
+            model=model,
+            key_name=None,
+            payload=request_payload,
+        )
+
+        # Serialize and write to file
+        await self._append_json(entry)
+
     async def capture_outbound_request(
         self,
         *,

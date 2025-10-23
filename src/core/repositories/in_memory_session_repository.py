@@ -22,6 +22,9 @@ class InMemorySessionRepository(ISessionRepository):
         self._sessions: dict[str, Session] = {}
         self._user_sessions: dict[str, list[str]] = {}
         self._last_accessed: dict[str, float] = {}
+        # Session continuity tracking
+        self._fingerprints: dict[str, str] = {}  # session_id -> fingerprint
+        self._client_sessions: dict[str, list[str]] = {}  # client_key -> session_ids
 
     async def get_by_id(self, id: str) -> Session | None:
         """Get a session by its ID."""
@@ -94,6 +97,17 @@ class InMemorySessionRepository(ISessionRepository):
                 ):
                     self._user_sessions[user_id].remove(id)
 
+            # Remove from fingerprint tracking
+            if id in self._fingerprints:
+                del self._fingerprints[id]
+
+            # Remove from client session tracking
+            for client_key, session_ids in list(self._client_sessions.items()):
+                if id in session_ids:
+                    session_ids.remove(id)
+                    if not session_ids:
+                        del self._client_sessions[client_key]
+
             # Remove from main collections
             del self._sessions[id]
             if id in self._last_accessed:
@@ -164,3 +178,91 @@ class InMemorySessionRepository(ISessionRepository):
             logger.info(f"Cleaned up {count} expired sessions")
 
         return count
+
+    async def update_fingerprint(self, session_id: str, fingerprint: str) -> None:
+        """Update the conversation fingerprint for a session.
+
+        Args:
+            session_id: Session ID to update
+            fingerprint: New fingerprint value
+        """
+        self._fingerprints[session_id] = fingerprint
+        self._last_accessed[session_id] = time.time()
+
+    async def update_client_session(self, session_id: str, client_key: str) -> None:
+        """Track a session as belonging to a specific client.
+
+        Args:
+            session_id: Session ID
+            client_key: Client identifier (e.g., IP + user-agent hash)
+        """
+        if client_key not in self._client_sessions:
+            self._client_sessions[client_key] = []
+        if session_id not in self._client_sessions[client_key]:
+            self._client_sessions[client_key].append(session_id)
+
+    async def find_by_client_and_fingerprint(
+        self, client_key: str, fingerprint: str
+    ) -> Session | None:
+        """Find a session by client key and conversation fingerprint.
+
+        Args:
+            client_key: Client identifier
+            fingerprint: Conversation fingerprint to match
+
+        Returns:
+            Session if found, None otherwise
+        """
+        # Get all sessions for this client
+        session_ids = self._client_sessions.get(client_key, [])
+
+        # Check each session for matching fingerprint
+        for session_id in session_ids:
+            if self._fingerprints.get(session_id) == fingerprint:
+                session = self._sessions.get(session_id)
+                if session:
+                    self._last_accessed[session_id] = time.time()
+                    return session
+
+        return None
+
+    async def find_recent_sessions_by_client(
+        self, client_key: str, max_age_seconds: int
+    ) -> list[Session]:
+        """Find recent sessions for a client.
+
+        Args:
+            client_key: Client identifier
+            max_age_seconds: Maximum age in seconds
+
+        Returns:
+            List of recent sessions, ordered by most recent first
+        """
+        session_ids = self._client_sessions.get(client_key, [])
+        now = time.time()
+
+        recent_sessions = []
+        for session_id in session_ids:
+            last_access = self._last_accessed.get(session_id, 0)
+            age = now - last_access
+
+            if age <= max_age_seconds:
+                session = self._sessions.get(session_id)
+                if session:
+                    recent_sessions.append((last_access, session))
+
+        # Sort by last access time (most recent first)
+        recent_sessions.sort(key=lambda x: x[0], reverse=True)
+
+        return [session for _, session in recent_sessions]
+
+    async def get_session_fingerprint(self, session_id: str) -> str | None:
+        """Get the fingerprint for a session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Fingerprint if found, None otherwise
+        """
+        return self._fingerprints.get(session_id)

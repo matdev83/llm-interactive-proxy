@@ -9,13 +9,17 @@ from __future__ import annotations
 # mypy: disable-error-code="unreachable"
 import logging
 
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import Session, SessionInteraction
+from src.core.interfaces.repositories_interface import ISessionRepository
 from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.services.conversation_fingerprint_service import (
+    ConversationFingerprintService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +31,16 @@ class SessionManager(ISessionManager):
         self,
         session_service: ISessionService,
         session_resolver: ISessionResolver,
+        session_repository: ISessionRepository | None = None,
+        fingerprint_service: ConversationFingerprintService | None = None,
     ) -> None:
         """Initialize the session manager."""
         self._session_service = session_service
         self._session_resolver = session_resolver
+        self._session_repository = session_repository
+        self._fingerprint_service = (
+            fingerprint_service or ConversationFingerprintService()
+        )
 
     async def resolve_session_id(self, context: RequestContext) -> str:
         """Resolve session ID from request context."""
@@ -129,3 +139,32 @@ class SessionManager(ISessionManager):
         # BackendProcessor records backend interactions; avoid duplicating entries here.
         # This method is retained for compatibility and future extensions.
         _ = await self._session_service.get_session(session_id)
+
+    async def update_session_fingerprint(
+        self, session_id: str, messages: list[ChatMessage]
+    ) -> None:
+        """Update the conversation fingerprint for a session.
+
+        Args:
+            session_id: Session ID to update
+            messages: List of messages in the conversation
+        """
+        if not self._session_repository:
+            # Repository not available, skip fingerprinting
+            return
+
+        if not messages:
+            return
+
+        # Compute fingerprint from messages
+        fp_result = self._fingerprint_service.compute_fingerprint(messages)
+
+        # Update in repository
+        await self._session_repository.update_fingerprint(
+            session_id, fp_result.fingerprint
+        )
+
+        logger.debug(
+            f"Updated fingerprint for session {session_id}: {fp_result.fingerprint} "
+            f"({fp_result.message_count} messages)"
+        )
