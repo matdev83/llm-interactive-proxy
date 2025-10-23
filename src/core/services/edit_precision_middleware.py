@@ -210,12 +210,12 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
         if current is None:
             return target
 
-        # If already at 0.0 (deterministic), raise to target for retry flexibility
-        if current <= 0.0:
-            return target
+        safe_current = max(0.0, float(current))
+        if safe_current <= target:
+            return safe_current
 
         # Otherwise lower towards target for precision
-        return min(current, target)
+        return target
 
     def _compute_top_p(self, current: float | None) -> float | None:
         if self._min_top_p is None:

@@ -563,11 +563,16 @@ class RequestProcessor(IRequestProcessor):
                         else None
                     )
                     if isinstance(pending_map, dict):
+                        pending_map = dict(pending_map)
                         pending_count = int(pending_map.get(session_id, 0))
                         if pending_count > 0:
                             force_apply = True
                             # decrement one-shot counter
-                            pending_map[session_id] = pending_count - 1
+                            new_count = pending_count - 1
+                            if new_count > 0:
+                                pending_map[session_id] = new_count
+                            else:
+                                pending_map.pop(session_id, None)
                             if self._app_state is not None:
                                 self._app_state.set_setting(
                                     "edit_precision_pending", pending_map

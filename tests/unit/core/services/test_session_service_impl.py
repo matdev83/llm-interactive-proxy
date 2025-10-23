@@ -35,6 +35,25 @@ class InMemorySessionRepository(ISessionRepository):
     async def cleanup_expired(self, max_age_seconds: int) -> int:
         return 0
 
+    async def update_fingerprint(self, session_id: str, fingerprint: str) -> None:
+        pass
+
+    async def update_client_session(self, session_id: str, client_key: str) -> None:
+        pass
+
+    async def find_by_client_and_fingerprint(
+        self, client_key: str, fingerprint: str
+    ) -> Session | None:
+        return None
+
+    async def find_recent_sessions_by_client(
+        self, client_key: str, max_age_seconds: int
+    ) -> list[Session]:
+        return []
+
+    async def get_session_fingerprint(self, session_id: str) -> str | None:
+        return None
+
 
 @pytest.mark.asyncio
 async def test_update_session_backend_config_updates_backend_and_model() -> None:

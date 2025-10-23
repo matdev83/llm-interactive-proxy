@@ -27,6 +27,9 @@ class _FakeMonotonic:
         ("py.test", True),
         ("pytest -q", True),
         ("pytest --maxfail=1", True),
+        ("pipenv run pytest", True),
+        ("pipenv --python 3 run pytest", True),
+        ("env PYTEST_ADDOPTS='-k smoke' pytest", True),
         ("pytest tests/unit", False),
         ("pytest tests", False),
         ("pytest tests/unit/test_example.py", False),
@@ -34,9 +37,13 @@ class _FakeMonotonic:
         ("pytest some/test/path::TestSuite::test_case", False),
         ("pytest tests.unit.test_example", False),
         ("pytest test_module", False),
-        ("pytest -k slow", True),
+        ("pytest -k slow", False),  # -k is a filtering flag
+        ("pytest --lf", False),
         ("pytest .", True),
         ("pytest ./tests", False),
+        ("pip install pytest", False),
+        ("pip install pytest-cov", False),
+        ("echo pytest", False),
     ],
 )
 def test_full_suite_detection(command: str, expected: bool) -> None:

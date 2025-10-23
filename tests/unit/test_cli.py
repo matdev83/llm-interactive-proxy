@@ -14,7 +14,6 @@ from src.core.app.stages.infrastructure import InfrastructureStage
 from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
 from src.core.config.app_config import AppConfig, ParameterResolution
 from src.core.config.parameter_resolution import ParameterSource
-from src.core.interfaces.tool_call_reactor_interface import IToolCallHandler
 
 # Make sure all connectors are imported and registered
 from src.core.services import backend_imports  # noqa: F401
@@ -575,15 +574,21 @@ def test_steering_handler_is_enabled_via_cli_flag():
     # We need to run the async build process
     loop = asyncio.get_event_loop()
     app = loop.run_until_complete(builder.build(config))
-    container = app.state.injector
+    container = app.state.service_provider
 
-    # Assert: Check the container for the handler
-    all_handlers = container.get_all(IToolCallHandler)
-    pytest_handler = next(
-        (h for h in all_handlers if isinstance(h, PytestFullSuiteHandler)), None
-    )
+    # Assert: Check the tool call reactor service for the handler
+    from src.core.services.tool_call_reactor_service import ToolCallReactorService
+
+    reactor = container.get_required_service(ToolCallReactorService)
+    handler_names = reactor.get_registered_handlers()
 
     assert (
-        pytest_handler is not None
-    ), "PytestFullSuiteHandler should be present in the container."
+        "pytest_full_suite_handler" in handler_names
+    ), f"PytestFullSuiteHandler should be registered. Found handlers: {handler_names}"
+
+    # Also verify the handler is actually enabled by checking the internal state
+    pytest_handler = reactor._handlers.get("pytest_full_suite_handler")
+    assert pytest_handler is not None and isinstance(
+        pytest_handler, PytestFullSuiteHandler
+    ), "PytestFullSuiteHandler should be a PytestFullSuiteHandler instance."
     assert pytest_handler._enabled is True, "PytestFullSuiteHandler should be enabled."

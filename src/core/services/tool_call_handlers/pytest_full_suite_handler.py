@@ -31,6 +31,18 @@ logger = logging.getLogger(__name__)
 # Matches commands invoking pytest (pytest, python -m pytest, py.test, etc.)
 _PYTEST_ROOT_PATTERN = re.compile(r"\b(pytest|py\.test)(?:\b|\.py\b)", re.IGNORECASE)
 
+_FILTERING_FLAGS = {
+    "-k",
+    "-m",
+    "--deselect",
+    "--lf",
+    "--lfnf",
+    "--ff",
+    "--ffnf",
+    "--stepwise-skip",
+}
+
+
 _FLAGS_REQUIRING_VALUE = {
     "-k",
     "-m",
@@ -66,6 +78,83 @@ _FLAGS_REQUIRING_VALUE = {
     "--reruns",
     "--reruns-delay",
     "--stepwise-skip",
+}
+
+
+_PYTEST_TOKEN_PATTERN = re.compile(
+    r"^(?:pytest|py\.test)(?:\.(?:py|exe|bat))?$", re.IGNORECASE
+)
+_COMMAND_SEPARATORS = {"&&", "||", ";", "|", "&"}
+_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+_NON_INVOCATION_PRECEDERS = {
+    "add",
+    "apt",
+    "apk",
+    "brew",
+    "cat",
+    "conda",
+    "dnf",
+    "echo",
+    "find",
+    "freeze",
+    "grep",
+    "head",
+    "install",
+    "list",
+    "more",
+    "npm",
+    "pacman",
+    "pip",
+    "pip3",
+    "pip-compile",
+    "pip-sync",
+    "pipenv",
+    "pnpm",
+    "poetry",
+    "printf",
+    "remove",
+    "rg",
+    "ripgrep",
+    "search",
+    "sed",
+    "show",
+    "sort",
+    "tail",
+    "tee",
+    "touch",
+    "uninstall",
+    "update",
+    "uv",
+    "uvx",
+    "yarn",
+    "yum",
+}
+_WRAPPER_COMMANDS = {
+    "bash",
+    "cmd",
+    "command",
+    "env",
+    "nice",
+    "nohup",
+    "powershell",
+    "pwsh",
+    "sh",
+    "sudo",
+    "time",
+    "zsh",
+}
+_WRAPPER_PAIRS = {
+    ("pipenv", "run"),
+    ("poetry", "run"),
+    ("hatch", "run"),
+    ("rye", "run"),
+    ("pdm", "run"),
+    ("uv", "run"),
+    ("uvx", "run"),
+    ("pipx", "run"),
+    ("npm", "run"),
+    ("yarn", "run"),
+    ("pnpm", "run"),
 }
 
 
@@ -115,6 +204,8 @@ def _extract_command(arguments: Any) -> str | None:
                     return " ".join(str(item) for item in sub)
 
         args_list = arguments.get("args")
+        if isinstance(args_list, str):
+            return args_list
         if isinstance(args_list, list) and args_list:
             return " ".join(str(item) for item in args_list)
 
@@ -130,6 +221,136 @@ def _normalize_whitespace(command: str) -> str:
     return " ".join(command.strip().split())
 
 
+def _split_command_tokens(command: str) -> list[str]:
+    tokens: list[str] = []
+    current: list[str] = []
+    quote_char: str | None = None
+
+    for char in command:
+        if quote_char is not None:
+            if char == quote_char:
+                quote_char = None
+            else:
+                current.append(char)
+            continue
+
+        if char in {"'", '"'}:
+            quote_char = char
+            continue
+
+        if char.isspace():
+            if current:
+                tokens.append("".join(current))
+                current.clear()
+            continue
+
+        current.append(char)
+
+    if current:
+        tokens.append("".join(current))
+
+    return tokens
+
+
+def _normalize_token_for_matching(token: str) -> str:
+    trimmed = token.strip().strip(",")
+    if not trimmed:
+        return ""
+
+    trimmed = trimmed.rstrip(";|&")
+    if "/" in trimmed or "\\" in trimmed:
+        trimmed = trimmed.replace("\\", "/").rsplit("/", 1)[-1]
+
+    return trimmed
+
+
+def _previous_meaningful_index(
+    tokens: list[str], normalized_tokens: list[str], start: int
+) -> int | None:
+    idx = start - 1
+    while idx >= 0:
+        normalized = normalized_tokens[idx]
+        if not normalized:
+            idx -= 1
+            continue
+
+        if _ASSIGNMENT_RE.match(normalized):
+            idx -= 1
+            continue
+
+        raw = tokens[idx].strip()
+        if normalized in {"-m", "--module"}:
+            return idx
+
+        if raw.startswith(("-", "/")):
+            idx -= 1
+            continue
+
+        if idx > 0 and tokens[idx - 1].strip().startswith(("-", "/")):
+            idx -= 2
+            continue
+
+        return idx
+
+    return None
+
+
+def _is_pytest_invocation(
+    tokens: list[str], normalized_tokens: list[str], index: int
+) -> bool:
+    start = index
+    while True:
+        idx = _previous_meaningful_index(tokens, normalized_tokens, start)
+        if idx is None:
+            return True
+
+        normalized = normalized_tokens[idx]
+        lower = normalized.lower()
+
+        if lower in _COMMAND_SEPARATORS:
+            return True
+
+        if lower in _NON_INVOCATION_PRECEDERS:
+            return False
+
+        if lower in {"-m", "--module"}:
+            return True
+
+        if lower == "run":
+            prefix_idx = _previous_meaningful_index(tokens, normalized_tokens, idx)
+            if prefix_idx is not None:
+                prefix_lower = normalized_tokens[prefix_idx].lower()
+                if (prefix_lower, lower) in _WRAPPER_PAIRS:
+                    return True
+                start = prefix_idx + 1
+                continue
+
+        if lower in _WRAPPER_COMMANDS:
+            return True
+
+        start = idx
+
+        # Continue scanning further left to allow chained wrappers before returning
+        if start == 0:
+            return False
+
+
+def _find_pytest_invocation_index(
+    tokens: list[str], normalized_tokens: list[str]
+) -> int | None:
+    for index, normalized in enumerate(normalized_tokens):
+        if not normalized:
+            continue
+
+        candidate = normalized
+        if _PYTEST_TOKEN_PATTERN.fullmatch(candidate) and _is_pytest_invocation(
+            tokens, normalized_tokens, index
+        ):
+            return index
+
+    return None
+
+
 def _looks_like_full_suite(command: str) -> bool:
     """Determine if the pytest command targets the entire suite.
 
@@ -143,15 +364,13 @@ def _looks_like_full_suite(command: str) -> bool:
     if not _PYTEST_ROOT_PATTERN.search(normalized):
         return False
 
-    tokens = normalized.split()
+    tokens = _split_command_tokens(normalized)
+    if not tokens:
+        return False
 
-    # Skip the invocation part (e.g., python -m pytest, pytest, py.test)
-    # Identify index where pytest command appears and inspect subsequent tokens.
-    try:
-        pytest_index = next(
-            i for i, tok in enumerate(tokens) if _PYTEST_ROOT_PATTERN.search(tok)
-        )
-    except StopIteration:
+    normalized_tokens = [_normalize_token_for_matching(token) for token in tokens]
+    pytest_index = _find_pytest_invocation_index(tokens, normalized_tokens)
+    if pytest_index is None:
         return False
 
     tail = tokens[pytest_index + 1 :]
@@ -173,6 +392,11 @@ def _looks_like_full_suite(command: str) -> bool:
 
         if any(token.startswith(prefix) for prefix in allowed_flag_prefixes):
             flag_name, _, _ = token.partition("=")
+
+            # Flags that explicitly select a subset of tests
+            if flag_name in _FILTERING_FLAGS:
+                return False
+
             if flag_name in _FLAGS_REQUIRING_VALUE and not token.endswith("="):
                 skip_next_value = True
             continue
@@ -340,29 +564,37 @@ class PytestFullSuiteHandler(IToolCallHandler):
         normalized_tool_name = tool_name.lower()
         arguments = context.tool_arguments
 
+        # Tools that are recognized as shell/command execution tools
+        # These should only trigger if they execute commands on the user's host
         shell_tools = {
             "bash",
+            "cmd",
+            "exec",
             "exec_command",
+            "execute",
             "execute_command",
-            "run_shell_command",
-            "shell",
             "local_shell",
+            "python",
+            "run_command",
+            "run_shell_command",
+            "run_terminal_cmd",
+            "shell",
+            "terminal",
             "container.exec",
         }
 
         command = _extract_command(arguments)
 
+        # Only trigger for recognized shell execution tools
         if normalized_tool_name in shell_tools:
             return command
 
-        # Some providers map pytest directly as function name
+        # Some providers map pytest directly as function name (e.g., "pytest" tool)
         if _PYTEST_ROOT_PATTERN.search(tool_name):
-            return command or tool_name
+            if command:
+                return f"{tool_name} {command}"
+            return tool_name
 
-        if command and _PYTEST_ROOT_PATTERN.search(command):
-            prefix = tool_name
-            if prefix:
-                return f"{prefix} {command}".strip()
-            return command
-
+        # Do NOT trigger for arbitrary tools even if command contains pytest
+        # This was causing false positives for non-shell tools
         return None

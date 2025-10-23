@@ -417,6 +417,7 @@ class SessionConfig(DomainModel):
     force_set_project: bool = False
     disable_interactive_commands: bool = False
     project_dir_resolution_model: str | None = None
+    project_dir_resolution_mode: str = "hybrid"
     tool_call_repair_enabled: bool = True
     # Max per-session buffer for tool-call repair streaming (bytes)
     tool_call_repair_buffer_cap_bytes: int = 64 * 1024
@@ -1074,6 +1075,13 @@ class AppConfig(DomainModel, IConfig):
                 "PROJECT_DIR_RESOLUTION_MODEL",
                 None,
                 path="session.project_dir_resolution_model",
+                resolution=resolution,
+            ),
+            "project_dir_resolution_mode": _get_env_value(
+                env,
+                "PROJECT_DIR_RESOLUTION_MODE",
+                "hybrid",
+                path="session.project_dir_resolution_mode",
                 resolution=resolution,
             ),
             "tool_call_repair_enabled": _env_to_bool(

@@ -214,6 +214,12 @@ class CoreServicesStage(InitializationStage):
             from typing import cast
 
             from src.core.interfaces.repositories_interface import ISessionRepository
+            from src.core.services.conversation_fingerprint_service import (
+                ConversationFingerprintService,
+            )
+
+            # Register ConversationFingerprintService as singleton
+            services.add_singleton(ConversationFingerprintService)
 
             def session_resolver_factory(
                 provider: IServiceProvider,
@@ -223,9 +229,13 @@ class CoreServicesStage(InitializationStage):
                 session_repo: ISessionRepository = provider.get_required_service(
                     cast(type, ISessionRepository)
                 )
+                fingerprint_service: ConversationFingerprintService = (
+                    provider.get_required_service(ConversationFingerprintService)
+                )
                 return IntelligentSessionResolver(
                     session_repository=session_repo,
                     config=cfg,
+                    fingerprint_service=fingerprint_service,
                 )
 
             # Register as singleton instance using factory

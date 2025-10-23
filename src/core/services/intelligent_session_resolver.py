@@ -37,12 +37,15 @@ class IntelligentSessionResolver(ISessionResolver):
         Args:
             session_repository: Repository for session storage/retrieval
             config: Optional configuration object
-            fingerprint_service: Optional fingerprint service (created if not provided)
+            fingerprint_service: Fingerprint service for computing conversation hashes
         """
         self._session_repository = session_repository
         self._config = config
+        # Allow None for backward compatibility with tests, but create a default instance
         self._fingerprint_service = (
-            fingerprint_service or ConversationFingerprintService()
+            fingerprint_service
+            if fingerprint_service is not None
+            else ConversationFingerprintService()
         )
 
         # Load configuration

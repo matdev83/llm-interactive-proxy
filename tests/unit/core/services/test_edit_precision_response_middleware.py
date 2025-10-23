@@ -58,3 +58,36 @@ async def test_streaming_processor_applies_middleware_and_sets_pending(
     pending = app_state.get_setting("edit_precision_pending", {})
     assert isinstance(pending, dict)
     assert pending.get("stream-abc", 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_streaming_processor_only_increments_once_per_stream(
+    app_state: ApplicationStateService,
+) -> None:
+    mw = EditPrecisionResponseMiddleware(app_state)
+    processor = MiddlewareApplicationProcessor([mw], app_state=app_state)
+
+    session_id = "stream-dup"
+    first_chunk = StreamingContent(
+        content="... diff_error ...",
+        metadata={"session_id": session_id, "stream_id": "stream-1"},
+    )
+    second_chunk = StreamingContent(
+        content="... diff_error again ...",
+        metadata={"session_id": session_id, "stream_id": "stream-1"},
+    )
+
+    await processor.process(first_chunk)
+    await processor.process(second_chunk)
+
+    pending_once = app_state.get_setting("edit_precision_pending", {})
+    assert pending_once.get(session_id, 0) == 1
+
+    third_chunk = StreamingContent(
+        content="... diff_error final ...",
+        metadata={"session_id": session_id, "stream_id": "stream-2"},
+    )
+    await processor.process(third_chunk)
+
+    pending_twice = app_state.get_setting("edit_precision_pending", {})
+    assert pending_twice.get(session_id, 0) == 2

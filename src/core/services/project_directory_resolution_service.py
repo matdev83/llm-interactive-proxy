@@ -23,8 +23,6 @@ logger = logging.getLogger(__name__)
 class ProjectDirectoryResolutionService:
     """Resolve absolute project directories using a dedicated backend model."""
 
-    _WINDOWS_PATH_PATTERN = re.compile(r"^[A-Za-z]:\\")
-
     def __init__(
         self,
         app_config: AppConfig,
@@ -33,6 +31,7 @@ class ProjectDirectoryResolutionService:
     ) -> None:
         self._backend_service = backend_service
         self._session_service = session_service
+        self._resolution_mode = app_config.session.project_dir_resolution_mode
         self._model_spec = (
             app_config.session.project_dir_resolution_model
             if hasattr(app_config, "session")
@@ -81,12 +80,40 @@ class ProjectDirectoryResolutionService:
             "- Communicate only via the XML response; no commentary or markdown.\n"
         )
 
+    def _normalize_unc_path(self, path: str) -> str:
+        """Normalize UNC path backslashes to the expected format (\\\\server\\share\\folder)."""
+        import re
+
+        # Simple normalization: reduce any sequence of 3+ backslashes to exactly 2
+        # but preserve 2-backslash sequences
+        return re.sub(r"\\{3,}", "\\\\", path)
+
+    def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
+        """Try to find an absolute path in the prompt using regex."""
+        # More specific patterns first
+        patterns = [
+            # Windows drive path (e.g., C:\\Users\\...)
+            re.compile(r'\b[a-zA-Z]:\\[^:"*?<>|\r\n]*'),
+            # UNC path (e.g., \\\\server\\share\\...)
+            re.compile(r"\\{2,}[^\\]+(?:\\{1,2}[^\\]+)*"),
+            # Unix/Linux absolute path (e.g., /home/user/...)
+            re.compile(r"/(?:[\w.-]+/)*[\w.-]+/?"),
+        ]
+        for pattern in patterns:
+            match = pattern.search(prompt_text)
+            if match:
+                found_path = match.group(0)
+                # Normalize UNC paths
+                if found_path.startswith("\\\\"):
+                    return self._normalize_unc_path(found_path)
+                return found_path
+        return None
+
     async def maybe_resolve_project_directory(
         self, session: Session, request: ChatRequest
     ) -> None:
         """Attempt to resolve the project directory for the very first prompt."""
-
-        if not self._model_identifier:
+        if self._resolution_mode == "disabled":
             return
 
         if getattr(session.state, "project_dir_resolution_attempted", False):
@@ -119,61 +146,95 @@ class ProjectDirectoryResolutionService:
             )
             return
 
-        try:
-            response = await self._call_resolution_model(prompt_text)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Project directory auto-detection call failed: %s",
-                    exc,
-                    exc_info=True,
+        # Deterministic resolution
+        if self._resolution_mode in ("deterministic", "hybrid"):
+            found_path = self._find_absolute_path_in_prompt(prompt_text)
+            if found_path:
+                await self._persist_state(
+                    session,
+                    directory=found_path,
+                    message=f"Project directory auto-detected (deterministic): {found_path}",
                 )
-            await self._persist_state(
-                session,
-                directory=None,
-                message="Project directory auto-detection did not identify a directory (request failure)",
-            )
-            return
+                return
 
-        if isinstance(response, StreamingResponseEnvelope):
-            await self._persist_state(
-                session,
-                directory=None,
-                message=(
-                    "Project directory auto-detection did not identify a directory"
-                    " (streaming response unsupported)"
-                ),
-            )
-            return
+        # LLM resolution (if applicable)
+        if self._resolution_mode in ("llm", "hybrid"):
+            if not self._model_identifier:
+                if self._resolution_mode == "llm":
+                    logger.warning(
+                        "LLM project directory resolution is enabled but no model is configured."
+                    )
+                if self._resolution_mode == "hybrid":
+                    # In hybrid mode, if deterministic fails, we just mark as attempted and move on
+                    # without logging a warning if no LLM is configured.
+                    await self._persist_state(
+                        session,
+                        directory=None,
+                        message="Project directory auto-detection did not identify a directory (hybrid mode, no LLM configured).",
+                    )
+                return
 
-        response_text = self._extract_response_text(response)
-        if not response_text:
-            await self._persist_state(
-                session,
-                directory=None,
-                message=(
-                    "Project directory auto-detection did not identify a directory"
-                    " (empty model response)"
-                ),
-            )
-            return
+            try:
+                response = await self._call_resolution_model(prompt_text)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Project directory auto-detection call failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                await self._persist_state(
+                    session,
+                    directory=None,
+                    message="Project directory auto-detection did not identify a directory (request failure)",
+                )
+                return
 
-        directory, error_reason = self._parse_directory_response(response_text)
-        if directory:
-            await self._persist_state(
-                session,
-                directory=directory,
-                message=f"Project directory auto-detected: {directory}",
-            )
-        else:
-            reason_suffix = f" ({error_reason})" if error_reason else ""
+            if isinstance(response, StreamingResponseEnvelope):
+                await self._persist_state(
+                    session,
+                    directory=None,
+                    message=(
+                        "Project directory auto-detection did not identify a directory"
+                        " (streaming response unsupported)"
+                    ),
+                )
+                return
+
+            response_text = self._extract_response_text(response)
+            if not response_text:
+                await self._persist_state(
+                    session,
+                    directory=None,
+                    message=(
+                        "Project directory auto-detection did not identify a directory"
+                        " (empty model response)"
+                    ),
+                )
+                return
+
+            directory, error_reason = self._parse_directory_response(response_text)
+            if directory:
+                await self._persist_state(
+                    session,
+                    directory=directory,
+                    message=f"Project directory auto-detected (LLM): {directory}",
+                )
+            else:
+                reason_suffix = f" ({error_reason})" if error_reason else ""
+                await self._persist_state(
+                    session,
+                    directory=None,
+                    message=(
+                        "Project directory auto-detection did not identify a directory"
+                        f"{reason_suffix}"
+                    ),
+                )
+        else:  # This handles deterministic mode when nothing is found
             await self._persist_state(
                 session,
                 directory=None,
-                message=(
-                    "Project directory auto-detection did not identify a directory"
-                    f"{reason_suffix}"
-                ),
+                message="Project directory auto-detection did not identify a directory (deterministic mode).",
             )
 
     async def _persist_state(
@@ -354,11 +415,14 @@ class ProjectDirectoryResolutionService:
             return False
         if "\n" in value or "\r" in value:
             return False
+        # Linux/Unix
         if value.startswith("/"):
             return True
+        # UNC
         if value.startswith("\\\\"):
             return True
-        return bool(self._WINDOWS_PATH_PATTERN.match(value))
+        # Windows
+        return bool(re.match(r"^[a-zA-Z]:\\", value))
 
 
 __all__ = ["ProjectDirectoryResolutionService"]

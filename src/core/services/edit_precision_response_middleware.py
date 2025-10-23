@@ -36,6 +36,8 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
 
         # Start with pre-compiled default patterns for performance
         self._compiled = list(self._DEFAULT_PATTERNS)
+        # Track last flagged stream per session to avoid double-counting streaming chunks
+        self._last_stream_ids: dict[str, str] = {}
 
         # Load additional patterns from external config if available
         try:
@@ -99,7 +101,32 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
 
             key = session_id or ""
             if key:
+                response_type = ""
+                try:
+                    response_type = str((context or {}).get("response_type") or "")
+                except Exception:
+                    response_type = ""
+
+                stream_id = ""
+                if response_type == "stream":
+                    try:
+                        metadata = getattr(out, "metadata", {}) or {}
+                        stream_id = str(
+                            metadata.get("stream_id")
+                            or (context or {}).get("stream_id")
+                            or ""
+                        )
+                    except Exception:
+                        stream_id = ""
+                    last_stream_id = self._last_stream_ids.get(key)
+                    if stream_id and last_stream_id == stream_id:
+                        return out
+
                 pending_map[key] = int(pending_map.get(key, 0)) + 1
+                if response_type == "stream" and stream_id:
+                    self._last_stream_ids[key] = stream_id
+                elif response_type != "stream":
+                    self._last_stream_ids.pop(key, None)
                 self._app_state.set_setting("edit_precision_pending", pending_map)
                 # Best-effort logging; do not let logging failures affect flow
                 try:

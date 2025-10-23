@@ -38,8 +38,11 @@ class SessionManager(ISessionManager):
         self._session_service = session_service
         self._session_resolver = session_resolver
         self._session_repository = session_repository
+        # Allow None for backward compatibility with tests, but create a default instance
         self._fingerprint_service = (
-            fingerprint_service or ConversationFingerprintService()
+            fingerprint_service
+            if fingerprint_service is not None
+            else ConversationFingerprintService()
         )
 
     async def resolve_session_id(self, context: RequestContext) -> str:

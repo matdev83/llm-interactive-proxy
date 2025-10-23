@@ -40,6 +40,7 @@ from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
+    InvalidRequestError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
@@ -93,6 +94,11 @@ DEFAULT_RETRY_DELAYS = [6, 12]  # Wait 6s, then 12s between retries
 DEFAULT_MAX_TOTAL_ATTEMPTS = 6  # Maximum total attempts across all models
 DEFAULT_COOLDOWN_DURATION = 300.0  # 5 minutes cooldown after exhaustion
 DEFAULT_RECOVERY_PROBE_INTERVAL = 60.0  # Check recovery every minute
+
+# Code Assist plan-specific prompt allowance (per request).
+# The margin stops us before the backend enforces the hard cap.
+CODE_ASSIST_PROMPT_LIMIT = 65_536
+CODE_ASSIST_PROMPT_LIMIT_MARGIN = 0.97
 
 
 @dataclass
@@ -430,6 +436,77 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             "Backend %s marked as unusable due to quota exceeded. "
             "Manual intervention may be required to restore functionality.",
             self.name,
+        )
+
+    def _estimate_prompt_tokens(
+        self, code_assist_request: dict[str, Any]
+    ) -> int | None:
+        """Best-effort estimate of prompt token usage for the current request."""
+        prompt_text_parts: list[str] = []
+        try:
+            system_instruction = code_assist_request.get("systemInstruction")
+            if system_instruction:
+                for part in system_instruction.get("parts", []):
+                    if isinstance(part, dict) and "text" in part:
+                        prompt_text_parts.append(part["text"])
+
+            for content in code_assist_request.get("contents", []):
+                for part in content.get("parts", []):
+                    if isinstance(part, dict) and "text" in part:
+                        prompt_text_parts.append(part["text"])
+
+            if not prompt_text_parts:
+                return 0
+
+            encoding = tiktoken.get_encoding("cl100k_base")
+            full_prompt = "\n".join(prompt_text_parts)
+            return len(encoding.encode(full_prompt))
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logger.warning("Failed to estimate prompt tokens: %s", exc)
+            return None
+
+    def _enforce_prompt_limit(
+        self,
+        prompt_tokens: int | None,
+        effective_model: str,
+        *,
+        request_id: str | None = None,
+    ) -> None:
+        """Prevent Code Assist requests that would exceed the plan allowance."""
+        if prompt_tokens is None:
+            return
+
+        soft_limit = int(CODE_ASSIST_PROMPT_LIMIT * CODE_ASSIST_PROMPT_LIMIT_MARGIN)
+        if prompt_tokens <= soft_limit:
+            return
+
+        message = (
+            "Estimated prompt size exceeds the Code Assist plan allowance. "
+            "Please compress the conversation history or trim the request."
+        )
+        details = {
+            "model": effective_model,
+            "estimated_tokens": prompt_tokens,
+            "limit": CODE_ASSIST_PROMPT_LIMIT,
+            "status": "CONTEXT_WINDOW_WILL_OVERFLOW",
+            "advice": (
+                "Use /compress or start a new session to reduce history size before retrying."
+            ),
+        }
+        if request_id:
+            details["request_id"] = request_id
+
+        logger.warning(
+            "Code Assist prompt blocked locally: estimated_tokens=%s limit=%s model=%s",
+            prompt_tokens,
+            CODE_ASSIST_PROMPT_LIMIT,
+            effective_model,
+        )
+
+        raise InvalidRequestError(
+            message=message,
+            details=details,
+            code="context_window_will_overflow",
         )
 
     def _start_file_watching(self) -> None:
@@ -1442,6 +1519,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 "generationConfig": gemini_request.get("generationConfig", {}),
             }
 
+            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
+            self._enforce_prompt_limit(
+                prompt_tokens_estimate,
+                effective_model,
+                request_id=getattr(request_data, "id", None),
+            )
+
             # Add systemInstruction if we found system messages
             if system_instruction:
                 code_assist_request["systemInstruction"] = system_instruction
@@ -1555,23 +1639,25 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             try:
                 encoding = tiktoken.get_encoding("cl100k_base")
 
-                # Reconstruct prompt text
-                prompt_text_parts = []
-                if code_assist_request.get("systemInstruction"):
-                    for part in code_assist_request["systemInstruction"].get(
-                        "parts", []
-                    ):
-                        if "text" in part:
-                            prompt_text_parts.append(part["text"])
+                if prompt_tokens_estimate is None:
+                    prompt_text_parts = []
+                    if code_assist_request.get("systemInstruction"):
+                        for part in code_assist_request["systemInstruction"].get(
+                            "parts", []
+                        ):
+                            if "text" in part:
+                                prompt_text_parts.append(part["text"])
 
-                for content in code_assist_request.get("contents", []):
-                    for part in content.get("parts", []):
-                        if "text" in part:
-                            prompt_text_parts.append(part["text"])
+                    for content in code_assist_request.get("contents", []):
+                        for part in content.get("parts", []):
+                            if "text" in part:
+                                prompt_text_parts.append(part["text"])
 
-                full_prompt = "\n".join(prompt_text_parts)
+                    full_prompt = "\n".join(prompt_text_parts)
+                    prompt_tokens = len(encoding.encode(full_prompt))
+                else:
+                    prompt_tokens = prompt_tokens_estimate
 
-                prompt_tokens = len(encoding.encode(full_prompt))
                 # Calculate completion tokens from the actual response
                 completion_tokens = (
                     len(encoding.encode(generated_text)) if generated_text else 0
@@ -1716,6 +1802,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 "generationConfig": gemini_request.get("generationConfig", {}),
             }
 
+            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
+            self._enforce_prompt_limit(
+                prompt_tokens_estimate,
+                effective_model,
+                request_id=getattr(request_data, "id", None),
+            )
+
             # Add systemInstruction if we found system messages
             if system_instruction:
                 code_assist_request["systemInstruction"] = system_instruction
@@ -1736,33 +1829,39 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 "request": code_assist_request,
             }
 
+            prompt_tokens = prompt_tokens_estimate
+
             # Use the Code Assist API with streaming endpoint
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making streaming Code Assist API call to: {url}")
 
             # For token calculation
             encoding = tiktoken.get_encoding("cl100k_base")
-            try:
-                prompt_text_parts = []
-                if code_assist_request.get("systemInstruction"):
-                    for part in code_assist_request["systemInstruction"].get(
-                        "parts", []
-                    ):
-                        if "text" in part:
-                            prompt_text_parts.append(part["text"])
-                for content in code_assist_request.get("contents", []):
-                    for part in content.get("parts", []):
-                        if "text" in part:
-                            prompt_text_parts.append(part["text"])
-                full_prompt = "\n".join(prompt_text_parts)
-                prompt_tokens = len(encoding.encode(full_prompt))
-            except Exception as e:
-                logger.warning(f"Could not calculate prompt tokens with tiktoken: {e}")
-                prompt_tokens = 0
+            if prompt_tokens is None:
+                try:
+                    prompt_text_parts = []
+                    if code_assist_request.get("systemInstruction"):
+                        for part in code_assist_request["systemInstruction"].get(
+                            "parts", []
+                        ):
+                            if "text" in part:
+                                prompt_text_parts.append(part["text"])
+                    for content in code_assist_request.get("contents", []):
+                        for part in content.get("parts", []):
+                            if "text" in part:
+                                prompt_text_parts.append(part["text"])
+                    full_prompt = "\n".join(prompt_text_parts)
+                    prompt_tokens = len(encoding.encode(full_prompt))
+                except Exception as e:
+                    logger.warning(
+                        f"Could not calculate prompt tokens with tiktoken: {e}"
+                    )
+                    prompt_tokens = 0
 
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
                 response = None
                 generated_text = ""
+                error_json_buffer: str | None = None
                 try:
                     try:
                         response = await asyncio.to_thread(
@@ -1962,16 +2061,168 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                     )
                                 )
 
-                                if (
-                                    domain_chunk
-                                    and domain_chunk.get("choices")
-                                    and domain_chunk["choices"][0]
-                                    .get("delta", {})
-                                    .get("content")
-                                ):
-                                    generated_text += domain_chunk["choices"][0][
-                                        "delta"
-                                    ]["content"]
+                                if domain_chunk and domain_chunk.get("choices"):
+                                    choice = domain_chunk["choices"][0]
+                                    delta = choice.get("delta", {}) or {}
+                                    text_piece = delta.get("content")
+                                    if text_piece:
+                                        generated_text += text_piece
+                                        if error_json_buffer is None:
+                                            stripped_piece = text_piece.lstrip()
+                                            if stripped_piece.startswith("{"):
+                                                error_json_buffer = stripped_piece
+                                        else:
+                                            error_json_buffer += text_piece
+
+                                        if error_json_buffer:
+                                            candidate_json = error_json_buffer.strip()
+                                            try:
+                                                parsed_error = json.loads(
+                                                    candidate_json
+                                                )
+                                            except json.JSONDecodeError:
+                                                pass
+                                            else:
+                                                error_json_buffer = None
+                                                if isinstance(parsed_error, dict) and (
+                                                    "error" in parsed_error
+                                                ):
+                                                    error_info = (
+                                                        parsed_error.get("error") or {}
+                                                    )
+                                                    error_code = error_info.get("code")
+                                                    error_status = str(
+                                                        error_info.get("status", "")
+                                                    ).upper()
+                                                    error_message = error_info.get(
+                                                        "message", ""
+                                                    )
+
+                                                    if error_code == 429 or (
+                                                        error_status
+                                                        == "RESOURCE_EXHAUSTED"
+                                                    ):
+                                                        if logger.isEnabledFor(
+                                                            logging.INFO
+                                                        ):
+                                                            logger.info(
+                                                                "Detected inline 429 payload during streaming; invoking graceful degradation for model %s",
+                                                                effective_model,
+                                                            )
+                                                        with contextlib.suppress(
+                                                            Exception
+                                                        ):
+                                                            response.close()
+                                                        try:
+                                                            degraded_response = await self._handle_429_with_graceful_degradation(
+                                                                original_model=effective_model,
+                                                                request_data=request_data,
+                                                                processed_messages=processed_messages,
+                                                                **kwargs,
+                                                            )
+                                                            if logger.isEnabledFor(
+                                                                logging.INFO
+                                                            ):
+                                                                logger.info(
+                                                                    "Graceful degradation succeeded for model %s",
+                                                                    effective_model,
+                                                                )
+                                                            if isinstance(
+                                                                degraded_response,
+                                                                StreamingResponseEnvelope,
+                                                            ):
+                                                                async for (
+                                                                    chunk
+                                                                ) in (
+                                                                    degraded_response.content
+                                                                ):
+                                                                    yield chunk
+                                                            else:
+                                                                final_chunk = self.translation_service.to_domain_stream_chunk(
+                                                                    chunk=None,
+                                                                    source_format="code_assist",
+                                                                )
+                                                                yield ProcessedResponse(
+                                                                    content=final_chunk
+                                                                )
+                                                            return
+                                                        except Exception as e:
+                                                            if logger.isEnabledFor(
+                                                                logging.WARNING
+                                                            ):
+                                                                logger.warning(
+                                                                    "Graceful degradation failed for model %s after inline 429 payload: %s",
+                                                                    effective_model,
+                                                                    e,
+                                                                )
+                                                            error_chunk = {
+                                                                "id": f"chatcmpl-error-{int(time.time())}",
+                                                                "object": "chat.completion.chunk",
+                                                                "created": int(
+                                                                    time.time()
+                                                                ),
+                                                                "model": effective_model,
+                                                                "choices": [
+                                                                    {
+                                                                        "index": 0,
+                                                                        "delta": {},
+                                                                        "finish_reason": "stop",
+                                                                    }
+                                                                ],
+                                                                "error": {
+                                                                    "message": "Service temporarily unavailable due to rate limiting. Please try again in a few minutes.",
+                                                                    "type": "service_unavailable",
+                                                                    "code": 503,
+                                                                },
+                                                            }
+                                                            with contextlib.suppress(
+                                                                Exception
+                                                            ):
+                                                                response.close()
+                                                            yield ProcessedResponse(
+                                                                content=error_chunk
+                                                            )
+                                                            return
+
+                                                    # Non-429 structured error payload
+                                                    error_message = (
+                                                        error_message
+                                                        or "API error received from Gemini Code Assist"
+                                                    )
+                                                    error_code_value = (
+                                                        error_code
+                                                        if isinstance(error_code, int)
+                                                        else 500
+                                                    )
+                                                    error_chunk = {
+                                                        "id": f"chatcmpl-error-{int(time.time())}",
+                                                        "object": "chat.completion.chunk",
+                                                        "created": int(time.time()),
+                                                        "model": effective_model,
+                                                        "choices": [
+                                                            {
+                                                                "index": 0,
+                                                                "delta": {},
+                                                                "finish_reason": "stop",
+                                                            }
+                                                        ],
+                                                        "error": {
+                                                            "message": error_message,
+                                                            "type": "api_error",
+                                                            "code": error_code_value,
+                                                            "status": error_status
+                                                            or None,
+                                                        },
+                                                    }
+                                                    with contextlib.suppress(Exception):
+                                                        response.close()
+                                                    yield ProcessedResponse(
+                                                        content=error_chunk
+                                                    )
+                                                    return
+                                                else:
+                                                    # Parsed JSON but not an error object, reset buffer
+                                                    error_json_buffer = None
 
                                 metadata = create_gemini_response_metadata(
                                     model="gemini-oauth",

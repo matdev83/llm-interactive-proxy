@@ -380,6 +380,70 @@ async def test_request_processor_applies_edit_precision_overrides_for_failed_edi
 
 
 @pytest.mark.asyncio
+async def test_request_processor_preserves_existing_low_temperature() -> None:
+    """When a request is already deterministic, precision tuning must not raise the temperature."""
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session = AsyncMock(id="test-session", agent="someagent")
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig, EditPrecisionConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig(
+        edit_precision=EditPrecisionConfig(
+            enabled=True, temperature=0.05, min_top_p=0.2, override_top_p=True
+        )
+    )
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.return_value = app_config
+    mock_app_state.get_command_prefix.return_value = "!/"
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    failure_text = "The SEARCH block ... does not match anything in the file"
+    request_data = ChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content=failure_text)],
+        temperature=0.0,
+        top_p=0.5,
+        stream=True,
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    await processor.process_request(MockRequestContext(), request_data)
+
+    assert backend_request_manager.process_backend_request.called
+    sent_request = backend_request_manager.process_backend_request.call_args[0][0]
+    assert sent_request.temperature == pytest.approx(0.0)
+    assert sent_request.top_p == pytest.approx(0.2)
+
+
+@pytest.mark.asyncio
 async def test_request_processor_respects_exclude_agents_regex() -> None:
     """Ensure exclusion regex disables precision overrides for matching agents."""
     # Arrange
@@ -527,6 +591,80 @@ async def test_request_processor_applies_overrides_when_pending_flag_set() -> No
     sent_request = backend_request_manager.process_backend_request.call_args[0][0]
     assert sent_request.temperature == pytest.approx(0.2)
     assert sent_request.top_p == pytest.approx(0.4)
+
+
+@pytest.mark.asyncio
+async def test_request_processor_clears_pending_entry_after_use() -> None:
+    """Pending edit-precision flags should be removed once consumed."""
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session = AsyncMock(id="test-session", agent="someagent")
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig, EditPrecisionConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig(
+        edit_precision=EditPrecisionConfig(
+            enabled=True, temperature=0.2, min_top_p=0.4, override_top_p=True
+        )
+    )
+
+    pending_map = {"test-session": 1}
+
+    def _get_setting(name: str, default: object | None = None) -> object | None:
+        if name == "app_config":
+            return app_config
+        if name == "edit_precision_pending":
+            return pending_map
+        return default
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    mock_app_state.get_setting.side_effect = _get_setting
+    mock_app_state.get_command_prefix.return_value = "!/"
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    request_data = create_mock_request(
+        stream=False,
+        messages=[ChatMessage(role="user", content="Proceed with next step")],
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    await processor.process_request(MockRequestContext(), request_data)
+
+    pending_updates = [
+        call
+        for call in mock_app_state.set_setting.call_args_list
+        if call.args and call.args[0] == "edit_precision_pending"
+    ]
+    assert pending_updates, "expected pending map to be updated"
+    updated_map = pending_updates[-1].args[1]
+    assert isinstance(updated_map, dict)
+    assert "test-session" not in updated_map
 
 
 @pytest.mark.asyncio

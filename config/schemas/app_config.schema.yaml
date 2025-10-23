@@ -69,6 +69,7 @@ properties:
       default_interactive_mode: { type: boolean }
       force_set_project: { type: boolean }
       project_dir_resolution_model: { type: ["string", "null"] }
+      project_dir_resolution_mode: { type: string, enum: ["disabled", "deterministic", "llm", "hybrid"] }
       disable_interactive_commands: { type: boolean }
       tool_call_repair_enabled: { type: boolean }
       json_repair_enabled: { type: boolean }
@@ -84,6 +85,16 @@ properties:
       pytest_full_suite_steering_enabled: { type: boolean }
       pytest_full_suite_steering_message: { type: ["string", "null"] }
       max_per_session_backends: { type: integer, minimum: 1 }
+      session_continuity:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          fingerprint_message_count: { type: integer, minimum: 1 }
+          fuzzy_matching: { type: boolean }
+          fuzzy_window_sizes: { type: array, items: { type: integer, minimum: 1 } }
+          max_session_age_seconds: { type: integer, minimum: 0 }
+          client_key_includes_ip: { type: boolean }
       planning_phase:
         type: object
         additionalProperties: false

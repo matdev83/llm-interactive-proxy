@@ -260,6 +260,13 @@ def build_cli_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--project-dir-resolution-mode",
+        dest="project_dir_resolution_mode",
+        choices=["deterministic", "llm", "hybrid"],
+        default=None,
+        help="Strategy for resolving project directory: 'deterministic', 'llm', or 'hybrid' (default).",
+    )
+    parser.add_argument(
         "--disable-interactive-commands",
         action="store_true",
         default=None,
@@ -891,6 +898,14 @@ def apply_cli_args(
             "session.project_dir_resolution_model",
             args.project_dir_resolution_model,
             "--project-dir-resolution-model",
+        )
+    if getattr(args, "project_dir_resolution_mode", None) is not None:
+        session = cli_overrides.setdefault("session", {})
+        session["project_dir_resolution_mode"] = args.project_dir_resolution_mode
+        record_cli(
+            "session.project_dir_resolution_mode",
+            args.project_dir_resolution_mode,
+            "--project-dir-resolution-mode",
         )
 
     # These still rely on environment variables for now
