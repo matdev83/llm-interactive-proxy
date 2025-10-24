@@ -28,9 +28,11 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from src.core.domain.chat import (
+    CanonicalChatRequest,
     CanonicalChatResponse,
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
+    ChatMessage,
 )
 
 if TYPE_CHECKING:
@@ -256,14 +258,40 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     return True
             return False
 
+        def _build_preview(payload: Any) -> str:
+            try:
+                text = json.dumps(payload, ensure_ascii=False)  # type: ignore[arg-type]
+            except Exception:
+                text = repr(payload)
+            if len(text) > 512:
+                return text[:512] + "…"
+            return text
+
+        def _log_anomaly(message: str, payload: Any | None = None) -> None:
+            if not logger.isEnabledFor(logging.WARNING):
+                return
+            extra: dict[str, Any] = {
+                "event": "gemini_response_anomaly",
+                "log_message": message,
+            }
+            formatted_message = message
+            if payload is not None:
+                preview = _build_preview(payload)
+                extra["payload_preview"] = preview
+                formatted_message = f"{message}; payload_preview={preview}"
+            logger.warning(formatted_message, extra=extra)
+
         def _raise_error(
             message: str,
             code: str,
             details: dict[str, Any],
             *,
             default_status: int = 503,
+            payload: Any | None = None,
         ) -> None:
             status_code = 429 if _detect_rate_limit(details) else default_status
+            if payload is not None:
+                details = {**details, "payload_preview": _build_preview(payload)}
             raise BackendError(
                 message=message,
                 code=code,
@@ -271,51 +299,78 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 status_code=status_code,
             )
 
-        candidates: list[Any] = []
+        candidate_dicts: list[dict[str, Any]] = []
+        visited: set[int] = set()
 
-        if isinstance(response_payload, dict):
-            error_obj = response_payload.get("error")
-            if isinstance(error_obj, dict):
-                _raise_error(
-                    "Gemini API returned an error payload",
-                    "gemini_error_payload",
-                    {"error": error_obj},
-                )
-            maybe_candidates = response_payload.get("candidates")
-            if isinstance(maybe_candidates, list):
-                candidates = maybe_candidates
-        elif isinstance(response_payload, list):
-            for item in response_payload:
-                if not isinstance(item, dict):
-                    continue
-                error_obj = item.get("error")
+        def _walk(node: Any) -> None:
+            if isinstance(node, (str, bytes, int, float, bool)) or node is None:
+                return
+
+            node_id = id(node)
+            if node_id in visited:
+                return
+            visited.add(node_id)
+
+            if isinstance(node, dict):
+                error_obj = node.get("error")
                 if isinstance(error_obj, dict):
+                    _log_anomaly("Gemini API returned error object", node)
                     _raise_error(
                         "Gemini API returned an error payload",
                         "gemini_error_payload",
                         {"error": error_obj},
+                        payload=response_payload,
                     )
-                if not candidates:
-                    maybe_candidates = item.get("candidates")
-                    if isinstance(maybe_candidates, list):
-                        candidates = maybe_candidates
-            if not candidates:
-                _raise_error(
-                    "Gemini response did not include any candidates",
-                    "empty_response",
-                    {"payload_type": "list"},
-                    default_status=502,
-                )
+
+                maybe_candidates = node.get("candidates")
+                if isinstance(maybe_candidates, list) and maybe_candidates:
+                    candidate_dicts.extend(
+                        candidate
+                        for candidate in maybe_candidates
+                        if isinstance(candidate, dict)
+                    )
+
+                for value in node.values():
+                    _walk(value)
+
+            elif isinstance(node, (list, tuple)):
+                for item in node:
+                    _walk(item)
+            else:
+                # Unsupported container type
+                return
+
+        if isinstance(response_payload, (dict, list, tuple)):
+            _walk(response_payload)
         else:
             _raise_error(
                 f"Unexpected response format: {type(response_payload).__name__}",
                 "unexpected_response_format",
                 {"payload_type": type(response_payload).__name__},
                 default_status=502,
+                payload=response_payload,
+            )
+
+        if not candidate_dicts:
+            payload_type = (
+                type(response_payload).__name__
+                if not isinstance(response_payload, list)
+                else "list"
+            )
+            _log_anomaly(
+                "Gemini response contained no candidates",
+                response_payload,
+            )
+            _raise_error(
+                "Gemini response did not include any candidates",
+                "empty_response",
+                {"payload_type": payload_type},
+                default_status=502,
+                payload=response_payload,
             )
 
         text_parts: list[str] = []
-        for candidate in candidates:
+        for candidate in candidate_dicts:
             if not isinstance(candidate, dict):
                 continue
             candidate_error = candidate.get("error")
@@ -342,11 +397,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             logger.warning(
                 "List response from Gemini API contained no candidates. This may be due to safety settings or other content filters."
             )
+            _log_anomaly(
+                "Gemini response list contained no text parts",
+                response_payload,
+            )
             _raise_error(
                 "Gemini response did not contain any text content",
                 "empty_response",
                 {"payload_type": type(response_payload).__name__},
                 default_status=502,
+                payload=response_payload,
             )
 
         return "".join(text_parts)
@@ -624,21 +684,60 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         """Best-effort estimate of prompt token usage for the current request."""
         prompt_text_parts: list[str] = []
         try:
+            encoding = tiktoken.get_encoding("cl100k_base")
+
+            def _serialize_part(part: Any) -> str | None:
+                if isinstance(part, dict):
+                    text_value = part.get("text")
+                    if isinstance(text_value, str):
+                        return text_value
+                    try:
+                        return json.dumps(part, ensure_ascii=False, default=str)
+                    except Exception:
+                        return repr(part)
+                if isinstance(part, (str, bytes)):
+                    return part.decode("utf-8", "ignore") if isinstance(part, bytes) else part
+                if part is None:
+                    return None
+                return str(part)
+
             system_instruction = code_assist_request.get("systemInstruction")
-            if system_instruction:
+            if isinstance(system_instruction, dict):
                 for part in system_instruction.get("parts", []):
-                    if isinstance(part, dict) and "text" in part:
-                        prompt_text_parts.append(part["text"])
+                    serialized = _serialize_part(part)
+                    if serialized:
+                        prompt_text_parts.append(serialized)
 
             for content in code_assist_request.get("contents", []):
+                if not isinstance(content, dict):
+                    continue
                 for part in content.get("parts", []):
-                    if isinstance(part, dict) and "text" in part:
-                        prompt_text_parts.append(part["text"])
+                    serialized = _serialize_part(part)
+                    if serialized:
+                        prompt_text_parts.append(serialized)
+
+            generation_config = code_assist_request.get("generationConfig")
+            if generation_config:
+                try:
+                    prompt_text_parts.append(
+                        json.dumps(generation_config, ensure_ascii=False)
+                    )
+                except Exception:
+                    prompt_text_parts.append(repr(generation_config))
+
+            for extra_key in ("tools", "toolConfig", "safetySettings"):
+                extra_value = code_assist_request.get(extra_key)
+                if extra_value:
+                    try:
+                        prompt_text_parts.append(
+                            json.dumps(extra_value, ensure_ascii=False)
+                        )
+                    except Exception:
+                        prompt_text_parts.append(repr(extra_value))
 
             if not prompt_text_parts:
                 return 0
 
-            encoding = tiktoken.get_encoding("cl100k_base")
             full_prompt = "\n".join(prompt_text_parts)
             return len(encoding.encode(full_prompt))
         except Exception as exc:  # pragma: no cover - defensive logging only
@@ -1790,12 +1889,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
                 )
 
+                response_text = response.text
+                if logger.isEnabledFor(logging.DEBUG):
+                    preview = response_text[:512]
+                    if len(response_text) > 512:
+                        preview += "…"
+                    logger.debug(
+                        "Gemini response summary: status=%s content_type=%s body_preview=%s",
+                        response.status_code,
+                        response.headers.get("Content-Type"),
+                        preview,
+                    )
+
                 if response.status_code >= 400:
                     if response.status_code == 429:
                         # Prevent recursive graceful degradation calls
                         if _in_graceful_degradation:
-                            # When in graceful degradation, just fail gracefully instead of trying again
-                            self._mark_backend_unusable()
                             raise BackendError(
                                 message="Rate limit exceeded during graceful degradation",
                                 code="rate_limit_exceeded",
@@ -1813,7 +1922,23 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                         self._handle_streaming_error(response)
 
                 # Parse the non-streaming response
-                response_data = response.json()
+                try:
+                    response_data = response.json()
+                except ValueError as exc:  # pragma: no cover - defensive logging
+                    preview = response_text[:512]
+                    if len(response_text) > 512:
+                        preview += "…"
+                    logger.error(
+                        "Failed to decode Gemini JSON response: %s; body_preview=%s",
+                        exc,
+                        preview,
+                        exc_info=True,
+                    )
+                    raise BackendError(
+                        message="Gemini API returned invalid JSON payload",
+                        code="invalid_json",
+                        status_code=502,
+                    ) from exc
 
                 generated_text = self._extract_generated_text_from_response(
                     response_data
@@ -2725,6 +2850,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         if logger.isEnabledFor(logging.INFO):
             logger.info(f"Model {model} put in cooldown until {state.cooldown_until}")
 
+    @staticmethod
+    def _is_rate_limit_like_error(error: BackendError) -> bool:
+        """Determine whether an error should trigger graceful degradation retries."""
+
+        code = getattr(error, "code", None)
+        status = getattr(error, "status_code", None)
+        if status == 429:
+            return True
+        if isinstance(code, str) and code in {"empty_response"}:
+            return True
+        return False
+
     async def _probe_model_recovery(
         self, model: str, bypass_interval_check: bool = False
     ) -> bool:
@@ -2761,21 +2898,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 logger.debug(f"Probing recovery for model {model}")
 
             # Create a minimal test request
-            test_request = type(
-                "TestRequest",
-                (),
-                {
-                    "messages": [{"role": "user", "content": "test"}],
-                    "stream": False,
-                    "max_tokens": 10,
-                    "temperature": 0.1,
-                },
-            )()
+            test_request = CanonicalChatRequest(
+                model=model,
+                messages=[ChatMessage(role="user", content="recovery probe")],
+                stream=False,
+                max_tokens=10,
+                temperature=0.1,
+            )
 
             # Try the API call
             await self._chat_completions_code_assist(
                 request_data=test_request,
-                processed_messages=[{"role": "user", "content": "test"}],
+                processed_messages=[{"role": "user", "content": "recovery probe"}],
                 effective_model=model,
             )
 
@@ -2935,14 +3069,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     )
 
                 except BackendError as e:
-                    if getattr(e, "status_code", None) != 429:
-                        # Non-429 error, re-raise immediately
+                    if not self._is_rate_limit_like_error(e):
                         raise
 
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            f"Model {model} returned 429 on attempt {attempt + 1}"
-                        )
+                        if getattr(e, "code", None) == "empty_response":
+                            logger.info(
+                                "Model %s returned empty response on attempt %s",
+                                model,
+                                attempt + 1,
+                            )
+                        else:
+                            logger.info(
+                                f"Model {model} returned 429 on attempt {attempt + 1}"
+                            )
 
                     # If this was our last attempt for this model, move to next model
                     if attempt >= len(self._degradation_config.retry_delays):

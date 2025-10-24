@@ -17,6 +17,24 @@ def test_extract_generated_text_success() -> None:
     assert text == "Hello world"
 
 
+def test_extract_generated_text_nested_candidates() -> None:
+    payload = [
+        {
+            "result": {
+                "response": {
+                    "candidates": [
+                        {"content": {"parts": [{"text": "Nested response"}]}},
+                    ]
+                }
+            }
+        }
+    ]
+
+    text = GeminiOAuthBaseConnector._extract_generated_text_from_response(payload)
+
+    assert text == "Nested response"
+
+
 def test_extract_generated_text_raises_on_error_payload() -> None:
     payload = {"error": {"message": "Resource exhausted", "code": 429}}
 
@@ -34,7 +52,7 @@ def test_extract_generated_text_raises_when_candidates_empty() -> None:
         GeminiOAuthBaseConnector._extract_generated_text_from_response(payload)
 
     assert excinfo.value.code == "empty_response"
-    assert excinfo.value.status_code == 429
+    assert excinfo.value.status_code == 502
 
 
 def test_extract_generated_text_handles_error_in_list_payload() -> None:
@@ -48,3 +66,61 @@ def test_extract_generated_text_handles_error_in_list_payload() -> None:
 
     assert excinfo.value.code == "gemini_error_payload"
     assert excinfo.value.status_code == 429
+
+
+def test_extract_generated_text_detects_nested_error() -> None:
+    payload = [
+        {
+            "result": {
+                "error": {
+                    "message": "Resource exhausted",
+                    "code": 429,
+                }
+            }
+        }
+    ]
+
+    with pytest.raises(BackendError) as excinfo:
+        GeminiOAuthBaseConnector._extract_generated_text_from_response(payload)
+
+    assert excinfo.value.code == "gemini_error_payload"
+    assert excinfo.value.status_code == 429
+
+
+def test_extract_generated_text_empty_candidates_without_error() -> None:
+    payload = [
+        {"candidates": []},
+    ]
+
+    with pytest.raises(BackendError) as excinfo:
+        GeminiOAuthBaseConnector._extract_generated_text_from_response(payload)
+
+    assert excinfo.value.code == "empty_response"
+    assert excinfo.value.status_code == 502
+
+
+def test_is_rate_limit_like_error_handles_empty_response() -> None:
+    err = BackendError(
+        message="Empty response",
+        code="empty_response",
+        status_code=502,
+    )
+    assert GeminiOAuthBaseConnector._is_rate_limit_like_error(err) is True
+
+
+def test_is_rate_limit_like_error_handles_429() -> None:
+    err = BackendError(
+        message="Rate limited",
+        code="rate_limit_exceeded",
+        status_code=429,
+    )
+    assert GeminiOAuthBaseConnector._is_rate_limit_like_error(err) is True
+
+
+def test_is_rate_limit_like_error_other_errors_false() -> None:
+    err = BackendError(
+        message="Other failure",
+        code="other",
+        status_code=500,
+    )
+    assert GeminiOAuthBaseConnector._is_rate_limit_like_error(err) is False

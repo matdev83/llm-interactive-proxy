@@ -107,36 +107,60 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
             return str(self._project_id)
 
         # Step 2: Determine which tier to use for onboarding
-        # This follows getOnboardTier logic from gemini-cli
+        allowed_tiers_raw = load_data.get("allowedTiers", [])
+        allowed_tiers: list[dict[str, Any]] = [
+            tier for tier in allowed_tiers_raw if isinstance(tier, dict)
+        ]
         current_tier = load_data.get("currentTier")
-        if current_tier:
-            # User already has a tier, but no project ID
-            if initial_project_id:
-                self._project_id = initial_project_id
-                return str(self._project_id)
-            else:
-                raise BackendError(
-                    message="This account requires setting the GOOGLE_CLOUD_PROJECT or GOOGLE_CLOUD_PROJECT_ID env var. See https://goo.gle/gemini-cli-auth-docs#workspace-gca",
-                    code="project_id_required",
-                )
+        if isinstance(current_tier, dict):
+            allowed_tiers.append(current_tier)
 
-        # No current tier, need to onboard with paid tier
-        # Find default tier from allowed tiers (following gemini-cli logic)
-        tier_to_use = None
-        allowed_tiers = load_data.get("allowedTiers", [])
-        for tier in allowed_tiers:
-            if tier.get("isDefault"):
-                tier_to_use = tier
-                break
+        def _tier_id(tier: dict[str, Any]) -> str:
+            raw_id = tier.get("id") or tier.get("tierId")
+            return str(raw_id or "").lower()
+
+        def _context_tokens(tier: dict[str, Any]) -> int:
+            for key in (
+                "maxContextTokens",
+                "contextTokenLimit",
+                "contextWindowTokens",
+                "tokenLimit",
+                "maxContextWindow",
+            ):
+                value = tier.get(key)
+                if isinstance(value, (int, float)):
+                    return int(value)
+            return 0
+
+        def _tier_score(tier: dict[str, Any]) -> tuple[int, int, int]:
+            tier_id = _tier_id(tier)
+            is_paid = int(tier_id in {"paid-tier", "google-one-tier", "googleone-tier"})
+            context_tokens = _context_tokens(tier)
+            if is_paid and context_tokens == 0:
+                # Paid tier should always outrank tiers with unknown limits
+                context_tokens = 1_000_000
+            is_default = int(bool(tier.get("isDefault")))
+            return (is_paid, context_tokens, is_default)
+
+        tier_to_use: dict[str, Any] | None = None
+        if allowed_tiers:
+            tier_to_use = max(allowed_tiers, key=_tier_score)
 
         if not tier_to_use:
-            # Default to standard-tier (paid) if no default found
-            tier_to_use = {"id": "standard-tier"}
+            tier_to_use = {"id": "paid-tier"}
+
+        selected_tier_id = tier_to_use.get("id") or "paid-tier"
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Selected Code Assist tier '%s' (context_limit=%s)",
+                selected_tier_id,
+                _context_tokens(tier_to_use),
+            )
 
         # Step 3: Perform onboarding with the paid tier
         # For paid tiers, we include the cloudaicompanionProject field
         onboard_request = {
-            "tierId": tier_to_use["id"],
+            "tierId": selected_tier_id,
             "cloudaicompanionProject": initial_project_id,
             "metadata": {
                 **client_metadata,
