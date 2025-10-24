@@ -128,7 +128,7 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
                 "maxContextWindow",
             ):
                 value = tier.get(key)
-                if isinstance(value, (int, float)):
+                if isinstance(value, int | float):
                     return int(value)
             return 0
 

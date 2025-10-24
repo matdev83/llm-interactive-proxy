@@ -15,7 +15,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import google.auth
 import google.auth.transport.requests
@@ -303,7 +303,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         visited: set[int] = set()
 
         def _walk(node: Any) -> None:
-            if isinstance(node, (str, bytes, int, float, bool)) or node is None:
+            if isinstance(node, str | bytes | int | float | bool) or node is None:
                 return
 
             node_id = id(node)
@@ -333,14 +333,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 for value in node.values():
                     _walk(value)
 
-            elif isinstance(node, (list, tuple)):
+            elif isinstance(node, list | tuple):
                 for item in node:
                     _walk(item)
             else:
                 # Unsupported container type
                 return
 
-        if isinstance(response_payload, (dict, list, tuple)):
+        if isinstance(response_payload, dict | list | tuple):
             _walk(response_payload)
         else:
             _raise_error(
@@ -478,11 +478,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             if limit_value > 0:
                 self._prompt_limit_overrides[normalized_key] = limit_value
 
-        raw_prefix_overrides = tuple(
-            getattr(self, "prompt_limit_prefix_overrides", ()) or ()
-        )
+        raw_prefix_overrides_attr = getattr(self, "prompt_limit_prefix_overrides", None)
+        raw_prefix_overrides = tuple(raw_prefix_overrides_attr or ())
         normalized_prefixes: list[tuple[str, int]] = []
-        for prefix, limit in raw_prefix_overrides:
+        for prefix, limit in cast(tuple[tuple[str, int], ...], raw_prefix_overrides):
             if limit is None:
                 continue
             try:
@@ -695,8 +694,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                         return json.dumps(part, ensure_ascii=False, default=str)
                     except Exception:
                         return repr(part)
-                if isinstance(part, (str, bytes)):
-                    return part.decode("utf-8", "ignore") if isinstance(part, bytes) else part
+                if isinstance(part, str | bytes):
+                    return (
+                        part.decode("utf-8", "ignore")
+                        if isinstance(part, bytes)
+                        else part
+                    )
                 if part is None:
                     return None
                 return str(part)
@@ -1886,7 +1889,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     url=url,
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
+                    timeout=int(DEFAULT_READ_TIMEOUT),
                 )
 
                 response_text = response.text
@@ -2856,11 +2859,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
         code = getattr(error, "code", None)
         status = getattr(error, "status_code", None)
-        if status == 429:
-            return True
-        if isinstance(code, str) and code in {"empty_response"}:
-            return True
-        return False
+        return status == 429 or (isinstance(code, str) and code in {"empty_response"})
 
     async def _probe_model_recovery(
         self, model: str, bypass_interval_check: bool = False
@@ -2911,6 +2910,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 request_data=test_request,
                 processed_messages=[{"role": "user", "content": "recovery probe"}],
                 effective_model=model,
+                _in_graceful_degradation=True,
             )
 
             # If we get here, the probe succeeded
@@ -3031,8 +3031,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 self._total_attempts += 1
 
                 if self._total_attempts >= self._degradation_config.max_total_attempts:
+                    self._mark_backend_unusable()
                     self._permanently_failed = True
-                    self.is_functional = False
                     raise BackendError(
                         message="Maximum total attempts exceeded in graceful degradation",
                         code="max_attempts_exceeded",

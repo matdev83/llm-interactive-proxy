@@ -58,7 +58,11 @@ class TestGeminiOAuthPlanConnector:
         load_code_assist_response.json.return_value = {
             "currentTier": None,  # No current tier, needs onboarding
             "allowedTiers": [
-                {"id": "standard-tier", "isDefault": True, "contextWindowTokens": 65536},
+                {
+                    "id": "standard-tier",
+                    "isDefault": True,
+                    "contextWindowTokens": 65536,
+                },
                 {"id": "paid-tier", "isDefault": False, "maxContextTokens": 1_000_000},
             ],
         }
@@ -112,11 +116,11 @@ class TestGeminiOAuthPlanConnector:
         mock_auth_session.post.assert_called_with(
             "https://cloudcode-pa.googleapis.com/v1internal:onboardUser",
             json={
-            "tierId": "paid-tier",
-            "cloudaicompanionProject": None,
-            "metadata": {
-                "ideType": "IDE_UNSPECIFIED",
-                "platform": "PLATFORM_UNSPECIFIED",
+                "tierId": "paid-tier",
+                "cloudaicompanionProject": None,
+                "metadata": {
+                    "ideType": "IDE_UNSPECIFIED",
+                    "platform": "PLATFORM_UNSPECIFIED",
                     "pluginType": "GEMINI",
                     "duetProject": None,
                 },
