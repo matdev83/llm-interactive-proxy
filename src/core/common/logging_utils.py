@@ -96,11 +96,11 @@ DEFAULT_REDACTED_FIELDS = {
 }
 
 # Regular expressions for redacting sensitive information
-# Match common API key prefixes (OpenAI sk-, Anthropic ak-) followed by
-# at least 20 characters that can include letters, digits, hyphens, or underscores.
-# Modern provider keys often include additional hyphenated segments such as
-# "sk-proj-" or "sk-test-", so the pattern must allow these characters.
-API_KEY_PATTERN = re.compile(r"(?:sk|ak)[-_][A-Za-z0-9_-]{20,}")
+# Match common API key prefixes with more specific patterns to reduce false positives:
+# - OpenAI keys: sk- followed by specific prefixes like proj-, test-, etc., then 20+ chars
+# - Anthropic keys: ak- followed by specific prefixes like ant-, etc., then 20+ chars
+# This avoids matching "ak_" sequences in common English words like "tracking", "monitoring"
+API_KEY_PATTERN = re.compile(r"(?:sk-(?:proj|test|live|team|org|svc)[A-Za-z0-9_-]{15,}|ak-(?:ant|sk|proj)[A-Za-z0-9_-]{17,})")
 # ZAI-style keys: 32 hex chars, dot, 16+ mixed alphanum
 ZAI_KEY_PATTERN = re.compile(r"\b[0-9a-f]{32}\.[A-Za-z0-9]{16,}\b")
 BEARER_TOKEN_PATTERN = re.compile(r"Bearer\s+([a-zA-Z0-9._~+/-]+=*)")

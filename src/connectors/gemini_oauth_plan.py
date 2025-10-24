@@ -26,6 +26,10 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
     Connector that uses access_token from gemini-cli oauth_creds.json file for paid plans.
     """
 
+    prompt_limit_prefix_overrides: tuple[tuple[str, int], ...] = (
+        ("gemini-2.5", 1_000_000),
+    )
+
     backend_type: str = "gemini-oauth-plan"
 
     def __init__(

@@ -97,7 +97,7 @@ DEFAULT_RECOVERY_PROBE_INTERVAL = 60.0  # Check recovery every minute
 
 # Code Assist plan-specific prompt allowance (per request).
 # The margin stops us before the backend enforces the hard cap.
-CODE_ASSIST_PROMPT_LIMIT = 65_536
+DEFAULT_CODE_ASSIST_PROMPT_LIMIT = 65_536
 CODE_ASSIST_PROMPT_LIMIT_MARGIN = 0.97
 
 
@@ -202,7 +202,21 @@ class _StaticTokenCreds:
 class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
     """Base class for Gemini OAuth connectors."""
 
+    default_prompt_limit: int | None = DEFAULT_CODE_ASSIST_PROMPT_LIMIT
+    prompt_limit_overrides: dict[str, int] = {}
+    prompt_limit_prefix_overrides: tuple[tuple[str, int], ...] = ()
+
     _project_id: str | None = None
+
+    @staticmethod
+    def _normalize_model_key(model_name: str) -> str:
+        """Normalize model identifiers for prompt-limit lookups."""
+        normalized = (model_name or "").strip().lower()
+        if ":" in normalized:
+            normalized = normalized.split(":", 1)[-1]
+        if normalized.startswith("models/"):
+            normalized = normalized[len("models/") :]
+        return normalized
 
     def __init__(
         self,
@@ -253,6 +267,39 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         self._total_attempts = 0
         self._permanently_failed = False
         self._recovery_probe_task: asyncio.Task[Any] | None = None
+
+        # Prompt-limit configuration (overrides can be supplied by subclasses)
+        self._default_prompt_limit = getattr(
+            self, "default_prompt_limit", DEFAULT_CODE_ASSIST_PROMPT_LIMIT
+        )
+        raw_overrides = dict(getattr(self, "prompt_limit_overrides", {}) or {})
+        self._prompt_limit_overrides: dict[str, int] = {}
+        for key, limit in raw_overrides.items():
+            if limit is None:
+                continue
+            try:
+                normalized_key = self._normalize_model_key(key)
+                limit_value = int(limit)
+            except (ValueError, TypeError):
+                continue
+            if limit_value > 0:
+                self._prompt_limit_overrides[normalized_key] = limit_value
+
+        raw_prefix_overrides = tuple(
+            getattr(self, "prompt_limit_prefix_overrides", ()) or ()
+        )
+        normalized_prefixes: list[tuple[str, int]] = []
+        for prefix, limit in raw_prefix_overrides:
+            if limit is None:
+                continue
+            try:
+                normalized_prefix = self._normalize_model_key(prefix)
+                limit_value = int(limit)
+            except (ValueError, TypeError):
+                continue
+            if limit_value > 0:
+                normalized_prefixes.append((normalized_prefix, limit_value))
+        self._prompt_limit_prefix_overrides = tuple(normalized_prefixes)
 
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
@@ -465,6 +512,33 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             logger.warning("Failed to estimate prompt tokens: %s", exc)
             return None
 
+    def _get_prompt_limit(self, effective_model: str) -> int | None:
+        """Resolve the prompt-size threshold for the given model."""
+        normalized = self._normalize_model_key(effective_model)
+
+        limit = self._prompt_limit_overrides.get(normalized)
+
+        if limit is None:
+            for prefix, candidate_limit in self._prompt_limit_prefix_overrides:
+                if normalized.startswith(prefix):
+                    limit = candidate_limit
+                    break
+
+        if limit is None:
+            limit = self._default_prompt_limit
+
+        override_limit = getattr(self.config, "context_window_override", None)
+        if isinstance(override_limit, int) and override_limit > 0:
+            if limit is None:
+                limit = override_limit
+            else:
+                limit = min(limit, override_limit)
+
+        if limit is None or limit <= 0:
+            return None
+
+        return int(limit)
+
     def _enforce_prompt_limit(
         self,
         prompt_tokens: int | None,
@@ -476,7 +550,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         if prompt_tokens is None:
             return
 
-        soft_limit = int(CODE_ASSIST_PROMPT_LIMIT * CODE_ASSIST_PROMPT_LIMIT_MARGIN)
+        limit = self._get_prompt_limit(effective_model)
+        if limit is None:
+            return
+
+        soft_limit = int(limit * CODE_ASSIST_PROMPT_LIMIT_MARGIN)
         if prompt_tokens <= soft_limit:
             return
 
@@ -487,7 +565,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         details = {
             "model": effective_model,
             "estimated_tokens": prompt_tokens,
-            "limit": CODE_ASSIST_PROMPT_LIMIT,
+            "limit": limit,
             "status": "CONTEXT_WINDOW_WILL_OVERFLOW",
             "advice": (
                 "Use /compress or start a new session to reduce history size before retrying."
@@ -499,7 +577,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         logger.warning(
             "Code Assist prompt blocked locally: estimated_tokens=%s limit=%s model=%s",
             prompt_tokens,
-            CODE_ASSIST_PROMPT_LIMIT,
+            limit,
             effective_model,
         )
 
