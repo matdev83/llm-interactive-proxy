@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -211,7 +211,11 @@ def _extract_command(arguments: Any) -> str | None:
 
         return None
 
-    if isinstance(arguments, list):
+    if (
+        isinstance(arguments, Sequence)
+        and not isinstance(arguments, str | bytes)
+        and arguments
+    ):
         return " ".join(str(item) for item in arguments)
 
     return None

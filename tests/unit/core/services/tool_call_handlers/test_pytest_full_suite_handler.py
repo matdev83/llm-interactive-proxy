@@ -253,3 +253,21 @@ async def test_handler_caps_session_state_size() -> None:
 
     assert len(handler._session_state) == 2
     assert "session-1" not in handler._session_state
+
+
+@pytest.mark.asyncio
+async def test_handler_detects_tuple_based_command() -> None:
+    handler = PytestFullSuiteHandler(enabled=True)
+    context = ToolCallContext(
+        session_id="session-tuple",
+        backend_name="backend",
+        model_name="model",
+        full_response={},
+        tool_name="bash",
+        tool_arguments=("pytest", "-q"),
+    )
+
+    assert await handler.can_handle(context) is True
+    result = await handler.handle(context)
+
+    assert result.should_swallow is True
