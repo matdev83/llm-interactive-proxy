@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 
 from src.core.domain.chat import ToolCall
@@ -77,6 +78,42 @@ class DangerousCommandService:
                 return None
         return None
 
+    def _generate_command_candidates(self, command: str) -> list[str]:
+        """Produce normalized variants to improve pattern detection."""
+        candidates: set[str] = set()
+        collapsed = re.sub(r"\s+", " ", command).strip()
+        candidates.add(command)
+        candidates.add(collapsed)
+
+        substitution_normalized = re.sub(
+            r"\$\((?:which|command\s+-v)\s+git\)",
+            "git",
+            collapsed,
+            flags=re.IGNORECASE,
+        )
+        candidates.add(substitution_normalized.strip())
+
+        env_stripped = re.sub(
+            r"\b[A-Z_][A-Z0-9_]*=.*?(?=\s+git\b)",
+            "",
+            substitution_normalized,
+            flags=re.IGNORECASE,
+        )
+        env_stripped = re.sub(r"\s+", " ", env_stripped).strip()
+        candidates.add(env_stripped)
+
+        tokens = env_stripped.split()
+        if tokens:
+            normalized_tokens: list[str] = []
+            for token in tokens:
+                cleaned = token
+                if "git" in token.lower():
+                    cleaned = re.split(r"[\\/]", token)[-1]
+                normalized_tokens.append(cleaned)
+            candidates.add(" ".join(normalized_tokens).strip())
+
+        return [candidate for candidate in candidates if candidate]
+
     def scan(
         self, tool_name: str, arguments: Any
     ) -> tuple[DangerousCommandRule, str] | None:
@@ -91,7 +128,10 @@ class DangerousCommandService:
         if not command_to_check:
             return None
 
+        candidates = self._generate_command_candidates(command_to_check)
+
         for rule in self.config.rules:
-            if rule.pattern.search(command_to_check):
-                return rule, command_to_check
+            for candidate in candidates:
+                if rule.pattern.search(candidate):
+                    return rule, command_to_check
         return None

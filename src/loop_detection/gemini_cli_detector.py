@@ -41,8 +41,7 @@ _TABLE_HEADER_PATTERN = re.compile(r"^\|")
 
 # Combined markdown structure pattern for single-pass checking
 _MARKDOWN_STRUCTURE_PATTERN = re.compile(
-    r"^(#{1,6}\s+|>\s+|(?:[*+\-]|\d+\.)\s+|\|.*\|.*|\+[-+]+\+)",
-    re.MULTILINE
+    r"^(#{1,6}\s+|>\s+|(?:[*+\-]|\d+\.)\s+|\|.*\|.*|\+[-+]+\+)", re.MULTILINE
 )
 
 
@@ -185,12 +184,9 @@ class GeminiCliLoopDetector(ILoopDetector):
         # Use combined pattern for single-pass checking
         if _MARKDOWN_STRUCTURE_PATTERN.match(stripped):
             return True
-            
+
         # Special case for tables with pipe characters
-        if stripped.startswith("|") and stripped.count("|") >= 2:
-            return True
-            
-        return False
+        return stripped.startswith("|") and stripped.count("|") >= 2
 
     def _truncate_and_update(self) -> None:
         """

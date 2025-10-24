@@ -1222,14 +1222,18 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 request_data, processed_messages, effective_model, **kwargs
             )
 
-            async for chunk in stream_envelope.content:
-                if chunk.content:
-                    choice = (
-                        chunk.content["choices"][0] if chunk.content["choices"] else {}
-                    )
-                    delta = choice.get("delta", {})
-                    if delta.get("content"):
-                        generated_text += delta["content"]
+            stream_content = stream_envelope.content
+            if stream_content is not None:
+                async for chunk in stream_content:
+                    if chunk.content:
+                        choice = (
+                            chunk.content["choices"][0]
+                            if chunk.content["choices"]
+                            else {}
+                        )
+                        delta = choice.get("delta", {})
+                        if delta.get("content"):
+                            generated_text += delta["content"]
 
             # Convert to OpenAI-compatible format using the translation service
             if not domain_response:

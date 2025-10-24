@@ -237,8 +237,10 @@ def to_fastapi_streaming_response(
 
     # Ensure the async iterator yields bytes (some backends yield str)
     async def _byte_streamer(
-        it: AsyncIterator[Any] | Iterable[Any],
+        it: AsyncIterator[Any] | Iterable[Any] | None,
     ) -> AsyncIterator[bytes]:
+        if it is None:
+            return
         try:
             async for chunk in it:  # type: ignore
                 # Extract content from ProcessedResponse if needed
@@ -256,6 +258,18 @@ def to_fastapi_streaming_response(
                 yield _format_chunk_as_sse(content)
 
     content_iter = domain_response.content
+    if content_iter is None:
+        # Create empty iterator if content is None
+        async def _empty_streamer() -> AsyncIterator[bytes]:
+            return
+            # vulture: ignore
+            yield b""
+
+        return StreamingResponse(
+            content=_empty_streamer(),
+            media_type=getattr(domain_response, "media_type", "text/event-stream"),
+            headers=domain_response.headers or {},
+        )
     return StreamingResponse(
         content=_byte_streamer(content_iter),
         media_type=getattr(domain_response, "media_type", "text/event-stream"),

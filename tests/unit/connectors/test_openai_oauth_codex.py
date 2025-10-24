@@ -17,10 +17,16 @@ from src.core.domain.chat import (
     ToolCall,
 )
 from src.core.domain.responses import ResponseEnvelope
+from src.core.services.tool_text_renderer import (
+    OverrideRenderer,
+    render_tool_call,
+    reset_renderer_registry,
+)
 
 
 @pytest_asyncio.fixture()
 async def connector() -> AsyncIterator[OpenAIOAuthConnector]:
+    reset_renderer_registry()
     client = httpx.AsyncClient()
     config = AppConfig()
     instance = OpenAIOAuthConnector(client=client, config=config)
@@ -201,6 +207,147 @@ async def test_codex_xml_mode_handles_structured_tool_calls(
 
     parsed_output = json.loads(output_entry["output"])
     assert parsed_output["output"] == '{"output": "files", "exit_code": 0}'
+
+
+@pytest.mark.asyncio
+async def test_config_default_capabilities_from_backend_extra() -> None:
+    reset_renderer_registry()
+    config = AppConfig()
+    config.backends.openai_oauth.extra.setdefault("codex", {}).update(
+        {
+            "default_capabilities": {
+                "tool_text_format": "codex_xml",
+                "include_environment_context": False,
+            }
+        }
+    )
+    async with httpx.AsyncClient() as client:
+        connector = OpenAIOAuthConnector(client=client, config=config)
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hello")],
+            model="gpt-5-codex",
+        )
+        capabilities = connector._resolve_capabilities(chat_request)
+        assert capabilities.tool_text_format == "codex_xml"
+        assert capabilities.include_environment_context is False
+    reset_renderer_registry()
+
+
+@pytest.mark.asyncio
+async def test_prompt_configuration_applies_prepend_append() -> None:
+    reset_renderer_registry()
+    config = AppConfig()
+    config.backends.openai_oauth.extra.setdefault("codex", {}).update(
+        {
+            "prompt": {
+                "prepend": ["<environment constraints>"],
+                "append": ["<end of rules>"],
+            }
+        }
+    )
+    async with httpx.AsyncClient() as client:
+        connector = OpenAIOAuthConnector(client=client, config=config)
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hello")],
+            model="gpt-5-codex",
+        )
+        payload, _ = connector._build_codex_payload(
+            chat_request, chat_request.messages, "gpt-5-codex"
+        )
+        instructions = payload.get("instructions", "")
+        assert instructions.startswith("<environment constraints>")
+        assert instructions.endswith("<end of rules>")
+    reset_renderer_registry()
+
+
+@pytest.mark.asyncio
+async def test_tool_schema_configuration_overrides_default() -> None:
+    reset_renderer_registry()
+    config = AppConfig()
+    config.backends.openai_oauth.extra.setdefault("codex", {}).update(
+        {
+            "tool_schema": {
+                "base_tools": [
+                    {
+                        "type": "function",
+                        "name": "echo",
+                        "description": "Echo text back",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                        },
+                    }
+                ]
+            }
+        }
+    )
+    async with httpx.AsyncClient() as client:
+        connector = OpenAIOAuthConnector(client=client, config=config)
+        tools = connector._default_codex_tools()
+        assert len(tools) == 1
+        assert tools[0]["name"] == "echo"
+    reset_renderer_registry()
+
+
+@pytest.mark.asyncio
+async def test_tool_schema_custom_only_uses_config_defaults() -> None:
+    reset_renderer_registry()
+    config = AppConfig()
+    config.backends.openai_oauth.extra.setdefault("codex", {}).update(
+        {
+            "tool_schema": {
+                "custom_tools": [
+                    {
+                        "type": "function",
+                        "name": "workspace_info",
+                        "description": "Returns workspace metadata",
+                        "parameters": {"type": "object", "properties": {}},
+                    }
+                ]
+            }
+        }
+    )
+    async with httpx.AsyncClient() as client:
+        connector = OpenAIOAuthConnector(client=client, config=config)
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hello")],
+            model="gpt-5-codex",
+            extra_body={"codex_capabilities": {"tool_schema_mode": "custom_only"}},
+        )
+        payload, _ = connector._build_codex_payload(
+            chat_request, chat_request.messages, "gpt-5-codex"
+        )
+        tools = payload.get("tools", [])
+        assert len(tools) == 1
+        assert tools[0]["name"] == "workspace_info"
+    reset_renderer_registry()
+
+
+@pytest.mark.asyncio
+async def test_renderer_configuration_alias_and_default() -> None:
+    reset_renderer_registry()
+    config = AppConfig()
+    config.backends.openai_oauth.extra.setdefault("codex", {}).update(
+        {"renderer": {"aliases": {"cli": "xml"}, "default": "cli"}}
+    )
+    async with httpx.AsyncClient() as client:
+        connector = OpenAIOAuthConnector(client=client, config=config)
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hello")],
+            model="gpt-5-codex",
+        )
+        capabilities = connector._resolve_capabilities(chat_request)
+        renderer_key = connector._select_renderer_key(capabilities)
+        assert renderer_key == "cli"
+        tool_call = ToolCall(
+            id="call-1",
+            function=FunctionCall(name="shell", arguments='{"command":["ls"]}'),
+        )
+        with OverrideRenderer(renderer_key):
+            rendered = render_tool_call(tool_call)
+        assert rendered and rendered.startswith("<execute_command>")
+    reset_renderer_registry()
 
 
 @pytest.mark.asyncio

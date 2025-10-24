@@ -16,6 +16,7 @@ class CodexClientCapabilities:
 
     protocol: str = "openai-chat"
     tool_text_format: str = "none"
+    fallback_tool_text_format: str = "summary"
     codex_passthrough: bool = False
     prompt_mode: str = "codex_default"
     tool_schema_mode: str = "codex_default"
@@ -44,6 +45,7 @@ class CodexCapabilityResolver:
     _SUPPORTED_KEYS = {
         "protocol",
         "tool_text_format",
+        "fallback_tool_text_format",
         "codex_passthrough",
         "prompt_mode",
         "tool_schema_mode",
@@ -58,9 +60,30 @@ class CodexCapabilityResolver:
     _CLINE_LIKE_AGENTS = {"cline", "kilocode", "roocode"}
 
     def __init__(
-        self, default_capabilities: CodexClientCapabilities | None = None
+        self,
+        default_capabilities: CodexClientCapabilities | None = None,
+        agent_overrides: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
         self._default = default_capabilities or CodexClientCapabilities()
+        self._default_dict = self._default.to_dict()
+        normalized_overrides: dict[str, dict[str, Any]] = {}
+        if agent_overrides:
+            for raw_agent, override in agent_overrides.items():
+                if not isinstance(raw_agent, str):
+                    continue
+                agent_key = raw_agent.strip().lower()
+                if not agent_key:
+                    continue
+                mapping = self._to_mapping(override)
+                if not mapping:
+                    continue
+                filtered: dict[str, Any] = {}
+                for key in self._SUPPORTED_KEYS:
+                    if key in mapping and mapping[key] is not None:
+                        filtered[key] = mapping[key]
+                if filtered:
+                    normalized_overrides[agent_key] = filtered
+        self._agent_overrides = normalized_overrides
 
     def resolve(
         self,
@@ -92,6 +115,16 @@ class CodexCapabilityResolver:
             "none",
         ):
             result = result.merge({"tool_text_format": "codex_xml"})
+        if agent and agent in self._agent_overrides:
+            override = self._agent_overrides[agent]
+            current = result.to_dict()
+            filtered_overrides: dict[str, Any] = {}
+            for key, value in override.items():
+                # Only apply when current value still matches resolver default
+                if current.get(key) == self._default_dict.get(key):
+                    filtered_overrides[key] = value
+            if filtered_overrides:
+                result = result.merge(filtered_overrides)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(

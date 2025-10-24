@@ -23,13 +23,10 @@ _TOOL_NAME_ALIASES: dict[str, str] = {
 
 # Pre-compiled regex patterns for performance optimization
 _TOOL_RESULT_PATTERN = re.compile(
-    r"\[(?P<label>[^\]]+)\]\s*Result:\s*(?P<body>.*)",
-    re.DOTALL | re.IGNORECASE
+    r"\[(?P<label>[^\]]+)\]\s*Result:\s*(?P<body>.*)", re.DOTALL | re.IGNORECASE
 )
 _EXIT_CODE_PATTERN = re.compile(r"Exit code:\s*(-?\d+)")
-_CWD_PATTERN = re.compile(
-    r"working directory ['\"]([^'\"]+)['\"]", re.IGNORECASE
-)
+_CWD_PATTERN = re.compile(r"working directory ['\"]([^'\"]+)['\"]", re.IGNORECASE)
 _OUTPUT_LABEL_PATTERN = re.compile(r"\n(?:Output|Error|Stdout|Stderr):")
 _COMMAND_PATTERN = re.compile(r"<command>(.*?)</command>", re.DOTALL)
 _CWD_PATTERN_XML = re.compile(r"<cwd>(.*?)</cwd>", re.DOTALL)
@@ -41,7 +38,7 @@ _COMPREHENSIVE_EXTRACTION_PATTERN = re.compile(
     r"(?P<exit_code>Exit code:\s*(-?\d+))|"
     r"(?P<cwd>working directory ['\"]([^'\"]+)['\"])|"
     r"(?P<output_label>\n(?:Output|Error|Stdout|Stderr):)",
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
 
@@ -107,7 +104,7 @@ def parse_textual_tool_result(text: str) -> TextToolResult | None:
     exit_code: int | None = None
     cwd: str | None = None
     output_section = body
-    
+
     for match in _COMPREHENSIVE_EXTRACTION_PATTERN.finditer(body):
         if match.group("exit_code"):
             try:
@@ -121,7 +118,7 @@ def parse_textual_tool_result(text: str) -> TextToolResult | None:
             else:
                 cwd = match.group("cwd")
         elif match.group("output_label"):
-            output_section = body[match.end():]
+            output_section = body[match.end() :]
     output_text = output_section.strip()
 
     return TextToolResult(

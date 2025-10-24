@@ -1927,8 +1927,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                 if isinstance(
                                     degraded_response, StreamingResponseEnvelope
                                 ):
-                                    async for chunk in degraded_response.content:
-                                        yield chunk
+                                    stream_content = degraded_response.content
+                                    if stream_content is not None:
+                                        async for chunk in stream_content:
+                                            yield chunk
                                 else:
                                     # Convert non-streaming response to streaming chunks
                                     # This is a fallback case, shouldn't normally happen
@@ -2137,12 +2139,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                                                 degraded_response,
                                                                 StreamingResponseEnvelope,
                                                             ):
-                                                                async for (
-                                                                    chunk
-                                                                ) in (
+                                                                stream_content = (
                                                                     degraded_response.content
+                                                                )
+                                                                if (
+                                                                    stream_content
+                                                                    is not None
                                                                 ):
-                                                                    yield chunk
+                                                                    async for (
+                                                                        chunk
+                                                                    ) in stream_content:
+                                                                        yield chunk
                                                             else:
                                                                 final_chunk = self.translation_service.to_domain_stream_chunk(
                                                                     chunk=None,

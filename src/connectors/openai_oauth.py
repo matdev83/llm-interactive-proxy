@@ -24,7 +24,7 @@ import platform
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -49,10 +49,86 @@ from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
-from src.core.services.tool_text_renderer import OverrideRenderer
+from src.core.services.tool_text_renderer import (
+    OverrideRenderer,
+    configure_renderer_registry,
+)
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
+
+
+def _load_json_env(var_name: str) -> Any:
+    """Parse a JSON environment variable, returning None on failure."""
+    raw_value = os.getenv(var_name)
+    if not raw_value:
+        return None
+    try:
+        return json.loads(raw_value)
+    except json.JSONDecodeError:
+        logger.warning("Ignoring invalid JSON in %s", var_name)
+        return None
+
+
+def _to_mapping(candidate: Any) -> dict[str, Any] | None:
+    """Convert arbitrary objects into plain dictionaries when possible."""
+    if candidate is None:
+        return None
+    if isinstance(candidate, Mapping):
+        return dict(candidate)
+    if hasattr(candidate, "model_dump") and callable(candidate.model_dump):
+        try:
+            dumped = candidate.model_dump()
+            if isinstance(dumped, Mapping):
+                return dict(dumped)
+        except Exception:
+            return None
+    if hasattr(candidate, "__dict__"):
+        return dict(candidate.__dict__)
+    return None
+
+
+def _to_string_list(value: Any) -> list[str]:
+    """Normalize various containers into a list of non-empty strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, Sequence) and not isinstance(value, bytes | bytearray | str):
+        result: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    result.append(text)
+        return result
+    return []
+
+
+def _normalize_tool_schema_list(value: Any, *, context: str) -> list[dict[str, Any]]:
+    """Normalize a value into a list of tool schema dictionaries."""
+    if value is None:
+        return []
+    items: Sequence[Any]
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        items = value
+    else:
+        items = [value]
+    normalized: list[dict[str, Any]] = []
+    for idx, entry in enumerate(items):
+        mapping = _to_mapping(entry)
+        if not mapping:
+            logger.warning("Skipping invalid tool schema entry %s[%s]", context, idx)
+            continue
+        name = mapping.get("name")
+        if not isinstance(name, str) or not name.strip():
+            logger.warning(
+                "Skipping tool schema entry without name in %s[%s]", context, idx
+            )
+            continue
+        normalized.append(dict(mapping))
+    return normalized
 
 
 class OpenAICredentialsFileHandler(FileSystemEventHandler):
@@ -184,6 +260,19 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self._auth_path: Path | None = None
         self._last_modified: float = 0.0
         self.is_functional: bool = False
+        self._connector_settings = self._load_connector_settings(config)
+        self._default_capabilities: CodexClientCapabilities = self._connector_settings[
+            "default_capabilities"
+        ]
+        self._renderer_default: str = self._connector_settings["renderer"]["default"]
+        self._renderer_fallback: str = self._connector_settings["renderer"]["fallback"]
+        self._prompt_settings: dict[str, Any] = self._connector_settings["prompt"]
+        self._default_tool_schema_override: list[dict[str, Any]] | None = (
+            self._connector_settings["tool_schema"]["base_tools"]
+        )
+        self._custom_tool_schema_default: list[dict[str, Any]] = (
+            self._connector_settings["tool_schema"]["custom_tools"]
+        )
 
         # Stale token handling pattern attributes
         # Use BaseObserver for type checking to ensure stop/join are recognized by mypy
@@ -196,7 +285,10 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._reload_task_lock = threading.Lock()
         self._reload_scheduling_in_progress = False
-        self._capability_resolver = CodexCapabilityResolver()
+        self._capability_resolver = CodexCapabilityResolver(
+            default_capabilities=self._default_capabilities,
+            agent_overrides=self._connector_settings["agent_overrides"],
+        )
         self._request_translator = CodexRequestTranslator(self)
         self._token_refresh_lock = asyncio.Lock()
 
@@ -205,6 +297,218 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
         with contextlib.suppress(Exception):
             self.disable_health_check()
+
+    def _load_connector_settings(self, app_config: AppConfig) -> dict[str, Any]:
+        settings: dict[str, Any] = {
+            "default_capabilities": CodexClientCapabilities(),
+            "agent_overrides": {},
+            "renderer": {
+                "default": "none",
+                "fallback": "summary",
+                "aliases": {},
+                "modules": {},
+            },
+            "prompt": {
+                "template": None,
+                "prepend": [],
+                "append": [],
+                "deduplicate": True,
+                "fallback_to_default": True,
+            },
+            "tool_schema": {
+                "base_tools": None,
+                "custom_tools": [],
+            },
+        }
+
+        backend_config = getattr(app_config.backends, "openai_oauth", None)
+        backend_extra = {}
+        if backend_config and hasattr(backend_config, "extra"):
+            try:
+                extra_candidate = backend_config.extra
+                if isinstance(extra_candidate, Mapping):
+                    backend_extra = dict(extra_candidate)
+            except Exception:  # pragma: no cover - defensive
+                backend_extra = {}
+
+        codex_cfg = _to_mapping(backend_extra.get("codex")) or {}
+
+        # Default capabilities
+        for override_source in (
+            codex_cfg.get("default_capabilities"),
+            _load_json_env("OPENAI_OAUTH_DEFAULT_CAPABILITIES"),
+        ):
+            mapping = _to_mapping(override_source)
+            if mapping:
+                settings["default_capabilities"] = settings[
+                    "default_capabilities"
+                ].merge(mapping)
+
+        # Agent overrides
+        combined_agent_overrides: dict[str, dict[str, Any]] = {}
+        for source in (
+            codex_cfg.get("agent_capabilities"),
+            _load_json_env("OPENAI_OAUTH_AGENT_CAPABILITIES"),
+        ):
+            mapping = _to_mapping(source)
+            if not mapping:
+                continue
+            for raw_agent, caps in mapping.items():
+                if not isinstance(raw_agent, str):
+                    continue
+                agent_key = raw_agent.strip().lower()
+                if not agent_key:
+                    continue
+                cap_mapping = _to_mapping(caps)
+                if not cap_mapping:
+                    continue
+                combined_agent_overrides.setdefault(agent_key, {}).update(cap_mapping)
+        settings["agent_overrides"] = combined_agent_overrides
+
+        # Renderer configuration
+        renderer_cfg = _to_mapping(codex_cfg.get("renderer")) or {}
+        renderer_aliases = _to_mapping(renderer_cfg.get("aliases")) or {}
+        renderer_modules = _to_mapping(renderer_cfg.get("modules")) or {}
+        env_renderer_aliases = (
+            _to_mapping(_load_json_env("OPENAI_OAUTH_RENDERER_ALIASES") or {}) or {}
+        )
+        env_renderer_modules = (
+            _to_mapping(_load_json_env("OPENAI_OAUTH_RENDERER_MODULES") or {}) or {}
+        )
+
+        renderer_default = renderer_cfg.get("default") or os.getenv(
+            "OPENAI_OAUTH_RENDERER_DEFAULT"
+        )
+        renderer_fallback = renderer_cfg.get("fallback") or os.getenv(
+            "OPENAI_OAUTH_RENDERER_FALLBACK"
+        )
+        renderer_default = (renderer_default or "none").strip() or "none"
+        renderer_fallback = (renderer_fallback or "summary").strip() or "summary"
+
+        # Prompt configuration
+        prompt_cfg = _to_mapping(codex_cfg.get("prompt")) or {}
+        prompt_template = prompt_cfg.get("template") or os.getenv(
+            "OPENAI_OAUTH_PROMPT_TEMPLATE"
+        )
+        prepend_sections = _to_string_list(prompt_cfg.get("prepend")) + _to_string_list(
+            _load_json_env("OPENAI_OAUTH_PROMPT_PREPEND")
+        )
+        append_sections = _to_string_list(prompt_cfg.get("append")) + _to_string_list(
+            _load_json_env("OPENAI_OAUTH_PROMPT_APPEND")
+        )
+        prompt_deduplicate_env = os.getenv("OPENAI_OAUTH_PROMPT_DEDUPLICATE")
+        if prompt_deduplicate_env is not None:
+            prompt_deduplicate = prompt_deduplicate_env.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        else:
+            prompt_deduplicate = bool(prompt_cfg.get("deduplicate", True))
+        fallback_to_default_env = os.getenv("OPENAI_OAUTH_PROMPT_FALLBACK_DEFAULT")
+        if fallback_to_default_env is not None:
+            fallback_to_default = fallback_to_default_env.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        else:
+            fallback_to_default = bool(prompt_cfg.get("fallback_to_default", True))
+
+        settings["prompt"].update(
+            {
+                "template": (
+                    prompt_template.strip()
+                    if isinstance(prompt_template, str)
+                    else None
+                ),
+                "prepend": prepend_sections,
+                "append": append_sections,
+                "deduplicate": prompt_deduplicate,
+                "fallback_to_default": fallback_to_default,
+            }
+        )
+
+        # Tool schema configuration
+        tool_schema_cfg = _to_mapping(codex_cfg.get("tool_schema")) or {}
+        base_tools = _normalize_tool_schema_list(
+            tool_schema_cfg.get("base_tools")
+            or _load_json_env("OPENAI_OAUTH_TOOL_SCHEMA_BASE"),
+            context="codex.tool_schema.base_tools",
+        )
+        custom_tools = _normalize_tool_schema_list(
+            tool_schema_cfg.get("custom_tools")
+            or _load_json_env("OPENAI_OAUTH_TOOL_SCHEMA_CUSTOM"),
+            context="codex.tool_schema.custom_tools",
+        )
+        settings["tool_schema"].update(
+            {
+                "base_tools": base_tools or None,
+                "custom_tools": custom_tools,
+            }
+        )
+
+        # Configure renderer registry last so aliases/modules are available before defaults
+        combined_aliases_raw: dict[Any, Any] = {}
+        combined_aliases_raw.update(renderer_aliases)
+        combined_aliases_raw.update(env_renderer_aliases)
+        combined_modules_raw: dict[Any, Any] = {}
+        combined_modules_raw.update(renderer_modules)
+        combined_modules_raw.update(env_renderer_modules)
+
+        sanitized_aliases: dict[str, str] = {}
+        for alias, target in combined_aliases_raw.items():
+            if not isinstance(alias, str) or not isinstance(target, str):
+                continue
+            alias_key = alias.strip()
+            target_key = target.strip()
+            if alias_key and target_key:
+                sanitized_aliases[alias_key] = target_key
+
+        sanitized_modules: dict[str, str] = {}
+        for name, dotted_path in combined_modules_raw.items():
+            if not isinstance(name, str) or not isinstance(dotted_path, str):
+                continue
+            renderer_name = name.strip()
+            path_value = dotted_path.strip()
+            if renderer_name and path_value:
+                sanitized_modules[renderer_name] = path_value
+        try:
+            configure_renderer_registry(
+                aliases=sanitized_aliases or None,
+                modules=sanitized_modules or None,
+                default=renderer_default,
+                fallback=renderer_fallback,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("Failed to configure tool text renderer registry: %s", exc)
+
+        settings["renderer"].update(
+            {
+                "default": renderer_default,
+                "fallback": renderer_fallback,
+                "aliases": sanitized_aliases,
+                "modules": sanitized_modules,
+            }
+        )
+
+        if settings["default_capabilities"].tool_text_format in {
+            None,
+            "none",
+        } and renderer_default not in {None, "", "none"}:
+            settings["default_capabilities"] = settings["default_capabilities"].merge(
+                {"tool_text_format": renderer_default}
+            )
+
+        logger.debug(
+            "Codex connector settings loaded: default_capabilities=%s, renderer_default=%s, renderer_fallback=%s",
+            settings["default_capabilities"].to_dict(),
+            renderer_default,
+            renderer_fallback,
+        )
+        return settings
 
     @staticmethod
     def _is_codex_model(model_name: str) -> bool:
@@ -313,6 +617,8 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
     def _default_codex_tools(self) -> list[dict[str, Any]]:
         """Return the tool definitions expected by the Codex Responses API."""
+        if self._default_tool_schema_override is not None:
+            return deepcopy(self._default_tool_schema_override)
         return [
             {
                 "type": "function",
@@ -400,29 +706,49 @@ class OpenAIOAuthConnector(OpenAIConnector):
         schema_mode = capabilities.tool_schema_mode
         default_tools = self._default_codex_tools()
 
-        # Extract custom tools from the request, converting Pydantic models to dicts
         custom_tools_req = getattr(request_data, "tools", []) or []
         custom_tools: list[dict[str, Any]] = []
-        if custom_tools_req:
-            for tool in custom_tools_req:
-                if hasattr(tool, "model_dump"):
-                    custom_tools.append(tool.model_dump(exclude_none=True))
-                elif isinstance(tool, dict):
-                    custom_tools.append(tool)
+        for tool in custom_tools_req:
+            if hasattr(tool, "model_dump"):
+                tool_dict = tool.model_dump(exclude_none=True)
+            elif isinstance(tool, dict):
+                tool_dict = dict(tool)
+            else:
+                continue
+            name_value = tool_dict.get("name")
+            if isinstance(name_value, str) and name_value.strip():
+                custom_tools.append(tool_dict)
+            else:
+                logger.debug(
+                    "Ignoring tool without valid name in request payload: %s", tool
+                )
+
+        if self._custom_tool_schema_default:
+            existing_names = {
+                t.get("name") for t in custom_tools if isinstance(t.get("name"), str)
+            }
+            for tool in self._custom_tool_schema_default:
+                name_value = tool.get("name")
+                if isinstance(name_value, str) and name_value not in existing_names:
+                    custom_tools.append(deepcopy(tool))
 
         if schema_mode == "custom_only":
-            return custom_tools
+            return [deepcopy(tool) for tool in custom_tools]
 
         if schema_mode == "merge_custom":
             if not custom_tools:
                 return default_tools
-            # Custom tools take precedence over defaults with the same name.
-            merged_tools = {tool["name"]: tool for tool in default_tools}
+            merged_tools: dict[str, dict[str, Any]] = {}
+            for tool in default_tools:
+                name_value = tool.get("name")
+                if isinstance(name_value, str):
+                    merged_tools[name_value] = deepcopy(tool)
             for tool in custom_tools:
-                merged_tools[tool["name"]] = tool
+                name_value = tool.get("name")
+                if isinstance(name_value, str):
+                    merged_tools[name_value] = deepcopy(tool)
             return list(merged_tools.values())
 
-        # Default behavior is "use_default"
         return default_tools
 
     def _is_native_responses_payload(self, request_data: Any) -> bool:
@@ -556,7 +882,6 @@ class OpenAIOAuthConnector(OpenAIConnector):
         if isinstance(request_prompt, str) and request_prompt.strip():
             custom_prompts.append(request_prompt.strip())
 
-        # Extract from messages array
         messages = getattr(request_data, "messages", [])
         for message in messages or []:
             role = getattr(message, "role", None)
@@ -573,33 +898,80 @@ class OpenAIOAuthConnector(OpenAIConnector):
         elif isinstance(extra_prompt, list | tuple):
             custom_prompts.extend(str(part).strip() for part in extra_prompt if part)
 
-        default_prompt = self._codex_system_prompt()
+        default_prompt_template = self._prompt_settings.get("template")
+        default_prompt = (
+            default_prompt_template
+            if isinstance(default_prompt_template, str)
+            and default_prompt_template.strip()
+            else self._codex_system_prompt()
+        )
+        prepend_sections = list(self._prompt_settings.get("prepend", []))
+        append_sections = list(self._prompt_settings.get("append", []))
+        deduplicate = bool(self._prompt_settings.get("deduplicate", True))
+        fallback_to_default = bool(
+            self._prompt_settings.get("fallback_to_default", True)
+        )
+
+        custom_clean = [piece for piece in custom_prompts if piece]
+
+        if (
+            prompt_mode == "codex_default"
+            and not custom_clean
+            and not prepend_sections
+            and not append_sections
+            and default_prompt_template is None
+        ):
+            return default_prompt
 
         if prompt_mode == "codex_default":
-            if not custom_prompts:
-                return default_prompt
-            pieces = [default_prompt] + [
-                piece for piece in custom_prompts if piece
+            combined = [
+                *prepend_sections,
+                default_prompt,
+                *custom_clean,
+                *append_sections,
             ]
-            merged: list[str] = []
-            for piece in pieces:
-                normalized = piece.strip()
-                if not normalized:
-                    continue
-                if normalized not in merged:
-                    merged.append(normalized)
-            return "\n\n".join(merged) if merged else default_prompt
+            return self._combine_prompt_sections(combined, deduplicate)
 
         if prompt_mode == "merge_custom":
-            pieces = [default_prompt] + [p for p in custom_prompts if p]
-            return "\n\n".join(pieces)
+            combined = [
+                *prepend_sections,
+                default_prompt,
+                *custom_clean,
+                *append_sections,
+            ]
+            return self._combine_prompt_sections(combined, deduplicate)
 
         if prompt_mode == "custom_only":
-            combined = "\n\n".join(p for p in custom_prompts if p)
-            return combined or None
+            combined = prepend_sections + custom_clean + append_sections
+            merged = self._combine_prompt_sections(combined, deduplicate)
+            if merged or not fallback_to_default:
+                return merged
+            fallback_combined = [*prepend_sections, default_prompt, *append_sections]
+            return self._combine_prompt_sections(fallback_combined, deduplicate)
 
-        # Unknown prompt mode: fall back to default Codex behavior
-        return default_prompt
+        fallback_combined = [*prepend_sections, default_prompt, *append_sections]
+        return self._combine_prompt_sections(fallback_combined, deduplicate)
+
+    def _combine_prompt_sections(
+        self, sections: Sequence[str], deduplicate: bool
+    ) -> str | None:
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for section in sections:
+            if not isinstance(section, str):
+                continue
+            normalized = section.strip()
+            if not normalized:
+                continue
+            key = normalized if deduplicate else f"{normalized}_{len(ordered)}"
+            if deduplicate:
+                if key in seen:
+                    continue
+                seen.add(key)
+            ordered.append(normalized)
+        if not ordered:
+            return None
+        return "\n\n".join(ordered)
 
     def _build_codex_headers(self, conversation_id: str) -> dict[str, str]:
         """Construct Codex-specific HTTP headers."""
@@ -619,13 +991,13 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
         return headers
 
-    def _select_renderer_key(
-        self, capabilities: CodexClientCapabilities
-    ) -> str:
+    def _select_renderer_key(self, capabilities: CodexClientCapabilities) -> str:
         """Map capability preference to a registered renderer key."""
-        preferred = capabilities.tool_text_format or "codex_xml"
-        if preferred == "codex_xml":
-            return "xml"
+        preferred = (capabilities.tool_text_format or self._renderer_default).strip()
+        if not preferred:
+            return self._renderer_default
+        if preferred.lower() in {"default", "inherit"}:
+            return self._renderer_default
         return preferred
 
     async def _call_codex_responses_api(
@@ -645,12 +1017,12 @@ class OpenAIOAuthConnector(OpenAIConnector):
             domain_request.processing_context["codex_capabilities"] = (
                 capabilities.to_dict()
             )
-            domain_request.processing_context[
-                "bypass_tool_call_reactor"
-            ] = capabilities.bypass_tool_call_reactor
-            domain_request.processing_context[
-                "tool_text_format"
-            ] = capabilities.tool_text_format
+            domain_request.processing_context["bypass_tool_call_reactor"] = (
+                capabilities.bypass_tool_call_reactor
+            )
+            domain_request.processing_context["tool_text_format"] = (
+                capabilities.tool_text_format
+            )
 
         payload, conversation_id = self._build_codex_payload(
             request_data,

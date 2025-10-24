@@ -1345,6 +1345,26 @@ def register_core_services(
                     f"Failed to register PytestFullSuiteHandler: {e}", exc_info=True
                 )
 
+            # Register PytestContextSavingHandler if enabled
+            try:
+                if getattr(reactor_config, "pytest_context_saving_enabled", False):
+                    from src.core.services.tool_call_handlers.pytest_context_saving_handler import (
+                        PytestContextSavingHandler,
+                    )
+
+                    context_saving_handler = PytestContextSavingHandler(enabled=True)
+                    try:
+                        reactor.register_handler_sync(context_saving_handler)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register pytest context saving handler: {e}",
+                            exc_info=True,
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register PytestContextSavingHandler: {e}", exc_info=True
+                )
+
             # Register PytestCompressionHandler if enabled in session config
             try:
                 if getattr(app_config.session, "pytest_compression_enabled", True):

@@ -39,3 +39,33 @@ async def test_tool_call_reactor_handlers_are_wired_up():
     assert "config_steering_handler" in service_handlers
     assert "dangerous_command_handler" in service_handlers
     assert "pytest_compression_handler" in service_handlers
+
+
+@pytest.mark.asyncio
+async def test_pytest_context_saving_handler_wires_when_enabled():
+    """
+    The pytest context saving handler should be registered when the feature flag
+    is enabled in configuration.
+    """
+    # Arrange
+    config = AppConfig.model_validate(
+        {
+            "session": {
+                "tool_call_reactor": {"pytest_context_saving_enabled": True},
+            }
+        }
+    )
+    builder = ApplicationBuilder().add_default_stages()
+
+    # Act
+    app = await builder.build(config)
+    await asyncio.sleep(0.1)
+    service_provider = app.state.service_provider
+    reactor_middleware = service_provider.get_required_service(
+        ToolCallReactorMiddleware
+    )
+
+    registered_handlers = reactor_middleware.get_registered_handlers()
+
+    # Assert
+    assert "pytest_context_saving_handler" in registered_handlers

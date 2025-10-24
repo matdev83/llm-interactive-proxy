@@ -8,11 +8,13 @@ that can work with different web frameworks while maintaining abstraction.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TypeVar, cast
 
 from src.core.interfaces.application_state_interface import IApplicationState
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 class ApplicationStateService(IApplicationState):
@@ -27,6 +29,53 @@ class ApplicationStateService(IApplicationState):
         self._state_provider = state_provider
         self._local_state: dict[str, Any] = {}
 
+    @staticmethod
+    def _is_mock_like(value: Any) -> bool:
+        """Return True when value looks like a unittest.mock instance."""
+        return value is not None and value.__class__.__module__.startswith(
+            "unittest.mock"
+        )
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        """Coerce supported types to boolean with stable semantics."""
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, int | float):
+            return value != 0
+        if isinstance(value, str):
+            return bool(value)
+        return bool(value)
+
+    def _get_provider_value(self, key: str) -> tuple[bool, Any]:
+        """Return provider value with indicator if it is safe to use."""
+        if self._state_provider is None:
+            return False, None
+        try:
+            value = getattr(self._state_provider, key)
+        except AttributeError:
+            return False, None
+        if self._is_mock_like(value):
+            return False, None
+        return True, value
+
+    def _sync_provider_from_local(self) -> None:
+        """Copy local state into provider when one becomes available."""
+        if self._state_provider is None:
+            return
+        for key, value in self._local_state.items():
+            try:
+                setattr(self._state_provider, key, value)
+            except Exception:
+                logger.debug(
+                    "Failed to synchronize state '%s' to provider '%s'",
+                    key,
+                    type(self._state_provider).__name__,
+                    exc_info=True,
+                )
+
     def set_state_provider(self, state_provider: Any) -> None:
         """Set the state provider.
 
@@ -34,12 +83,14 @@ class ApplicationStateService(IApplicationState):
             state_provider: The state provider (e.g., FastAPI app.state)
         """
         self._state_provider = state_provider
+        if state_provider is not None:
+            self._sync_provider_from_local()
 
     def get_command_prefix(self) -> str | None:
         """Get the command prefix."""
-        if self._state_provider and hasattr(self._state_provider, "command_prefix"):
-            prefix = self._state_provider.command_prefix
-            return prefix if isinstance(prefix, str) else None
+        has_value, provider_value = self._get_provider_value("command_prefix")
+        if has_value and isinstance(provider_value, str):
+            return provider_value
         local_prefix = self._local_state.get("command_prefix")
         return local_prefix if isinstance(local_prefix, str) else None
 
@@ -51,11 +102,12 @@ class ApplicationStateService(IApplicationState):
 
     def get_api_key_redaction_enabled(self) -> bool:
         """Get whether API key redaction is enabled."""
-        if self._state_provider and hasattr(
-            self._state_provider, "api_key_redaction_enabled"
-        ):
-            return bool(self._state_provider.api_key_redaction_enabled)
-        return bool(self._local_state.get("api_key_redaction_enabled", False))
+        has_value, provider_value = self._get_provider_value(
+            "api_key_redaction_enabled"
+        )
+        if has_value:
+            return self._coerce_bool(provider_value)
+        return self._coerce_bool(self._local_state.get("api_key_redaction_enabled"))
 
     def set_api_key_redaction_enabled(self, enabled: bool) -> None:
         """Set whether API key redaction is enabled."""
@@ -73,11 +125,12 @@ class ApplicationStateService(IApplicationState):
 
     def get_disable_interactive_commands(self) -> bool:
         """Get whether interactive commands are disabled."""
-        if self._state_provider and hasattr(
-            self._state_provider, "disable_interactive_commands"
-        ):
-            return bool(self._state_provider.disable_interactive_commands)
-        return bool(self._local_state.get("disable_interactive_commands", False))
+        has_value, provider_value = self._get_provider_value(
+            "disable_interactive_commands"
+        )
+        if has_value:
+            return self._coerce_bool(provider_value)
+        return self._coerce_bool(self._local_state.get("disable_interactive_commands"))
 
     def set_disable_interactive_commands(self, disabled: bool) -> None:
         """Set whether interactive commands are disabled."""
@@ -87,9 +140,10 @@ class ApplicationStateService(IApplicationState):
 
     def get_disable_commands(self) -> bool:
         """Get whether commands are disabled."""
-        if self._state_provider and hasattr(self._state_provider, "disable_commands"):
-            return bool(self._state_provider.disable_commands)
-        return bool(self._local_state.get("disable_commands", False))
+        has_value, provider_value = self._get_provider_value("disable_commands")
+        if has_value:
+            return self._coerce_bool(provider_value)
+        return self._coerce_bool(self._local_state.get("disable_commands"))
 
     def set_disable_commands(self, disabled: bool) -> None:
         """Set whether commands are disabled."""
@@ -99,8 +153,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a generic setting by key."""
-        if self._state_provider and hasattr(self._state_provider, key):
-            return getattr(self._state_provider, key)
+        has_value, provider_value = self._get_provider_value(key)
+        if has_value:
+            return provider_value
         return self._local_state.get(key, default)
 
     def set_setting(self, key: str, value: Any) -> None:
@@ -108,6 +163,26 @@ class ApplicationStateService(IApplicationState):
         if self._state_provider:
             setattr(self._state_provider, key, value)
         self._local_state[key] = value
+
+    def get_service(self, service_type: type[_T]) -> _T | None:
+        """Retrieve a lazily-constructed or cached service from the provider."""
+        service_provider = self.get_setting("service_provider")
+        if service_provider is None:
+            return None
+
+        getter = getattr(service_provider, "get_service", None)
+        if getter is None or not callable(getter):
+            return None
+
+        try:
+            return cast(_T | None, getter(service_type))
+        except Exception:
+            logger.debug(
+                "ApplicationStateService failed to resolve service '%s'",
+                getattr(service_type, "__name__", repr(service_type)),
+                exc_info=True,
+            )
+            return None
 
     # --- Feature flags (scaffold) ---
     def get_use_failover_strategy(self) -> bool:
@@ -139,11 +214,9 @@ class ApplicationStateService(IApplicationState):
                 return list(value)
             return []
 
-        if self._state_provider and hasattr(
-            self._state_provider, "functional_backends"
-        ):
-            backends = self._state_provider.functional_backends
-            return _normalize_backends(backends)
+        has_value, provider_value = self._get_provider_value("functional_backends")
+        if has_value:
+            return _normalize_backends(provider_value)
         local_backends = self._local_state.get("functional_backends", [])
         return _normalize_backends(local_backends)
 
@@ -155,9 +228,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_backend_type(self) -> str | None:
         """Get current backend type."""
-        if self._state_provider and hasattr(self._state_provider, "backend_type"):
-            backend_type = self._state_provider.backend_type
-            return backend_type if isinstance(backend_type, str) else None
+        has_value, provider_value = self._get_provider_value("backend_type")
+        if has_value and isinstance(provider_value, str):
+            return provider_value
         local_backend_type = self._local_state.get("backend_type")
         return local_backend_type if isinstance(local_backend_type, str) else None
 
@@ -169,8 +242,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_backend(self) -> Any:
         """Get current backend instance."""
-        if self._state_provider and hasattr(self._state_provider, "backend"):
-            return self._state_provider.backend
+        has_value, provider_value = self._get_provider_value("backend")
+        if has_value:
+            return provider_value
         return self._local_state.get("backend")
 
     def set_backend(self, backend: Any) -> None:
@@ -181,9 +255,9 @@ class ApplicationStateService(IApplicationState):
 
     def get_model_defaults(self) -> dict[str, Any]:
         """Get model defaults."""
-        if self._state_provider and hasattr(self._state_provider, "model_defaults"):
-            defaults = self._state_provider.model_defaults
-            return defaults if isinstance(defaults, dict) else {}
+        has_value, provider_value = self._get_provider_value("model_defaults")
+        if has_value and isinstance(provider_value, dict):
+            return provider_value
         local_defaults = self._local_state.get("model_defaults", {})
         return local_defaults if isinstance(local_defaults, dict) else {}
 
@@ -195,16 +269,16 @@ class ApplicationStateService(IApplicationState):
 
     def get_failover_routes(self) -> list[dict[str, Any]] | None:
         """Get failover routes."""
-        if self._state_provider and hasattr(self._state_provider, "failover_routes"):
-            routes = self._state_provider.failover_routes
-            if isinstance(routes, dict):
-                return list(routes.values()) if routes else None
-            elif isinstance(routes, list):
-                return routes
+        has_value, provider_value = self._get_provider_value("failover_routes")
+        if has_value:
+            if isinstance(provider_value, dict):
+                return list(provider_value.values()) if provider_value else None
+            if isinstance(provider_value, list):
+                return provider_value
         local_routes = self._local_state.get("failover_routes")
         if isinstance(local_routes, dict):
             return list(local_routes.values()) if local_routes else None
-        elif isinstance(local_routes, list):
+        if isinstance(local_routes, list):
             return local_routes
         return None
 

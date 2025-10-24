@@ -9,7 +9,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any, cast
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
@@ -647,8 +647,22 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     if hasattr(result, "content") and hasattr(
                         result.content, "__aiter__"
                     ):
+
+                        async def _empty_stream() -> AsyncIterator[Any]:
+                            return
+                            # This function is a generator due to the yield below, but returns immediately
+                            # vulture: ignore
+                            yield None  # type: ignore
+
+                        stream_iterator: AsyncIterator[Any]
+                        content = getattr(result, "content", None)
+                        if content is None:
+                            stream_iterator = _empty_stream()
+                        else:
+                            stream_iterator = cast(AsyncIterator[Any], content)
+
                         # Process streaming response
-                        async for chunk in result.content:
+                        async for chunk in stream_iterator:
                             try:
                                 processed_chunk: ProcessedResponse
                                 if isinstance(chunk, ProcessedResponse):

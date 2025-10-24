@@ -8,9 +8,11 @@ without coupling to specific web framework implementations.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TypeVar
 
 from src.core.config.app_config import AppConfig
+
+_T = TypeVar("_T")
 
 
 class IApplicationState(ABC):
@@ -110,6 +112,10 @@ class IApplicationState(ABC):
             key: The setting key
             value: The setting value
         """
+
+    @abstractmethod
+    def get_service(self, service_type: type[_T]) -> _T | None:
+        """Retrieve a lazily-constructed service from the state provider."""
 
     @abstractmethod
     def get_use_failover_strategy(self) -> bool:

@@ -365,6 +365,9 @@ class ToolCallReactorConfig(DomainModel):
     pytest_full_suite_steering_message: str | None = None
     """Optional custom steering message when detecting full pytest suite runs."""
 
+    pytest_context_saving_enabled: bool = False
+    """Whether pytest context-saving command rewrites are enabled."""
+
     # New: fully configurable steering rules
     steering_rules: list[dict[str, Any]] = Field(default_factory=list)
     """Configurable steering rules.

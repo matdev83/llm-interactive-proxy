@@ -1,15 +1,13 @@
 """Tests for prompt size guard in Gemini OAuth connectors."""
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
+from src.core.common.exceptions import InvalidRequestError
+from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
-from src.core.config.app_config import AppConfig
-from src.core.common.exceptions import InvalidRequestError
 
 
 @pytest.fixture()
@@ -52,17 +50,23 @@ async def test_non_streaming_prompt_overflow_is_blocked(oauth_plan_connector):
     request = _make_request()
     processed_messages = [{"role": "user", "content": "hello"}]
 
-    with patch.object(
-        connector,
-        "_estimate_prompt_tokens",
-        return_value=70_000,
-    ), patch("asyncio.to_thread", side_effect=AssertionError("backend call should be skipped")):
-        with pytest.raises(InvalidRequestError) as exc_info:
-            await connector._chat_completions_code_assist(  # type: ignore[attr-defined]
-                request_data=request,
-                processed_messages=processed_messages,
-                effective_model="models/gemini-2.5-pro",
-            )
+    with (
+        patch.object(
+            connector,
+            "_estimate_prompt_tokens",
+            return_value=70_000,
+        ),
+        patch(
+            "asyncio.to_thread",
+            side_effect=AssertionError("backend call should be skipped"),
+        ),
+        pytest.raises(InvalidRequestError) as exc_info,
+    ):
+        await connector._chat_completions_code_assist(  # type: ignore[attr-defined]
+            request_data=request,
+            processed_messages=processed_messages,
+            effective_model="models/gemini-2.5-pro",
+        )
 
     err = exc_info.value
     assert err.status_code == 400
@@ -81,17 +85,23 @@ async def test_streaming_prompt_overflow_is_blocked(oauth_plan_connector):
     request = _make_request().model_copy(update={"stream": True})
     processed_messages = [{"role": "user", "content": "hello"}]
 
-    with patch.object(
-        connector,
-        "_estimate_prompt_tokens",
-        return_value=80_000,
-    ), patch("asyncio.to_thread", side_effect=AssertionError("backend call should be skipped")):
-        with pytest.raises(InvalidRequestError) as exc_info:
-            await connector._chat_completions_code_assist_streaming(  # type: ignore[attr-defined]
-                request_data=request,
-                processed_messages=processed_messages,
-                effective_model="models/gemini-2.5-pro",
-            )
+    with (
+        patch.object(
+            connector,
+            "_estimate_prompt_tokens",
+            return_value=80_000,
+        ),
+        patch(
+            "asyncio.to_thread",
+            side_effect=AssertionError("backend call should be skipped"),
+        ),
+        pytest.raises(InvalidRequestError) as exc_info,
+    ):
+        await connector._chat_completions_code_assist_streaming(  # type: ignore[attr-defined]
+            request_data=request,
+            processed_messages=processed_messages,
+            effective_model="models/gemini-2.5-pro",
+        )
 
     err = exc_info.value
     assert err.status_code == 400

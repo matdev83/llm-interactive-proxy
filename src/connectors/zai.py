@@ -167,7 +167,9 @@ class ZAIConnector(OpenAIConnector):
                     else:
                         yield item
 
-            response_envelope.content = _process_stream(response_envelope.content)
+            stream_content = response_envelope.content
+            if stream_content is not None:
+                response_envelope.content = _process_stream(stream_content)
 
         return response_envelope
 

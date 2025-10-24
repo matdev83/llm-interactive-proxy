@@ -21,7 +21,9 @@ from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
-from src.core.services.project_directory_resolution_service import ProjectDirectoryResolutionService
+from src.core.services.project_directory_resolution_service import (
+    ProjectDirectoryResolutionService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,17 +79,25 @@ class RequestProcessor(IRequestProcessor):
         )
 
         # Auto-detect project directory if needed
-        if (self._app_state is not None and
-            hasattr(session, 'state') and
-            not getattr(session.state, 'project_dir_resolution_attempted', False)):
+        if (
+            self._app_state is not None
+            and hasattr(session, "state")
+            and not getattr(session.state, "project_dir_resolution_attempted", False)
+        ):
             try:
-                project_dir_service = self._app_state.get_service(ProjectDirectoryResolutionService)
+                project_dir_service = self._app_state.get_service(
+                    ProjectDirectoryResolutionService
+                )
                 if project_dir_service:
-                    await project_dir_service.maybe_resolve_project_directory(session, request_data)
+                    await project_dir_service.maybe_resolve_project_directory(
+                        session, request_data
+                    )
                     logger.debug("Project directory auto-detection completed")
             except Exception as e:
                 # Don't fail the request if project directory detection fails
-                logger.debug(f"Project directory auto-detection failed: {e}", exc_info=True)
+                logger.debug(
+                    f"Project directory auto-detection failed: {e}", exc_info=True
+                )
 
         # Process commands in the request
         command_result = await self._handle_command_processing(

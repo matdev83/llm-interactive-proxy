@@ -6,7 +6,7 @@ in realistic conversation scenarios that would be encountered in production use,
 ensuring the system behaves appropriately in common edge cases and typical usage patterns.
 """
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from src.core.config.app_config import AppConfig, SessionConfig
@@ -35,10 +35,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should detect and persist the exact Windows path
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="windows_test", state=SessionState())
@@ -49,13 +51,12 @@ class TestProjectDirectoryDetectionBehavior:
         windows_prompts = [
             "Work on my project at C:\\Users\\John\\Documents\\MyApp",
             "Let's modify D:\\Projects\\webapp\\src\\main.js",
-            "Please analyze the code in E:\\Development\\python-project\\src"
+            "Please analyze the code in E:\\Development\\python-project\\src",
         ]
 
         for prompt in windows_prompts:
             request = ChatRequest(
-                model="test-model",
-                messages=[ChatMessage(role="user", content=prompt)]
+                model="test-model", messages=[ChatMessage(role="user", content=prompt)]
             )
 
             # When
@@ -89,10 +90,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should detect and persist the exact Unix path
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="unix_test", state=SessionState())
@@ -103,13 +106,12 @@ class TestProjectDirectoryDetectionBehavior:
         unix_prompts = [
             "Help me with my project in /home/user/website",
             "Let's fix the code in /var/www/html/app",
-            "Working on Python project at /home/dev/projects/ml-experiment"
+            "Working on Python project at /home/dev/projects/ml-experiment",
         ]
 
         for prompt in unix_prompts:
             request = ChatRequest(
-                model="test-model",
-                messages=[ChatMessage(role="user", content=prompt)]
+                model="test-model", messages=[ChatMessage(role="user", content=prompt)]
             )
 
             # When
@@ -142,10 +144,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should detect and normalize UNC path correctly
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="unc_test", state=SessionState())
@@ -156,13 +160,12 @@ class TestProjectDirectoryDetectionBehavior:
         unc_prompts = [
             "Open project on \\\\server01\\share\\project-folder",
             "Access files at \\\\\\\\file-server\\\\projects\\\\webapp",  # Extra backslashes
-            "Work on code in \\\\network-share\\development\\team-project"
+            "Work on code in \\\\network-share\\development\\team-project",
         ]
 
         for prompt in unc_prompts:
             request = ChatRequest(
-                model="test-model",
-                messages=[ChatMessage(role="user", content=prompt)]
+                model="test-model", messages=[ChatMessage(role="user", content=prompt)]
             )
 
             # When
@@ -187,10 +190,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should fallback to LLM and persist detected directory
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="hybrid",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="hybrid",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="hybrid_test", state=SessionState())
@@ -205,7 +210,11 @@ class TestProjectDirectoryDetectionBehavior:
 
         request = ChatRequest(
             model="test-model",
-            messages=[ChatMessage(role="user", content="I want to work on my web development project")]
+            messages=[
+                ChatMessage(
+                    role="user", content="I want to work on my web development project"
+                )
+            ],
         )
 
         # When
@@ -225,10 +234,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should handle gracefully and not persist invalid directory
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="llm",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="llm",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="llm_error_test", state=SessionState())
@@ -239,7 +250,9 @@ class TestProjectDirectoryDetectionBehavior:
         malformed_responses = [
             ResponseEnvelope(content="<invalid>no closing tag"),
             ResponseEnvelope(content="plain text response"),
-            ResponseEnvelope(content="<directory-resolution-response><wrong-tag>/path</wrong-tag></directory-resolution-response>"),
+            ResponseEnvelope(
+                content="<directory-resolution-response><wrong-tag>/path</wrong-tag></directory-resolution-response>"
+            ),
         ]
 
         for malformed_response in malformed_responses:
@@ -247,14 +260,16 @@ class TestProjectDirectoryDetectionBehavior:
 
             request = ChatRequest(
                 model="test-model",
-                messages=[ChatMessage(role="user", content="work on my project")]
+                messages=[ChatMessage(role="user", content="work on my project")],
             )
 
             # When
             await service.maybe_resolve_project_directory(session, request)
 
             # Then
-            assert session.state.project_dir is None  # Should not persist invalid result
+            assert (
+                session.state.project_dir is None
+            )  # Should not persist invalid result
             assert session.state.project_dir_resolution_attempted is True
 
             # Reset for next iteration
@@ -269,10 +284,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should skip detection and not modify existing state
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
 
@@ -280,14 +297,14 @@ class TestProjectDirectoryDetectionBehavior:
         session = Session(
             session_id="history_test",
             state=SessionState(),
-            history=[ChatMessage(role="user", content="previous message")]
+            history=[ChatMessage(role="user", content="previous message")],
         )
 
         service = ProjectDirectoryResolutionService(config, mock_backend, mock_session)
 
         request = ChatRequest(
             model="test-model",
-            messages=[ChatMessage(role="user", content="Work on C:\\Project\\new")]
+            messages=[ChatMessage(role="user", content="Work on C:\\Project\\new")],
         )
 
         # When
@@ -295,7 +312,9 @@ class TestProjectDirectoryDetectionBehavior:
 
         # Then
         assert session.state.project_dir is None  # Should not be set
-        assert session.state.project_dir_resolution_attempted is False  # Should not be marked
+        assert (
+            session.state.project_dir_resolution_attempted is False
+        )  # Should not be marked
         mock_backend.call_completion.assert_not_called()
         mock_session.update_session.assert_not_called()
 
@@ -307,31 +326,35 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should preserve existing directory and not attempt resolution
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
 
         # Session with pre-existing project directory
         session = Session(
             session_id="existing_dir_test",
-            state=SessionState(project_dir="/existing/project/path")
+            state=SessionState(project_dir="/existing/project/path"),
         )
 
         service = ProjectDirectoryResolutionService(config, mock_backend, mock_session)
 
         request = ChatRequest(
             model="test-model",
-            messages=[ChatMessage(role="user", content="Work on C:\\NewProject")]
+            messages=[ChatMessage(role="user", content="Work on C:\\NewProject")],
         )
 
         # When
         await service.maybe_resolve_project_directory(session, request)
 
         # Then
-        assert session.state.project_dir == "/existing/project/path"  # Should remain unchanged
+        assert (
+            session.state.project_dir == "/existing/project/path"
+        )  # Should remain unchanged
         mock_backend.call_completion.assert_not_called()
         mock_session.update_session.assert_called_once()  # Should log the skip message
 
@@ -343,10 +366,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should correctly extract paths from noisy content
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="complex_test", state=SessionState())
@@ -363,13 +388,12 @@ class TestProjectDirectoryDetectionBehavior:
         expected_paths = [
             "C:\\Users\\Sarah\\Desktop\\react-app",
             "/home/developer/projects/data-analysis",
-            "\\\\fileserver\\team-projects\\web-portal"
+            "\\\\fileserver\\team-projects\\web-portal",
         ]
 
-        for prompt, expected_path in zip(complex_prompts, expected_paths):
+        for prompt, expected_path in zip(complex_prompts, expected_paths, strict=False):
             request = ChatRequest(
-                model="test-model",
-                messages=[ChatMessage(role="user", content=prompt)]
+                model="test-model", messages=[ChatMessage(role="user", content=prompt)]
             )
 
             # When
@@ -390,10 +414,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should handle gracefully and not persist directory
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="llm",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="llm",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="streaming_test", state=SessionState())
@@ -402,12 +428,13 @@ class TestProjectDirectoryDetectionBehavior:
 
         # Mock streaming response (different type than ResponseEnvelope)
         from src.core.domain.responses import StreamingResponseEnvelope
+
         streaming_response = StreamingResponseEnvelope()
         mock_backend.call_completion.return_value = streaming_response
 
         request = ChatRequest(
             model="test-model",
-            messages=[ChatMessage(role="user", content="work on my project")]
+            messages=[ChatMessage(role="user", content="work on my project")],
         )
 
         # When
@@ -427,13 +454,17 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should handle gracefully without raising exceptions
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
-        mock_session.update_session.side_effect = Exception("Database connection failed")
+        mock_session.update_session.side_effect = Exception(
+            "Database connection failed"
+        )
 
         session = Session(session_id="persistence_error_test", state=SessionState())
 
@@ -441,7 +472,7 @@ class TestProjectDirectoryDetectionBehavior:
 
         request = ChatRequest(
             model="test-model",
-            messages=[ChatMessage(role="user", content="Work on C:\\TestProject")]
+            messages=[ChatMessage(role="user", content="Work on C:\\TestProject")],
         )
 
         # When/Then - Should not raise exception
@@ -459,10 +490,12 @@ class TestProjectDirectoryDetectionBehavior:
         Then: Should extract the first (most specific) path found
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="multi_path_test", state=SessionState())
@@ -472,8 +505,7 @@ class TestProjectDirectoryDetectionBehavior:
         # Prompt with multiple paths
         prompt = "I have two projects: one at C:\\ProjectA and another at /home/user/projectB. Let's work on the first one."
         request = ChatRequest(
-            model="test-model",
-            messages=[ChatMessage(role="user", content=prompt)]
+            model="test-model", messages=[ChatMessage(role="user", content=prompt)]
         )
 
         # When
@@ -500,10 +532,12 @@ class TestEdgeCaseScenarios:
         Then: Should handle gracefully without attempting resolution
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="empty_prompt_test", state=SessionState())
@@ -515,7 +549,7 @@ class TestEdgeCaseScenarios:
         for empty_prompt in empty_prompts:
             request = ChatRequest(
                 model="test-model",
-                messages=[ChatMessage(role="user", content=empty_prompt)]
+                messages=[ChatMessage(role="user", content=empty_prompt)],
             )
 
             # When
@@ -537,10 +571,12 @@ class TestEdgeCaseScenarios:
         Then: Should not extract relative paths as project directories
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="relative_path_test", state=SessionState())
@@ -552,20 +588,21 @@ class TestEdgeCaseScenarios:
             "Work on ./src/main.js",
             "Fix the bug in ../lib/utils.py",
             "Check the files in docs/ folder",
-            "Navigate to ./components/Button.jsx"
+            "Navigate to ./components/Button.jsx",
         ]
 
         for prompt in relative_prompts:
             request = ChatRequest(
-                model="test-model",
-                messages=[ChatMessage(role="user", content=prompt)]
+                model="test-model", messages=[ChatMessage(role="user", content=prompt)]
             )
 
             # When
             await service.maybe_resolve_project_directory(session, request)
 
             # Then
-            assert session.state.project_dir is None  # Should not extract relative paths
+            assert (
+                session.state.project_dir is None
+            )  # Should not extract relative paths
 
             # Reset for next iteration
             session.state = SessionState()
@@ -579,10 +616,12 @@ class TestEdgeCaseScenarios:
         Then: Should not extract invalid paths
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="malformed_path_test", state=SessionState())
@@ -594,20 +633,21 @@ class TestEdgeCaseScenarios:
             "Check C::invalid\\path",
             "Look at /path/with/newlines\\n/in/it",
             "Access Z:drive without backslash",
-            "Network path with only one backslash: \\server\\share"
+            "Network path with only one backslash: \\server\\share",
         ]
 
         for prompt in malformed_prompts:
             request = ChatRequest(
-                model="test-model",
-                messages=[ChatMessage(role="user", content=prompt)]
+                model="test-model", messages=[ChatMessage(role="user", content=prompt)]
             )
 
             # When
             await service.maybe_resolve_project_directory(session, request)
 
             # Then
-            assert session.state.project_dir is None  # Should not extract malformed paths
+            assert (
+                session.state.project_dir is None
+            )  # Should not extract malformed paths
 
             # Reset for next iteration
             session.state = SessionState()
@@ -621,10 +661,12 @@ class TestEdgeCaseScenarios:
         Then: Should correctly extract paths with special characters
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="unicode_test", state=SessionState())
@@ -636,13 +678,12 @@ class TestEdgeCaseScenarios:
             "Work on C:\\Users\\José\\Documents\\Mi Proyecto",
             "Access the project at /home/user/проект/код",
             "Open folder in D:\\Dev\\test-project (copy)\\files",
-            "Navigate to C:\\Project with spaces\\src"
+            "Navigate to C:\\Project with spaces\\src",
         ]
 
         for prompt in unicode_prompts:
             request = ChatRequest(
-                model="test-model",
-                messages=[ChatMessage(role="user", content=prompt)]
+                model="test-model", messages=[ChatMessage(role="user", content=prompt)]
             )
 
             # When
@@ -664,10 +705,12 @@ class TestEdgeCaseScenarios:
         Then: Should handle long paths correctly
         """
         # Given
-        config = AppConfig(session=SessionConfig(
-            project_dir_resolution_mode="deterministic",
-            project_dir_resolution_model="openai:gpt-4"
-        ))
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
         mock_backend = AsyncMock()
         mock_session = AsyncMock()
         session = Session(session_id="long_path_test", state=SessionState())
@@ -679,8 +722,7 @@ class TestEdgeCaseScenarios:
         prompt = f"Work on my project at {long_path}"
 
         request = ChatRequest(
-            model="test-model",
-            messages=[ChatMessage(role="user", content=prompt)]
+            model="test-model", messages=[ChatMessage(role="user", content=prompt)]
         )
 
         # When

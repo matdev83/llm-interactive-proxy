@@ -71,10 +71,21 @@ class DangerousCommandHandler(IToolCallHandler):
             return False
 
     async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
+        if not self._enabled:
+            return ToolCallReactionResult(should_swallow=False)
+
         tool_name: str = context.tool_name or ""
         arguments: Any = context.tool_arguments
 
-        scan_result = self._service.scan(tool_name, arguments)
+        try:
+            scan_result = self._service.scan(tool_name, arguments)
+        except Exception:
+            logger.warning(
+                "DangerousCommandHandler.handle failed to scan arguments",
+                exc_info=True,
+            )
+            return ToolCallReactionResult(should_swallow=False)
+
         if scan_result is None:
             # Not dangerous after all; do not swallow
             return ToolCallReactionResult(should_swallow=False)

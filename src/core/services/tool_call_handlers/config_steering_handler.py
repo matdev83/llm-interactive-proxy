@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -21,6 +22,7 @@ from src.core.interfaces.tool_call_reactor_interface import (
 )
 
 logger = logging.getLogger(__name__)
+_NON_ALNUM_PATTERN = re.compile(r"[\W_]+")
 
 
 @dataclass
@@ -106,7 +108,7 @@ class ConfigSteeringHandler(IToolCallHandler):
             return ToolCallReactionResult(should_swallow=False)
 
         # Record hit for rate limiting
-        self._record_hit(rule, context.session_id)
+        await self._record_hit(rule, context.session_id)
 
         logger.info(
             "Steering via rule '%s' for tool '%s' in session %s",
@@ -134,19 +136,62 @@ class ConfigSteeringHandler(IToolCallHandler):
             args_str = json.dumps(context.tool_arguments, ensure_ascii=False)
         except Exception:
             args_str = str(context.tool_arguments)
-        haystack = f"{tool_name}\n{args_str}".lower()
+        haystack = f"{tool_name}\n{args_str}"
+        haystack_lower = haystack.lower()
+        compact_haystack = _NON_ALNUM_PATTERN.sub("", haystack_lower)
 
         for rule in self._rules:
             if not rule.enabled:
                 continue
-            # Exact tool name match
-            if rule.trigger_tool_names and tool_name in rule.trigger_tool_names:
-                return rule
-            # Phrase match (case-insensitive)
-            if rule.trigger_phrases:
+            has_tool_triggers = bool(rule.trigger_tool_names)
+            has_phrase_triggers = bool(rule.trigger_phrases)
+
+            tool_match = False
+            if has_tool_triggers:
+                tool_match = tool_name in rule.trigger_tool_names
+
+            phrase_match = False
+            if has_phrase_triggers:
                 for phrase in rule.trigger_phrases:
-                    if phrase and phrase.lower() in haystack:
-                        return rule
+                    if not phrase:
+                        continue
+                    phrase_lower = phrase.lower()
+                    segments = {phrase_lower}
+
+                    tokens = phrase_lower.split()
+                    if tokens:
+                        non_flag_tokens = [
+                            token for token in tokens if not token.startswith("-")
+                        ]
+                        if non_flag_tokens:
+                            segments.add(" ".join(non_flag_tokens))
+                            if len(non_flag_tokens) >= 2:
+                                segments.add(" ".join(non_flag_tokens[:2]))
+
+                    if any(
+                        segment and segment in haystack_lower for segment in segments
+                    ):
+                        phrase_match = True
+                        break
+
+                    sanitized_segments = {
+                        _NON_ALNUM_PATTERN.sub("", segment)
+                        for segment in segments
+                        if segment
+                    }
+                    sanitized_segments.add(_NON_ALNUM_PATTERN.sub("", phrase_lower))
+
+                    if any(
+                        candidate and candidate in compact_haystack
+                        for candidate in sanitized_segments
+                    ):
+                        phrase_match = True
+                        break
+
+            if (has_tool_triggers or has_phrase_triggers) and (
+                tool_match or phrase_match
+            ):
+                return rule
         return None
 
     def _within_rate_limit(self, rule: _CompiledRule, session_id: str) -> bool:
@@ -158,7 +203,7 @@ class ConfigSteeringHandler(IToolCallHandler):
         self._last_hits[key] = hits
         return len(hits) < rule.calls_per_window
 
-    def _record_hit(self, rule: _CompiledRule, session_id: str) -> None:
+    async def _record_hit(self, rule: _CompiledRule, session_id: str) -> None:
         key = (session_id, rule.name)
         hits = self._last_hits.get(key, [])
         hits.append(datetime.now())

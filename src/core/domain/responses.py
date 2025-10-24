@@ -33,7 +33,7 @@ class StreamingResponseEnvelope(InternalDTO):
     """
 
     # Iterator of raw bytes to be sent to clients. Tests expect bytes.
-    content: AsyncIterator[ProcessedResponse]
+    content: AsyncIterator[ProcessedResponse] | None = None
     media_type: str = "text/event-stream"
     headers: dict[str, str] | None = None
     cancel_callback: Callable[[], Awaitable[None]] | None = None
@@ -44,12 +44,17 @@ class StreamingResponseEnvelope(InternalDTO):
         streaming iterator (previously provided by Starlette's
         StreamingResponse.body_iterator)."""
 
+        iterator = self.content
+
         async def _byte_iterator() -> AsyncIterator[bytes]:
-            async for item in self.content:
-                if isinstance(item.content, bytes):
-                    yield item.content
+            if iterator is None:
+                return
+            async for item in iterator:
+                chunk = item.content
+                if isinstance(chunk, bytes):
+                    yield chunk
                 else:
-                    yield str(item.content).encode("utf-8")
+                    yield str(chunk).encode("utf-8")
 
         return _byte_iterator()
 

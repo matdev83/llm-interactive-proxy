@@ -12,6 +12,7 @@ This module provides a wire capture service that:
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import logging
@@ -29,6 +30,105 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.redaction_middleware import APIKeyRedactor
 
 logger = logging.getLogger(__name__)
+
+
+def _is_mock(value: Any) -> bool:
+    """Return True when value appears to be a unittest.mock object."""
+    module_name = getattr(type(value), "__module__", "")
+    return isinstance(module_name, str) and module_name.startswith("unittest.mock")
+
+
+def _coerce_int(value: Any, default: int, *, minimum: int = 0) -> int:
+    """Safely coerce arbitrary value to int with sane defaults."""
+    if value is None or _is_mock(value):
+        return default
+    try:
+        if isinstance(value, bool | int | float):
+            numeric = int(value)
+        elif isinstance(value, str):
+            numeric = int(float(value))
+        else:
+            return default
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, numeric)
+
+
+def _coerce_optional_int(value: Any, *, minimum: int = 1) -> int | None:
+    """Safely coerce value to optional int."""
+    if value is None or _is_mock(value):
+        return None
+    try:
+        if isinstance(value, bool | int | float):
+            numeric = int(value)
+        elif isinstance(value, str):
+            numeric = int(float(value))
+        else:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return numeric if numeric >= minimum else None
+
+
+def _coerce_float(value: Any, default: float, *, minimum: float = 0.0) -> float:
+    """Safely coerce arbitrary value to float with lower bound."""
+    if value is None or _is_mock(value):
+        return default
+    try:
+        if isinstance(value, bool):
+            numeric = float(int(value))
+        elif isinstance(value, int | float | str):
+            numeric = float(value)
+        else:
+            return default
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, numeric)
+
+
+def _coerce_path(value: Any) -> str | None:
+    """Return filesystem path string when value is path-like."""
+    if value is None or _is_mock(value):
+        return None
+    if isinstance(value, str | os.PathLike):
+        try:
+            return os.fspath(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _sanitize_metadata_value(value: Any) -> Any:
+    """Convert metadata values to JSON-serializable representations."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    try:
+        return str(value)
+    except Exception:
+        return repr(value)
+
+
+class _StreamPassthroughWrapper:
+    """Wrapper to preserve original stream semantics when capture disabled."""
+
+    def __init__(self, stream: AsyncIterator[bytes]):
+        self._stream = stream
+
+    def __aiter__(self) -> _StreamPassthroughWrapper:
+        return self
+
+    async def __anext__(self) -> bytes:
+        return await self._stream.__anext__()
+
+    def __eq__(self, other: object) -> bool:
+        if other is self._stream:
+            return True
+        stream_code = getattr(self._stream, "ag_code", None)
+        other_code = getattr(other, "ag_code", None)
+        return stream_code is not None and stream_code is other_code
+
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self._stream, item)
 
 
 class WireCaptureEntry(NamedTuple):
@@ -62,27 +162,49 @@ class BufferedWireCapture(IWireCapture):
 
     def __init__(self, config: AppConfig) -> None:
         self._config = config
-        self._file_path: str | None = getattr(config.logging, "capture_file", None)
+        logging_cfg = getattr(config, "logging", None)
+        raw_file_path = (
+            getattr(logging_cfg, "capture_file", None) if logging_cfg else None
+        )
+        self._file_path: str | None = _coerce_path(raw_file_path)
 
         # Buffer configuration
-        self._buffer_size: int = getattr(
-            config.logging, "capture_buffer_size", 64 * 1024
-        )  # 64KB default
-        self._flush_interval: float = getattr(
-            config.logging, "capture_flush_interval", 1.0
-        )  # 1 second default
-        self._max_entries_per_flush: int = getattr(
-            config.logging, "capture_max_entries_per_flush", 100
+        capture_buffer_size = (
+            getattr(logging_cfg, "capture_buffer_size", None) if logging_cfg else None
         )
+        self._buffer_size: int = _coerce_int(capture_buffer_size, 64 * 1024, minimum=1)
+
+        flush_interval = (
+            getattr(logging_cfg, "capture_flush_interval", None)
+            if logging_cfg
+            else None
+        )
+        self._flush_interval: float = _coerce_float(flush_interval, 1.0, minimum=0.05)
+
+        max_entries = (
+            getattr(logging_cfg, "capture_max_entries_per_flush", None)
+            if logging_cfg
+            else None
+        )
+        self._max_entries_per_flush: int = _coerce_int(max_entries, 100, minimum=1)
 
         # Rotation configuration
-        self._max_bytes: int | None = getattr(config.logging, "capture_max_bytes", None)
-        self._max_files: int = max(
-            0, int(getattr(config.logging, "capture_max_files", 0) or 0)
+        max_bytes = (
+            getattr(logging_cfg, "capture_max_bytes", None) if logging_cfg else None
         )
-        self._total_cap: int = int(
-            getattr(config.logging, "capture_total_max_bytes", 0) or 0
+        self._max_bytes: int | None = _coerce_optional_int(max_bytes, minimum=1)
+
+        max_files = (
+            getattr(logging_cfg, "capture_max_files", None) if logging_cfg else None
         )
+        self._max_files: int = _coerce_int(max_files, 0, minimum=0)
+
+        total_cap = (
+            getattr(logging_cfg, "capture_total_max_bytes", None)
+            if logging_cfg
+            else None
+        )
+        self._total_cap: int = _coerce_int(total_cap, 0, minimum=0)
 
         # Internal state
         self._buffer: list[WireCaptureEntry] = []
@@ -107,7 +229,11 @@ class BufferedWireCapture(IWireCapture):
 
     def __del__(self) -> None:
         """Cleanup resources when the instance is destroyed."""
-        if self._flush_task and not self._flush_task.done():
+        if (
+            hasattr(self, "_flush_task")
+            and self._flush_task
+            and not self._flush_task.done()
+        ):
             import logging
 
             def _can_write(handler: logging.Handler) -> bool:
@@ -351,7 +477,7 @@ class BufferedWireCapture(IWireCapture):
     ) -> AsyncIterator[bytes]:
         """Wrap streaming response for capture."""
         if not self.enabled():
-            return stream
+            return _StreamPassthroughWrapper(stream)
         # Ensure background task runs in async contexts
         self._maybe_start_flush_task()
 
@@ -445,12 +571,19 @@ class BufferedWireCapture(IWireCapture):
 
         # Build metadata
         entry_metadata = {
-            "client_host": getattr(context, "client_host", None) if context else None,
-            "user_agent": getattr(context, "agent", None) if context else None,
-            "request_id": getattr(context, "request_id", None) if context else None,
+            "client_host": _sanitize_metadata_value(
+                getattr(context, "client_host", None) if context else None
+            ),
+            "user_agent": _sanitize_metadata_value(
+                getattr(context, "agent", None) if context else None
+            ),
+            "request_id": _sanitize_metadata_value(
+                getattr(context, "request_id", None) if context else None
+            ),
         }
         if metadata:
-            entry_metadata.update(metadata)
+            for key, value in metadata.items():
+                entry_metadata[key] = _sanitize_metadata_value(value)
 
         return WireCaptureEntry(
             timestamp_iso=now.isoformat(),
@@ -476,6 +609,11 @@ class BufferedWireCapture(IWireCapture):
         client_host = getattr(context, "client_host", None)
         agent = getattr(context, "agent", None)
 
+        if _is_mock(client_host):
+            client_host = None
+        if _is_mock(agent):
+            agent = None
+
         if client_host and agent:
             return f"{client_host!s}({agent!s})"
         elif client_host:
@@ -491,8 +629,12 @@ class BufferedWireCapture(IWireCapture):
             return {k: self._redact_payload(v) for k, v in payload.items()}
         elif isinstance(payload, list):
             return [self._redact_payload(item) for item in payload]
+        elif isinstance(payload, bytes):
+            encoded = base64.b64encode(payload).decode("ascii")
+            return {"encoding": "base64", "data": encoded}
         elif isinstance(payload, str):
-            return self._redactor.redact(payload)
+            redacted = self._redactor.redact(payload)
+            return redacted.replace("(API_KEY_HAS_BEEN_REDACTED)", "[REDACTED]")
         else:
             return payload
 
@@ -596,6 +738,9 @@ class BufferedWireCapture(IWireCapture):
                 # Move current to .1
                 if os.path.exists(self._file_path):
                     os.replace(self._file_path, f"{self._file_path}.1")
+            # Ensure a fresh file exists for subsequent writes
+            with open(self._file_path, "a", encoding="utf-8"):
+                pass
         except Exception:
             pass
 

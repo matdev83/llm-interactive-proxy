@@ -273,6 +273,9 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
 | `qwen-oauth` | Alibaba Qwen | Local `oauth_creds.json` | Qwen CLI OAuth; OpenAI-compatible endpoint |
 
+For detailed OpenAI OAuth backend configuration (capabilities, renderer overrides,
+prompt and tool schema providers) see [`docs/openai_oauth.md`](docs/openai_oauth.md).
+
 ## Gemini Backends Overview
 
 Choose the Gemini integration that fits your environment.

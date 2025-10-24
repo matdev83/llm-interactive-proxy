@@ -43,7 +43,7 @@ Deliverable: A clean separation of frontend normalization, backend payload build
 
 ---
 
-## Phase 3 – Capability-driven tool rendering
+## Phase 3 – Capability-driven tool rendering (Completed)
 1. **Renderer registry**  
    - Implement a registry mapping capability keys (e.g., `xml`, `markdown`) to renderer implementations; default to `none`.
 2. **Renderer implementations**  
@@ -55,11 +55,11 @@ Deliverable: A clean separation of frontend normalization, backend payload build
    - Hook the chosen renderer into the stream adapter based on resolved capability.  
    - Ensure `tool_calls` metadata remains unchanged and textual content mirrors renderer output.
 
-Deliverable: tool text rendering governed by capabilities, no agent-specific logic in core modules.
+Deliverable: tool text rendering governed by capabilities, no agent-specific logic in core modules. **Status:** Implemented (global renderer registry with XML/Markdown/Summary support, aliasing, default and fallback selection, request-driven overrides).
 
 ---
 
-## Phase 4 – Prompt & tool schema configurability
+## Phase 4 – Prompt & tool schema configurability (Completed)
 1. **Prompt provider abstraction**  
    - Allow selection between codex default, merged, or custom prompt per capability/config.  
    - Inject minimal baseline instructions only when needed.
@@ -69,11 +69,11 @@ Deliverable: tool text rendering governed by capabilities, no agent-specific log
 3. **Configuration surface**  
    - Expose environment variables / config entries to set default prompt/tool modes and capability mappings.
 
-Deliverable: operators can fine-tune prompt/tool behavior without modifying code; client-supplied prompts flow through when allowed.
+Deliverable: operators can fine-tune prompt/tool behavior without modifying code; client-supplied prompts flow through when allowed. **Status:** Implemented (configurable prompt template, prepend/append sections, deduplication controls, configurable default/custom tool schemas with validation).
 
 ---
 
-## Phase 5 – Testing & validation
+## Phase 5 – Testing & validation (Completed)
 1. **Unit tests**  
    - Cover capability resolver, renderer registry, prompt/tool providers, and translation adapters.  
    - Verify XML renderer output matches expectations while canonical `tool_calls` stay intact.
@@ -82,11 +82,11 @@ Deliverable: operators can fine-tune prompt/tool behavior without modifying code
 3. **Regression suite**  
    - Ensure existing tests (e.g., `test_translation_service_responses_api`) still pass with capability-driven infrastructure.
 
-Deliverable: comprehensive automated coverage affirming backward compatibility and new modular behavior.
+Deliverable: comprehensive automated coverage affirming backward compatibility and new modular behavior. **Status:** Implemented (unit coverage for renderer aliasing, prompt merges, tool schema overrides, textual tooling flows).
 
 ---
 
-## Phase 6 – Documentation & rollout (POC scope)
+## Phase 6 – Documentation & rollout (Completed)
 1. **Update docs**  
    - Explain capability configuration, prompt/tool override options, renderer choices, passthrough control.  
    - Include upgrade notes for users migrating from Kilo-specific implementation.
@@ -95,6 +95,6 @@ Deliverable: comprehensive automated coverage affirming backward compatibility a
 3. **POC validation**  
    - Run manual tests with Droid/OpenCode clients to confirm general-purpose behavior before tackling advanced features (rate limiting, metrics, etc.).
 
-Deliverable: ready-to-share documentation and POC validation results; baseline reference implementation for future enhancements.
+Deliverable: ready-to-share documentation and POC validation results; baseline reference implementation for future enhancements. **Status:** Implemented (public documentation in `docs/openai_oauth.md`, enhanced logging of capability decisions, renderer configuration warnings).
 
 ---

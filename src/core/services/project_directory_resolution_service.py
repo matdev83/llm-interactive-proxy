@@ -20,9 +20,11 @@ from src.core.interfaces.session_service_interface import ISessionService
 logger = logging.getLogger(__name__)
 
 # Pre-compiled regex patterns for performance optimization
-_WINDOWS_PATH_PATTERN = re.compile(r'\b[a-zA-Z]:\\(?:[^:"*?<>|\r\n\s\\]*(?:\\[^:"*?<>|\r\n\s\\]*)*)\b')
-_UNC_PATH_PATTERN = re.compile(r'\\{2}[^\\]+(?:\\[^\\:\r\n\s]*)*(?:\\[^\\:\r\n\s]*)*\b')
-_UNIX_PATH_PATTERN = re.compile(r'(?:^|\s)(/[^/\\:\r\n\s]*(?:/[^/\\:\r\n\s]*)*)\b')
+_WINDOWS_PATH_PATTERN = re.compile(
+    r'\b[a-zA-Z]:\\(?:[^:"*?<>|\r\n\s\\]*(?:\\[^:"*?<>|\r\n\s\\]*)*)\b'
+)
+_UNC_PATH_PATTERN = re.compile(r"\\{2}[^\\]+(?:\\[^\\:\r\n\s]*)*(?:\\[^\\:\r\n\s]*)*\b")
+_UNIX_PATH_PATTERN = re.compile(r"(?:^|\s)(/[^/\\:\r\n\s]*(?:/[^/\\:\r\n\s]*)*)\b")
 _UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
 
 
@@ -110,6 +112,8 @@ class ProjectDirectoryResolutionService:
 
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
         """Try to find an absolute path in the prompt using regex."""
+        if "\n" in prompt_text or "\r" in prompt_text:
+            return None
         # Use pre-compiled patterns for performance optimization
         patterns = [
             _WINDOWS_PATH_PATTERN,
@@ -122,6 +126,25 @@ class ProjectDirectoryResolutionService:
                 found_path = match.group(1) if match.lastindex else match.group(0)
                 # Clean up any leading whitespace for Unix paths
                 found_path = found_path.strip()
+
+                original_index = prompt_text.find(found_path)
+                if original_index != -1:
+                    suffix = prompt_text[
+                        original_index
+                        + len(found_path) : original_index
+                        + len(found_path)
+                        + 2
+                    ]
+                    if suffix.startswith(("\n", "\r")):
+                        continue
+                    if suffix.startswith(("\\n", "\\r")):
+                        continue
+
+                next_index = match.end()
+                if next_index < len(prompt_text):
+                    next_char = prompt_text[next_index]
+                    if next_char in ("\n", "\r"):
+                        continue
 
                 # Validate the path looks like an absolute path
                 if not self._looks_like_absolute_path(found_path):
@@ -139,40 +162,184 @@ class ProjectDirectoryResolutionService:
     def _extract_directory_from_path(self, path: str) -> str:
         """Extract directory portion from a path that may include a filename."""
         # For Windows paths, check if the last component is a file (has extension)
-        if path.endswith(('.js', '.py', '.jsx', '.ts', '.tsx', '.java', '.cpp', '.c', '.h', '.hpp', '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.scala', '.sh', '.bat', '.cmd', '.ps1', '.html', '.htm', '.css', '.scss', '.less', '.json', '.xml', '.yaml', '.yml', '.md', '.txt', '.log', '.sql', '.db', '.sqlite', '.env', '.config', '.ini', '.conf')):
+        if path.endswith(
+            (
+                ".js",
+                ".py",
+                ".jsx",
+                ".ts",
+                ".tsx",
+                ".java",
+                ".cpp",
+                ".c",
+                ".h",
+                ".hpp",
+                ".cs",
+                ".php",
+                ".rb",
+                ".go",
+                ".rs",
+                ".swift",
+                ".kt",
+                ".scala",
+                ".sh",
+                ".bat",
+                ".cmd",
+                ".ps1",
+                ".html",
+                ".htm",
+                ".css",
+                ".scss",
+                ".less",
+                ".json",
+                ".xml",
+                ".yaml",
+                ".yml",
+                ".md",
+                ".txt",
+                ".log",
+                ".sql",
+                ".db",
+                ".sqlite",
+                ".env",
+                ".config",
+                ".ini",
+                ".conf",
+            )
+        ):
             # Extract directory portion manually for cross-platform compatibility
-            last_backslash = path.rfind('\\')
+            last_backslash = path.rfind("\\")
+            if last_backslash != -1:
+                dir_path = path[:last_backslash]
+                # After extracting directory, check if it ends with common directory names
+                # and should extract one more level up
+                dir_path_lower = dir_path.lower()
+                if any(
+                    dir_path_lower.endswith((("\\" + dir_name), ("/" + dir_name)))
+                    for dir_name in [
+                        "src",
+                        "lib",
+                        "bin",
+                        "include",
+                        "static",
+                        "assets",
+                        "public",
+                        "docs",
+                        "tests",
+                        "test",
+                    ]
+                ):
+                    # Find the parent directory
+                    parent_last_backslash = dir_path.rfind("\\")
+                    if parent_last_backslash != -1:
+                        return dir_path[:parent_last_backslash]
+                    # For Unix paths
+                    parent_last_slash = dir_path.rfind("/")
+                    if parent_last_slash != -1:
+                        return dir_path[:parent_last_slash]
+                return dir_path
+            # For Unix paths
+            last_slash = path.rfind("/")
+            if last_slash != -1:
+                dir_path = path[:last_slash]
+                # After extracting directory, check if it ends with common directory names
+                dir_path_lower = dir_path.lower()
+                if any(
+                    dir_path_lower.endswith((("\\" + dir_name), ("/" + dir_name)))
+                    for dir_name in [
+                        "src",
+                        "lib",
+                        "bin",
+                        "include",
+                        "static",
+                        "assets",
+                        "public",
+                        "docs",
+                        "tests",
+                        "test",
+                    ]
+                ):
+                    # Find the parent directory
+                    parent_last_slash = dir_path.rfind("/")
+                    if parent_last_slash != -1:
+                        return dir_path[:parent_last_slash]
+                    # For Windows paths
+                    parent_last_backslash = dir_path.rfind("\\")
+                    if parent_last_backslash != -1:
+                        return dir_path[:parent_last_backslash]
+                return dir_path
+
+        # For paths ending with common directory names without files, extract parent directory
+        # This handles cases like "project/src" where we want "project"
+        path_lower = path.lower()
+        if any(
+            path_lower.endswith((("\\" + dir_name), ("/" + dir_name)))
+            for dir_name in [
+                "src",
+                "lib",
+                "bin",
+                "include",
+                "static",
+                "assets",
+                "public",
+                "docs",
+                "tests",
+                "test",
+            ]
+        ):
+            # Extract just one level up (parent directory)
+            last_backslash = path.rfind("\\")
             if last_backslash != -1:
                 return path[:last_backslash]
             # For Unix paths
-            last_slash = path.rfind('/')
+            last_slash = path.rfind("/")
             if last_slash != -1:
                 return path[:last_slash]
 
-        # For paths ending with common directory names without files, extract one more level up
-        # This handles cases like "project/src" where we want just "project"
-        path_lower = path.lower()
-        if any(path_lower.endswith('\\' + dir_name) or path_lower.endswith('/' + dir_name) for dir_name in ['src', 'lib', 'bin', 'include', 'static', 'assets', 'public', 'docs', 'tests', 'test']):
-            # Find the parent directory
-            last_backslash = path.rfind('\\')
-            if last_backslash != -1:
-                parent_path = path[:last_backslash]
-                # Extract one more level to get to the project root
-                parent_last_backslash = parent_path.rfind('\\')
-                if parent_last_backslash != -1:
-                    return parent_path[:parent_last_backslash]
-            # For Unix paths
-            last_slash = path.rfind('/')
-            if last_slash != -1:
-                parent_path = path[:last_slash]
-                parent_last_slash = parent_path.rfind('/')
-                if parent_last_slash != -1:
-                    return parent_path[:parent_last_slash]
-
         # For UNC paths or if no extension found, check if path contains common file indicators
-        if any(indicator in path for indicator in ['\\src\\', '\\lib\\', '\\bin\\', '\\include\\', '\\static\\', '\\assets\\', '\\public\\', '\\docs\\', '\\tests\\', '\\test\\']):
-            # Path likely ends with a directory structure
-            return path.rstrip('\\')  # Remove trailing backslash
+        if any(
+            indicator in path
+            for indicator in [
+                "\\src\\",
+                "\\lib\\",
+                "\\bin\\",
+                "\\include\\",
+                "\\static\\",
+                "\\assets\\",
+                "\\public\\",
+                "\\docs\\",
+                "\\tests\\",
+                "\\test\\",
+            ]
+        ):
+            # Path likely ends with a directory structure, check if we should extract parent
+            # For paths ending with common directory names, extract one more level up
+            path_lower = path.lower()
+            if any(
+                path_lower.endswith((("\\" + dir_name), ("/" + dir_name)))
+                for dir_name in [
+                    "src",
+                    "lib",
+                    "bin",
+                    "include",
+                    "static",
+                    "assets",
+                    "public",
+                    "docs",
+                    "tests",
+                    "test",
+                ]
+            ):
+                # Find the parent directory
+                last_backslash = path.rfind("\\")
+                if last_backslash != -1:
+                    return path[:last_backslash]
+                # For Unix paths
+                last_slash = path.rfind("/")
+                if last_slash != -1:
+                    return path[:last_slash]
+            else:
+                return path.rstrip("\\")  # Remove trailing backslash
 
         return path
 

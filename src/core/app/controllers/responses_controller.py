@@ -537,8 +537,19 @@ class ResponsesController:
                     )
                     return False
 
+            async def _empty_chunk_iterator() -> AsyncIterator[Any]:
+                return
+                # vulture: ignore
+                yield None
+
+            chunk_iterator: AsyncIterator[Any] = (
+                response.content
+                if response.content is not None
+                else _empty_chunk_iterator()
+            )
+
             try:
-                async for chunk in response.content:
+                async for chunk in chunk_iterator:
                     if await is_disconnected():
                         stream_terminated = True
                         await trigger_cancel("client_disconnect")

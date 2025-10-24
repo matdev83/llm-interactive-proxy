@@ -3,7 +3,7 @@ A command handler for the failover commands.
 """
 
 import contextlib
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.models import Command
@@ -28,6 +28,8 @@ from src.core.interfaces.state_provider_interface import (
 
 if TYPE_CHECKING:
     from src.core.interfaces.command_service_interface import ICommandService
+
+_T_co = TypeVar("_T_co")
 
 
 class SessionStateApplicationStateAdapter(
@@ -159,6 +161,16 @@ class SessionStateApplicationStateAdapter(
 
     def set_model_defaults(self, defaults: dict[str, Any]) -> None:
         self._local_state["model_defaults"] = defaults
+
+    def get_service(self, service_type: type[_T_co]) -> _T_co | None:
+        provider = self._local_state.get("service_provider")
+        getter = getattr(provider, "get_service", None) if provider else None
+        if getter is None or not callable(getter):
+            return None
+        try:
+            return cast(_T_co | None, getter(service_type))
+        except Exception:
+            return None
 
     def set_failover_route(self, name: str, route_config: dict[str, Any]) -> None:
         current_backend_config = cast(

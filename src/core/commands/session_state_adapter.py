@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import contextlib
-from typing import Any, cast
+from typing import Any, TypeVar, cast
+
+_T_co = TypeVar("_T_co")
 
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.session import Session
@@ -138,6 +140,17 @@ class SessionStateAdapter(
 
     def set_model_defaults(self, defaults: dict[str, Any]) -> None:
         self._local_state["model_defaults"] = defaults
+
+    def get_service(self, service_type: type[_T_co]) -> _T_co | None:
+        """Session-bound state does not expose DI services."""
+        provider = self._local_state.get("service_provider")
+        getter = getattr(provider, "get_service", None) if provider else None
+        if getter is None or not callable(getter):
+            return None
+        try:
+            return cast(_T_co | None, getter(service_type))
+        except Exception:
+            return None
 
     def set_failover_route(self, name: str, route_config: dict[str, Any]) -> None:
         current_backend_config = cast(
