@@ -843,11 +843,16 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
                     from src.core.services.conversation_fingerprint_service import (
                         ConversationFingerprintService,
                     )
-                    fingerprint_service = service_provider.get_service(ConversationFingerprintService)
+
+                    fingerprint_service = service_provider.get_service(
+                        ConversationFingerprintService
+                    )
                     if fingerprint_service is None:
                         fingerprint_service = ConversationFingerprintService()
 
-                    session_manager = SessionManager(concrete_session, session_resolver, fingerprint_service)
+                    session_manager = SessionManager(
+                        concrete_session, session_resolver, fingerprint_service
+                    )
                     backend_request_manager_service = service_provider.get_service(
                         cast(type, IBackendRequestManager)
                     )

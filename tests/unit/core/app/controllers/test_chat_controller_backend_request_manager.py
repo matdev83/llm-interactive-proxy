@@ -60,9 +60,17 @@ class _FakeProvider(IServiceProvider):
 
 
 class _DummySessionManager:
-    def __init__(self, session_service: Any, session_resolver: Any) -> None:
+    def __init__(
+        self,
+        session_service: Any,
+        session_resolver: Any,
+        fingerprint_service: Any | None = None,
+        session_repository: Any | None = None,
+    ) -> None:
         self.session_service = session_service
         self.session_resolver = session_resolver
+        self.fingerprint_service = fingerprint_service
+        self.session_repository = session_repository
 
 
 class _DummyBackendRequestManager:

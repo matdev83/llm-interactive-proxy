@@ -304,7 +304,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     "Gemini response did not include any candidates",
                     "empty_response",
                     {"payload_type": "list"},
-                    default_status=429,
+                    default_status=502,
                 )
         else:
             _raise_error(
@@ -346,7 +346,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 "Gemini response did not contain any text content",
                 "empty_response",
                 {"payload_type": type(response_payload).__name__},
-                default_status=429,
+                default_status=502,
             )
 
         return "".join(text_parts)

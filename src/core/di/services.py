@@ -782,6 +782,7 @@ def register_core_services(
     from src.core.services.conversation_fingerprint_service import (
         ConversationFingerprintService,
     )
+
     _add_singleton(ConversationFingerprintService)
 
     # Register session manager
@@ -790,7 +791,9 @@ def register_core_services(
         session_resolver = provider.get_required_service(ISessionResolver)  # type: ignore[type-abstract]
         # Get session repository for fingerprint tracking
         session_repository = provider.get_service(cast(type, ISessionRepository))  # type: ignore[type-abstract]
-        fingerprint_service = provider.get_required_service(ConversationFingerprintService)
+        fingerprint_service = provider.get_required_service(
+            ConversationFingerprintService
+        )
         return SessionManager(
             session_service,
             session_resolver,
