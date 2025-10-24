@@ -222,12 +222,53 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
     def _extract_generated_text_from_response(response_payload: Any) -> str:
         """Extract concatenated text content from a Gemini Code Assist response."""
 
-        def _raise_error(message: str, code: str, details: dict[str, Any]) -> None:
+        def _detect_rate_limit(details: dict[str, Any]) -> bool:
+            error = details.get("error")
+            if isinstance(error, dict):
+                error_code = error.get("code")
+                if isinstance(error_code, int) and error_code == 429:
+                    return True
+                message = error.get("message")
+                if isinstance(message, str):
+                    lower = message.lower()
+                    if any(
+                        phrase in lower
+                        for phrase in (
+                            "resource exhausted",
+                            "rate limit",
+                            "quota",
+                            "too many requests",
+                        )
+                    ):
+                        return True
+            message = details.get("message")
+            if isinstance(message, str):
+                lower = message.lower()
+                if any(
+                    phrase in lower
+                    for phrase in (
+                        "resource exhausted",
+                        "rate limit",
+                        "quota",
+                        "too many requests",
+                    )
+                ):
+                    return True
+            return False
+
+        def _raise_error(
+            message: str,
+            code: str,
+            details: dict[str, Any],
+            *,
+            default_status: int = 503,
+        ) -> None:
+            status_code = 429 if _detect_rate_limit(details) else default_status
             raise BackendError(
                 message=message,
                 code=code,
                 details=details,
-                status_code=503 if code == "gemini_error_payload" else 502,
+                status_code=status_code,
             )
 
         candidates: list[Any] = []
@@ -263,12 +304,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     "Gemini response did not include any candidates",
                     "empty_response",
                     {"payload_type": "list"},
+                    default_status=429,
                 )
         else:
             _raise_error(
                 f"Unexpected response format: {type(response_payload).__name__}",
                 "unexpected_response_format",
                 {"payload_type": type(response_payload).__name__},
+                default_status=502,
             )
 
         text_parts: list[str] = []
@@ -303,6 +346,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 "Gemini response did not contain any text content",
                 "empty_response",
                 {"payload_type": type(response_payload).__name__},
+                default_status=429,
             )
 
         return "".join(text_parts)

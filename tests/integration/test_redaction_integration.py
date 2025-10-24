@@ -244,14 +244,22 @@ async def test_end_to_end_non_streaming_redaction() -> None:
 
         from src.core.interfaces.response_manager_interface import IResponseManager
         from src.core.interfaces.session_resolver_interface import ISessionResolver
+        from src.core.services.conversation_fingerprint_service import (
+            ConversationFingerprintService,
+        )
         from src.core.services.session_manager_service import SessionManager
 
         mock_session_resolver = AsyncMock(spec=ISessionResolver)
         mock_response_manager = AsyncMock(spec=IResponseManager)
+        fingerprint_service = ConversationFingerprintService()
 
         processor = RequestProcessor(
             command_processor,
-            SessionManager(session_manager, mock_session_resolver),
+            SessionManager(
+                session_manager,
+                mock_session_resolver,
+                fingerprint_service=fingerprint_service,
+            ),
             backend_request_manager,
             mock_response_manager,
             app_state=app_state,
@@ -317,14 +325,22 @@ async def test_end_to_end_streaming_redaction() -> None:
 
         from src.core.interfaces.response_manager_interface import IResponseManager
         from src.core.interfaces.session_resolver_interface import ISessionResolver
+        from src.core.services.conversation_fingerprint_service import (
+            ConversationFingerprintService,
+        )
         from src.core.services.session_manager_service import SessionManager
 
         mock_session_resolver = AsyncMock(spec=ISessionResolver)
         mock_response_manager = AsyncMock(spec=IResponseManager)
+        fingerprint_service = ConversationFingerprintService()
 
         processor = RequestProcessor(
             command_processor,
-            SessionManager(session_manager, mock_session_resolver),
+            SessionManager(
+                session_manager,
+                mock_session_resolver,
+                fingerprint_service=fingerprint_service,
+            ),
             backend_request_manager,
             mock_response_manager,
             app_state=app_state,

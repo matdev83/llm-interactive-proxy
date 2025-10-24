@@ -24,6 +24,7 @@ def test_extract_generated_text_raises_on_error_payload() -> None:
         GeminiOAuthBaseConnector._extract_generated_text_from_response(payload)
 
     assert excinfo.value.code == "gemini_error_payload"
+    assert excinfo.value.status_code == 429
 
 
 def test_extract_generated_text_raises_when_candidates_empty() -> None:
@@ -33,6 +34,7 @@ def test_extract_generated_text_raises_when_candidates_empty() -> None:
         GeminiOAuthBaseConnector._extract_generated_text_from_response(payload)
 
     assert excinfo.value.code == "empty_response"
+    assert excinfo.value.status_code == 429
 
 
 def test_extract_generated_text_handles_error_in_list_payload() -> None:
@@ -45,3 +47,4 @@ def test_extract_generated_text_handles_error_in_list_payload() -> None:
         GeminiOAuthBaseConnector._extract_generated_text_from_response(payload)
 
     assert excinfo.value.code == "gemini_error_payload"
+    assert excinfo.value.status_code == 429
