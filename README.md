@@ -378,6 +378,8 @@ Useful flags
 - `--force-model MODEL_NAME` to override all client-requested models (e.g., `--force-model gemini-2.5-pro`)
 - `--force-context-window TOKENS` to override context window size for all models (e.g., `--force-context-window 8000`)
 - `--strict-command-detection` to enable strict command detection (only process commands on last non-blank line)
+- `--enable-pytest-compression` to enable pytest output compression
+- `--enable-pytest-context-saving` to enable automatic addition of `-r fE` and `-q` flags to pytest commands
 - `--enable-edit-precision` / `--disable-edit-precision` to control automated edit-precision tuning
 - `--edit-precision-temperature TEMP` to set target temperature for edit failures (default: 0.1)
 - `--edit-precision-min-top-p FLOAT` to set minimum top_p for edit failures (default: 0.3)
@@ -980,11 +982,10 @@ The proxy automatically compresses verbose pytest output to preserve context win
 
 **Configuration Options:**
 
-The feature can be controlled via CLI flags, environment variables, or the `config.yaml` file. The order of precedence is: CLI > Environment Variable > `config.yaml`.
+The feature can be controlled via CLI flag, environment variable, or the `config.yaml` file. The order of precedence is: CLI > Environment Variable > `config.yaml`.
 
-- **CLI Flags**:
+- **CLI Flag**:
   - `--enable-pytest-compression`: Explicitly enables compression for the current session.
-  - `--disable-pytest-compression`: Explicitly disables compression for the current session.
 
 - **Environment Variable**:
 
@@ -1011,6 +1012,64 @@ test_example.py::test_failure FAILED                     [100%]
 ```
 
 📖 **[Full Documentation](docs/pytest-compression.md)** - Detailed configuration options, use cases, and troubleshooting
+
+### Pytest Context Saving
+
+The proxy can automatically add context-saving flags to pytest commands to preserve context window space while maintaining essential information:
+
+- **Automatic Detection**: Recognizes pytest commands (`pytest`, `python -m pytest`, etc.)
+- **Smart Flag Addition**: Automatically adds `-r fE` (show failed tests and errors) and `-q` (quiet mode) flags
+- **Conditional Logic**: Only adds flags when they're not already present in the command
+- **Context Preservation**: Reduces verbose output to save valuable context window tokens
+- **Configurable**: Opt-in feature that can be enabled via CLI flag or YAML configuration
+
+**Configuration Options:**
+
+This feature is disabled by default and must be explicitly enabled:
+
+- **CLI Flag**:
+  - `--enable-pytest-context-saving`: Enable pytest context saving for the current session
+
+- **YAML Configuration** (`config.yaml`):
+  ```yaml
+  session:
+    tool_call_reactor:
+      pytest_context_saving_enabled: true  # Default: false
+  ```
+
+**Example Command Transformations:**
+
+```
+# Before context saving:
+pytest tests/
+
+# After context saving (automatically modified):
+pytest tests/ -r fE -q
+
+# If flags already present, no changes:
+pytest tests/ -r fE -q --verbose
+```
+
+**Benefits:**
+
+- **Context Window Conservation**: Reduces verbose pytest output to save tokens
+- **Error Visibility**: Still shows failed tests and error details with `-r fE`
+- **Cleaner Output**: Quiet mode with `-q` reduces unnecessary verbosity
+- **Automatic Operation**: No need to manually add flags to every pytest command
+- **Safe Implementation**: Only adds flags when they don't already exist
+
+**Usage Example:**
+
+```bash
+# Enable pytest context saving via CLI
+python -m src.core.cli --enable-pytest-context-saving
+
+# Or enable via YAML configuration
+# Add to config.yaml:
+# session:
+#   tool_call_reactor:
+#     pytest_context_saving_enabled: true
+```
 
 ### Context Window Enforcement
 

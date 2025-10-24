@@ -6,6 +6,7 @@ This module provides test implementations of interfaces for use in unit tests.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
@@ -391,6 +392,20 @@ class MockRateLimiter(IRateLimiter):
             reset_at=None,
             limit=limit,
             time_window=time_window,
+        )
+
+    async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
+        reset_at = time.time() + max(cooldown_seconds, 0)
+        existing = self.limits.get(key)
+        limit = existing.limit if existing else 0
+        window = existing.time_window if existing else 60
+
+        self.limits[key] = RateLimitInfo(
+            is_limited=True,
+            remaining=0,
+            reset_at=reset_at,
+            limit=limit,
+            time_window=window,
         )
 
 

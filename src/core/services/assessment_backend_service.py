@@ -127,8 +127,10 @@ class AssessmentBackendService(IAssessmentBackendService):
                 },
             ]
 
+            # Combine backend and model in the format expected by the routing system
+            full_model = f"{self.config.backend}:{self.config.model}"
             test_request = ChatRequest(
-                model=self.config.model,
+                model=full_model,
                 messages=[
                     ChatMessage(role=msg["role"], content=msg["content"])
                     for msg in test_messages
@@ -174,8 +176,10 @@ class AssessmentBackendService(IAssessmentBackendService):
             chat_messages.append({"role": msg.role, "content": msg.content})
 
         # Create chat request with structured output
+        # Combine backend and model in the format expected by the routing system
+        full_model = f"{self.config.backend}:{self.config.model}"
         chat_request = ChatRequest(
-            model=self.config.model,
+            model=full_model,
             messages=[
                 ChatMessage(role=msg["role"], content=msg["content"])
                 for msg in chat_messages

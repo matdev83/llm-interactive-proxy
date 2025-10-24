@@ -71,6 +71,9 @@ class DummyLimiter(IRateLimiter):
     async def set_limit(self, key: str, limit: int, time_window: int) -> None:
         pass
 
+    async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
+        pass
+
 
 class DummyConfig(IConfig):
     def __init__(self) -> None:

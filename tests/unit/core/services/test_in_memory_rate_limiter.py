@@ -104,6 +104,47 @@ class TestInMemoryRateLimiter:
         assert info.limit == 10
 
     @pytest.mark.asyncio
+    async def test_apply_cooldown_marks_key_limited(
+        self, rate_limiter: InMemoryRateLimiter, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ensure apply_cooldown forces the key into a limited state."""
+        key = "cooldown-key"
+        clock = {"value": 1_000.0}
+
+        def fake_time() -> float:
+            return clock["value"]
+
+        monkeypatch.setattr("src.core.services.rate_limiter.time.time", fake_time)
+
+        await rate_limiter.apply_cooldown(key, cooldown_seconds=30)
+        info = await rate_limiter.check_limit(key)
+
+        assert info.is_limited is True
+        assert info.reset_at == pytest.approx(clock["value"] + 30)
+        assert info.remaining == 0
+
+        # Advance time beyond cooldown to verify automatic recovery.
+        clock["value"] += 31
+        info_after = await rate_limiter.check_limit(key)
+        assert info_after.is_limited is False
+
+    @pytest.mark.asyncio
+    async def test_reset_clears_cooldown(
+        self, rate_limiter: InMemoryRateLimiter
+    ) -> None:
+        """Ensure reset removes any active cooldown."""
+        key = "cooldown-reset"
+        await rate_limiter.apply_cooldown(key, cooldown_seconds=30)
+
+        # Sanity check the cooldown exists.
+        info = await rate_limiter.check_limit(key)
+        assert info.is_limited is True
+
+        await rate_limiter.reset(key)
+        post_reset = await rate_limiter.check_limit(key)
+        assert post_reset.is_limited is False
+
+    @pytest.mark.asyncio
     async def test_record_usage_single(self, rate_limiter: InMemoryRateLimiter) -> None:
         """Test recording single usage."""
         key = "test-key"
@@ -398,6 +439,18 @@ class TestConfigurableRateLimiter:
         user2_info = await limiter.check_limit("user2")
         assert user2_info.limit == 50
         assert user2_info.time_window == 60
+
+    @pytest.mark.asyncio
+    async def test_apply_cooldown_delegates_to_base_limiter(
+        self, base_limiter: InMemoryRateLimiter, config: dict[str, Any]
+    ) -> None:
+        """apply_cooldown should be forwarded to underlying limiter."""
+        limiter = ConfigurableRateLimiter(base_limiter, config)
+
+        await limiter.apply_cooldown("delegated-key", cooldown_seconds=10)
+        info = await base_limiter.check_limit("delegated-key")
+
+        assert info.is_limited is True
 
     @pytest.mark.asyncio
     async def test_config_with_no_rate_limits(

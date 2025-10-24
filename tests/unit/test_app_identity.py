@@ -29,6 +29,9 @@ class MockRateLimiter(IRateLimiter):
     async def set_limit(self, key, limit, time_window):
         pass
 
+    async def apply_cooldown(self, key, cooldown_seconds):
+        pass
+
 
 @pytest.mark.asyncio
 async def test_default_identity_headers():

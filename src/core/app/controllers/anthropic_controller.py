@@ -544,7 +544,19 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
 
                     agent_response_formatter = AgentResponseFormatter()
 
-                session_manager = SessionManager(session, session_resolver)
+                from src.core.services.conversation_fingerprint_service import (
+                    ConversationFingerprintService,
+                )
+
+                fingerprint_service = service_provider.get_service(
+                    ConversationFingerprintService
+                )
+                if fingerprint_service is None:
+                    fingerprint_service = ConversationFingerprintService()
+
+                session_manager = SessionManager(
+                    session, session_resolver, fingerprint_service
+                )
                 backend_request_manager_service = service_provider.get_service(
                     cast(type, IBackendRequestManager)
                 )

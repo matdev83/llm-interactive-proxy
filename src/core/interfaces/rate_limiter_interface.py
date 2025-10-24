@@ -41,3 +41,7 @@ class IRateLimiter(ABC):
     @abstractmethod
     async def set_limit(self, key: str, limit: int, time_window: int) -> None:
         pass
+
+    @abstractmethod
+    async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
+        """Mark the key as rate-limited for a cooldown period."""

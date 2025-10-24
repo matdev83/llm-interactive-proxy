@@ -100,7 +100,9 @@ DEFAULT_REDACTED_FIELDS = {
 # - OpenAI keys: sk- followed by specific prefixes like proj-, test-, etc., then 20+ chars
 # - Anthropic keys: ak- followed by specific prefixes like ant-, etc., then 20+ chars
 # This avoids matching "ak_" sequences in common English words like "tracking", "monitoring"
-API_KEY_PATTERN = re.compile(r"(?:sk-(?:proj|test|live|team|org|svc)[A-Za-z0-9_-]{15,}|ak-(?:ant|sk|proj)[A-Za-z0-9_-]{17,})")
+API_KEY_PATTERN = re.compile(
+    r"(?:sk[-_](?:proj|test|live|team|org|svc|[A-Za-z0-9])[A-Za-z0-9_-]{15,}|ak-(?:ant|sk|proj)[A-Za-z0-9_-]{17,})"
+)
 # ZAI-style keys: 32 hex chars, dot, 16+ mixed alphanum
 ZAI_KEY_PATTERN = re.compile(r"\b[0-9a-f]{32}\.[A-Za-z0-9]{16,}\b")
 BEARER_TOKEN_PATTERN = re.compile(r"Bearer\s+([a-zA-Z0-9._~+/-]+=*)")

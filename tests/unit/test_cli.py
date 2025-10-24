@@ -152,7 +152,7 @@ def test_cli_backend_choices_match_registry() -> None:
         # Configure the mock parser to return a namespace with proper defaults
         # to prevent validation errors in _validate_llm_loop_assessment_config
         mock_args = Mock()
-        mock_args.llm_loop_assessment_enabled = None  # Default to disabled
+        mock_args.llm_assessment_enabled = None  # Default to disabled
         mock_args.llm_assessment_model = None  # Default to None
         mock_parser_instance.parse_args.return_value = mock_args
 
@@ -572,8 +572,12 @@ def test_steering_handler_is_enabled_via_cli_flag():
     builder.add_stage(CoreServicesStage())
 
     # We need to run the async build process
-    loop = asyncio.get_event_loop()
-    app = loop.run_until_complete(builder.build(config))
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        app = loop.run_until_complete(builder.build(config))
+    finally:
+        loop.close()
     container = app.state.service_provider
 
     # Assert: Check the tool call reactor service for the handler

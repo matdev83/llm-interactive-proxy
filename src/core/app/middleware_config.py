@@ -171,6 +171,26 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         app.add_middleware(ContentRewritingMiddleware, rewriter=rewriter)
         logger.info("Content rewriting middleware is enabled.")
 
+    # LLM Assessment middleware (if enabled)
+    if hasattr(config, "assessment") and getattr(config.assessment, "enabled", False):
+        try:
+            from src.core.app.middleware.assessment_middleware import (
+                AssessmentMiddleware,
+            )
+            from src.core.services.assessment_service import AssessmentService
+
+            assessment_service = app.state.service_provider.get_required_service(
+                AssessmentService
+            )
+            app.add_middleware(
+                AssessmentMiddleware, assessment_service=assessment_service  # type: ignore[arg-type]
+            )
+            logger.info("LLM Assessment middleware is enabled")
+        except Exception as e:
+            logger.warning(
+                "Failed to register AssessmentMiddleware: %s", e, exc_info=True
+            )
+
     # Request/response logging middleware (if enabled)
     request_logging = (
         config.logging.request_logging if hasattr(config, "logging") else False

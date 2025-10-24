@@ -32,6 +32,7 @@ class InMemoryRateLimiter(IRateLimiter):
         """
         self._usage: dict[str, list[float]] = {}  # Dict[str, List[float]]
         self._limits: dict[str, tuple[int, int]] = {}  # Dict[str, (int, int)]
+        self._cooldowns: dict[str, float] = {}
 
         # Default limits (operations per time window)
         self._default_limit = default_limit
@@ -78,6 +79,15 @@ class InMemoryRateLimiter(IRateLimiter):
             # Time when the oldest request falls out of the window
             reset_at = current[0] + time_window
 
+        cooldown_until = self._cooldowns.get(key)
+        if cooldown_until is not None:
+            if now >= cooldown_until:
+                self._cooldowns.pop(key, None)
+            else:
+                is_limited = True
+                remaining = 0
+                reset_at = cooldown_until
+
         logger.debug(
             f"Rate limit check: {key} - {used}/{limit} used, limited: {is_limited}"
         )
@@ -120,6 +130,8 @@ class InMemoryRateLimiter(IRateLimiter):
         if key in self._usage:
             self._usage[key] = []
             logger.debug(f"Reset rate limit counters for {key}")
+        if key in self._cooldowns:
+            self._cooldowns.pop(key, None)
 
     async def set_limit(self, key: str, limit: int, time_window: int) -> None:
         """Set a custom rate limit for the given key.
@@ -131,6 +143,23 @@ class InMemoryRateLimiter(IRateLimiter):
         """
         self._limits[key] = (limit, time_window)
         logger.debug(f"Set custom rate limit for {key}: {limit}/{time_window}s")
+
+    async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
+        """Force a temporary cooldown for the key."""
+        if cooldown_seconds <= 0:
+            return
+
+        now = time.time()
+        new_expiry = now + cooldown_seconds
+        current_expiry = self._cooldowns.get(key)
+
+        if current_expiry is None or new_expiry > current_expiry:
+            self._cooldowns[key] = new_expiry
+            logger.debug(
+                "Applied cooldown for %s until %s",
+                key,
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(new_expiry)),
+            )
 
     def _get_limits(self, key: str) -> tuple[int, int]:
         """Get the limits for a key (or default if not set).
@@ -204,6 +233,11 @@ class ConfigurableRateLimiter(IRateLimiter):
         """
         await self._ensure_config_applied()
         await self._limiter.set_limit(key, limit, time_window)
+
+    async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
+        """Forward cooldown applications to base limiter."""
+        await self._ensure_config_applied()
+        await self._limiter.apply_cooldown(key, cooldown_seconds)
 
     async def _ensure_config_applied(self) -> None:
         """Apply configuration once before delegating to the base limiter."""

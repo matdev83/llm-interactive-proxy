@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
+import math
 import re
 import time
 from collections import OrderedDict
@@ -773,8 +775,31 @@ class BackendService(IBackendService):
                 except BackendError as be:
                     # Lightweight retry once on HTTP 429 from backend
                     if getattr(be, "status_code", None) == 429:
-                        # Optional: Parse retry delay if available; avoid sleeping in tests
-                        _ = parse_retry_delay(getattr(be, "details", None))
+                        delay_seconds = parse_retry_delay(getattr(be, "details", None))
+                        cooldown_seconds = (
+                            math.ceil(delay_seconds) if delay_seconds else 15
+                        )
+                        try:
+                            await self._rate_limiter.apply_cooldown(
+                                rate_key, cooldown_seconds
+                            )
+                        except Exception:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Failed to apply cooldown for %s",
+                                    rate_key,
+                                    exc_info=True,
+                                )
+                        if delay_seconds:
+                            try:
+                                await asyncio.sleep(delay_seconds)
+                            except Exception:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Retry delay sleep failed for backend %s",
+                                        backend_type,
+                                        exc_info=True,
+                                    )
                         result = await backend.chat_completions(
                             request_data=domain_request,
                             processed_messages=request.messages,

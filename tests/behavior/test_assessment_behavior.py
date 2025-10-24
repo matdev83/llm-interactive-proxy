@@ -66,9 +66,17 @@ class TestAssessmentTriggeringBehavior:
         middleware = AssessmentMiddleware(assessment_service, turn_counter, config)
 
         session_id = "test_session"
-        chat_request = ChatRequest(
-            model="gpt-4", messages=[ChatMessage(role="user", content="Test message")]
-        )
+        # Create a proper conversation history for assessment
+        conversation_messages = [
+            ChatMessage(role="user", content="Hello"),
+            ChatMessage(role="assistant", content="Hi there! How can I help you?"),
+            ChatMessage(role="user", content="I need help with something"),
+            ChatMessage(role="assistant", content="I'd be happy to help!"),
+            ChatMessage(role="user", content="Can you assist me?"),
+            ChatMessage(role="assistant", content="Of course, what do you need?"),
+            ChatMessage(role="user", content="Test message"),
+        ]
+        chat_request = ChatRequest(model="gpt-4", messages=conversation_messages)
 
         mock_backend.perform_assessment.return_value = {
             "reasoning": "Normal conversation",
@@ -326,6 +334,10 @@ class TestConfidenceThresholdBehavior:
         original_messages = [
             ChatMessage(role="user", content="Hello"),
             ChatMessage(role="assistant", content="Hi there!"),
+            ChatMessage(role="user", content="How are you?"),
+            ChatMessage(role="assistant", content="I'm doing well!"),
+            ChatMessage(role="user", content="That's good to hear"),
+            ChatMessage(role="assistant", content="Thank you for asking!"),
         ]
 
         chat_request = ChatRequest(model="gpt-4", messages=original_messages)
@@ -556,6 +568,8 @@ class TestSteeringMessageInjectionBehavior:
             ChatMessage(role="assistant", content="I can help with Python!"),
             ChatMessage(role="user", content="I'm stuck in a loop"),
             ChatMessage(role="assistant", content="I can help with Python!"),
+            ChatMessage(role="user", content="Can you help me debug this?"),
+            ChatMessage(role="assistant", content="I can help with Python!"),
         ]
 
         chat_request = ChatRequest(model="gpt-4", messages=original_messages)
@@ -744,9 +758,16 @@ class TestSteeringMessageInjectionBehavior:
         middleware = AssessmentMiddleware(assessment_service, turn_counter, config)
 
         session_id = "test_session"
-        chat_request = ChatRequest(
-            model="gpt-4", messages=[ChatMessage(role="user", content="Test")]
-        )
+        # Create proper conversation history for assessment
+        conversation_messages = [
+            ChatMessage(role="user", content="Hello"),
+            ChatMessage(role="assistant", content="Hi there!"),
+            ChatMessage(role="user", content="How are you?"),
+            ChatMessage(role="assistant", content="I'm doing well!"),
+            ChatMessage(role="user", content="Test"),
+            ChatMessage(role="assistant", content="I can help!"),
+        ]
+        chat_request = ChatRequest(model="gpt-4", messages=conversation_messages)
 
         # Test different reasoning scenarios
         test_scenarios = [

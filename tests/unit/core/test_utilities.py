@@ -309,6 +309,16 @@ class MockRateLimiter(IRateLimiter):
             time_window=time_window,
         )
 
+    async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
+        """Mock cooldown application."""
+        self.limits[key] = RateLimitInfo(
+            is_limited=True,
+            remaining=0,
+            reset_at=None,
+            limit=self.limits.get(key, RateLimitInfo()).limit,
+            time_window=self.limits.get(key, RateLimitInfo()).time_window,
+        )
+
 
 #
 # Mock Loop Detector

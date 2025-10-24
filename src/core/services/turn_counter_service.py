@@ -48,15 +48,16 @@ class TurnCounterService(ITurnCounterService):
         Returns:
             New turn count for the session
         """
-        import time
-
         state = self.repository.get_session_state(session_id)
-        # Ensure timestamp updates by sleeping briefly before incrementing
-        time.sleep(0.001)
         turn_count = state.increment_turn()
+        # State already updated its timestamp during increment_turn; avoid duplicate work.
         self.repository.update_session_state(state)
 
-        logger.debug(f"Turn incremented for session {session_id}: {turn_count}")
+        logger.debug(
+            "turn_incremented",
+            session_id=session_id,
+            turn_count=turn_count,
+        )
         return turn_count
 
     def get_turn_count(self, session_id: str) -> int:
@@ -125,11 +126,6 @@ class TurnCounterService(ITurnCounterService):
         Args:
             session_id: Unique identifier for the session
         """
-        import time
-
-        # Small delay to ensure different timestamp
-        time.sleep(0.001)
-
         state = self.repository.get_session_state(session_id)
         state.mark_assessment_performed()
         self.repository.update_session_state(state)

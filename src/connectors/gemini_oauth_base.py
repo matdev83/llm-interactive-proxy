@@ -218,6 +218,95 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             normalized = normalized[len("models/") :]
         return normalized
 
+    @staticmethod
+    def _extract_generated_text_from_response(response_payload: Any) -> str:
+        """Extract concatenated text content from a Gemini Code Assist response."""
+
+        def _raise_error(message: str, code: str, details: dict[str, Any]) -> None:
+            raise BackendError(
+                message=message,
+                code=code,
+                details=details,
+                status_code=503 if code == "gemini_error_payload" else 502,
+            )
+
+        candidates: list[Any] = []
+
+        if isinstance(response_payload, dict):
+            error_obj = response_payload.get("error")
+            if isinstance(error_obj, dict):
+                _raise_error(
+                    "Gemini API returned an error payload",
+                    "gemini_error_payload",
+                    {"error": error_obj},
+                )
+            maybe_candidates = response_payload.get("candidates")
+            if isinstance(maybe_candidates, list):
+                candidates = maybe_candidates
+        elif isinstance(response_payload, list):
+            for item in response_payload:
+                if not isinstance(item, dict):
+                    continue
+                error_obj = item.get("error")
+                if isinstance(error_obj, dict):
+                    _raise_error(
+                        "Gemini API returned an error payload",
+                        "gemini_error_payload",
+                        {"error": error_obj},
+                    )
+                if not candidates:
+                    maybe_candidates = item.get("candidates")
+                    if isinstance(maybe_candidates, list):
+                        candidates = maybe_candidates
+            if not candidates:
+                _raise_error(
+                    "Gemini response did not include any candidates",
+                    "empty_response",
+                    {"payload_type": "list"},
+                )
+        else:
+            _raise_error(
+                f"Unexpected response format: {type(response_payload).__name__}",
+                "unexpected_response_format",
+                {"payload_type": type(response_payload).__name__},
+            )
+
+        text_parts: list[str] = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_error = candidate.get("error")
+            if isinstance(candidate_error, dict):
+                _raise_error(
+                    "Gemini candidate contained an error payload",
+                    "gemini_error_payload",
+                    {"error": candidate_error},
+                )
+            content = candidate.get("content", {})
+            if not isinstance(content, dict):
+                continue
+            parts = content.get("parts", [])
+            if not isinstance(parts, list):
+                continue
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                text_value = part.get("text")
+                if isinstance(text_value, str):
+                    text_parts.append(text_value)
+
+        if not text_parts or not any(part.strip() for part in text_parts):
+            logger.warning(
+                "List response from Gemini API contained no candidates. This may be due to safety settings or other content filters."
+            )
+            _raise_error(
+                "Gemini response did not contain any text content",
+                "empty_response",
+                {"payload_type": type(response_payload).__name__},
+            )
+
+        return "".join(text_parts)
+
     def __init__(
         self,
         client: httpx.AsyncClient,
@@ -1682,32 +1771,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 # Parse the non-streaming response
                 response_data = response.json()
 
-                # Handle unexpected response formats
-                if isinstance(response_data, list):
-                    # If response_data is a list, try to find the first dict with candidates
-                    candidates = []
-                    for item in response_data:
-                        if isinstance(item, dict) and "candidates" in item:
-                            candidates = item.get("candidates", [])
-                            break
-                    if not candidates:
-                        logger.warning(
-                            "List response from Gemini API contained no candidates. This may be due to safety settings or other content filters."
-                        )
-                elif isinstance(response_data, dict):
-                    # Expected format
-                    candidates = response_data.get("candidates", [])
-                else:
-                    raise BackendError(
-                        f"Unexpected response format: {type(response_data).__name__}"
-                    )
-                if candidates and len(candidates) > 0:
-                    candidate = candidates[0]
-                    content = candidate.get("content", {})
-                    parts = content.get("parts", [])
-                    if parts and len(parts) > 0:
-                        generated_text = parts[0].get("text", "")
+                generated_text = self._extract_generated_text_from_response(
+                    response_data
+                )
 
+            except BackendError:
+                raise
             except Exception as e:
                 logger.error(f"Error in non-streaming API call: {e}", exc_info=True)
                 raise BackendError(f"Non-streaming API call failed: {e}") from e

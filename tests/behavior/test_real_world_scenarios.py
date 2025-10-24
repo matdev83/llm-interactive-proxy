@@ -278,6 +278,8 @@ class TestTypicalConversationScenarios:
             ChatMessage(role="assistant", content="I can help!"),
             ChatMessage(role="user", content="Help me"),
             ChatMessage(role="assistant", content="I can help you!"),
+            ChatMessage(role="user", content="Help me again"),
+            ChatMessage(role="assistant", content="I can help you again!"),
         ]
 
         chat_request = ChatRequest(model="gpt-4", messages=loop_conversation)
@@ -290,9 +292,9 @@ class TestTypicalConversationScenarios:
 
         # When - First assessment triggers steering
         with patch.object(middleware, "_get_session_id", return_value=session_id):
-            result = None
-            for _i in range(3):
-                result = await middleware.process(chat_request)
+            result = chat_request
+            for _i in range(4):
+                result = await middleware.process(result)
 
         assert len(result.messages) > len(loop_conversation)  # Steering added
 

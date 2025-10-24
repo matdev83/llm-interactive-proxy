@@ -249,6 +249,10 @@ class TestAssessmentErrorHandlingBehavior:
         history = [
             ChatMessage(role="user", content="Hello"),
             ChatMessage(role="assistant", content="Hi!"),
+            ChatMessage(role="user", content="How are you?"),
+            ChatMessage(role="assistant", content="I'm fine"),
+            ChatMessage(role="user", content="Good to hear"),
+            ChatMessage(role="assistant", content="Thank you"),
         ]
         session_id = "test_session"
 

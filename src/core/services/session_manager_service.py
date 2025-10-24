@@ -31,19 +31,14 @@ class SessionManager(ISessionManager):
         self,
         session_service: ISessionService,
         session_resolver: ISessionResolver,
+        fingerprint_service: ConversationFingerprintService,
         session_repository: ISessionRepository | None = None,
-        fingerprint_service: ConversationFingerprintService | None = None,
     ) -> None:
         """Initialize the session manager."""
         self._session_service = session_service
         self._session_resolver = session_resolver
         self._session_repository = session_repository
-        # Allow None for backward compatibility with tests, but create a default instance
-        self._fingerprint_service = (
-            fingerprint_service
-            if fingerprint_service is not None
-            else ConversationFingerprintService()
-        )
+        self._fingerprint_service = fingerprint_service
 
     async def resolve_session_id(self, context: RequestContext) -> str:
         """Resolve session ID from request context."""

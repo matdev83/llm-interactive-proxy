@@ -18,7 +18,12 @@ from src.core.interfaces.assessment_service_interface import (
     IAssessmentBackendService,
     IAssessmentService,
 )
-from src.core.services.assessment_prompts import get_system_prompt, get_task_prompt
+from src.core.services.assessment_prompts import (
+    get_system_prompt,
+    get_task_prompt,
+    initialize_prompts,
+    is_initialized,
+)
 
 logger = get_logger(__name__)
 
@@ -47,6 +52,7 @@ class AssessmentService(IAssessmentService):
         """
         self.backend_service = backend_service
         self.config = config
+        self._ensure_prompts_initialized()
 
     async def assess_conversation(
         self, history: list[ChatMessage], session_id: str
@@ -71,7 +77,20 @@ class AssessmentService(IAssessmentService):
         start_time = time.time()
 
         try:
-            # 1. Trim history to recent window (replicate trimRecentHistory)
+            # 1. Validate conversation history first
+            if not self._validate_history(history):
+                logger.debug(
+                    f"Conversation history validation failed for session {session_id}, skipping assessment"
+                )
+                # Return a neutral result when validation fails
+                return AssessmentResult(
+                    session_id=session_id,
+                    reasoning="Conversation history validation failed - insufficient data for meaningful assessment",
+                    confidence=0.0,
+                    turn_count=len(history),
+                )
+
+            # 2. Trim history to recent window (replicate trimRecentHistory)
             recent_history = self._trim_recent_history(history)
 
             logger.debug(
@@ -102,6 +121,22 @@ class AssessmentService(IAssessmentService):
                 f"Assessment failed for session {session_id}: {e}, duration={duration:.2f}s"
             )
             raise AssessmentError(f"Assessment failed: {e}") from e
+
+    @staticmethod
+    def _ensure_prompts_initialized() -> None:
+        """
+        Ensure assessment prompts are loaded before attempting assessment.
+        """
+        if is_initialized():
+            return
+
+        try:
+            initialize_prompts()
+        except Exception as exc:
+            logger.error(
+                "Failed to initialize assessment prompts: %s", exc, exc_info=True
+            )
+            raise AssessmentError("Failed to initialize assessment prompts") from exc
 
     async def assess_conversation_safe(
         self, history: list[ChatMessage], session_id: str

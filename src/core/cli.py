@@ -457,8 +457,8 @@ def build_cli_parser() -> argparse.ArgumentParser:
     )
 
     # Pytest output compression
-    compression_group = parser.add_mutually_exclusive_group()
-    compression_group.add_argument(
+    pytest_compression_group = parser.add_mutually_exclusive_group()
+    pytest_compression_group.add_argument(
         "--enable-pytest-compression",
         action="store_const",
         const=True,
@@ -466,7 +466,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help="Enable pytest output compression (overrides config)",
     )
-    compression_group.add_argument(
+    pytest_compression_group.add_argument(
         "--disable-pytest-compression",
         action="store_const",
         const=False,
@@ -492,25 +492,39 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Disable steering for full pytest suite commands (overrides config)",
     )
 
+    # Pytest context saving
+    parser.add_argument(
+        "--enable-pytest-context-saving",
+        action="store_true",
+        dest="pytest_context_saving_enabled",
+        default=None,
+        help="Enable pytest context saving - adds -r fE and -q flags to pytest commands (overrides config)",
+    )
+
     # LLM Assessment arguments
     assessment_group = parser.add_argument_group(
         "LLM Assessment", "Options for LLM-based conversation assessment"
     )
-    assessment_toggle_group = assessment_group.add_mutually_exclusive_group()
-    assessment_toggle_group.add_argument(
-        "--enable-llm-loop-assessment",
-        action="store_const",
-        const=True,
-        dest="llm_loop_assessment_enabled",
-        default=None,
-        help="Enable LLM-based conversation loop assessment for detecting unproductive patterns",
+    # Primary enable flag (opt-in design - feature is disabled by default)
+    assessment_group.add_argument(
+        "--enable-llm-assessment",
+        action="store_true",
+        dest="llm_assessment_enabled",
+        help="Enable LLM-based conversation assessment for detecting unproductive patterns",
     )
-    assessment_toggle_group.add_argument(
+    # Legacy alias for backward compatibility
+    assessment_group.add_argument(
+        "--enable-llm-loop-assessment",
+        action="store_true",
+        dest="llm_assessment_enabled",
+        help=argparse.SUPPRESS,  # Hide from help, kept for backward compatibility
+    )
+    assessment_group.add_argument(
         "--disable-llm-loop-assessment",
-        action="store_const",
-        const=False,
-        dest="llm_loop_assessment_enabled",
-        help="Disable LLM-based conversation loop assessment",
+        action="store_false",
+        dest="llm_assessment_enabled",
+        default=None,
+        help="Disable LLM-based conversation assessment (overrides config)",
     )
 
     assessment_group.add_argument(
@@ -561,13 +575,13 @@ def build_cli_parser() -> argparse.ArgumentParser:
 
 
 def _validate_llm_loop_assessment_config(args: argparse.Namespace) -> None:
-    """Validate LLM loop assessment configuration.
+    """Validate LLM assessment configuration.
 
     Raises:
         ValueError: If assessment is enabled but the model is missing or invalid.
     """
     # Check if assessment is enabled
-    assessment_enabled = getattr(args, "llm_loop_assessment_enabled", None)
+    assessment_enabled = getattr(args, "llm_assessment_enabled", None)
     if not assessment_enabled:
         return
 
@@ -577,7 +591,7 @@ def _validate_llm_loop_assessment_config(args: argparse.Namespace) -> None:
     # The model must be provided when assessment is enabled
     if not model_str or not model_str.strip():
         raise ValueError(
-            "LLM assessment model must be specified when --enable-llm-loop-assessment is used.\n"
+            "LLM assessment model must be specified when --enable-llm-assessment is used.\n"
             "Use --llm-assessment-model BACKEND:MODEL\n"
             "Example: --llm-assessment-model openai:gpt-4o-mini"
         )
@@ -609,7 +623,7 @@ def _validate_llm_loop_assessment_config(args: argparse.Namespace) -> None:
         if backend not in registered_backends:
             available_backends = ", ".join(sorted(registered_backends))
             raise ValueError(
-                f"Invalid backend '{backend}' specified for LLM loop assessment.\n"
+                f"Invalid backend '{backend}' specified for LLM assessment.\n"
                 f"Available backends: {available_backends}\n"
                 f"Use a valid backend in the format BACKEND:MODEL."
             )
@@ -1009,7 +1023,7 @@ def apply_cli_args(
         record_cli(
             "session.pytest_compression_enabled",
             args.pytest_compression_enabled,
-            "--enable/disable-pytest-compression",
+            "--enable-pytest-compression",
         )
 
     # Pytest full-suite steering flag
@@ -1030,17 +1044,34 @@ def apply_cli_args(
             "--enable/disable-pytest-full-suite-steering",
         )
 
+    # Pytest context saving flag
+    if getattr(args, "pytest_context_saving_enabled", None) is not None:
+        session = cli_overrides.setdefault("session", {})
+        # Also update tool_call_reactor
+        tool_call_reactor_overrides = session.get("tool_call_reactor", {})
+        tool_call_reactor_overrides["pytest_context_saving_enabled"] = (
+            args.pytest_context_saving_enabled
+        )
+        session["tool_call_reactor"] = tool_call_reactor_overrides
+        record_cli(
+            "session.tool_call_reactor.pytest_context_saving_enabled",
+            args.pytest_context_saving_enabled,
+            "--enable-pytest-context-saving",
+        )
+
     # LLM Assessment configuration
-    if getattr(args, "llm_loop_assessment_enabled", None) is not None:
-        session["llm_assessment_enabled"] = args.llm_loop_assessment_enabled
+    assessment_overrides: dict[str, Any] = {}
+
+    if getattr(args, "llm_assessment_enabled", None) is not None:
+        assessment_overrides["enabled"] = args.llm_assessment_enabled
         record_cli(
             "assessment.enabled",
-            args.llm_loop_assessment_enabled,
-            "--enable-llm-loop-assessment",
+            args.llm_assessment_enabled,
+            "--enable-llm-assessment",
         )
 
     if getattr(args, "llm_assessment_turn_threshold", None) is not None:
-        session["llm_assessment_turn_threshold"] = args.llm_assessment_turn_threshold
+        assessment_overrides["turn_threshold"] = args.llm_assessment_turn_threshold
         record_cli(
             "assessment.turn_threshold",
             args.llm_assessment_turn_threshold,
@@ -1048,7 +1079,7 @@ def apply_cli_args(
         )
 
     if getattr(args, "llm_assessment_confidence_threshold", None) is not None:
-        session["llm_assessment_confidence_threshold"] = (
+        assessment_overrides["confidence_threshold"] = (
             args.llm_assessment_confidence_threshold
         )
         record_cli(
@@ -1060,8 +1091,8 @@ def apply_cli_args(
     if getattr(args, "llm_assessment_model", None) is not None:
         model_str = args.llm_assessment_model
         backend, model = model_str.split(":", 1)
-        session["llm_assessment_backend"] = backend
-        session["llm_assessment_model"] = model
+        assessment_overrides["backend"] = backend
+        assessment_overrides["model"] = model
         record_cli(
             "assessment.backend",
             backend,
@@ -1074,12 +1105,16 @@ def apply_cli_args(
         )
 
     if getattr(args, "llm_assessment_history_window", None) is not None:
-        session["llm_assessment_history_window"] = args.llm_assessment_history_window
+        assessment_overrides["history_window"] = args.llm_assessment_history_window
         record_cli(
             "assessment.history_window",
             args.llm_assessment_history_window,
             "--llm-assessment-history-window",
         )
+
+    # Add assessment overrides to main overrides if any
+    if assessment_overrides:
+        cli_overrides["assessment"] = assessment_overrides
 
     # Planning phase configuration
     session = cli_overrides.setdefault("session", {})

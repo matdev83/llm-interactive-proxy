@@ -34,9 +34,11 @@
 --edit-precision-temperature
 --enable-brute-force-protection
 --enable-edit-precision
+--enable-llm-assessment
 --enable-llm-loop-assessment
 --enable-planning-phase
 --enable-pytest-compression
+--enable-pytest-context-saving
 --enable-pytest-full-suite-steering
 --force-context-window
 --force-set-project

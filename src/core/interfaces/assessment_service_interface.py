@@ -167,12 +167,15 @@ class IAssessmentRepository(ABC):
         """
 
     @abstractmethod
-    def update_session_state(self, state: "SessionAssessmentState"):
+    def update_session_state(
+        self, state: "SessionAssessmentState", update_timestamp: bool = True
+    ):
         """
         Update assessment state for a session.
 
         Args:
             state: Updated session assessment state
+            update_timestamp: Whether the repository should update the state's timestamp
         """
 
     @abstractmethod

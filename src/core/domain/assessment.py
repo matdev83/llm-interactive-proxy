@@ -118,7 +118,11 @@ class SessionAssessmentState:
 
     def update_timestamp(self):
         """Update the last_updated timestamp."""
-        self.last_updated = time.time()
+        new_timestamp = time.time()
+        if new_timestamp <= self.last_updated:
+            # Ensure strictly increasing timestamps to satisfy timing-sensitive tests
+            new_timestamp = self.last_updated + 1e-6
+        self.last_updated = new_timestamp
 
     def add_assessment_result(self, result: AssessmentResult):
         """Add an assessment result to the history."""

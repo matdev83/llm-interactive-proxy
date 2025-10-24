@@ -1167,49 +1167,6 @@ class AppConfig(DomainModel, IConfig):
                 path="session.pytest_full_suite_steering_message",
                 resolution=resolution,
             ),
-            # Assessment configuration from environment
-            "llm_assessment_enabled": _env_to_bool(
-                "LLM_ASSESSMENT_ENABLED",
-                False,
-                env,
-                path="assessment.enabled",
-                resolution=resolution,
-            ),
-            "llm_assessment_turn_threshold": _env_to_int(
-                "LLM_ASSESSMENT_TURN_THRESHOLD",
-                30,
-                env,
-                path="assessment.turn_threshold",
-                resolution=resolution,
-            ),
-            "llm_assessment_confidence_threshold": _env_to_float(
-                "LLM_ASSESSMENT_CONFIDENCE_THRESHOLD",
-                0.9,
-                env,
-                path="assessment.confidence_threshold",
-                resolution=resolution,
-            ),
-            "llm_assessment_backend": _get_env_value(
-                env,
-                "LLM_ASSESSMENT_BACKEND",
-                None,
-                path="assessment.backend",
-                resolution=resolution,
-            ),
-            "llm_assessment_model": _get_env_value(
-                env,
-                "LLM_ASSESSMENT_MODEL",
-                None,
-                path="assessment.model",
-                resolution=resolution,
-            ),
-            "llm_assessment_history_window": _env_to_int(
-                "LLM_ASSESSMENT_HISTORY_WINDOW",
-                20,
-                env,
-                path="assessment.history_window",
-                resolution=resolution,
-            ),
             "planning_phase": {
                 "enabled": _env_to_bool(
                     "PLANNING_PHASE_ENABLED",
@@ -1429,6 +1386,52 @@ class AppConfig(DomainModel, IConfig):
                 "REWRITING_CONFIG_PATH",
                 "config/replacements",
                 path="rewriting.config_path",
+                resolution=resolution,
+            ),
+        }
+
+        # Assessment configuration from environment
+        config["assessment"] = {
+            "enabled": _env_to_bool(
+                "LLM_ASSESSMENT_ENABLED",
+                False,
+                env,
+                path="assessment.enabled",
+                resolution=resolution,
+            ),
+            "turn_threshold": _env_to_int(
+                "LLM_ASSESSMENT_TURN_THRESHOLD",
+                30,
+                env,
+                path="assessment.turn_threshold",
+                resolution=resolution,
+            ),
+            "confidence_threshold": _env_to_float(
+                "LLM_ASSESSMENT_CONFIDENCE_THRESHOLD",
+                0.9,
+                env,
+                path="assessment.confidence_threshold",
+                resolution=resolution,
+            ),
+            "backend": _get_env_value(
+                env,
+                "LLM_ASSESSMENT_BACKEND",
+                "openai",  # Default backend
+                path="assessment.backend",
+                resolution=resolution,
+            ),
+            "model": _get_env_value(
+                env,
+                "LLM_ASSESSMENT_MODEL",
+                "gpt-4o-mini",  # Default model
+                path="assessment.model",
+                resolution=resolution,
+            ),
+            "history_window": _env_to_int(
+                "LLM_ASSESSMENT_HISTORY_WINDOW",
+                20,
+                env,
+                path="assessment.history_window",
                 resolution=resolution,
             ),
         }

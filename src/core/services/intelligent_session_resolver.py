@@ -29,24 +29,19 @@ class IntelligentSessionResolver(ISessionResolver):
     def __init__(
         self,
         session_repository: ISessionRepository,
+        fingerprint_service: ConversationFingerprintService,
         config: IConfig | None = None,
-        fingerprint_service: ConversationFingerprintService | None = None,
     ) -> None:
         """Initialize the intelligent session resolver.
 
         Args:
             session_repository: Repository for session storage/retrieval
-            config: Optional configuration object
             fingerprint_service: Fingerprint service for computing conversation hashes
+            config: Optional configuration object
         """
         self._session_repository = session_repository
         self._config = config
-        # Allow None for backward compatibility with tests, but create a default instance
-        self._fingerprint_service = (
-            fingerprint_service
-            if fingerprint_service is not None
-            else ConversationFingerprintService()
-        )
+        self._fingerprint_service = fingerprint_service
 
         # Load configuration
         self._enabled = True
