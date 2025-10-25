@@ -70,6 +70,7 @@ class TestWireCaptureInitializationBehavior:
             finally:
                 # Cleanup
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     loop.run_until_complete(service.shutdown())
@@ -96,6 +97,7 @@ class TestWireCaptureInitializationBehavior:
         finally:
             # Cleanup (even disabled services might have background tasks)
             import asyncio
+
             try:
                 loop = asyncio.get_running_loop()
                 loop.run_until_complete(service.shutdown())
@@ -127,6 +129,7 @@ class TestWireCaptureInitializationBehavior:
             finally:
                 # Cleanup
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     loop.run_until_complete(service.shutdown())
@@ -164,6 +167,7 @@ class TestWireCaptureInitializationBehavior:
             finally:
                 # Cleanup
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     loop.run_until_complete(service.shutdown())
@@ -202,6 +206,7 @@ class TestWireCaptureInitializationBehavior:
             finally:
                 # Cleanup
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     loop.run_until_complete(service.shutdown())
@@ -709,6 +714,7 @@ class TestFileRotationBehavior:
             finally:
                 # Cleanup
                 import asyncio
+
                 try:
                     loop = asyncio.get_running_loop()
                     loop.run_until_complete(service.shutdown())
@@ -927,6 +933,7 @@ class TestStreamCaptureBehavior:
         service = BufferedWireCapture(config)
 
         try:
+
             async def mock_stream():
                 yield b"data1"
                 yield b"data2"
