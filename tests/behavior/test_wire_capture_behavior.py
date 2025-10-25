@@ -61,11 +61,20 @@ class TestWireCaptureInitializationBehavior:
             # When
             service = BufferedWireCapture(config)
 
-            # Then
-            assert service.enabled() is True
-            assert service._file_path == config.logging.capture_file
-            assert service._buffer_size == 1024
-            assert service._flush_interval == 0.5
+            try:
+                # Then
+                assert service.enabled() is True
+                assert service._file_path == config.logging.capture_file
+                assert service._buffer_size == 1024
+                assert service._flush_interval == 0.5
+            finally:
+                # Cleanup
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.run_until_complete(service.shutdown())
+                except RuntimeError:
+                    asyncio.run(service.shutdown())
 
     def test_disabled_wire_capture_initialization(self):
         """
@@ -81,8 +90,17 @@ class TestWireCaptureInitializationBehavior:
         # When
         service = BufferedWireCapture(config)
 
-        # Then
-        assert service.enabled() is False
+        try:
+            # Then
+            assert service.enabled() is False
+        finally:
+            # Cleanup (even disabled services might have background tasks)
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.run_until_complete(service.shutdown())
+            except RuntimeError:
+                asyncio.run(service.shutdown())
 
     def test_directory_creation_on_initialization(self):
         """
@@ -102,9 +120,18 @@ class TestWireCaptureInitializationBehavior:
             # When
             service = BufferedWireCapture(config)
 
-            # Then
-            assert os.path.exists(nested_dir)
-            assert service.enabled() is True
+            try:
+                # Then
+                assert os.path.exists(nested_dir)
+                assert service.enabled() is True
+            finally:
+                # Cleanup
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.run_until_complete(service.shutdown())
+                except RuntimeError:
+                    asyncio.run(service.shutdown())
 
     def test_initialization_header_writing(self):
         """
@@ -121,18 +148,27 @@ class TestWireCaptureInitializationBehavior:
             config.logging.capture_file = capture_file
 
             # When
-            BufferedWireCapture(config)
+            service = BufferedWireCapture(config)
 
-            # Then
-            assert os.path.exists(capture_file)
-            with open(capture_file) as f:
-                first_line = f.readline().strip()
-                header_entry = json.loads(first_line)
+            try:
+                # Then
+                assert os.path.exists(capture_file)
+                with open(capture_file) as f:
+                    first_line = f.readline().strip()
+                    header_entry = json.loads(first_line)
 
-            assert header_entry["direction"] == "system_init"
-            assert header_entry["source"] == "wire_capture_service"
-            assert header_entry["destination"] == "file_system"
-            assert "Wire capture initialized" in header_entry["payload"]["message"]
+                assert header_entry["direction"] == "system_init"
+                assert header_entry["source"] == "wire_capture_service"
+                assert header_entry["destination"] == "file_system"
+                assert "Wire capture initialized" in header_entry["payload"]["message"]
+            finally:
+                # Cleanup
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.run_until_complete(service.shutdown())
+                except RuntimeError:
+                    asyncio.run(service.shutdown())
 
     def test_configuration_parameter_inheritance(self):
         """
@@ -155,13 +191,22 @@ class TestWireCaptureInitializationBehavior:
             # When
             service = BufferedWireCapture(config)
 
-            # Then
-            assert service._buffer_size == 32768
-            assert service._flush_interval == 2.0
-            assert service._max_entries_per_flush == 50
-            assert service._max_bytes == 1048576
-            assert service._max_files == 5
-            assert service._total_cap == 5242880
+            try:
+                # Then
+                assert service._buffer_size == 32768
+                assert service._flush_interval == 2.0
+                assert service._max_entries_per_flush == 50
+                assert service._max_bytes == 1048576
+                assert service._max_files == 5
+                assert service._total_cap == 5242880
+            finally:
+                # Cleanup
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.run_until_complete(service.shutdown())
+                except RuntimeError:
+                    asyncio.run(service.shutdown())
 
 
 class TestRequestResponseCaptureBehavior:
@@ -654,12 +699,21 @@ class TestFileRotationBehavior:
 
             service = BufferedWireCapture(config)
 
-            # When
-            assert service._max_bytes is None
-            assert service._max_files == 0
+            try:
+                # When
+                assert service._max_bytes is None
+                assert service._max_files == 0
 
-            # Then - Rotation methods should return early
-            service._check_rotation()  # Should not raise any errors
+                # Then - Rotation methods should return early
+                service._check_rotation()  # Should not raise any errors
+            finally:
+                # Cleanup
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.run_until_complete(service.shutdown())
+                except RuntimeError:
+                    asyncio.run(service.shutdown())
 
 
 class TestAPICKeyRedactionBehavior:
@@ -872,27 +926,31 @@ class TestStreamCaptureBehavior:
 
         service = BufferedWireCapture(config)
 
-        async def mock_stream():
-            yield b"data1"
-            yield b"data2"
+        try:
+            async def mock_stream():
+                yield b"data1"
+                yield b"data2"
 
-        # When
-        wrapped_stream = service.wrap_inbound_stream(
-            context=None,
-            session_id="passthrough-test",
-            backend="test",
-            model="test",
-            key_name=None,
-            stream=mock_stream(),
-        )
+            # When
+            wrapped_stream = service.wrap_inbound_stream(
+                context=None,
+                session_id="passthrough-test",
+                backend="test",
+                model="test",
+                key_name=None,
+                stream=mock_stream(),
+            )
 
-        # Then
-        chunks = []
-        async for chunk in wrapped_stream:
-            chunks.append(chunk)
+            # Then
+            chunks = []
+            async for chunk in wrapped_stream:
+                chunks.append(chunk)
 
-        assert chunks == [b"data1", b"data2"]
-        assert wrapped_stream == mock_stream()  # Should be the same stream object
+            assert chunks == [b"data1", b"data2"]
+            assert wrapped_stream == mock_stream()  # Should be the same stream object
+        finally:
+            # Cleanup
+            await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_stream_error_handling(self):
@@ -956,25 +1014,29 @@ class TestPerformanceOptimizationBehavior:
 
             service = BufferedWireCapture(config)
 
-            # Create a payload and reuse the same object
-            payload = {"data": "test", "items": [1, 2, 3, 4, 5]}
+            try:
+                # Create a payload and reuse the same object
+                payload = {"data": "test", "items": [1, 2, 3, 4, 5]}
 
-            # When - Capture the same payload multiple times
-            for i in range(5):
-                await service.capture_inbound_response(
-                    context=None,
-                    session_id=f"cache-{i}",
-                    backend="test",
-                    model="test",
-                    key_name=None,
-                    response_content=payload,  # Same object
-                )
+                # When - Capture the same payload multiple times
+                for i in range(5):
+                    await service.capture_inbound_response(
+                        context=None,
+                        session_id=f"cache-{i}",
+                        backend="test",
+                        model="test",
+                        key_name=None,
+                        response_content=payload,  # Same object
+                    )
 
-            # Then - Cache should be used (cache size should be 1, not 5)
-            assert len(service._content_length_cache) <= 1
-            # Content length should be cached
-            payload_id = id(payload)
-            assert payload_id in service._content_length_cache
+                # Then - Cache should be used (cache size should be 1, not 5)
+                assert len(service._content_length_cache) <= 1
+                # Content length should be cached
+                payload_id = id(payload)
+                assert payload_id in service._content_length_cache
+            finally:
+                # Cleanup
+                await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_cache_size_limit_enforcement(self):
@@ -993,26 +1055,32 @@ class TestPerformanceOptimizationBehavior:
             original_cache_max_size = service._cache_max_size
             service._cache_max_size = 3  # Small limit for testing
 
-            # When - Add more unique payloads than the cache limit
-            unique_payloads = []
-            for i in range(5):
-                payload = {"unique_data": f"value-{i}"}
-                unique_payloads.append(payload)
+            try:
+                # When - Add more unique payloads than the cache limit
+                unique_payloads = []
+                for i in range(5):
+                    payload = {"unique_data": f"value-{i}"}
+                    unique_payloads.append(payload)
 
-                await service.capture_inbound_response(
-                    context=None,
-                    session_id=f"unique-{i}",
-                    backend="test",
-                    model="test",
-                    key_name=None,
-                    response_content=payload,
-                )
+                    await service.capture_inbound_response(
+                        context=None,
+                        session_id=f"unique-{i}",
+                        backend="test",
+                        model="test",
+                        key_name=None,
+                        response_content=payload,
+                    )
 
-            # Then - Cache size should not exceed the limit
-            assert len(service._content_length_cache) <= 3
+                # Then - Cache size should not exceed the limit
+                assert len(service._content_length_cache) <= 3
 
-            # Restore original cache size
-            service._cache_max_size = original_cache_max_size
+                # Restore original cache size
+                service._cache_max_size = original_cache_max_size
+            finally:
+                # Cleanup
+                await service.shutdown()
+                # Restore original cache size in case of test failure
+                service._cache_max_size = original_cache_max_size
 
     @pytest.mark.asyncio
     async def test_async_background_flush_performance(self):
