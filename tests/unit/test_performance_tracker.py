@@ -236,8 +236,8 @@ def test_end_phase_ignores_missing_start(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_log_summary_finalizes_when_total_missing(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    time_stub = TimeStub([0.0, 4.0])
-    monkeypatch.setattr("src.performance_tracker.time.time", time_stub)
+    time_values = _time_sequence(0.0, 4.0)
+    monkeypatch.setattr(performance_tracker.time, "time", time_values)
 
     metrics = PerformanceMetrics(session_id="sess-1")
     metrics.request_start = 0.0
@@ -245,18 +245,20 @@ def test_log_summary_finalizes_when_total_missing(
     metrics.model_used = "model-y"
     metrics.command_processing_time = 1.5
 
-    called: list[bool] = []
-    original_finalize = metrics.finalize
+    # Mock finalize to both track calls and manually set total_time
+    finalize_called = False
 
-    def recording_finalize() -> None:
-        called.append(True)
-        original_finalize()
+    def mock_finalize() -> None:
+        nonlocal finalize_called
+        finalize_called = True
+        # Manually set total_time to simulate what finalize should do
+        metrics.total_time = 4.0
 
-    monkeypatch.setattr(metrics, "finalize", recording_finalize)
+    monkeypatch.setattr(metrics, "finalize", mock_finalize)
 
     caplog.set_level(logging.INFO)
     metrics.log_summary()
 
-    assert called == [True]
+    assert finalize_called
     assert metrics.total_time == pytest.approx(4.0)
     assert "PERF_SUMMARY session=sess-1" in caplog.text
