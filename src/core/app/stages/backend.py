@@ -517,14 +517,27 @@ class BackendStage(InitializationStage):
                                 TranslationService,
                             )
 
-                            translation_service = cast(
-                                TranslationService,
-                                services.build_service_provider().get_service(
-                                    ITranslationService
-                                ),
+                            provider = services.build_service_provider()
+                            if not provider.has_service(ITranslationService):
+                                logger.warning(
+                                    "TranslationService not found in container, registering temporary instance for validation"
+                                )
+                                services.add_singleton(TranslationService)
+                                services.add_singleton(
+                                    ITranslationService,
+                                    implementation_factory=lambda p: p.get_required_service(
+                                        TranslationService
+                                    ),
+                                )
+                            translation_service = services.build_service_provider().get_required_service(
+                                ITranslationService
                             )
-                        except Exception:
-                            translation_service = None
+                        except Exception as e:
+                            logger.error(f"Failed to get or register TranslationService: {e}")
+                            raise InitializationError(
+                                "TranslationService unavailable while validating backend"
+                            ) from e
+
                         if translation_service is None:
                             raise InitializationError(
                                 "TranslationService unavailable while validating backend"
