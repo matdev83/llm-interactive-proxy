@@ -25,6 +25,10 @@ class IServiceProvider(ABC):
     def get_required_service(self, service_type: type[T]) -> T:
         pass
 
+    @abstractmethod
+    def has_service(self, service_type: type[T]) -> bool:
+        """Check if a service of the given type is registered."""
+
     def get_required_service_or_default(
         self, service_type: type[T], default_factory: Callable[[], T]
     ) -> T:

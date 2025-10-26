@@ -196,6 +196,9 @@ def test_get_anthropic_controller_uses_di_for_app_state(
                 )
             return service
 
+        def has_service(self, service_type: type) -> bool:
+            return service_type in self._services
+
         def create_scope(self) -> IServiceScope:  # pragma: no cover - unused
             return DummyScope()
 

@@ -124,6 +124,10 @@ class ScopedServiceProvider(IServiceProvider):
             )
         return service
 
+    def has_service(self, service_type: type[T]) -> bool:
+        """Check if a service of the given type is registered."""
+        return self._root.has_service(service_type)
+
     def create_scope(self) -> IServiceScope:
         """Create a new nested service scope."""
         return ServiceScope(self._root, self._scope)
@@ -160,6 +164,10 @@ class ServiceProvider(IServiceProvider):
                 f"No service registered for {type_name}", service_name=type_name
             )
         return service
+
+    def has_service(self, service_type: type[T]) -> bool:
+        """Check if a service of the given type is registered."""
+        return service_type in self._descriptors
 
     def create_scope(self) -> IServiceScope:
         """Create a new service scope."""

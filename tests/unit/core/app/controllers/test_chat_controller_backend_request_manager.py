@@ -54,6 +54,9 @@ class _FakeProvider(IServiceProvider):
             )
         return service
 
+    def has_service(self, service_type: type[Any]) -> bool:
+        return service_type in self._services
+
     def create_scope(self) -> IServiceScope:  # pragma: no cover - unused in test
         return _FakeScope(self)
 

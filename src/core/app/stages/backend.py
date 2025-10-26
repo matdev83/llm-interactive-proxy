@@ -16,7 +16,6 @@ from typing import cast
 
 import httpx
 
-from src.core.common.exceptions import InitializationError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -517,25 +516,30 @@ class BackendStage(InitializationStage):
                             )
 
                             provider = services.build_service_provider()
-                            if not provider.has_service(ITranslationService):
+                            if not provider.has_service(
+                                cast(type, ITranslationService)
+                            ):
                                 logger.warning(
                                     "TranslationService not found in container, registering temporary instance for validation"
                                 )
                                 services.add_singleton(TranslationService)
                                 services.add_singleton(
-                                    ITranslationService,
+                                    cast(type, ITranslationService),
                                     implementation_factory=lambda p: p.get_required_service(
                                         TranslationService
                                     ),
                                 )
-                            translation_service = services.build_service_provider().get_required_service(
+                            translation_service: (
                                 ITranslationService
+                            ) = services.build_service_provider().get_required_service(
+                                cast(type, ITranslationService)
                             )
                         except Exception as e:
                             logger.warning(
                                 f"Could not resolve TranslationService from container, creating temporary instance: {e}"
                             )
-                            translation_service = TranslationService()  # noqa: DI-bypass
+                            cls = TranslationService
+                            translation_service = cls()  # noqa: DI-bypass
 
                         # Create backend with available dependencies
                         try:

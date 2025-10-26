@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -29,7 +30,9 @@ def test_openrouter_headers_provider_accepts_config_dict() -> None:
         config = AppConfig(identity=identity)
 
         async with httpx.AsyncClient() as client:
-            backend = OpenRouterBackend(client=client, config=config)
+            backend = OpenRouterBackend(
+                client=client, config=config, translation_service=MagicMock()
+            )
             await backend.initialize(
                 api_key="integration-key",
                 key_name="openrouter",
@@ -60,9 +63,12 @@ async def test_chat_completions_supports_config_dict_headers(
         ),
     )
     config = AppConfig(identity=identity)
+    translation_service_mock = MagicMock()
 
     async with httpx.AsyncClient() as client:
-        backend = OpenRouterBackend(client=client, config=config)
+        backend = OpenRouterBackend(
+            client=client, config=config, translation_service=translation_service_mock
+        )
         await backend.initialize(
             api_key="integration-key",
             key_name="openrouter",
@@ -74,6 +80,11 @@ async def test_chat_completions_supports_config_dict_headers(
             messages=[ChatMessage(role="user", content="Hello")],
             stream=False,
         )
+
+        translation_service_mock.from_domain_request.return_value = {
+            "model": "openai/gpt-3.5-turbo",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
 
         httpx_mock.add_response(json={"id": "ok"}, status_code=200)
 

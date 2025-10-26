@@ -45,17 +45,18 @@ def _is_running_under_pytest() -> bool:
         # Check for pytest-specific attributes that indicate a running session
         try:
             import pytest
+
             # Check if pytest has been configured (indicates running session)
-            if hasattr(pytest, 'config') and pytest.config is not None:
+            if hasattr(pytest, "config") and pytest.config is not None:
                 return True
         except Exception:
             pass
 
         # Check for other pytest runtime indicators
         pytest_indicators = [
-            '_pytest.config.Config',
-            '_pytest.runner.pytest_runtest_call',
-            '_pytest.fixtures.fixture'
+            "_pytest.config.Config",
+            "_pytest.runner.pytest_runtest_call",
+            "_pytest.fixtures.fixture",
         ]
 
         for indicator in pytest_indicators:
