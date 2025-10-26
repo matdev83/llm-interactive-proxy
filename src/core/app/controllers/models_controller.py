@@ -14,14 +14,16 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException
 
 # Import HTTP status constants
-from src.core.common.exceptions import ServiceResolutionError
+from src.core.common.exceptions import InitializationError, ServiceResolutionError
 from src.core.constants import HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import (
+    BackendRegistry,
     backend_registry,  # Updated import path
 )
+from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
@@ -154,61 +156,86 @@ def get_backend_factory_service() -> BackendFactory:
     from src.core.di.services import get_or_build_service_provider
 
     # First, try to resolve the BackendFactory directly from the DI container.
+    provider = get_or_build_service_provider()
     try:
-        provider = get_or_build_service_provider()
         return _resolve_backend_factory_from_provider(provider)
-    except Exception as exc:
-        logger.debug("Global BackendFactory resolution failed: %s", exc, exc_info=True)
-
-    # Try to get from current request context (for FastAPI dependency injection)
-    try:
-        from starlette.context import _request_context  # type: ignore[import]
-
-        if _request_context.exists():
-            connection = _request_context.get()
-            if hasattr(connection, "app") and hasattr(
-                connection.app.state, "service_provider"
-            ):
-                return _resolve_backend_factory_from_provider(
-                    connection.app.state.service_provider
-                )
-    except Exception as ctx_err:
+    except (HTTPException, ServiceResolutionError, InitializationError) as exc:
         logger.debug(
-            "Request-context BackendFactory lookup failed: %s",
-            ctx_err,
+            "BackendFactory resolution via existing provider failed: %s",
+            exc,
             exc_info=True,
         )
 
-    # If neither the global provider nor the request context could supply the
-    # factory, surface an HTTP 503 so callers know the dependency graph is
-    # misconfigured rather than silently constructing partial instances.
-    raise HTTPException(status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE)
+    from src.core.di.services import get_service_collection
+
+    services = get_service_collection()
+    translation = provider.get_service(TranslationService)
+    if translation is not None:
+        services.add_instance(TranslationService, translation)
+
+    services.add_instance(BackendRegistry, backend_registry)
+
+    new_provider = services.build_service_provider()
+    try:
+        return _resolve_backend_factory_from_provider(new_provider)
+    except (ServiceResolutionError, InitializationError) as exc:
+        logger.error(
+            "BackendFactory resolution failed after rebuilding provider: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE,
+        ) from exc
 
 
 def _resolve_backend_factory_from_provider(provider: Any) -> BackendFactory:
     """Resolve a BackendFactory using dependencies from the provider."""
 
-    import httpx
-
-    from src.core.config.app_config import AppConfig
-    from src.core.services.backend_registry import BackendRegistry
-    from src.core.services.translation_service import TranslationService
-
     try:
         return provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
     except (KeyError, ServiceResolutionError):
         logger.debug(
-            "BackendFactory not registered; constructing from provider dependencies"
+            "BackendFactory not registered; attempting to resolve via global provider"
         )
 
-    httpx_client = provider.get_required_service(httpx.AsyncClient)
-    backend_registry_instance = provider.get_required_service(BackendRegistry)
-    app_config = provider.get_required_service(AppConfig)
-    translation_service = provider.get_required_service(TranslationService)
+    # Try the existing global provider first
+    try:
+        from src.core.di.services import get_service_provider
 
-    return BackendFactory(
-        httpx_client, backend_registry_instance, app_config, translation_service
-    )
+        global_provider = get_service_provider()
+    except Exception:
+        global_provider = None
+
+    if global_provider is not None and global_provider is not provider:
+        backend_factory = global_provider.get_service(BackendFactory)
+        if backend_factory is not None:
+            return backend_factory
+
+    # As a final fallback, rebuild the service provider via the global service collection
+    try:
+        from src.core.di.services import (
+            get_service_collection,
+            set_service_provider,
+        )
+    except ImportError as exc:  # pragma: no cover - defensive guard
+        raise InitializationError("DI services unavailable") from exc
+
+    services = get_service_collection()
+    fallback_provider = services.build_service_provider()
+    try:
+        set_service_provider(fallback_provider)
+    except Exception:
+        logger.debug(
+            "Failed to promote fallback provider to global scope", exc_info=True
+        )
+
+    backend_factory = fallback_provider.get_service(BackendFactory)
+    if backend_factory is not None:
+        return backend_factory
+
+    raise InitializationError("BackendFactory unavailable after fallback resolution")
 
 
 async def _list_models_impl(

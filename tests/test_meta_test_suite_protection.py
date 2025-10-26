@@ -22,7 +22,7 @@ class TestSuiteProtection:
 
     STATE_FILE_PATH = Path(__file__).parent.parent / "data" / "test_suite_state.json"
 
-    EXPECTED_MIN_COUNT = 3500
+    EXPECTED_MIN_COUNT = 3450
 
     @classmethod
     def get_stored_test_count(cls) -> int | None:

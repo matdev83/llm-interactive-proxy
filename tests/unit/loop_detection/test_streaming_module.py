@@ -67,6 +67,7 @@ class TestAnalyzeCompleteResponseForLoops:
 
         expected_event = LoopDetectionEvent(
             pattern="abc",
+            pattern_length=len("abc"),
             repetition_count=3,
             total_length=12,
             confidence=0.7,

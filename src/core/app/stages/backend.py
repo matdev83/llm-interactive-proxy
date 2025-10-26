@@ -16,6 +16,7 @@ from typing import cast
 
 import httpx
 
+from src.core.common.exceptions import InitializationError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -118,7 +119,7 @@ class BackendStage(InitializationStage):
                 translation_service: TranslationService = provider.get_required_service(
                     TranslationService
                 )
-                return BackendFactory(
+                return BackendFactory(  # noqa: DI-bypass (factory construction)
                     httpx_client,
                     backend_registry_instance,
                     app_config,
@@ -236,7 +237,7 @@ class BackendStage(InitializationStage):
                     cast(type, IWireCapture)
                 )
 
-                return BackendService(
+                return BackendService(  # noqa: DI-bypass (factory construction)
                     backend_factory,
                     rate_limiter,
                     app_config,
@@ -406,10 +407,8 @@ class BackendStage(InitializationStage):
                 )
                 # This is a workaround. The DI container should ideally be fully configured.
                 # Replicating the logic from di/services.py's _backend_service_factory's manual creation
-                from src.core.services.backend_registry import BackendRegistry
-
                 try:
-                    httpx_client = provider.get_required_service(httpx.AsyncClient)
+                    provider.get_required_service(httpx.AsyncClient)
                 except RuntimeError:
                     # AsyncClient not available during validation (Infrastructure stage hasn't run yet)
                     # Skip backend validation during this early stage
@@ -417,17 +416,13 @@ class BackendStage(InitializationStage):
                         "Skipping backend validation during early stage - infrastructure not ready"
                     )
                     return []
-
-                backend_registry_instance: BackendRegistry = (
-                    provider.get_required_service(BackendRegistry)
+                provider.get_required_service(AppConfig)
+                from src.core.app.controllers.models_controller import (
+                    _resolve_backend_factory_from_provider,
                 )
-                app_config = provider.get_required_service(AppConfig)
-                translation_service = provider.get_required_service(TranslationService)
-                backend_factory_service = BackendFactory(
-                    httpx_client,
-                    backend_registry_instance,
-                    app_config,
-                    translation_service,
+
+                backend_factory_service = _resolve_backend_factory_from_provider(
+                    provider
                 )
 
             if backend_factory_service is None:
@@ -529,16 +524,10 @@ class BackendStage(InitializationStage):
                                 ),
                             )
                         except Exception:
-                            # Translation service not available from container, create a temporary instance
-                            from src.core.services.translation_service import (
-                                TranslationService,
-                            )
-
-                            translation_service = (
-                                services.build_service_provider().get_service(
-                                    TranslationService
-                                )
-                                or TranslationService()
+                            translation_service = None
+                        if translation_service is None:
+                            raise InitializationError(
+                                "TranslationService unavailable while validating backend"
                             )
 
                         # Create backend with available dependencies

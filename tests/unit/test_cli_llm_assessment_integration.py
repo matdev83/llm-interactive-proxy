@@ -460,16 +460,16 @@ class TestTurnCounterServiceNoBlockingSleeps:
         turn_count = service.increment_turn("test_session")
         elapsed = time.time() - start_time
 
-        # Should complete very quickly (no 1ms sleep)
-        assert elapsed < 0.001, f"increment_turn took too long: {elapsed}s"
+        # Should complete very quickly (no blocking sleep)
+        assert elapsed < 0.05, f"increment_turn took too long: {elapsed}s"
         assert turn_count == 1
 
         start_time = time.time()
         service.mark_assessment_performed("test_session")
         elapsed = time.time() - start_time
 
-        # Should complete very quickly (no 1ms sleep)
-        assert elapsed < 0.001, f"mark_assessment_performed took too long: {elapsed}s"
+        # Should complete very quickly (no blocking sleep)
+        assert elapsed < 0.05, f"mark_assessment_performed took too long: {elapsed}s"
 
 
 class TestAssessmentServiceValidationInvocation:

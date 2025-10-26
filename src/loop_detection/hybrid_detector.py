@@ -271,6 +271,7 @@ class HybridLoopDetector(ILoopDetector):
             )
             event = LoopDetectionEvent(
                 pattern=display_pattern,
+                pattern_length=pattern_length,
                 repetition_count=repetitions,
                 total_length=pattern_length * repetitions,
                 confidence=1.0,

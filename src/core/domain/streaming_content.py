@@ -82,32 +82,48 @@ class StreamingContent:
         usage: dict[str, Any] | None = None
 
         if isinstance(raw_data, dict):
-            # Handle dictionary (e.g., OpenAI chat completion chunk)
-            is_done = raw_data.get("done", False)
+            # Handle dictionary (e.g., OpenAI or Anthropic chat completion chunk)
+            if raw_data.get("type") == "content_block_delta":
+                delta = raw_data.get("delta", {})
+                if delta.get("type") == "text_delta":
+                    content = delta.get("text", "")
+            elif raw_data.get("type") == "message_delta":
+                usage = raw_data.get("usage")
+                is_done = True
+            else:
+                # Handle OpenAI chat completion chunk
+                is_done = raw_data.get("done", False)
 
-            choices = raw_data.get("choices")
-            if choices and isinstance(choices, list) and len(choices) > 0:
-                choice = choices[0]
-                if isinstance(choice, dict):
-                    if "delta" in choice:
-                        delta = choice["delta"]
-                        if isinstance(delta, dict) and "content" in delta:
-                            content = delta.get("content") or ""
-                    elif "message" in choice:
-                        message = choice["message"]
-                        if isinstance(message, dict) and "content" in message:
-                            content = message.get("content") or ""
-                    elif "text" in choice:  # For older models or specific APIs
-                        content = choice.get("text") or ""
+                choices = raw_data.get("choices")
+                if choices and isinstance(choices, list) and len(choices) > 0:
+                    choice = choices[0]
+                    if isinstance(choice, dict):
+                        if "delta" in choice:
+                            delta = choice["delta"]
+                            if isinstance(delta, dict) and "content" in delta:
+                                content_value = delta.get("content")
+                                content = (
+                                    content_value if content_value is not None else ""
+                                )
+                        elif "message" in choice:
+                            message = choice["message"]
+                            if isinstance(message, dict) and "content" in message:
+                                content_value = message.get("content")
+                                content = (
+                                    content_value if content_value is not None else ""
+                                )
+                        elif "text" in choice:  # For older models or specific APIs
+                            content_value = choice.get("text")
+                            content = content_value if content_value is not None else ""
 
-            if "id" in raw_data:
-                metadata["id"] = raw_data["id"]
-            if "model" in raw_data:
-                metadata["model"] = raw_data["model"]
-            if "created" in raw_data:
-                metadata["created"] = raw_data["created"]
+                if "id" in raw_data:
+                    metadata["id"] = raw_data["id"]
+                if "model" in raw_data:
+                    metadata["model"] = raw_data["model"]
+                if "created" in raw_data:
+                    metadata["created"] = raw_data["created"]
 
-            usage = raw_data.get("usage")
+                usage = raw_data.get("usage")
 
         elif isinstance(raw_data, str):
             # Handle string (e.g., raw text or JSON string)

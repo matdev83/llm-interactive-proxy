@@ -35,6 +35,7 @@ class SimpleLoopDetector(ILoopDetector):
             # Create a simple event
             evt = LoopDetectionEvent(
                 pattern=self._trigger,
+                pattern_length=len(self._trigger),
                 repetition_count=4,
                 total_length=len(chunk),
                 confidence=0.99,

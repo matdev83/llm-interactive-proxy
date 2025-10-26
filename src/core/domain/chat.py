@@ -252,6 +252,8 @@ class StreamingChatResponse(ValueObject):
     tool_calls: list[dict[str, Any]] | None = None
     delta: dict[str, Any] | None = None
     system_fingerprint: str | None = None
+    done: bool | None = None
+    metadata: dict[str, Any] | None = None
 
     @classmethod
     def from_legacy_chunk(cls, chunk: dict[str, Any]) -> "StreamingChatResponse":

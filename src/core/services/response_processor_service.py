@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from src.core.common.exceptions import (
     LoopDetectionError,
@@ -321,11 +321,25 @@ class ResponseProcessor(IResponseProcessor):
             return
 
         if self._stream_normalizer is None:
-            # Create a default stream normalizer if none was provided
-            # Use default 10MB buffer limit
-            self._stream_normalizer = StreamNormalizer(
-                [ContentAccumulationProcessor(max_buffer_bytes=10 * 1024 * 1024)]
-            )
+            try:
+                from src.core.di.services import get_service_collection
+                from src.core.interfaces.streaming_response_processor_interface import (
+                    IStreamNormalizer,
+                )
+
+                services = get_service_collection()
+                fallback_provider = services.build_service_provider()
+                normalizer = fallback_provider.get_service(
+                    cast(type, IStreamNormalizer)
+                )
+                if normalizer is None:
+                    normalizer = fallback_provider.get_required_service(
+                        cast(type, IStreamNormalizer)
+                    )
+                self._stream_normalizer = normalizer
+            except Exception:
+                # As a last resort use an empty StreamNormalizer; DI resolution failed.
+                self._stream_normalizer = StreamNormalizer()  # noqa: DI-bypass
 
         # Process the stream using the normalizer
         try:

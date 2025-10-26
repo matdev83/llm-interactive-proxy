@@ -36,18 +36,64 @@ class ArchitecturalViolation:
 class SOLIDViolationDetector(ast.NodeVisitor):
     """AST visitor to detect SOLID principle violations."""
 
+    # Services that should only be created via DI container
+    DI_MANAGED_SERVICES = {
+        "StreamNormalizer",
+        "LoopDetector",
+        "LoopDetectionProcessor",
+        "ResponseProcessor",
+        "BackendService",
+        "SessionService",
+        "CommandProcessor",
+        "BackendProcessor",
+        "RequestProcessor",
+        "SessionManager",
+        "ResponseManager",
+        "BackendRequestManager",
+        "MiddlewareApplicationManager",
+        "ApplicationStateService",
+        "BackendFactory",
+        "FailoverCoordinator",
+        "FailoverService",
+        "TranslationService",
+        "ToolCallRepairService",
+        "JsonRepairService",
+        "AssessmentService",
+        "TurnCounterService",
+        "ToolCallReactorService",
+        "DangerousCommandService",
+        "PytestCompressionService",
+        "SecureStateService",
+        "ConversationFingerprintService",
+        "AgentResponseFormatter",
+        "ResponseParser",
+        "ContentAccumulationProcessor",
+        "JsonRepairProcessor",
+        "ToolCallRepairProcessor",
+        "MiddlewareApplicationProcessor",
+    }
+
     def __init__(self, file_path: str):
         self.file_path = file_path
         self.violations: list[ArchitecturalViolation] = []
         self.is_domain_layer = "/domain/" in file_path
         self.is_service_layer = "/services/" in file_path
         self.is_interface_layer = "/interfaces/" in file_path
+        self.is_test_file = (
+            "/tests/" in file_path
+            or file_path.endswith(("_test.py", "test_.py"))
+            or file_path.startswith("test_")
+            or "/test_" in file_path
+            or "conftest.py" in file_path
+        )
+        self.is_di_registration_file = "services.py" in file_path or "di/" in file_path
         self.current_class: str | None = None
         self.current_method: str | None = None
         self.imports: dict[str, str] = {}  # Track imports for later analysis
         self.class_attributes: set[str] = set()  # Track class attributes
         self.class_methods: set[str] = set()  # Track class methods
         self.static_methods: set[str] = set()  # Track static methods
+        self.in_factory_function = False  # Track if we're in a DI factory function
 
     def visit_Import(  # noqa: N802 - AST visitor API requires this name
         self, node: ast.Import
@@ -135,7 +181,16 @@ class SOLIDViolationDetector(ast.NodeVisitor):
     ):
         """Visit function definitions."""
         old_method = self.current_method
+        old_in_factory = self.in_factory_function
+
         self.current_method = node.name
+
+        # Check if this is a DI factory function
+        self.in_factory_function = self.is_di_registration_file and (
+            "_factory" in node.name
+            or "_service_factory" in node.name
+            or node.name.endswith("_factory")
+        )
 
         # Check for service layer violations
         if self.is_service_layer:
@@ -162,6 +217,7 @@ class SOLIDViolationDetector(ast.NodeVisitor):
 
         self.generic_visit(node)
         self.current_method = old_method
+        self.in_factory_function = old_in_factory
 
     def visit_Attribute(  # noqa: N802 - AST visitor API requires this name
         self, node: ast.Attribute
@@ -225,6 +281,23 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self, node: ast.Call
     ):
         """Visit function calls."""
+        # Check for direct instantiation of DI-managed services
+        if (
+            isinstance(node.func, ast.Name)
+            and (class_name := node.func.id) in self.DI_MANAGED_SERVICES
+            and not self._is_allowed_di_bypass_context(node)
+        ):
+            self.violations.append(
+                ArchitecturalViolation(
+                    self.file_path,
+                    node.lineno,
+                    node.col_offset,
+                    f"Direct instantiation of DI-managed service '{class_name}()'. "
+                    f"Use get_required_service(I{class_name}) or inject via constructor.",
+                    "error",
+                )
+            )
+
         # Check for hasattr/getattr/setattr on app.state
         if (
             isinstance(node.func, ast.Name)
@@ -445,6 +518,53 @@ class SOLIDViolationDetector(ast.NodeVisitor):
                     "warning",
                 )
             )
+
+    def _is_allowed_di_bypass_context(self, node: ast.Call) -> bool:
+        """Check if direct instantiation of DI-managed services is allowed in this context."""
+        # Allow in test files
+        if self.is_test_file:
+            return True
+
+        # Allow in DI factory functions
+        if self.in_factory_function:
+            return True
+
+        # Allow in __init__ methods (for internal composition)
+        if self.current_method == "__init__":
+            return True
+
+        # Allow if there's a DI bypass comment
+        if self._has_di_bypass_comment(node):
+            return True
+
+        # Allow in specific DI registration contexts
+        return bool(
+            self.is_di_registration_file
+            and (
+                self.current_method
+                and (
+                    "register" in self.current_method.lower()
+                    or "build" in self.current_method.lower()
+                    or "create" in self.current_method.lower()
+                )
+            )
+        )
+
+    def _has_di_bypass_comment(self, node: ast.Call) -> bool:
+        """Check if the call has a comment allowing DI bypass."""
+        try:
+            with open(self.file_path, encoding="utf-8") as f:
+                lines = f.readlines()
+                if node.lineno - 1 < len(lines):
+                    line = lines[node.lineno - 1]
+                    return (
+                        "# noqa: DI-bypass" in line
+                        or "# DI-bypass-allowed" in line
+                        or "# allow-direct-instantiation" in line
+                    )
+        except Exception:
+            pass
+        return False
 
 
 def lint_file(file_path: str) -> list[ArchitecturalViolation]:

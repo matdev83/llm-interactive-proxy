@@ -70,14 +70,16 @@ class InternalLoopDetectionConfig(InternalDTO):
     max_pattern_length: int = 8192
     # How many new characters must be processed before running another costly
     # pattern analysis pass.  This directly trades CPU time for latency of
-    # detection.  A value of 0 (or negative) disables the interval optimisation.
-    analysis_interval: int = 64
+    # detection.  Reduced from 64 to 32 for faster loop detection response.
+    # A value of 0 (or negative) disables the interval optimisation.
+    analysis_interval: int = 32
 
     # Hash-chunk algorithm parameters (ported from gemini-cli)
     # Size of the fixed window used to hash and compare content chunks.
-    # Increased from the historical default (50) to 100 based on regression
-    # tests that exercise real-world bug reports with ~280 character loops.
-    content_chunk_size: int = 100
+    # Reduced from 100 to 80 to better detect medium-length patterns (50-100 chars)
+    # that were falling through detection gaps. 80 is a good compromise that
+    # aligns with common repetitive patterns while maintaining performance.
+    content_chunk_size: int = 80
     # Number of repeated identical chunks required (within close proximity)
     # before flagging a loop. Lowered from 10 to 6 to detect loops faster
     # with fewer repetitions needed.
@@ -264,6 +266,16 @@ class InternalLoopDetectionConfig(InternalDTO):
         elif pattern_length <= 50:
             assert self.medium_pattern_threshold is not None
             return self.medium_pattern_threshold
+        elif pattern_length <= 100:
+            # Handle medium-long patterns (50-100 chars) with adjusted thresholds
+            # This addresses the gap where patterns like 78-char loops weren't detected
+            # because they needed 300 total chars but 3 repetitions only reached ~234
+            assert self.long_pattern_threshold is not None
+            return PatternThresholds(
+                min_repetitions=3,
+                min_total_length=pattern_length
+                * 3,  # Dynamic threshold based on pattern size
+            )
         else:
             assert self.long_pattern_threshold is not None
             return self.long_pattern_threshold

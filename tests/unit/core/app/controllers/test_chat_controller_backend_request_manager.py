@@ -11,7 +11,6 @@ from src.core.interfaces.agent_response_formatter_interface import (
     IAgentResponseFormatter,
 )
 from src.core.interfaces.application_state_interface import IApplicationState
-from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import ICommandService
@@ -116,6 +115,7 @@ def test_get_chat_controller_uses_wire_capture_when_constructing_backend_manager
 ) -> None:
     """Ensure fallback construction uses DI-provided wire capture instances."""
 
+    from src.core.app import controllers
     from src.core.services import (
         backend_request_manager_service,
         request_processor_service,
@@ -156,6 +156,30 @@ def test_get_chat_controller_uses_wire_capture_when_constructing_backend_manager
     sentinel_formatter = object()
     sentinel_translation_service = object()
 
+    def _dummy_resolve_request_processor(_: Any) -> _DummyRequestProcessor:
+        return _DummyRequestProcessor(
+            command_processor=sentinel_command_processor,
+            session_manager=_DummySessionManager(
+                sentinel_session_service,
+                sentinel_session_resolver,
+                fingerprint_service=None,
+                session_repository=None,
+            ),
+            backend_request_manager=_DummyBackendRequestManager(
+                backend_processor=sentinel_backend_processor,
+                response_processor=sentinel_response_processor,
+                wire_capture=sentinel_wire_capture,
+            ),
+            response_manager=_DummyResponseManager(sentinel_formatter),
+            app_state=sentinel_application_state,
+        )
+
+    monkeypatch.setattr(
+        controllers.chat_controller,
+        "resolve_request_processor",
+        _dummy_resolve_request_processor,
+    )
+
     provider = _FakeProvider(
         {
             ICommandService: sentinel_command_service,
@@ -163,7 +187,6 @@ def test_get_chat_controller_uses_wire_capture_when_constructing_backend_manager
             ISessionService: sentinel_session_service,
             IResponseProcessor: sentinel_response_processor,
             ICommandProcessor: sentinel_command_processor,
-            IBackendProcessor: sentinel_backend_processor,
             IApplicationState: sentinel_application_state,
             ISessionResolver: sentinel_session_resolver,
             IAgentResponseFormatter: sentinel_formatter,

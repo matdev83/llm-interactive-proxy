@@ -18,13 +18,15 @@ from src.anthropic_converters import (
     openai_to_anthropic_response,
 )
 from src.anthropic_models import AnthropicMessagesRequest
+from src.core.app.controllers.request_processor_resolver import (
+    resolve_request_processor,
+)
 from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
 )
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -165,6 +167,7 @@ class AnthropicController:
                     body_content = body_content.tobytes()
 
                 # Try to parse as JSON, but handle plain strings gracefully
+                decoded_content = ""
                 try:
                     decoded_content = body_content.decode()
                     openai_response_data = json.loads(decoded_content)
@@ -403,208 +406,15 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
     """
     try:
         # Try to get the existing request processor from the service provider
-        from typing import cast
 
-        request_processor: IRequestProcessor | None = service_provider.get_service(
-            cast(type, IRequestProcessor)
-        )
-        if request_processor is None:
-            # Try to get the concrete implementation
-            from src.core.services.request_processor_service import RequestProcessor
-
-            request_processor = service_provider.get_service(RequestProcessor)
-
-        if request_processor is None:
-            # If still not found, try to create one on the fly
-            from src.core.interfaces.backend_request_manager_interface import (
-                IBackendRequestManager,
+        try:
+            request_processor: IRequestProcessor = resolve_request_processor(
+                service_provider
             )
-            from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.interfaces.command_service_interface import ICommandService
-            from src.core.interfaces.response_processor_interface import (
-                IResponseProcessor,
-            )
-            from src.core.interfaces.session_service_interface import ISessionService
-
-            cmd: ICommandService | None = service_provider.get_service(
-                cast(type, ICommandService)
-            )
-            backend: IBackendService | None = service_provider.get_service(
-                cast(type, IBackendService)
-            )
-            session: ISessionService | None = service_provider.get_service(
-                cast(type, ISessionService)
-            )
-            response_proc: IResponseProcessor | None = service_provider.get_service(
-                cast(type, IResponseProcessor)
-            )
-
-            if cmd and backend and session and response_proc:
-                from src.core.services.backend_processor import BackendProcessor
-                from src.core.services.command_processor import CommandProcessor
-                from src.core.services.request_processor_service import RequestProcessor
-
-                command_processor: CommandProcessor = CommandProcessor(cmd)
-                # Attempt to retrieve application state for BackendProcessor (DIP)
-                from src.core.interfaces.application_state_interface import (
-                    IApplicationState,
-                )
-
-                app_state = service_provider.get_service(cast(type, IApplicationState))
-                if app_state is None:
-                    from src.core.services.application_state_service import (
-                        ApplicationStateService,
-                    )
-
-                    # Prefer resolving the concrete implementation from the provider
-                    app_state = service_provider.get_service(ApplicationStateService)
-
-                    if app_state is None:
-                        # Fall back to the global provider if available. This preserves
-                        # singleton semantics for application state even when scoped
-                        # providers do not expose the interface binding.
-                        try:
-                            from src.core.di.services import get_service_provider
-
-                            global_provider = get_service_provider()
-                        except Exception:  # pragma: no cover - diagnostics only
-                            global_provider = None
-                        else:
-                            if (
-                                global_provider is not None
-                                and global_provider is not service_provider
-                            ):
-                                app_state = global_provider.get_service(
-                                    cast(type, IApplicationState)
-                                )
-                                if app_state is None:
-                                    app_state = global_provider.get_service(
-                                        ApplicationStateService
-                                    )
-
-                    if app_state is None:
-                        # As a last resort, rely on DI to construct the singleton.
-                        # This avoids creating ad-hoc instances that bypass lifecycle
-                        # management and ensures downstream services share state.
-                        app_state = service_provider.get_required_service(
-                            ApplicationStateService
-                        )
-                backend_processor: BackendProcessor = BackendProcessor(
-                    backend, session, app_state
-                )
-
-                # Get the new decomposed services
-                from src.core.services.backend_request_manager_service import (
-                    BackendRequestManager,
-                )
-                from src.core.services.response_manager_service import ResponseManager
-                from src.core.services.session_manager_service import SessionManager
-
-                session_resolver = service_provider.get_service(
-                    cast(type, ISessionResolver)
-                )
-                if session_resolver is None:
-                    from src.core.services.session_resolver_service import (
-                        DefaultSessionResolver,
-                    )
-
-                    session_resolver = service_provider.get_service(
-                        DefaultSessionResolver
-                    )
-                    if session_resolver is None:
-                        from src.core.config.app_config import AppConfig
-
-                        config = service_provider.get_service(AppConfig)
-                        session_resolver = DefaultSessionResolver(config)
-                        try:
-                            from src.core.di.services import get_service_collection
-
-                            services = get_service_collection()
-                            services.add_instance(
-                                DefaultSessionResolver, session_resolver
-                            )
-                            services.add_instance(
-                                cast(type, ISessionResolver), session_resolver
-                            )
-                        except Exception:
-                            pass
-
-                # Get agent response formatter for ResponseManager
-                from src.core.interfaces.agent_response_formatter_interface import (
-                    IAgentResponseFormatter,
-                )
-
-                agent_response_formatter = service_provider.get_service(
-                    cast(type, IAgentResponseFormatter)
-                )
-                if agent_response_formatter is None:
-                    from src.core.services.response_manager_service import (
-                        AgentResponseFormatter,
-                    )
-
-                    agent_response_formatter = AgentResponseFormatter()
-
-                from src.core.services.conversation_fingerprint_service import (
-                    ConversationFingerprintService,
-                )
-
-                fingerprint_service = service_provider.get_service(
-                    ConversationFingerprintService
-                )
-                if fingerprint_service is None:
-                    fingerprint_service = ConversationFingerprintService()
-
-                session_manager = SessionManager(
-                    session, session_resolver, fingerprint_service
-                )
-                backend_request_manager_service = service_provider.get_service(
-                    cast(type, IBackendRequestManager)
-                )
-                if backend_request_manager_service is None:
-                    backend_request_manager_service = service_provider.get_service(
-                        BackendRequestManager
-                    )
-                if backend_request_manager_service is None:
-                    from src.core.interfaces.wire_capture_interface import IWireCapture
-
-                    wire_capture = service_provider.get_service(
-                        cast(type, IWireCapture)
-                    )
-                    backend_request_manager_service = BackendRequestManager(
-                        backend_processor,
-                        response_proc,
-                        wire_capture,
-                    )
-
-                backend_request_manager = cast(
-                    IBackendRequestManager, backend_request_manager_service
-                )
-                if backend_request_manager is None:
-                    raise InitializationError("Could not resolve BackendRequestManager")
-                response_manager = ResponseManager(agent_response_formatter)
-
-                request_processor = RequestProcessor(
-                    command_processor,
-                    session_manager,
-                    backend_request_manager,
-                    response_manager,
-                    app_state=app_state,
-                )
-
-                # Register it for future use
-                from src.core.di.container import ServiceProvider
-
-                if isinstance(service_provider, ServiceProvider):
-                    # Access the _singleton_instances attribute safely
-                    singleton_instances: dict[type, Any] | None = getattr(
-                        service_provider, "_singleton_instances", None
-                    )
-                    if singleton_instances is not None:
-                        singleton_instances[IRequestProcessor] = request_processor
-                        singleton_instances[RequestProcessor] = request_processor
-
-        if request_processor is None:
-            raise InitializationError("Could not find or create RequestProcessor")
+        except InitializationError as exc:
+            raise InitializationError(
+                f"Failed to create AnthropicController: {exc}"
+            ) from exc
 
         return AnthropicController(request_processor)
     except Exception as e:

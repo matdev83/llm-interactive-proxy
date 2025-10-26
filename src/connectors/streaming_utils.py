@@ -10,13 +10,122 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncGenerator, AsyncIterator
+from typing import TYPE_CHECKING, Any, cast
 
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from src.core.domain.streaming_response_processor import StreamingContent
+    from src.core.interfaces.streaming_response_processor_interface import (
+        IStreamNormalizer,
+    )
+else:
+    from src.core.interfaces.streaming_response_processor_interface import (
+        IStreamNormalizer,
+    )
+
+
+class _PassthroughStreamNormalizer(IStreamNormalizer):
+    async def process_stream(
+        self, iterator: AsyncIterator[Any], output_format: str = "objects"
+    ) -> AsyncGenerator[StreamingContent | bytes, None]:
+        # Simple passthrough that converts bytes to StreamingContent or passes through as-is
+        if output_format == "bytes":
+            # For bytes output, yield items as-is if they're bytes, or convert
+            async for item in iterator:
+                if isinstance(item, bytes):
+                    yield item
+                else:
+                    yield str(item).encode()
+        else:
+            # For objects output, create StreamingContent objects
+            from src.core.domain.streaming_content import StreamingContent
+
+            async for item in iterator:
+                if isinstance(item, bytes):
+                    yield StreamingContent(content=item.decode(), is_done=True)
+                else:
+                    yield StreamingContent(content=str(item), is_done=True)
+
+    def reset(self) -> None:
+        return None
+
+
+def _resolve_stream_normalizer_via_di() -> IStreamNormalizer | None:
+    """Resolve configured stream normalizer from the DI container when available."""
+
+    try:
+        from src.core.di.services import get_service
+        from src.core.interfaces.streaming_response_processor_interface import (
+            IStreamNormalizer,
+        )
+    except ImportError:
+        return None
+
+    try:
+        normalizer = cast(
+            "IStreamNormalizer | None", get_service(cast(type, IStreamNormalizer))
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to resolve IStreamNormalizer from DI: %s", exc, exc_info=True
+            )
+        return None
+
+    return normalizer
+
+
+def _build_fallback_stream_normalizer() -> IStreamNormalizer:
+    """Create a minimal StreamNormalizer pipeline using the DI container."""
+
+    from src.core.services.streaming.stream_normalizer import StreamNormalizer
+
+    try:
+        from src.core.di.services import (
+            get_service_collection,
+            set_service_provider,
+        )
+        from src.core.interfaces.streaming_response_processor_interface import (
+            IStreamNormalizer,
+        )
+    except ImportError as exc:  # pragma: no cover - defensive guard
+        raise RuntimeError("Streaming DI services unavailable") from exc
+
+    services = get_service_collection()
+    fallback_provider = services.build_service_provider()
+    try:
+        set_service_provider(fallback_provider)
+    except Exception:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to update global provider while creating fallback normalizer",
+                exc_info=True,
+            )
+
+    normalizer = fallback_provider.get_service(cast(type, IStreamNormalizer))
+    if normalizer is not None:
+        return normalizer
+
+    # Attempt to manually assemble a StreamNormalizer using DI-managed processors
+    try:
+        from src.core.services.streaming.stream_normalizer import StreamNormalizer
+    except ModuleNotFoundError:
+        logger.debug(
+            "StreamNormalizer module unavailable; using passthrough fallback",
+            exc_info=True,
+        )
+        return _PassthroughStreamNormalizer()
+
+    normalizer = fallback_provider.get_service(StreamNormalizer)
+    if normalizer is not None:
+        return normalizer
+
+    return StreamNormalizer()  # noqa: DI-bypass
 
 
 async def _ensure_async_iterator(it: Any) -> AsyncIterator[bytes]:
@@ -113,8 +222,21 @@ def normalize_streaming_response(
 
     async def create_normalized_stream() -> AsyncIterator[bytes]:
         if normalize:
-            # Use StreamNormalizer to get a consistent format
-            normalizer = StreamNormalizer()
+            normalizer = _resolve_stream_normalizer_via_di()
+            if normalizer is None:
+                normalizer = _build_fallback_stream_normalizer()
+
+            reset_method = getattr(normalizer, "reset", None)
+            if callable(reset_method):
+                try:
+                    reset_method()
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to reset stream normalizer: %s",
+                            exc,
+                            exc_info=True,
+                        )
             processed_stream = normalizer.process_stream(
                 iterator, output_format="bytes"
             )

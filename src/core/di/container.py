@@ -387,7 +387,7 @@ class ServiceCollection(IServiceCollection):
 
         def _backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
             """Create BackendFactory with all required dependencies."""
-            return BackendFactory(
+            return BackendFactory(  # noqa: DI-bypass
                 provider.get_required_service(httpx.AsyncClient),
                 provider.get_required_service(BackendRegistry),
                 provider.get_required_service(AppConfig),

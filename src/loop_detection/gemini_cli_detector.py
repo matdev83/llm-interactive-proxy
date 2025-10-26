@@ -109,6 +109,7 @@ class GeminiCliLoopDetector(ILoopDetector):
 
             event = LoopDetectionEvent(
                 pattern="Repetitive content pattern detected",
+                pattern_length=self.content_chunk_size,
                 repetition_count=self.content_loop_threshold,
                 total_length=self.content_chunk_size * self.content_loop_threshold,
                 confidence=1.0,

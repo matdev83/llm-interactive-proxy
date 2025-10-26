@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from src.core.commands.models import Command, CommandResultWrapper
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.command_service_interface import ICommandService
 
-CommandServiceHandler = Callable[[list[Any], str], Awaitable[ProcessedResult]]
+CommandServiceHandler = Callable[
+    [list[Any], str], Awaitable[ProcessedResult] | ProcessedResult
+]
 
 
 class FunctionCommandService(ICommandService):
@@ -26,18 +28,20 @@ class FunctionCommandService(ICommandService):
     async def process_commands(
         self, messages: list[Any], session_id: str
     ) -> ProcessedResult:
-        result = self._handler(messages, session_id)
+        handler_result = self._handler(messages, session_id)
 
-        if inspect.isawaitable(result):
-            return await result
+        if inspect.isawaitable(handler_result):
+            resolved = await cast(Awaitable[ProcessedResult], handler_result)
+        else:
+            resolved = cast(ProcessedResult, handler_result)
 
-        if isinstance(result, ProcessedResult):
-            return result
+        if not isinstance(resolved, ProcessedResult):
+            raise TypeError(
+                "The command service handler must return a ProcessedResult or an awaitable"
+                " resolving to ProcessedResult."
+            )
 
-        raise TypeError(
-            "The command service handler must return a ProcessedResult or an awaitable"
-            " resolving to ProcessedResult."
-        )
+        return resolved
 
     async def execute_command(
         self, command: Command, session_id: str

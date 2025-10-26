@@ -407,6 +407,7 @@ async def test_chat_completions_routes_to_codex_api(
         connector, "_validate_runtime_credentials", return_value=(True, [])
     )
     mocker.patch.object(connector, "_load_auth", AsyncMock(return_value=True))
+    connector.api_key = "Bearer test-token"
     codex_mock = mocker.patch.object(
         connector, "_call_codex_responses_api", AsyncMock(return_value="codex-result")
     )
@@ -443,6 +444,7 @@ async def test_chat_completions_non_codex_falls_back_to_parent(
         "get_headers",
         return_value={"Authorization": "Bearer test-token"},
     )
+    connector.api_key = "Bearer test-token"
     codex_mock = mocker.patch.object(
         connector, "_call_codex_responses_api", AsyncMock(return_value="codex-result")
     )
@@ -698,6 +700,7 @@ async def test_codex_api_http_error_propagation(
     mocker.patch.object(
         connector, "get_headers", return_value={"Authorization": "Bearer valid-token"}
     )
+    connector.api_key = "Bearer valid-token"
     error_response = httpx.Response(
         status_code=429,
         json={"error": "rate limit exceeded"},

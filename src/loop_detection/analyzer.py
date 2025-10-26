@@ -95,6 +95,7 @@ class PatternAnalyzer:
                 total_repeated_chars = len(current_chunk) * repetition_count
                 event = self._create_detection_event_from_chunk(
                     pattern=current_chunk,
+                    pattern_length=len(current_chunk),
                     repetition_count=repetition_count,
                     total_length=total_repeated_chars,
                     confidence=1.0,
@@ -243,6 +244,7 @@ class PatternAnalyzer:
         self,
         *,
         pattern: str,
+        pattern_length: int,
         repetition_count: int,
         total_length: int,
         confidence: float,
@@ -251,6 +253,7 @@ class PatternAnalyzer:
         """Create a loop detection event for the current chunk pattern."""
         return LoopDetectionEvent(
             pattern=pattern,
+            pattern_length=pattern_length,
             repetition_count=repetition_count,
             total_length=total_length,
             confidence=confidence,

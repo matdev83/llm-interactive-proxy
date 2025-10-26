@@ -1,6 +1,4 @@
-"""
-Tests for the streaming utilities module using Hypothesis for property-based testing.
-"""
+"""Tests for the streaming utilities module using Hypothesis for property-based testing."""
 
 import pytest
 
@@ -10,6 +8,11 @@ pytest.importorskip("hypothesis")
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
+
+from collections.abc import AsyncIterator
+from typing import Any, cast
+
+import src.connectors.streaming_utils as streaming_utils
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import composite
@@ -18,6 +21,8 @@ from src.connectors.streaming_utils import (
     normalize_streaming_response,
 )
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.streaming_response_processor import StreamingContent
+from src.loop_detection.event import LoopDetectionEvent
 
 
 @composite
@@ -123,12 +128,113 @@ class TestNormalizeStreamingResponse:
     """Tests for the normalize_streaming_response function."""
 
     @pytest.mark.asyncio
-    async def test_normalize_streaming_response_basic(self) -> None:
+    async def test_normalize_streaming_response_uses_loop_detector(self, monkeypatch):
+        """Ensure normalization path routes through loop detection pipeline."""
+
+        class DummyLoopDetector:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
+                self.calls.append(chunk)
+                if "repeat" in chunk:
+                    return LoopDetectionEvent(
+                        pattern="repeat",
+                        pattern_length=len(chunk),
+                        repetition_count=2,
+                        total_length=len(chunk) * 2,
+                        confidence=1.0,
+                        buffer_content=chunk,
+                        timestamp=0.0,
+                    )
+                return None
+
+        dummy_detector = DummyLoopDetector()
+
+        class DummyLoopProcessor:
+            async def process(self, content: StreamingContent) -> StreamingContent:
+                event = dummy_detector.process_chunk(content.content)
+                if event:
+                    return StreamingContent(
+                        content="[LOOP DETECTED]",
+                        is_done=True,
+                        is_cancellation=True,
+                        metadata={
+                            "loop_detected": True,
+                            "pattern": event.pattern,
+                            "repetition_count": event.repetition_count,
+                        },
+                    )
+                return content
+
+        class DummyStreamNormalizer:
+            def __init__(self) -> None:
+                self.processor = DummyLoopProcessor()
+
+            def reset(self) -> None:  # pragma: no cover - no-op
+                return None
+
+            async def process_stream(
+                self, stream: AsyncIterator[Any], output_format: str = "bytes"
+            ) -> AsyncIterator[Any]:
+                async for raw in stream:
+                    content = StreamingContent.from_raw(raw)
+                    processed = await self.processor.process(content)
+                    if output_format == "bytes":
+                        yield processed.to_bytes()
+                    else:  # pragma: no cover - tests rely on bytes output
+                        yield processed
+
+        dummy_normalizer: DummyStreamNormalizer = DummyStreamNormalizer()
+
+        monkeypatch.setattr(
+            streaming_utils,
+            "_resolve_stream_normalizer_via_di",
+            lambda: dummy_normalizer,
+        )
+        monkeypatch.setattr(
+            streaming_utils,
+            "_build_fallback_stream_normalizer",
+            lambda: dummy_normalizer,
+        )
+
+        async def mock_stream() -> AsyncIterator[str]:
+            yield "repeat"  # Trigger loop detection
+
+        envelope = normalize_streaming_response(mock_stream())
+
+        chunks: list[bytes] = []
+        async for chunk in cast(AsyncIterator[bytes], envelope.content):
+            chunks.append(chunk)
+
+        assert dummy_detector.calls, "Loop detector should have been invoked"
+        assert any(
+            b"LOOP DETECTED" in chunk for chunk in chunks
+        ), "Loop break output expected"
+
+    @pytest.mark.asyncio
+    async def test_normalize_streaming_response_basic(self, monkeypatch) -> None:
         """Test normalize_streaming_response with basic async iterator."""
+
+        from src.core.services.streaming.stream_normalizer import StreamNormalizer
+
+        fallback_normalizer = StreamNormalizer()
+
+        monkeypatch.setattr(
+            streaming_utils,
+            "_resolve_stream_normalizer_via_di",
+            lambda: fallback_normalizer,
+        )
+        monkeypatch.setattr(
+            streaming_utils,
+            "_build_fallback_stream_normalizer",
+            lambda: fallback_normalizer,
+        )
 
         async def mock_stream():
             yield {"choices": [{"delta": {"content": "chunk1"}}]}
             yield {"choices": [{"delta": {"content": "chunk2"}}]}
+            yield {"choices": [{"delta": {}}], "usage": {"total_tokens": 10}}
 
         envelope = normalize_streaming_response(mock_stream())
         assert isinstance(envelope, StreamingResponseEnvelope)
@@ -136,14 +242,16 @@ class TestNormalizeStreamingResponse:
         assert envelope.headers == {}
 
         # Check content - should be normalized to SSE format
-        chunks = []
-        async for chunk in envelope.content:
+        assert envelope.content is not None
+        chunks: list[bytes] = []
+        async for chunk in cast(AsyncIterator[bytes], envelope.content):
             chunks.append(chunk)
 
         # Convert to strings for easier comparison
         chunk_strings = [chunk.decode("utf-8") for chunk in chunks]
-        assert "chunk1" in chunk_strings[0]
-        assert "chunk2" in chunk_strings[1]
+        combined = "\n".join(chunk_strings)
+        assert "chunk1" in combined
+        assert "chunk2" in combined
 
     @pytest.mark.asyncio
     async def test_normalize_streaming_response_with_headers(self) -> None:
@@ -178,8 +286,9 @@ class TestNormalizeStreamingResponse:
         envelope = normalize_streaming_response(mock_stream(), normalize=False)
 
         # Check content
-        chunks = []
-        async for chunk in envelope.content:
+        assert envelope.content is not None
+        chunks: list[bytes] = []
+        async for chunk in cast(AsyncIterator[bytes], envelope.content):
             chunks.append(chunk)
 
         assert chunks == [b"chunk1", b"chunk2"]
@@ -214,9 +323,7 @@ class TestNormalizeStreamingResponse:
         assert envelope.headers == headers
 
         # Collect content
-        chunks = []
-        async for chunk in envelope.content:
-            chunks.append(chunk)
+        chunks = [chunk async for chunk in cast(AsyncIterator[bytes], envelope.content)]
 
         # Should have some chunks (exact count depends on data processing)
         assert len(chunks) >= 0

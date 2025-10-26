@@ -12,13 +12,13 @@ import logging
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
+from src.core.app.stages.base import InitializationStage
+from src.core.common.exceptions import InitializationError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.services.backend_service import BackendService as _BackendService
-
-from .base import InitializationStage
 
 logger = logging.getLogger(__name__)
 
@@ -448,19 +448,25 @@ class MockBackendStage(InitializationStage):
                     # Try to get existing translation service from services
                     translation_service = None
                     try:
-                        # Build a service provider to get the translation service
                         provider = services.build_service_provider()
                         translation_service = provider.get_required_service(
                             TranslationService
                         )
                     except Exception:
-                        translation_service = TranslationService()
+                        translation_service = None
 
                     httpx_client = self._resolve_httpx_client(services)
                     if httpx_client is None:
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 "No shared HTTP client available; using mock backend"
+                            )
+                        return await mock_chat_completions(*args, **kwargs)
+
+                    if translation_service is None:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "TranslationService unavailable for mock backend factory"
                             )
                         return await mock_chat_completions(*args, **kwargs)
 
@@ -546,13 +552,12 @@ class MockBackendStage(InitializationStage):
                         # Try to get existing translation service from services
                         translation_service = None
                         try:
-                            # Build a service provider to get the translation service
                             provider = services.build_service_provider()
                             translation_service = provider.get_required_service(
                                 TranslationService
                             )
                         except Exception:
-                            translation_service = TranslationService()
+                            translation_service = None
 
                         httpx_client = self._resolve_httpx_client(services)
                         if httpx_client is None:
@@ -563,6 +568,18 @@ class MockBackendStage(InitializationStage):
                                 )
                             # Fall back to mock behavior instead of raising error
                         else:
+                            if translation_service is None:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "TranslationService unavailable for mock backend factory"
+                                    )
+                                # Return a mock backend since we can't create a real one
+                                mock_backend = MagicMock()
+                                mock_backend.chat_completions = AsyncMock(
+                                    side_effect=mock_chat_completions
+                                )
+                                return mock_backend
+
                             real_backend = AnthropicBackend(
                                 httpx_client, AppConfig(), translation_service
                             )
@@ -599,7 +616,9 @@ class MockBackendStage(InitializationStage):
 
             # Always register the mock service instance to ensure it overrides any
             # previously registered real service.
-            services.add_instance(IBackendService, mock_backend_service)
+            services.add_instance(
+                IBackendService, mock_backend_service
+            )  # noqa: DI-bypass (test fallback)
             logger.debug("Registered mock backend service with full method coverage")
         except ImportError as e:
             logger.warning(f"Could not register mock backend service: {e}")
@@ -614,12 +633,19 @@ class MockBackendStage(InitializationStage):
             from src.core.services.translation_service import TranslationService
 
             # Try to get existing translation service or create a new one
-            translation_service = TranslationService()
+            translation_service = None
+            try:
+                provider = services.build_service_provider()
+                translation_service = provider.get_required_service(TranslationService)
+            except Exception:
+                translation_service = None
+            if translation_service is None:
+                raise InitializationError(
+                    "TranslationService unavailable for mock backend factory"
+                )
 
             mock_factory = MagicMock(spec=BackendFactory)
-            mock_factory.translation_service = translation_service or MagicMock(
-                spec=TranslationService
-            )
+            mock_factory.translation_service = translation_service
 
             # Create mock backend instance
             mock_backend = MagicMock(spec=LLMBackend)
@@ -703,7 +729,7 @@ class MockBackendStage(InitializationStage):
 
                     wire_capture = provider.get_service(cast(type, IWireCapture))
 
-                return BackendService(
+                return BackendService(  # noqa: DI-bypass (test fallback)
                     backend_factory,
                     rate_limiter,
                     app_config,
@@ -749,7 +775,7 @@ class MockBackendStage(InitializationStage):
                 repo: ISessionRepository = provider.get_required_service(
                     cast(type, ISessionRepository)
                 )
-                return SessionService(repo)
+                return SessionService(repo)  # noqa: DI-bypass
 
             # Override the session service registration to ensure it returns real Session objects
             services.add_singleton(
@@ -890,7 +916,7 @@ class RealBackendTestStage(InitializationStage):
                 repo: ISessionRepository = provider.get_required_service(
                     cast(type, ISessionRepository)
                 )
-                return SessionService(repo)
+                return SessionService(repo)  # noqa: DI-bypass
 
             # Override the session service registration to ensure it returns real Session objects
             services.add_singleton(

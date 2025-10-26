@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import platform
+import tempfile
 import threading
 import time
 import uuid
@@ -106,8 +107,40 @@ def _to_string_list(value: Any) -> list[str]:
     return []
 
 
+def _validate_tool_schema(
+    schema: dict[str, Any], context: str
+) -> tuple[bool, list[str]]:
+    """Validate a tool schema dictionary.
+
+    Returns:
+        (is_valid, list_of_errors)
+    """
+    errors: list[str] = []
+
+    # Required: name field
+    name = schema.get("name")
+    if not isinstance(name, str) or not name.strip():
+        errors.append(f"{context}: Missing or invalid 'name' field")
+
+    # Optional but recommended: description
+    if "description" in schema:
+        desc = schema.get("description")
+        if not isinstance(desc, str):
+            errors.append(f"{context}: 'description' must be a string")
+
+    # Optional but common: parameters
+    if "parameters" in schema:
+        params = schema.get("parameters")
+        if not isinstance(params, dict):
+            errors.append(f"{context}: 'parameters' must be an object")
+        elif "type" in params and params.get("type") != "object":
+            errors.append(f"{context}: 'parameters.type' should be 'object'")
+
+    return len(errors) == 0, errors
+
+
 def _normalize_tool_schema_list(value: Any, *, context: str) -> list[dict[str, Any]]:
-    """Normalize a value into a list of tool schema dictionaries."""
+    """Normalize a value into a list of tool schema dictionaries with validation."""
     if value is None:
         return []
     items: Sequence[Any]
@@ -119,14 +152,24 @@ def _normalize_tool_schema_list(value: Any, *, context: str) -> list[dict[str, A
     for idx, entry in enumerate(items):
         mapping = _to_mapping(entry)
         if not mapping:
-            logger.warning("Skipping invalid tool schema entry %s[%s]", context, idx)
-            continue
-        name = mapping.get("name")
-        if not isinstance(name, str) or not name.strip():
             logger.warning(
-                "Skipping tool schema entry without name in %s[%s]", context, idx
+                "Skipping invalid tool schema entry %s[%s]: not a valid mapping",
+                context,
+                idx,
             )
             continue
+
+        # Validate the schema
+        is_valid, errors = _validate_tool_schema(mapping, f"{context}[{idx}]")
+        if not is_valid:
+            logger.warning(
+                "Skipping invalid tool schema entry %s[%s]: %s",
+                context,
+                idx,
+                "; ".join(errors),
+            )
+            continue
+
         normalized.append(dict(mapping))
     return normalized
 
@@ -284,7 +327,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self._auth_credentials: dict[str, Any] | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._reload_task_lock = threading.Lock()
-        self._reload_scheduling_in_progress = False
+        self._reload_scheduling_event = threading.Event()  # Thread-safe coordination
         self._capability_resolver = CodexCapabilityResolver(
             default_capabilities=self._default_capabilities,
             agent_overrides=self._connector_settings["agent_overrides"],
@@ -739,20 +782,41 @@ class OpenAIOAuthConnector(OpenAIConnector):
             if not custom_tools:
                 return default_tools
             merged_tools: dict[str, dict[str, Any]] = {}
+            # Track parameter signatures to detect collisions
+            tool_signatures: dict[str, str] = {}
+
             for tool in default_tools:
                 name_value = tool.get("name")
                 if isinstance(name_value, str):
                     merged_tools[name_value] = deepcopy(tool)
+                    # Create signature from parameters for collision detection
+                    params = tool.get("parameters", {})
+                    tool_signatures[name_value] = json.dumps(params, sort_keys=True)
+
             for tool in custom_tools:
                 name_value = tool.get("name")
                 if isinstance(name_value, str):
+                    # Check for parameter collision
+                    if name_value in merged_tools:
+                        params = tool.get("parameters", {})
+                        new_sig = json.dumps(params, sort_keys=True)
+                        if new_sig != tool_signatures.get(name_value):
+                            logger.warning(
+                                "Tool schema collision: tool '%s' defined with different parameters. "
+                                "Keeping default definition. Custom parameters: %s",
+                                name_value,
+                                json.dumps(params)[:200],
+                            )
+                            continue  # Keep default, skip custom
                     merged_tools[name_value] = deepcopy(tool)
+                    params = tool.get("parameters", {})
+                    tool_signatures[name_value] = json.dumps(params, sort_keys=True)
             return list(merged_tools.values())
 
         return default_tools
 
     def _is_native_responses_payload(self, request_data: Any) -> bool:
-        """Heuristically detect if a request payload is in the native Codex/Responses format."""
+        """Detect if a request payload is in the native Codex/Responses format with strict validation."""
         # Use a dict-like view of the request_data
         if hasattr(request_data, "model_dump"):
             data = request_data.model_dump()
@@ -761,12 +825,35 @@ class OpenAIOAuthConnector(OpenAIConnector):
         else:
             return False
 
-        # Structural check: does it have an 'input' array?
-        if "input" in data and isinstance(data.get("input"), list):
-            return True
+        # Early return for obvious OpenAI Chat format (has 'messages' list)
+        if (
+            "messages" in data
+            and isinstance(data.get("messages"), list)
+            and not ("prompt_cache_key" in data or "instructions" in data)
+        ):
+            return False
 
-        # Look for other distinctive fields that are not in standard OpenAI requests
-        return "prompt_cache_key" in data or "instructions" in data
+        # Structural check: does it have an 'input' array with proper structure?
+        if "input" in data:
+            input_val = data.get("input")
+            if not isinstance(input_val, list):
+                return False
+            # Validate that input items have Responses-specific structure
+            if input_val:  # Non-empty list
+                first_item = input_val[0]
+                if isinstance(first_item, dict):
+                    # Responses items have 'type', 'role', 'content' structure
+                    # or 'type' like 'function_call', 'function_call_output'
+                    has_responses_structure = "type" in first_item or (
+                        "role" in first_item and "content" in first_item
+                    )
+                    if has_responses_structure:
+                        return True
+
+        # Look for other distinctive Responses-specific fields
+        # These fields are NOT typically in standard OpenAI Chat requests
+        responses_specific_fields = {"prompt_cache_key", "include", "store"}
+        return any(field in data for field in responses_specific_fields)
 
     def _resolve_capabilities(
         self, request_data: Any, metadata: dict[str, Any] | None = None
@@ -859,7 +946,8 @@ class OpenAIOAuthConnector(OpenAIConnector):
             "include": include_items,
             "prompt_cache_key": conversation_id,
         }
-        if system_prompt is not None:
+        # Include instructions even if empty (empty means use model default)
+        if system_prompt:
             payload["instructions"] = system_prompt
 
         if logger.isEnabledFor(logging.DEBUG):
@@ -872,7 +960,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
     def _resolve_system_prompt(
         self, request_data: Any, capabilities: CodexClientCapabilities
-    ) -> str | None:
+    ) -> str:
         """Determine the system prompt based on capability settings and request data."""
         prompt_mode = capabilities.prompt_mode or "codex_default"
         extra_body = getattr(request_data, "extra_body", {}) or {}
@@ -930,7 +1018,8 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 *custom_clean,
                 *append_sections,
             ]
-            return self._combine_prompt_sections(combined, deduplicate)
+            result = self._combine_prompt_sections(combined, deduplicate)
+            return result if result is not None else ""
 
         if prompt_mode == "merge_custom":
             combined = [
@@ -939,18 +1028,23 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 *custom_clean,
                 *append_sections,
             ]
-            return self._combine_prompt_sections(combined, deduplicate)
+            result = self._combine_prompt_sections(combined, deduplicate)
+            return result if result is not None else ""
 
         if prompt_mode == "custom_only":
             combined = prepend_sections + custom_clean + append_sections
             merged = self._combine_prompt_sections(combined, deduplicate)
-            if merged or not fallback_to_default:
+            if merged:
                 return merged
+            if not fallback_to_default:
+                return ""  # Return empty string instead of None
             fallback_combined = [*prepend_sections, default_prompt, *append_sections]
-            return self._combine_prompt_sections(fallback_combined, deduplicate)
+            result = self._combine_prompt_sections(fallback_combined, deduplicate)
+            return result if result is not None else ""
 
         fallback_combined = [*prepend_sections, default_prompt, *append_sections]
-        return self._combine_prompt_sections(fallback_combined, deduplicate)
+        result = self._combine_prompt_sections(fallback_combined, deduplicate)
+        return result if result is not None else ""
 
     def _combine_prompt_sections(
         self, sections: Sequence[str], deduplicate: bool
@@ -1117,7 +1211,8 @@ class OpenAIOAuthConnector(OpenAIConnector):
             logger.info(
                 "Attempting to refresh OpenAI OAuth access token after authentication failure."
             )
-            # Always reload credentials in case another process already refreshed them.
+            # CRITICAL: Always reload credentials inside the lock to avoid race conditions
+            # This ensures stale tokens aren't used by parallel coroutines
             await self._load_auth(force_reload=True)
             if not self._auth_credentials:
                 logger.warning(
@@ -1190,10 +1285,30 @@ class OpenAIOAuthConnector(OpenAIConnector):
                     timezone.utc
                 ).isoformat()
 
+                # Use atomic write pattern to prevent file corruption
                 try:
-                    with open(self._auth_path, "w", encoding="utf-8") as f:
-                        json.dump(updated_credentials, f, indent=2)
-                        f.write("\n")
+                    # Create temp file in same directory for atomic os.replace()
+                    temp_fd, temp_path = tempfile.mkstemp(
+                        dir=self._auth_path.parent,
+                        prefix=".auth_",
+                        suffix=".json.tmp",
+                        text=True,
+                    )
+                    try:
+                        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+                            json.dump(updated_credentials, f, indent=2)
+                            f.write("\n")
+                            f.flush()
+                            os.fsync(f.fileno())  # Ensure written to disk
+                        # Atomic replacement (cross-platform)
+                        os.replace(temp_path, self._auth_path)
+                    except Exception:
+                        # Clean up temp file on error
+                        import contextlib
+
+                        with contextlib.suppress(Exception):
+                            os.unlink(temp_path)
+                        raise
                 except Exception as exc:
                     logger.warning(
                         "Failed to persist refreshed OAuth credentials: %s", exc
@@ -1369,15 +1484,18 @@ class OpenAIOAuthConnector(OpenAIConnector):
         auth.json file. It forces a reload of credentials bypassing the cache
         to ensure the latest token is loaded even if the file timestamp didn't change.
         """
+        # Use threading.Event for thread-safe coordination
+        if self._reload_scheduling_event.is_set():
+            # Reload already in progress
+            return
+
         with self._reload_task_lock:
             if (
                 self._pending_reload_task is not None
                 and not self._pending_reload_task.done()
             ):
                 return
-            if self._reload_scheduling_in_progress:
-                return
-            self._reload_scheduling_in_progress = True
+            self._reload_scheduling_event.set()
 
         async def reload_task() -> None:
             try:
@@ -1428,13 +1546,12 @@ class OpenAIOAuthConnector(OpenAIConnector):
         def _clear(_: asyncio.Future[Any]) -> None:
             with self._reload_task_lock:
                 self._pending_reload_task = None
-                self._reload_scheduling_in_progress = False
+            self._reload_scheduling_event.clear()
 
         def _assign_task(task: asyncio.Future[None]) -> None:
             task.add_done_callback(_clear)
             with self._reload_task_lock:
                 self._pending_reload_task = task
-                self._reload_scheduling_in_progress = False
 
         try:
             try:
@@ -1455,16 +1572,14 @@ class OpenAIOAuthConnector(OpenAIConnector):
                     logger.warning(
                         "Failed to schedule OpenAI OAuth credentials reload: %s", exc
                     )
-                    with self._reload_task_lock:
-                        self._reload_scheduling_in_progress = False
+                    self._reload_scheduling_event.clear()
 
             loop.call_soon_threadsafe(schedule_task)
         except RuntimeError as exc:
             logger.warning(
                 "Failed to schedule OpenAI OAuth credentials reload: %s", exc
             )
-            with self._reload_task_lock:
-                self._reload_scheduling_in_progress = False
+            self._reload_scheduling_event.clear()
 
     def _default_auth_paths(self) -> list[Path]:
         paths: list[Path] = []
@@ -1635,20 +1750,27 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 },
             )
 
-        # Ensure we have a token loaded just before the call
-        if not await self._load_auth():
-            self._degrade(["Failed to load OAuth credentials"])
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "error": "openai_oauth_credentials_unavailable",
-                    "message": "No valid OpenAI OAuth credentials available",
-                    "details": {
-                        "backend": self.name,
-                        "suggestion": "Run codex login or set openai_oauth_path to the directory containing auth.json",
+        # NOTE: Removed unprotected _load_auth() call to fix race condition
+        # Token loading now happens inside _refresh_access_token() under lock
+        # Initial load happens in initialize(), runtime loads happen on refresh
+        if not self.api_key:
+            if await self._load_auth():
+                headers = self.get_headers()
+                self.api_key = headers.get("Authorization") if headers else None
+
+            if not self.api_key:
+                self._degrade(["Failed to load OAuth credentials"])
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "error": "openai_oauth_credentials_unavailable",
+                        "message": "No valid OpenAI OAuth credentials available",
+                        "details": {
+                            "backend": self.name,
+                            "suggestion": "Run codex login or set openai_oauth_path to the directory containing auth.json",
+                        },
                     },
-                },
-            )
+                )
 
         if self._is_codex_model(effective_model):
             try:

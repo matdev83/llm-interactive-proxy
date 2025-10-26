@@ -249,6 +249,7 @@ class TestLoopDetectionEvent:
 
         event = LoopDetectionEvent(
             pattern="test pattern",
+            pattern_length=len("test pattern"),
             repetition_count=5,
             total_length=50,
             confidence=0.9,

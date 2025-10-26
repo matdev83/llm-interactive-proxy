@@ -152,6 +152,163 @@ Environment overrides:
 Each tool entry must include a `name` field; invalid definitions are skipped
 with a warning.
 
+## Tool Schema Mode Selection
+
+### When to Use Each Mode
+
+**codex_default** (recommended for most cases)
+- Uses the built-in Codex tool schema: `shell`, `apply_patch`, `view_image`
+- Best for general-purpose coding assistance
+- Ensures compatibility with Codex CLI expectations
+
+**merge_custom** (for extending defaults)
+- Merges your custom tools with the defaults
+- Use when you need additional tools beyond the standard set
+- Tool names must be unique - collisions log warnings and keep the default
+- Example: adding workspace_info tool while keeping shell/apply_patch
+
+**custom_only** (advanced use only)
+- Completely replaces default tools with your custom set
+- Use when you need full control over the tool interface
+- Risk: Codex may expect standard tools and behave unexpectedly
+- Ensure your custom tools cover expected Codex functionality
+
+### Tool Schema Collision Handling
+
+In `merge_custom` mode, if a custom tool has the same name as a default tool but different parameters:
+- A warning is logged with the parameter differences
+- The default tool definition is kept
+- The custom definition is ignored
+
+This prevents silent breakage when tools have incompatible signatures.
+
+## Agent Override Precedence
+
+Agent-specific capability overrides (configured via `agent_capabilities`) only apply when:
+1. The capability value in the request matches the resolver's default
+2. No explicit override was provided in `extra_body` or request attributes
+
+Example:
+```yaml
+codex:
+  agent_capabilities:
+    cline:
+      tool_text_format: codex_xml  # Only applies if request doesn't set tool_text_format
+```
+
+If a request explicitly sets `tool_text_format: none`, the agent override will NOT be applied.
+
+## Streaming Behavior and Token Refresh
+
+### Token Refresh During Streaming
+
+**Current Limitation**: Token refresh on 401 errors only works for non-streaming requests.
+
+For streaming requests:
+- If the token expires mid-stream, the stream will fail with a 401 error
+- No automatic retry/refresh is performed
+- Workaround: Ensure tokens are fresh before starting long-running streams
+- Future enhancement: Streaming wrapper with retry capability
+
+### Token Lifecycle
+
+The connector uses **reactive** token refresh:
+- Waits for 401 Unauthorized response
+- Refreshes the access token using the refresh token
+- Retries the request once with the new token
+
+Proactive refresh (before expiration) is not currently implemented but recommended for production:
+- Parse JWT `exp` field or track OAuth `expires_in`
+- Refresh tokens 5 minutes before expiry
+- Reduces user-visible authentication errors
+
+## Multi-Process Safety
+
+### Shared auth.json Considerations
+
+If running multiple proxy instances with a shared `auth.json` file:
+
+**Safe Operations**:
+- Reading credentials (uses file watching for automatic reload)
+- Concurrent requests (each process manages its own connection pool)
+
+**Coordination Required**:
+- Token refresh writes are atomic (temp file + rename)
+- However, multiple processes refreshing simultaneously will race
+- Last writer wins - usually fine, but may waste refresh API calls
+
+**Best Practices**:
+1. Use separate `auth.json` files per process when possible
+2. If sharing is required, consider external coordination (e.g., file locks)
+3. Monitor for excessive token refresh API calls
+4. Ensure the auth.json directory is writable by all processes
+
+### File Watching Reliability
+
+The connector uses `watchdog` to detect auth.json changes:
+- Works reliably on local filesystems
+- May miss events on network mounts or during high I/O load
+- Fallback: credentials are revalidated every 30 seconds
+- Manual reload: Restart the proxy if file watching fails
+
+## Renderer System Limitations
+
+### Tool Text Rendering Modes
+
+The tool text renderer system has **limited integration**:
+
+**Fully Supported**:
+- `tool_text_format: codex_xml` - Legacy textual tool call format for Cline/Kilo agents
+- Parses textual tool invocations/results and converts to structured format
+
+**Not Fully Integrated**:
+- `tool_text_format: markdown` - Renderer exists but not used in canonical translation path
+- `tool_text_format: summary` - Same limitation
+- `tool_text_format: none` - Default, no text rendering (structured tool calls only)
+
+**Recommendation**: Use `tool_text_format: none` (default) unless you specifically need Cline/Kilo compatibility.
+
+### Custom Renderer Implementation
+
+If you need a custom renderer:
+1. Create a module with a `render_tool_call(tool_call)` function
+2. Configure via `renderer.modules` in codex config
+3. Note: Custom renderers only work in `codex_xml` translation mode
+
+## Configuration Validation
+
+The connector performs validation on:
+- Tool schemas (requires `name` field, warns on invalid entries)
+- Tool name collisions (logs warnings in merge_custom mode)
+- Capability values (no schema enforcement, logs warnings)
+- Renderer modules (logs warnings on load failures)
+
+**Recommendation**: Use explicit configuration and monitor logs for validation warnings.
+
+## Troubleshooting
+
+### Common Issues
+
+**401 Errors Despite Valid Token**
+- Check for race condition: Multiple processes refreshing simultaneously
+- Verify file watcher is working (check logs for reload messages)
+- Ensure auth.json permissions are correct
+
+**Streaming Failures Mid-Request**
+- Token likely expired during stream
+- Workaround: Use non-streaming requests for long operations
+- Or refresh token before starting stream
+
+**Tool Schema Not Applied**
+- Verify tool_schema_mode is set correctly
+- Check logs for collision warnings
+- Ensure custom tools have valid `name` fields
+
+**Agent Overrides Not Working**
+- Verify agent name matches configuration (case-insensitive)
+- Check if request explicitly overrides the capability
+- Review logs for capability resolution details
+
 ## Environment Variables Summary
 
 | Variable                                  | Purpose                                    |
@@ -180,5 +337,5 @@ with a warning.
   with clear warnings.
 
 With these knobs you can tailor the `openai-oauth` backend to match each
-client’s expectations while preserving the canonical tool call metadata the
+client's expectations while preserving the canonical tool call metadata the
 proxy relies on.

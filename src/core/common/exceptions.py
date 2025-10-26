@@ -189,6 +189,20 @@ class ParsingError(LLMProxyError):
 # Additional exceptions referenced across the codebase
 
 
+class LoopBreakingError(LLMProxyError):
+    """Raised when loop breaking is triggered and need to handle retry flow."""
+
+    def __init__(
+        self,
+        message: str = "Loop detected and breaking initiated",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(
+            message, details, status_code=200, **kwargs
+        )  # 200 OK, but with loop breaking metadata
+
+
 class InitializationError(LLMProxyError):
     def __init__(
         self,

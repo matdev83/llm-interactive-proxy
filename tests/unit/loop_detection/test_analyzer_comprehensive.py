@@ -416,6 +416,7 @@ class TestLoopDetectionEvent:
         """Test LoopDetectionEvent creation."""
         event = LoopDetectionEvent(
             pattern="test pattern",
+            pattern_length=len("test pattern"),
             repetition_count=5,
             total_length=100,
             confidence=0.9,
@@ -434,6 +435,7 @@ class TestLoopDetectionEvent:
         """Test LoopDetectionEvent with minimal values."""
         event = LoopDetectionEvent(
             pattern="pattern",
+            pattern_length=len("pattern"),
             repetition_count=1,
             total_length=10,
             confidence=0.5,
@@ -452,6 +454,7 @@ class TestLoopDetectionEvent:
         """Test converting event to dictionary."""
         event = LoopDetectionEvent(
             pattern="pattern",
+            pattern_length=len("pattern"),
             repetition_count=3,
             total_length=50,
             confidence=0.8,
@@ -480,6 +483,7 @@ class TestLoopDetectionEvent:
         """Test event equality comparison."""
         event1 = LoopDetectionEvent(
             pattern="pattern",
+            pattern_length=len("pattern"),
             repetition_count=3,
             total_length=50,
             confidence=0.8,
@@ -489,6 +493,7 @@ class TestLoopDetectionEvent:
 
         event2 = LoopDetectionEvent(
             pattern="pattern",
+            pattern_length=len("pattern"),
             repetition_count=3,
             total_length=50,
             confidence=0.8,
@@ -498,6 +503,7 @@ class TestLoopDetectionEvent:
 
         event3 = LoopDetectionEvent(
             pattern="different",
+            pattern_length=len("different"),
             repetition_count=3,
             total_length=50,
             confidence=0.8,
@@ -512,6 +518,7 @@ class TestLoopDetectionEvent:
         """Test event string representation."""
         event = LoopDetectionEvent(
             pattern="pattern",
+            pattern_length=len("pattern"),
             repetition_count=3,
             total_length=50,
             confidence=0.8,
@@ -528,6 +535,7 @@ class TestLoopDetectionEvent:
         """Test that event is not hashable (mutable dataclass)."""
         event = LoopDetectionEvent(
             pattern="pattern",
+            pattern_length=len("pattern"),
             repetition_count=3,
             total_length=50,
             confidence=0.8,

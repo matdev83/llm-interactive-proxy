@@ -50,8 +50,8 @@ class TestInternalLoopDetectionConfig:
         assert config.enabled is True
         assert config.buffer_size == 16384
         assert config.max_pattern_length == 8192
-        assert config.analysis_interval == 64
-        assert config.content_chunk_size == 100
+        assert config.analysis_interval == 32
+        assert config.content_chunk_size == 80
         assert config.content_loop_threshold == 6
         assert config.max_history_length == 4096
 

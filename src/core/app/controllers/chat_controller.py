@@ -10,6 +10,9 @@ from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
 
+from src.core.app.controllers.request_processor_resolver import (
+    resolve_request_processor,
+)
 from src.core.common.exceptions import InitializationError, LLMProxyError
 from src.core.domain.chat import (
     ChatCompletionChoice,
@@ -18,11 +21,8 @@ from src.core.domain.chat import (
     ChatResponse,
     ToolCall,
 )
-from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.interfaces.response_manager_interface import IResponseManager
-from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
@@ -110,7 +110,37 @@ class ChatController:
                 if resolved is not None:
                     return resolved
 
-        return TranslationService()
+        try:
+            from src.core.di.services import (
+                get_service_collection,
+                set_service_provider,
+            )
+
+            services = get_service_collection()
+            fallback_provider = services.build_service_provider()
+            try:
+                set_service_provider(fallback_provider)
+            except Exception:  # pragma: no cover - diagnostic fallback
+                logger.debug(
+                    "Failed to update global provider during translation resolution",
+                    exc_info=True,
+                )
+
+            resolved = _try_get(fallback_provider, cast(type, ITranslationService))
+            if resolved is not None:
+                return resolved
+
+            resolved = _try_get(fallback_provider, cast(type, TranslationService))
+            if resolved is not None:
+                return resolved
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Unable to resolve TranslationService via DI fallback: %s",
+                exc,
+                exc_info=True,
+            )
+
+        raise InitializationError("Translation service is not registered in DI")
 
     async def handle_chat_completion(
         self,
@@ -605,325 +635,8 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
         Exception: If the request processor could not be found or created
     """
     try:
-        # Try to get the existing request processor from the service provider
-        request_processor = service_provider.get_service(IRequestProcessor)  # type: ignore[type-abstract]
-        if request_processor is None:
-            # Try to get the concrete implementation
-            from src.core.services.request_processor_service import RequestProcessor
+        request_processor = resolve_request_processor(service_provider)
+    except InitializationError as exc:
+        raise InitializationError("Could not find or create RequestProcessor") from exc
 
-            request_processor = service_provider.get_service(RequestProcessor)
-
-        if request_processor is None:
-            # If still not found, try to create one on the fly
-            from typing import cast
-
-            from src.core.interfaces.backend_processor_interface import (
-                IBackendProcessor,
-            )
-            from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.interfaces.command_processor_interface import (
-                ICommandProcessor,
-            )
-            from src.core.interfaces.command_service_interface import ICommandService
-            from src.core.interfaces.response_processor_interface import (
-                IResponseProcessor,
-            )
-            from src.core.interfaces.session_service_interface import ISessionService
-
-            cmd = service_provider.get_service(ICommandService)  # type: ignore[type-abstract]
-            backend = service_provider.get_service(IBackendService)  # type: ignore[type-abstract]
-            session = service_provider.get_service(ISessionService)  # type: ignore[type-abstract]
-            response_proc = service_provider.get_service(IResponseProcessor)  # type: ignore[type-abstract]
-
-            if cmd and backend and session and response_proc:
-                from src.core.services.request_processor_service import RequestProcessor
-
-                # Cast the abstract interface types to concrete implementations
-                # The service provider is guaranteed to return concrete implementations
-                concrete_cmd = cast(ICommandService, cmd)
-                concrete_backend = cast(IBackendService, backend)
-                concrete_session = cast(ISessionService, session)
-                concrete_response_proc = cast(IResponseProcessor, response_proc)
-                # Prefer DI-provided processors if available
-                di_cmd_proc = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
-                # Get the new decomposed services
-                di_session_manager = service_provider.get_service(ISessionManager)  # type: ignore[type-abstract]
-                di_backend_request_manager = service_provider.get_service(IBackendRequestManager)  # type: ignore[type-abstract]
-                di_response_manager = service_provider.get_service(IResponseManager)  # type: ignore[type-abstract]
-
-                if (
-                    di_cmd_proc
-                    and di_session_manager
-                    and di_backend_request_manager
-                    and di_response_manager
-                ):
-                    # Resolve optional app state for RequestProcessor
-                    from src.core.interfaces.application_state_interface import (
-                        IApplicationState as _IAppState,
-                    )
-
-                    app_state = service_provider.get_required_service(_IAppState)  # type: ignore[type-abstract]
-                    request_processor = RequestProcessor(
-                        cast(ICommandProcessor, di_cmd_proc),
-                        cast(ISessionManager, di_session_manager),
-                        cast(IBackendRequestManager, di_backend_request_manager),
-                        cast(IResponseManager, di_response_manager),
-                        app_state=app_state,
-                    )
-                else:
-                    # Fallback to constructing processors; inject app state where appropriate
-                    from src.core.interfaces.application_state_interface import (
-                        IApplicationState as _IAppState2,
-                    )
-
-                    app_state = service_provider.get_required_service(_IAppState2)  # type: ignore[type-abstract]
-                    # Instead of directly instantiating CommandProcessor and BackendProcessor,
-                    # we should try to get them from the service provider or register factories
-                    # for them in the service collection.
-                    # First, try to get them from the service provider
-                    command_processor = service_provider.get_service(ICommandProcessor)  # type: ignore[type-abstract]
-                    backend_processor = service_provider.get_service(IBackendProcessor)  # type: ignore[type-abstract]
-
-                    # If they are not available, we need to register factories for them
-                    if command_processor is None or backend_processor is None:
-                        from src.core.di.container import ServiceProvider
-
-                        if isinstance(service_provider, ServiceProvider):
-                            try:
-                                from src.core.di.services import get_service_collection
-                                from src.core.services.backend_processor import (
-                                    BackendProcessor,
-                                )
-                                from src.core.services.command_processor import (
-                                    CommandProcessor,
-                                )
-
-                                services = get_service_collection()
-
-                                # Register CommandProcessor factory if not already registered
-                                if command_processor is None:
-
-                                    def command_processor_factory(
-                                        provider: IServiceProvider,
-                                    ) -> CommandProcessor:
-                                        resolved_command_service: ICommandService = (
-                                            provider.get_required_service(
-                                                cast(type, ICommandService)
-                                            )
-                                        )
-                                        return CommandProcessor(
-                                            resolved_command_service
-                                        )
-
-                                    services.add_singleton(
-                                        ICommandProcessor,  # type: ignore[type-abstract]
-                                        implementation_factory=command_processor_factory,
-                                    )
-                                    command_processor = command_processor_factory(
-                                        service_provider
-                                    )
-
-                                # Register BackendProcessor factory if not already registered
-                                if backend_processor is None:
-
-                                    def backend_processor_factory(
-                                        provider: IServiceProvider,
-                                    ) -> BackendProcessor:
-                                        from src.core.interfaces.application_state_interface import (
-                                            IApplicationState,
-                                        )
-
-                                        resolved_backend_service: IBackendService = (
-                                            provider.get_required_service(
-                                                cast(type, IBackendService)
-                                            )
-                                        )
-                                        resolved_session_service: ISessionService = (
-                                            provider.get_required_service(
-                                                cast(type, ISessionService)
-                                            )
-                                        )
-                                        resolved_app_state: IApplicationState = (
-                                            provider.get_required_service(
-                                                cast(type, IApplicationState)
-                                            )
-                                        )
-                                        return BackendProcessor(
-                                            resolved_backend_service,
-                                            resolved_session_service,
-                                            resolved_app_state,
-                                        )
-
-                                    services.add_singleton(
-                                        IBackendProcessor,  # type: ignore[type-abstract]
-                                        implementation_factory=backend_processor_factory,
-                                    )
-                                    backend_processor = backend_processor_factory(
-                                        service_provider
-                                    )
-                            except Exception:
-                                # If we can't register factories, fall back to direct instantiation
-                                from src.core.services.backend_processor import (
-                                    BackendProcessor,
-                                )
-                                from src.core.services.command_processor import (
-                                    CommandProcessor,
-                                )
-
-                                command_processor = CommandProcessor(concrete_cmd)
-                                backend_processor = BackendProcessor(
-                                    concrete_backend, concrete_session, app_state
-                                )
-                    # Ensure we have instances
-                    if command_processor is None:
-                        from src.core.services.command_processor import CommandProcessor
-
-                        command_processor = CommandProcessor(concrete_cmd)
-                    if backend_processor is None:
-                        from src.core.services.backend_processor import BackendProcessor
-
-                        backend_processor = BackendProcessor(
-                            concrete_backend, concrete_session, app_state
-                        )
-
-                    # Get the new decomposed services
-                    # Get session resolver from service provider
-                    from src.core.interfaces.session_resolver_interface import (
-                        ISessionResolver,
-                    )
-                    from src.core.services.backend_request_manager_service import (
-                        BackendRequestManager,
-                    )
-                    from src.core.services.response_manager_service import (
-                        ResponseManager,
-                    )
-                    from src.core.services.session_manager_service import SessionManager
-
-                    session_resolver = service_provider.get_service(ISessionResolver)  # type: ignore[type-abstract]
-                    if session_resolver is None:
-                        from src.core.services.session_resolver_service import (
-                            DefaultSessionResolver,
-                        )
-
-                        session_resolver = service_provider.get_service(
-                            DefaultSessionResolver
-                        )
-                        if session_resolver is None:
-                            from src.core.config.app_config import AppConfig
-
-                            config = service_provider.get_service(AppConfig)
-                            session_resolver = DefaultSessionResolver(config)
-                            try:
-                                from src.core.di.services import get_service_collection
-
-                                services = get_service_collection()
-                                services.add_instance(
-                                    DefaultSessionResolver, session_resolver
-                                )
-                                services.add_instance(
-                                    ISessionResolver, session_resolver  # type: ignore[type-abstract]
-                                )
-                            except Exception:
-                                pass
-
-                    # Get agent response formatter for ResponseManager
-                    from src.core.interfaces.agent_response_formatter_interface import (
-                        IAgentResponseFormatter,
-                    )
-
-                    agent_response_formatter = service_provider.get_service(IAgentResponseFormatter)  # type: ignore[type-abstract]
-                    if agent_response_formatter is None:
-                        from src.core.services.response_manager_service import (
-                            AgentResponseFormatter,
-                        )
-
-                        agent_response_formatter = AgentResponseFormatter()
-
-                    # Get fingerprint service for SessionManager
-                    from src.core.services.conversation_fingerprint_service import (
-                        ConversationFingerprintService,
-                    )
-
-                    fingerprint_service = service_provider.get_service(
-                        ConversationFingerprintService
-                    )
-                    if fingerprint_service is None:
-                        fingerprint_service = ConversationFingerprintService()
-
-                    session_manager = SessionManager(
-                        concrete_session, session_resolver, fingerprint_service
-                    )
-                    backend_request_manager_service = service_provider.get_service(
-                        cast(type, IBackendRequestManager)
-                    )
-                    if backend_request_manager_service is None:
-                        backend_request_manager_service = service_provider.get_service(
-                            BackendRequestManager
-                        )
-                    if backend_request_manager_service is None:
-                        from src.core.interfaces.wire_capture_interface import (
-                            IWireCapture,
-                        )
-
-                        wire_capture = service_provider.get_service(
-                            cast(type, IWireCapture)
-                        )
-                        backend_request_manager_service = BackendRequestManager(
-                            backend_processor,
-                            concrete_response_proc,
-                            wire_capture,
-                        )
-
-                    backend_request_manager = cast(
-                        IBackendRequestManager, backend_request_manager_service
-                    )
-                    if backend_request_manager is None:
-                        raise InitializationError(
-                            "Could not resolve BackendRequestManager"
-                        )
-                    response_manager = ResponseManager(agent_response_formatter)
-
-                    request_processor = RequestProcessor(
-                        command_processor,
-                        session_manager,
-                        backend_request_manager,
-                        response_manager,
-                        app_state=app_state,
-                    )
-
-                # Register it for future use
-                # Only try to register if the service provider is a ServiceProvider instance
-                # that has the _singleton_instances attribute
-                from src.core.di.container import ServiceProvider
-
-                if isinstance(service_provider, ServiceProvider):
-                    # Instead of mutating internal provider state, prefer registering
-                    # the instance on the ServiceCollection so a rebuild would include it.
-                    try:
-                        from src.core.di.services import get_service_collection
-
-                        services = get_service_collection()
-                        # Register existing instance explicitly to ensure future resolutions
-                        services.add_instance(IRequestProcessor, request_processor)  # type: ignore[type-abstract]
-                        services.add_instance(RequestProcessor, request_processor)  # type: ignore[type-abstract]
-                    except Exception:
-                        # As a last resort, fall back to internal cache mutation
-                        singleton_instances = getattr(
-                            service_provider, "_singleton_instances", None
-                        )
-                        if singleton_instances is not None:
-                            singleton_instances[IRequestProcessor] = request_processor
-                            singleton_instances[RequestProcessor] = request_processor
-
-        if request_processor is None:
-            raise InitializationError("Could not find or create RequestProcessor")
-
-        translation_service = ChatController._resolve_translation_service_from_provider(
-            service_provider
-        )
-        return ChatController(
-            request_processor,
-            translation_service=translation_service,
-        )
-    except Exception as e:
-        raise InitializationError(f"Failed to create ChatController: {e}") from e
+    return ChatController(request_processor)

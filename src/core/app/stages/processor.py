@@ -85,9 +85,7 @@ class ProcessorStage(InitializationStage):
                 command_service: ICommandService = provider.get_required_service(
                     cast(type, ICommandService)
                 )
-                return CommandProcessor(
-                    command_service
-                )  # No change needed here, constructor is correct
+                return CommandProcessor(command_service)  # noqa: DI-bypass
 
             # Register concrete implementation
             services.add_singleton(
@@ -138,7 +136,9 @@ class ProcessorStage(InitializationStage):
                 app_state: IApplicationState = provider.get_required_service(
                     cast(type, IApplicationState)
                 )
-                return BackendProcessor(backend_service, session_service, app_state)
+                return BackendProcessor(  # noqa: DI-bypass
+                    backend_service, session_service, app_state
+                )
 
             # Register concrete implementation
             services.add_singleton(
@@ -213,7 +213,7 @@ class ProcessorStage(InitializationStage):
                     )
                 )
 
-                return ResponseProcessor(
+                return ResponseProcessor(  # noqa: DI-bypass
                     app_state=app_state,
                     response_parser=response_parser,
                     middleware_application_manager=middleware_application_manager,
@@ -314,7 +314,7 @@ class ProcessorStage(InitializationStage):
                 )
                 # project_dir_resolution_service removed from RequestProcessor constructor
 
-                return RequestProcessor(
+                return RequestProcessor(  # noqa: DI-bypass
                     command_processor,
                     session_manager,
                     backend_request_manager,

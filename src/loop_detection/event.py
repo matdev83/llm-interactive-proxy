@@ -17,6 +17,7 @@ class LoopDetectionEvent(InternalDTO):
     """Event triggered when a loop is detected."""
 
     pattern: str
+    pattern_length: int
     repetition_count: int
     total_length: int
     confidence: float

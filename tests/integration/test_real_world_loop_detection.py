@@ -269,6 +269,125 @@ class TestRealWorldLoopDetection:
 
         print("Unicode character counting works correctly")
 
+    def test_example4_medium_length_pattern_loop(self) -> None:
+        """Test detection of medium-length pattern loop (~78 chars) - the actual bug found in wire capture.
+
+        This reproduces the real-world loop where LLM repeated:
+        'I am now complete. I am now finished. I will now exit. I am now done. I will now stop.'
+
+        This pattern was ~78 characters and fell into a detection gap where it needed
+        300 total characters but 3 repetitions only reached ~234 characters.
+        """
+        # The exact pattern found in the wire capture - 78 characters
+        pattern = "I am now complete. I am now finished. I will now exit. I am now done. I will now stop. "
+
+        # Create content with 4 repetitions (should be enough to trigger detection with the fix)
+        content = pattern * 4
+
+        # Use default detector settings to test the fix
+        detector = self._create_detector(
+            content_loop_threshold=6,  # Default value
+            content_chunk_size=80,  # Updated value to better align with medium patterns
+        )
+
+        # Process the content
+        result = detector.process_chunk(content)
+
+        # Should detect the loop with the fix
+        assert result is not None, "Should detect medium-length pattern loop"
+
+        # Verify detected pattern characteristics
+        assert (
+            result.repetition_count >= 3
+        ), f"Should have at least 3 repetitions, got {result.repetition_count}"
+
+        # The pattern should be close to our original pattern length (78 chars)
+        assert (
+            50 <= len(result.pattern) <= 100
+        ), f"Pattern length {len(result.pattern)} should be in medium range (50-100)"
+
+        # Total length should meet the dynamic threshold (pattern_length * 3 = 78 * 3 = 234)
+        expected_min_total = len(result.pattern) * 3
+        assert (
+            result.total_length >= expected_min_total
+        ), f"Total length {result.total_length} should meet minimum {expected_min_total}"
+
+        print(
+            f"Successfully detected medium-length loop: {result.repetition_count} repetitions "
+            f"of {len(result.pattern)} chars (total: {result.total_length})"
+        )
+
+    def test_example5_chunk_boundary_alignment(self) -> None:
+        """Test that loops are detected even when pattern doesn't align with chunk boundaries."""
+        # Create a pattern that's specifically designed to cross chunk boundaries
+        # Pattern length: 78 chars (same as the real-world example)
+        pattern = "I am now complete. I am now finished. I will now exit. I am now done. I will now stop. "
+        content = pattern * 5
+
+        detector = self._create_detector(
+            content_loop_threshold=6,
+            content_chunk_size=80,  # Will cause misalignment with 78-char pattern
+        )
+
+        # Process in chunks that don't align with the pattern
+        chunk_size = 60  # This will create boundary misalignment
+        for i in range(0, len(content), chunk_size):
+            chunk = content[i : i + chunk_size]
+            result = detector.process_chunk(chunk)
+
+        # Should still detect the loop despite boundary misalignment
+        assert (
+            result is not None
+        ), "Should detect loop despite chunk boundary misalignment"
+        print(
+            f"Loop detection works with chunk misalignment: {len(result.pattern)} chars pattern"
+        )
+
+    def test_example6_exact_real_world_scenario(self) -> None:
+        """Test exact reproduction of the real-world wire capture scenario."""
+        # Simulate the exact content pattern from the wire capture logs
+        base_pattern = "I am now complete. I am now finished. I will now exit. I am now done. I will now stop."
+
+        # Create variations found in the actual wire capture
+        variations = [
+            base_pattern + ". ",
+            base_pattern + " I will now stop. ",
+            base_pattern + " I am now done. ",
+            base_pattern + " I am now finished. ",
+        ]
+
+        # Create a realistic stream with variations (simulates how it appeared in wire capture)
+        content = ""
+        for _, variation in enumerate(variations * 3):  # Repeat variations 3 times
+            content += variation
+
+        detector = self._create_detector(
+            content_loop_threshold=6,
+            content_chunk_size=80,
+        )
+
+        # Process all content
+        result = detector.process_chunk(content)
+
+        # Should detect the loop even with variations
+        assert (
+            result is not None
+        ), "Should detect loop in realistic scenario with variations"
+
+        # Pattern should be meaningful (even if variations prevent exact pattern matching)
+        assert (
+            len(result.pattern) > 15
+        ), f"Detected pattern should be meaningful, got {len(result.pattern)} chars"
+
+        assert (
+            result.repetition_count >= 3
+        ), f"Should detect multiple repetitions, got {result.repetition_count}"
+
+        print(
+            f"Real-world scenario detection successful: {result.repetition_count} repetitions, "
+            f"pattern length {len(result.pattern)} chars"
+        )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

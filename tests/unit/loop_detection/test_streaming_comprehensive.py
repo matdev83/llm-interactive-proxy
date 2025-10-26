@@ -199,6 +199,7 @@ class TestLoopDetectionStreaming:
                 None,  # Add an extra None for the third chunk
                 LoopDetectionEvent(
                     pattern="loop",
+                    pattern_length=len("loop"),
                     repetition_count=3,
                     total_length=100,
                     confidence=1.0,
