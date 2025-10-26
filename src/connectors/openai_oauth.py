@@ -1532,15 +1532,13 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 logger.warning(
                     "Cannot schedule credentials reload: no running event loop available."
                 )
-                with self._reload_task_lock:
-                    self._reload_scheduling_in_progress = False
+                self._reload_scheduling_event.clear()
                 return
             self._event_loop = loop
 
         if loop.is_closed():
             logger.warning("Cannot schedule credentials reload: event loop is closed.")
-            with self._reload_task_lock:
-                self._reload_scheduling_in_progress = False
+            self._reload_scheduling_event.clear()
             return
 
         def _clear(_: asyncio.Future[Any]) -> None:
@@ -1750,27 +1748,22 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 },
             )
 
-        # NOTE: Removed unprotected _load_auth() call to fix race condition
-        # Token loading now happens inside _refresh_access_token() under lock
-        # Initial load happens in initialize(), runtime loads happen on refresh
+        # Verify credentials are loaded (should happen in initialize())
+        # Do not call _load_auth() here - it's unprotected and creates race conditions
         if not self.api_key:
-            if await self._load_auth():
-                headers = self.get_headers()
-                self.api_key = headers.get("Authorization") if headers else None
-
-            if not self.api_key:
-                self._degrade(["Failed to load OAuth credentials"])
-                raise HTTPException(
-                    status_code=502,
-                    detail={
-                        "error": "openai_oauth_credentials_unavailable",
-                        "message": "No valid OpenAI OAuth credentials available",
-                        "details": {
-                            "backend": self.name,
-                            "suggestion": "Run codex login or set openai_oauth_path to the directory containing auth.json",
-                        },
+            self._degrade(["OAuth credentials not initialized"])
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "openai_oauth_credentials_unavailable",
+                    "message": "OpenAI OAuth credentials not initialized. Backend may have failed to start.",
+                    "details": {
+                        "backend": self.name,
+                        "validation_errors": self.get_validation_errors(),
+                        "suggestion": "Check backend initialization logs. Ensure auth.json exists and contains valid tokens.",
                     },
-                )
+                },
+            )
 
         if self._is_codex_model(effective_model):
             try:

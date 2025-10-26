@@ -59,7 +59,7 @@ def _resolve_stream_normalizer_via_di() -> IStreamNormalizer | None:
     """Resolve configured stream normalizer from the DI container when available."""
 
     try:
-        from src.core.di.services import get_service
+        from src.core.di.services import get_or_build_service_provider
         from src.core.interfaces.streaming_response_processor_interface import (
             IStreamNormalizer,
         )
@@ -67,9 +67,8 @@ def _resolve_stream_normalizer_via_di() -> IStreamNormalizer | None:
         return None
 
     try:
-        normalizer = cast(
-            "IStreamNormalizer | None", get_service(cast(type, IStreamNormalizer))
-        )
+        provider = get_or_build_service_provider()
+        normalizer = provider.get_service(cast(type, IStreamNormalizer))
     except Exception as exc:  # pragma: no cover - defensive logging
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -77,13 +76,11 @@ def _resolve_stream_normalizer_via_di() -> IStreamNormalizer | None:
             )
         return None
 
-    return normalizer
+    return cast("IStreamNormalizer | None", normalizer)
 
 
 def _build_fallback_stream_normalizer() -> IStreamNormalizer:
-    """Create a minimal StreamNormalizer pipeline using the DI container."""
-
-    from src.core.services.streaming.stream_normalizer import StreamNormalizer
+    """Construct a conservative stream normalizer when DI resolution fails."""
 
     try:
         from src.core.di.services import (
@@ -98,6 +95,7 @@ def _build_fallback_stream_normalizer() -> IStreamNormalizer:
 
     services = get_service_collection()
     fallback_provider = services.build_service_provider()
+
     try:
         set_service_provider(fallback_provider)
     except Exception:
@@ -107,25 +105,20 @@ def _build_fallback_stream_normalizer() -> IStreamNormalizer:
                 exc_info=True,
             )
 
-    normalizer = fallback_provider.get_service(cast(type, IStreamNormalizer))
-    if normalizer is not None:
-        return normalizer
-
-    # Attempt to manually assemble a StreamNormalizer using DI-managed processors
     try:
-        from src.core.services.streaming.stream_normalizer import StreamNormalizer
-    except ModuleNotFoundError:
-        logger.debug(
-            "StreamNormalizer module unavailable; using passthrough fallback",
-            exc_info=True,
-        )
-        return _PassthroughStreamNormalizer()
+        normalizer = fallback_provider.get_service(cast(type, IStreamNormalizer))
+    except Exception:
+        normalizer = None
 
-    normalizer = fallback_provider.get_service(StreamNormalizer)
     if normalizer is not None:
         return normalizer
 
-    return StreamNormalizer()  # noqa: DI-bypass
+    if logger.isEnabledFor(logging.WARNING):
+        logger.warning(
+            "Falling back to passthrough stream normalizer; loop detection may be unavailable"
+        )
+
+    return _PassthroughStreamNormalizer()
 
 
 async def _ensure_async_iterator(it: Any) -> AsyncIterator[bytes]:
