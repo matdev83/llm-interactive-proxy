@@ -37,7 +37,32 @@ def _is_running_under_pytest() -> bool:
     if os.getenv("PYTEST_CURRENT_TEST"):
         return True
 
-    return "pytest" in sys.modules or "_pytest" in sys.modules
+    # Check if pytest is actually running (not just imported)
+    if "pytest" in sys.modules or "_pytest" in sys.modules:
+        # Additional checks to ensure we're actually running under pytest
+        # and not just that pytest was imported by the application
+
+        # Check for pytest-specific attributes that indicate a running session
+        try:
+            import pytest
+            # Check if pytest has been configured (indicates running session)
+            if hasattr(pytest, 'config') and pytest.config is not None:
+                return True
+        except Exception:
+            pass
+
+        # Check for other pytest runtime indicators
+        pytest_indicators = [
+            '_pytest.config.Config',
+            '_pytest.runner.pytest_runtest_call',
+            '_pytest.fixtures.fixture'
+        ]
+
+        for indicator in pytest_indicators:
+            if indicator in sys.modules:
+                return True
+
+    return False
 
 
 def _get_environment_tag() -> str:

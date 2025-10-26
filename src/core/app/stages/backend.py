@@ -516,17 +516,21 @@ class BackendStage(InitializationStage):
                                 TranslationService,
                             )
 
-                            translation_service = cast(
-                                TranslationService,
-                                services.build_service_provider().get_service(
-                                    ITranslationService
-                                ),
-                            )
-                            if translation_service is None:
+                            provider = services.build_service_provider()
+                            if not provider.has_service(ITranslationService):
                                 logger.warning(
-                                    "TranslationService not found in container, creating temporary instance for validation"
+                                    "TranslationService not found in container, registering temporary instance for validation"
                                 )
-                                translation_service = TranslationService()  # noqa: DI-bypass
+                                services.add_singleton(TranslationService)
+                                services.add_singleton(
+                                    ITranslationService,
+                                    implementation_factory=lambda p: p.get_required_service(
+                                        TranslationService
+                                    ),
+                                )
+                            translation_service = services.build_service_provider().get_required_service(
+                                ITranslationService
+                            )
                         except Exception as e:
                             logger.warning(
                                 f"Could not resolve TranslationService from container, creating temporary instance: {e}"
