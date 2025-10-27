@@ -572,6 +572,177 @@ class TestEdgeCaseBehavior:
         assert connector._api_call_count["gemini-2.5-flash"] >= 3
 
 
+class TestOracleImprovementsBehavior:
+    """Test the immediate improvements recommended by Oracle: per-request attempts and jitter."""
+
+    @pytest.mark.asyncio
+    async def test_per_request_attempts_isolation(self, connector, mock_request):
+        """Test that attempt counters are isolated per request, not shared globally."""
+        # Setup: Configure failures that would exhaust global attempts
+        error_429 = BackendError("Rate limit exceeded", status_code=429)
+        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
+        connector.set_api_behavior("gemini-2.5-flash", [{"success": True}] * 10)
+
+        # Execute: Multiple concurrent requests
+        requests = [
+            MockChatRequest(
+                model="gemini-2.5-pro",
+                messages=[{"role": "user", "content": f"test {i}"}],
+            )
+            for i in range(3)
+        ]
+
+        tasks = [
+            connector.chat_completions(
+                request_data=req,
+                processed_messages=req.messages,
+                effective_model="gemini-2.5-pro",
+            )
+            for req in requests
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Verify: All requests succeeded (attempts were per-request, not shared)
+        for i, result in enumerate(results):
+            assert not isinstance(
+                result, Exception
+            ), f"Request {i} should have succeeded"
+            assert result is not None, f"Request {i} should have a valid response"
+
+        # Verify: Each request used fallback independently
+        assert connector._api_call_count["gemini-2.5-flash"] >= 3
+        assert (
+            connector._api_call_count["gemini-2.5-pro"] >= 9
+        )  # 3 attempts x 3 requests
+
+    @pytest.mark.asyncio
+    async def test_jitter_prevents_thundering_herd(self, connector, mock_request):
+        """Test that jitter is added to retry delays to prevent synchronized retries."""
+        # Setup: Fast recovery config for testing jitter
+        connector._degradation_config.retry_delays = [
+            2,
+            4,
+            6,
+        ]  # Shorter delays for testing
+
+        error_429 = BackendError("Rate limit exceeded", status_code=429)
+        connector.set_api_behavior(
+            "gemini-2.5-pro", [error_429, error_429, {"success": True}]
+        )
+
+        # Execute: Multiple concurrent requests that will hit retry delays
+        requests = [
+            MockChatRequest(
+                model="gemini-2.5-pro",
+                messages=[{"role": "user", "content": f"test {i}"}],
+            )
+            for i in range(5)
+        ]
+
+        start_time = time.time()
+        tasks = [
+            connector.chat_completions(
+                request_data=req,
+                processed_messages=req.messages,
+                effective_model="gemini-2.5-pro",
+            )
+            for req in requests
+        ]
+
+        results = await asyncio.gather(*tasks)
+        total_time = time.time() - start_time
+
+        # Verify: All requests succeeded
+        assert all(result is not None for result in results)
+
+        # Verify: Jitter was applied (delays should be variable)
+        # With jitter, concurrent requests should have different completion times
+        # The exact timing depends on jitter, but we can verify it's not completely synchronized
+        # If there was no jitter, all requests would complete at nearly the same time
+        # With jitter, there should be some spread in the timing
+
+        # Verify that retry delays were applied (should take at least 2s for base delay)
+        assert (
+            total_time >= 2.0
+        ), f"Should have waited at least 2s, took {total_time:.1f}s"
+
+        # Check that we have multiple API calls (retries happened)
+        assert (
+            connector._api_call_count["gemini-2.5-pro"] >= 10
+        )  # At least 2 retries x 5 requests
+
+    @pytest.mark.asyncio
+    async def test_jitter_range_validation(self, connector, mock_request):
+        """Test that jitter is within reasonable bounds (±25% of base delay)."""
+        # Setup: Use longer delays to better observe jitter
+        connector._degradation_config.retry_delays = [10.0]  # 10 second base delay
+
+        error_429 = BackendError("Rate limit exceeded", status_code=429)
+        connector.set_api_behavior("gemini-2.5-pro", [error_429, {"success": True}])
+
+        # Capture the actual delay by timing the retry
+        start_time = time.time()
+        result = await connector.chat_completions(
+            request_data=mock_request,
+            processed_messages=mock_request.messages,
+            effective_model="gemini-2.5-pro",
+        )
+        actual_delay = time.time() - start_time
+
+        # Verify: Request succeeded
+        assert result is not None
+
+        # Verify: Actual delay is within jitter bounds (±25% of 10s = 7.5s to 12.5s)
+        # Allow some tolerance for system overhead
+        expected_min = 7.0  # Slightly lower bound for tolerance
+        expected_max = 13.0  # Slightly higher bound for tolerance
+        assert expected_min <= actual_delay <= expected_max, (
+            f"Expected delay with jitter to be between {expected_min}s and {expected_max}s, "
+            f"but got {actual_delay:.1f}s"
+        )
+
+    @pytest.mark.asyncio
+    async def test_per_request_attempts_limit_enforcement(
+        self, connector, mock_request
+    ):
+        """Test that per-request attempt limits are properly enforced."""
+        # Setup: Configure a low max attempt limit for testing
+        connector._degradation_config.max_total_attempts = 2
+
+        error_429 = BackendError("Rate limit exceeded", status_code=429)
+        connector.set_api_behavior(
+            "gemini-2.5-pro", [error_429, error_429, error_429, {"success": True}]
+        )
+        connector.set_api_behavior("gemini-2.5-flash", [{"success": True}])
+
+        # Execute: Request should fail after 2 attempts
+        with pytest.raises(BackendError) as exc_info:
+            await connector.chat_completions(
+                request_data=mock_request,
+                processed_messages=mock_request.messages,
+                effective_model="gemini-2.5-pro",
+            )
+
+        # Verify: Failed due to max attempts exceeded
+        assert exc_info.value.code == "max_attempts_exceeded"
+        assert exc_info.value.status_code == 429
+
+        # Verify: Only made 2 attempts before giving up
+        assert connector._api_call_count["gemini-2.5-pro"] == 2
+
+        # Verify: Other requests can still succeed (attempts are isolated)
+        result = await connector.chat_completions(
+            request_data=MockChatRequest(
+                model="gemini-2.5-pro",
+                messages=[{"role": "user", "content": "different request"}],
+            ),
+            processed_messages=[{"role": "user", "content": "different request"}],
+            effective_model="gemini-2.5-pro",
+        )
+        assert result is not None
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v"])

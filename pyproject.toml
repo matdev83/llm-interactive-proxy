@@ -3,7 +3,7 @@ name = "llm-interactive-proxy"
 version = "0.1.0"
 description = "The swiss-army knife for LLM-powered applications. A universal proxy that seamlessly translates between OpenAI, Anthropic, and Gemini APIs while routing to any provider you choose. Override hardcoded models, prevent infinite loops, rotate API keys, capture and debug traffic, and automatically steer conversations away from trouble. Perfect for making any AI client work with any model, anywhere."
 authors = [
-    { name = "Mateusz B.", email = "matdev83@github.com" },
+    { name = "Mateusz B.", email = "llm.interactive.proxy@matdev83.anonaddy.com" },
 ]
 dependencies = [
     "fastapi",
@@ -36,7 +36,7 @@ readme = "README.md"
 # License per PEP 621: string SPDX identifier
 license = "AGPL-3.0-or-later"
 keywords = ["llm", "proxy", "interactive", "api", "ai", "chatgpt", "openai", "gemini", "openrouter"]
-urls = { Home = "https://github.com/matdev83/llm-interactive-proxy" } # Example URL
+urls = { Home = "https://github.com/matdev83/llm-interactive-proxy" } 
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -83,6 +83,8 @@ dev = [
     "radon",
     "types-pytz",
     "pytest-testmon",
+    "pytest-timeout",
+
 
 ]
 
@@ -93,11 +95,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 package-dir = {"" = "src"}
 
-
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n 7 --dist=loadfile --maxfail=10 -r fE -m 'not integration'"
+addopts = "--asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n 7 --dist=loadfile -r fE -m 'not integration'"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "INFO"
@@ -145,7 +145,6 @@ markers = [
     "multimodal: marks tests related to multimodal content",
     "quality: Tests that check code quality (linting, formatting)",
 ]
-
 
 [tool.mdformat]
 # Disable automatic line wrapping for Markdown files to match CI expectations
@@ -263,7 +262,6 @@ warn_unused_configs = true
 exclude = ["dev/"]
 # Use local stub packages when third-party types are missing
 
-
 [[tool.mypy.overrides]]
 module = ["google.genai"]
 ignore_missing_imports = true
@@ -272,15 +270,12 @@ ignore_missing_imports = true
 module = ["setuptools"]
 ignore_missing_imports = true
 
-
-
 # Performance optimizations
 # Enable incremental mode with cache
 
 # Reduce strictness for performance in tests
 strict = false
 disallow_untyped_defs = true
-
 
 [tool.coverage.run]
 source = ["src"]
@@ -387,7 +382,6 @@ ignore_names = [
 [tool.testmon]
 run_variant_expression = "','.join(sorted(str(v) for v in [sys.version_info[:2], sys.platform]))"
 historian = "git"
-
 
 [tool.llm-interactive-proxy.backends]
 gemini-oauth-plan = "src.connectors.gemini_oauth_plan:GeminiOAuthPlanConnector"

@@ -20,6 +20,7 @@
 --disable-auth
 --disable-brute-force-protection
 --disable-edit-precision
+--disable-gemini-oauth-fallback
 --disable-interactive-commands
 --disable-interactive-mode
 --disable-llm-loop-assessment

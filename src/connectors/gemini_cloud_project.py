@@ -1211,33 +1211,40 @@ class GeminiCloudProjectConnector(GeminiBackend):
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Making Code Assist API call with project {project_id}")
 
-            # REMOVED: SSE parsing from non-streaming response
-            # This is now handled in the stream_generator() method
-            # For non-streaming mode, we'll need to collect the response from streaming
-            generated_text = ""
-            domain_response = None
+            # Prepare request body for non-streaming call
+            request_body = {
+                "model": effective_model,
+                "project": project_id,
+                "user_prompt_id": self._generate_user_prompt_id(request_data),
+                "request": code_assist_request,
+            }
 
-            # Collect response from streaming generator for non-streaming mode
-            stream_envelope = await self._chat_completions_streaming(
-                request_data, processed_messages, effective_model, **kwargs
+            url = f"{self.gemini_api_base_url}/v1internal:generateContent"
+
+            # Make the non-streaming API call
+            api_response = await asyncio.to_thread(
+                auth_session.request,
+                method="POST",
+                url=url,
+                json=request_body,
+                headers={"Content-Type": "application/json"},
+                timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
             )
 
-            stream_content = stream_envelope.content
-            if stream_content is not None:
-                async for chunk in stream_content:
-                    if chunk.content:
-                        choice = (
-                            chunk.content["choices"][0]
-                            if chunk.content["choices"]
-                            else {}
-                        )
-                        delta = choice.get("delta", {})
-                        if delta.get("content"):
-                            generated_text += delta["content"]
+            if api_response.status_code >= 400:
+                raise BackendError(
+                    f"Code Assist API error: {api_response.status_code} {api_response.text}"
+                )
+
+            # The response is a single JSON object, not a stream
+            response_json = api_response.json()
+
+            # Translate the response from Code Assist format to domain format
+            domain_response = self.translation_service.to_domain_response(
+                response=response_json, source_format="code_assist"
+            )
 
             # Convert to OpenAI-compatible format using the translation service
-            if not domain_response:
-                raise BackendError("Failed to parse a valid response from the backend.")
             openai_response = self.translation_service.from_domain_response(
                 response=domain_response,
                 target_format="openai",

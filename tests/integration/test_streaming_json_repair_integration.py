@@ -72,6 +72,7 @@ class MockBackend(LLMBackend):
         pass
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_streaming_json_repair_with_mock_backend(monkeypatch) -> None:
     """Test that the middleware correctly repairs fragmented streaming JSON."""

@@ -558,7 +558,12 @@ class GeminiBackend(LLMBackend):
                 status_code=500,
                 detail="Gemini API base URL and API key must be provided.",
             )
-        return base.rstrip("/"), ensure_loop_guard_header({"x-goog-api-key": key})
+        key_name_to_use = (
+            kwargs.get("key_name")
+            or getattr(self, "key_name", None)
+            or "x-goog-api-key"
+        )
+        return base.rstrip("/"), ensure_loop_guard_header({key_name_to_use: key})
 
     def _apply_generation_config(
         self, payload: dict[str, Any], request_data: ChatRequest
@@ -678,7 +683,7 @@ class GeminiBackend(LLMBackend):
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
     ) -> dict[str, Any]:
-        headers = ensure_loop_guard_header({"x-goog-api-key": api_key})
+        headers = ensure_loop_guard_header({key_name: api_key})
         url = f"{gemini_api_base_url.rstrip('/')}/v1beta/models"
         try:
             response = await self.client.get(url, headers=headers)

@@ -554,6 +554,7 @@ class BackendSettings(DomainModel):
     static_route: str | None = (
         None  # Force all requests to backend:model (e.g., "gemini-oauth-plan:gemini-2.5-pro")
     )
+    disable_gemini_oauth_fallback: bool = False
 
     def __init__(self, **data: Any) -> None:
         # Extract backend configs from data before calling super().__init__
@@ -876,6 +877,15 @@ class AppConfig(DomainModel, IConfig):
                 path="disable_health_checks",
                 resolution=resolution,
             ),
+            "backends": {
+                "disable_gemini_oauth_fallback": _env_to_bool(
+                    "DISABLE_GEMINI_OAUTH_FALLBACK",
+                    False,
+                    env,
+                    path="backends.disable_gemini_oauth_fallback",
+                    resolution=resolution,
+                )
+            },
             "host": _get_env_value(
                 env,
                 "APP_HOST",
@@ -1471,7 +1481,14 @@ class AppConfig(DomainModel, IConfig):
                 "openai",
                 path="backends.default_backend",
                 resolution=resolution,
-            )
+            ),
+            "disable_gemini_oauth_fallback": _env_to_bool(
+                "DISABLE_GEMINI_OAUTH_FALLBACK",
+                False,
+                env,
+                path="backends.disable_gemini_oauth_fallback",
+                resolution=resolution,
+            ),
         }
 
         config["identity"] = AppIdentityConfig(

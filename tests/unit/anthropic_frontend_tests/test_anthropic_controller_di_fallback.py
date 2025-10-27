@@ -109,6 +109,15 @@ class _StubWireCapture(IWireCapture):
     def enabled(self) -> bool:
         return False
 
+    async def capture_inbound_request(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        request_payload: Any,
+    ) -> None:
+        return None
+
     async def capture_outbound_request(
         self,
         *,
@@ -194,9 +203,96 @@ def _build_service_provider_without_request_processor():
     return services.build_service_provider()
 
 
-@pytest.mark.skip(reason="Test is slow due to heavy DI container setup.")
-def test_fallback_request_processor_receives_app_state():
+def test_fallback_request_processor_receives_app_state(monkeypatch: pytest.MonkeyPatch):
     """Ensure fallback construction does not drop required DI-managed state."""
+    import httpx
+    from src.core.config.app_config import AppConfig
+    from src.core.interfaces.backend_processor_interface import IBackendProcessor
+    from src.core.services.application_state_service import ApplicationStateService
+    from src.core.services.backend_factory import BackendFactory
+    from src.core.services.backend_registry import BackendRegistry
+
+    # Patch the global provider function to return None so it uses local provider
+    monkeypatch.setattr(
+        "src.core.app.controllers.request_processor_resolver._get_from_global_provider",
+        lambda local_provider: None,
+    )
+
+    # Create a sentinel app state instance
+    sentinel_app_state = ApplicationStateService()
+
+    # Patch the service collection to provide all required services
+    def mock_get_service_collection():
+        from unittest.mock import MagicMock
+
+        from src.core.di.container import ServiceCollection
+        from src.core.services.request_processor_service import RequestProcessor
+
+        services = ServiceCollection()
+
+        # DO NOT add IRequestProcessor or RequestProcessor - this forces the fallback path
+        # But we need to add the factory function so the fallback path can create one
+
+        # Add required interfaces and dependencies for RequestProcessor factory
+        from src.core.interfaces.command_processor_interface import ICommandProcessor
+        from src.core.interfaces.response_manager_interface import IResponseManager
+        from src.core.interfaces.session_manager_interface import ISessionManager
+
+        services.add_singleton(ICommandService, MagicMock())
+        services.add_singleton(IBackendService, MagicMock())
+        services.add_singleton(ISessionService, MagicMock())
+        services.add_singleton(IResponseProcessor, MagicMock())
+        services.add_singleton(IBackendRequestManager, MagicMock())
+        services.add_singleton(IBackendProcessor, MagicMock())
+        services.add_singleton(BackendFactory, MagicMock())
+        services.add_singleton(AppConfig, MagicMock())
+        services.add_singleton(BackendRegistry, MagicMock())
+        services.add_singleton(httpx.AsyncClient, MagicMock())
+        services.add_singleton(IWireCapture, _StubWireCapture())
+
+        # Add mocks for RequestProcessor dependencies
+        services.add_singleton(ICommandProcessor, MagicMock())
+        services.add_singleton(ISessionManager, MagicMock())
+        services.add_singleton(IResponseManager, MagicMock())
+
+        # Add the real ApplicationStateService instance
+        services.add_instance(ApplicationStateService, sentinel_app_state)
+        services.add_instance(IApplicationState, sentinel_app_state)
+
+        # Add the RequestProcessor factory that will use the real ApplicationStateService
+        def _request_processor_factory(provider):
+            from src.core.services.request_processor_service import RequestProcessor
+
+            command_processor = provider.get_required_service(ICommandProcessor)
+            session_manager = provider.get_required_service(ISessionManager)
+            backend_request_manager = provider.get_required_service(
+                IBackendRequestManager
+            )
+            response_manager = provider.get_required_service(IResponseManager)
+            app_state = provider.get_service(IApplicationState)
+
+            return RequestProcessor(
+                command_processor,
+                session_manager,
+                backend_request_manager,
+                response_manager,
+                app_state=app_state,
+            )
+
+        services.add_singleton(
+            IRequestProcessor, implementation_factory=_request_processor_factory
+        )
+        services.add_singleton(
+            RequestProcessor, implementation_factory=_request_processor_factory
+        )
+
+        return services
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_collection",
+        mock_get_service_collection,
+    )
+
     provider = _build_service_provider_without_request_processor()
 
     # Sanity check: DI resolution path is indeed missing the request processor.
@@ -205,6 +301,5 @@ def test_fallback_request_processor_receives_app_state():
     controller = get_anthropic_controller(provider)
     assert isinstance(controller, AnthropicController)
 
-    app_state = provider.get_required_service(ApplicationStateService)
     # The fallback-constructed request processor must receive application state.
-    assert controller._processor._app_state is app_state
+    assert controller._processor._app_state is sentinel_app_state

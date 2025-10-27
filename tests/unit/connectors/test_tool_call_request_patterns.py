@@ -398,6 +398,9 @@ class TestToolCallRequestPatterns:
     @pytest.mark.asyncio
     async def test_quota_exhaustion_during_tool_calls(self, oauth_plan_connector):
         """Test handling of quota exhaustion during tool calls."""
+        # Disable graceful degradation to test the original quota exhaustion behavior
+        oauth_plan_connector._degradation_config.enabled = False
+
         # Mock quota exhaustion scenario
         with patch(
             "google.auth.transport.requests.AuthorizedSession.request"

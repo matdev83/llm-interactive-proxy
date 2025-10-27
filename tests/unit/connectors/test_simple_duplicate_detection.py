@@ -181,14 +181,14 @@ def test_cloud_project_pattern_not_present():
     pattern2 = "await self._chat_completions_streaming("
 
     # Find the non-streaming method
-    non_streaming_start = content.find("def _chat_completions(")
+    non_streaming_start = content.find("def _chat_completions_standard(")
     if non_streaming_start == -1:
         pytest.skip(
-            "Could not find _chat_completions method in cloud project connector"
+            "Could not find _chat_completions_standard method in cloud project connector"
         )
 
     # Find the end of this method
-    next_method = content.find("\n    def ", non_streaming_start + 1)
+    next_method = content.find("\n    async def ", non_streaming_start + 1)
     if next_method == -1:
         next_method = len(content)
 
@@ -199,12 +199,12 @@ def test_cloud_project_pattern_not_present():
     pattern2_found = pattern2 in non_streaming_content
 
     assert not pattern1_found, (
-        f"Found problematic pattern '{pattern1}' in _chat_completions method of cloud project connector. "
+        f"Found problematic pattern '{pattern1}' in _chat_completions_standard method of cloud project connector. "
         "This causes duplicate API requests."
     )
 
     assert not pattern2_found, (
-        f"Found problematic pattern '{pattern2}' in _chat_completions method of cloud project connector. "
+        f"Found problematic pattern '{pattern2}' in _chat_completions_standard method of cloud project connector. "
         "This causes duplicate API requests."
     )
 
@@ -221,7 +221,7 @@ def test_methods_have_proper_separation():
         ),
         (
             "src/connectors/gemini_cloud_project.py",
-            "_chat_completions",
+            "_chat_completions_standard",
             "_chat_completions_streaming",
         ),
     ]

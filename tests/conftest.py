@@ -5,6 +5,7 @@ import inspect
 import sys
 import types
 import warnings
+import xml.etree.ElementTree
 from pathlib import Path
 from typing import Any
 
@@ -257,3 +258,46 @@ def _install_global_warning_filters() -> None:
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     warnings.filterwarnings("ignore", category=ImportWarning)
     warnings.filterwarnings("ignore", category=UserWarning)
+
+
+def pytest_cmdline_main(config):
+    """
+    Dynamically modifies pytest arguments before test collection.
+    """
+    has_test_paths = any(arg for arg in config.args if not arg.startswith("-"))
+    has_maxfail = any(arg.startswith("--maxfail") for arg in config.args)
+    has_lf = "--lf" in config.args
+
+    if not has_test_paths and not any(
+        arg in ("--version", "--help", "--fixtures") for arg in config.args
+    ):
+        # Use testpaths from the config file
+        config.args = config.getini("testpaths") + config.args
+
+        if not has_maxfail and not has_lf:
+            try:
+                tree = xml.etree.ElementTree.parse("test-results.xml")
+                root = tree.getroot()
+                testsuite = root.find("testsuite")
+                if testsuite is not None:
+                    failures = int(testsuite.attrib.get("failures", 0))
+                    if failures > 0:
+                        if "--ff" not in config.args:
+                            config.args.append("--ff")
+                        config.args.append(f"--maxfail={failures}")
+                    else:
+                        config.args.append("--maxfail=1")
+                else:
+                    config.args.append("--maxfail=1")
+            except (xml.etree.ElementTree.ParseError, FileNotFoundError):
+                config.args.append("--maxfail=1")
+
+        # Add -q for quiet output unless user specified a verbosity level
+        has_verbosity_flag = any(
+            arg in ("-v", "--verbose", "-q", "--quiet") for arg in config.args
+        )
+        if not has_verbosity_flag:
+            config.args.append("-q")
+
+        if "-rfE" not in config.args:
+            config.args.append("-rfE")

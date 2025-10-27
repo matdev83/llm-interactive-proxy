@@ -101,6 +101,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         metavar="BACKEND:MODEL",
         help="Force all requests to use this backend:model combination (e.g., gemini-oauth-plan:gemini-2.5-pro)",
     )
+    parser.add_argument(
+        "--disable-gemini-oauth-fallback",
+        dest="disable_gemini_oauth_fallback",
+        action="store_true",
+        help="Disable automatic Gemini OAuth fallback to gemini-2.5-flash",
+    )
 
     def validate_model_alias(value: str) -> tuple[str, str]:
         """Validate model alias format: pattern=replacement"""
@@ -795,6 +801,19 @@ def apply_cli_args(
         backend_overrides["static_route"] = args.static_route
         os.environ["STATIC_ROUTE"] = args.static_route
         record_cli("backends.static_route", args.static_route, "--static-route")
+    if getattr(args, "disable_gemini_oauth_fallback", None) is not None:
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["disable_gemini_oauth_fallback"] = (
+            args.disable_gemini_oauth_fallback
+        )
+        os.environ["DISABLE_GEMINI_OAUTH_FALLBACK"] = (
+            "1" if args.disable_gemini_oauth_fallback else "0"
+        )
+        record_cli(
+            "backends.disable_gemini_oauth_fallback",
+            args.disable_gemini_oauth_fallback,
+            "--disable-gemini-oauth-fallback",
+        )
 
     # Model aliases configuration (CLI overrides config file)
     if getattr(args, "model_aliases", None) is not None:

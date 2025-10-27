@@ -10,9 +10,6 @@ from fastapi import HTTPException
 
 pytestmark = [
     pytest.mark.xdist_group("qwen_oauth_tool_calling"),
-    pytest.mark.skip(
-        reason="Temporarily disabled due to test isolation issues with OpenAI connector mocking"
-    ),
     pytest.mark.no_global_mock,
 ]
 from src.connectors.qwen_oauth import QwenOAuthConnector
@@ -52,8 +49,19 @@ class TestQwenOAuthToolCallingEnhanced:
         }
         return connector
 
+    @pytest.fixture
+    def mock_parent_chat_completions(self):
+        """Fixture to mock the parent OpenAIConnector's chat_completions method."""
+        with patch(
+            "src.connectors.openai.OpenAIConnector.chat_completions",
+            new_callable=AsyncMock,
+        ) as mock_chat_completions:
+            yield mock_chat_completions
+
     @pytest.mark.asyncio
-    async def test_chat_completions_with_tools(self, connector):
+    async def test_chat_completions_with_tools(
+        self, connector, mock_parent_chat_completions
+    ):
         """Test chat completion request with tools parameter."""
         # Define tools
         tools = [
@@ -111,21 +119,12 @@ class TestQwenOAuthToolCallingEnhanced:
         }
         mock_headers = {"content-type": "application/json"}
 
-        # Directly mock the parent class's chat_completions method
-        from src.core.domain.responses import ResponseEnvelope
+        mock_parent_chat_completions.return_value = ResponseEnvelope(
+            content=mock_response_data, headers=mock_headers
+        )
 
-        with (
-            patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ),
-            patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(
-                    return_value=ResponseEnvelope(
-                        content=mock_response_data, headers=mock_headers
-                    )
-                ),
-            ),
+        with patch.object(
+            connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
         ):
             # Act
             result = await connector.chat_completions(
@@ -152,7 +151,9 @@ class TestQwenOAuthToolCallingEnhanced:
             }
 
     @pytest.mark.asyncio
-    async def test_chat_completions_tool_choice_none(self, connector):
+    async def test_chat_completions_tool_choice_none(
+        self, connector, mock_parent_chat_completions
+    ):
         """Test chat completion with tool_choice set to 'none'."""
         tools = [
             ToolDefinition(
@@ -190,26 +191,12 @@ class TestQwenOAuthToolCallingEnhanced:
         }
         mock_headers = {"content-type": "application/json"}
 
-        # Create a wrapper around chat_completions to capture payload
-        payload_capture = {}
+        mock_parent_chat_completions.return_value = ResponseEnvelope(
+            content=mock_response_data, headers=mock_headers
+        )
 
-        async def mock_chat_completions(*args, **kwargs):
-            # Capture the payload for verification
-            payload_capture["payload"] = kwargs.get("request_data")
-            return ResponseEnvelope(content=mock_response_data, headers=mock_headers)
-
-        # Create the mock for the parent class's chat_completions method
-        parent_chat_completions_mock = AsyncMock(side_effect=mock_chat_completions)
-
-        # Directly mock the parent class's chat_completions method
-        with (
-            patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ),
-            patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
-                parent_chat_completions_mock,
-            ),
+        with patch.object(
+            connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
         ):
             # Act
             result = await connector.chat_completions(
@@ -219,15 +206,15 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Verify the parent class's chat_completions method was called
-            parent_chat_completions_mock.assert_called_once()
+            mock_parent_chat_completions.assert_called_once()
+            called_request_data = mock_parent_chat_completions.call_args.kwargs[
+                "request_data"
+            ]
+            assert called_request_data.tool_choice == "none"
 
             # Assert
             response_data = result.content
             # headers = result.headers
-
-            # Verify request contained the expected tool_choice
-            assert payload_capture["payload"] is not None
-            assert payload_capture["payload"].tool_choice == "none"
 
             # Verify response doesn't contain tool calls
             assert "choices" in response_data
@@ -240,7 +227,9 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
     @pytest.mark.asyncio
-    async def test_chat_completions_specific_tool_choice(self, connector):
+    async def test_chat_completions_specific_tool_choice(
+        self, connector, mock_parent_chat_completions
+    ):
         """Test chat completion with specific function tool_choice."""
         tools = [
             ToolDefinition(
@@ -304,23 +293,12 @@ class TestQwenOAuthToolCallingEnhanced:
         }
         mock_headers = {"content-type": "application/json"}
 
-        # Create a wrapper around chat_completions to capture payload
-        payload_capture = {}
+        mock_parent_chat_completions.return_value = ResponseEnvelope(
+            content=mock_response_data, headers=mock_headers
+        )
 
-        async def mock_chat_completions(*args, **kwargs):
-            # Capture the payload for verification
-            payload_capture["request_data"] = kwargs.get("request_data")
-            return ResponseEnvelope(content=mock_response_data, headers=mock_headers)
-
-        # Directly mock the parent class's chat_completions method
-        with (
-            patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ),
-            patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(side_effect=mock_chat_completions),
-            ),
+        with patch.object(
+            connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
         ):
             # Act
             result = await connector.chat_completions(
@@ -334,12 +312,11 @@ class TestQwenOAuthToolCallingEnhanced:
             # headers = result.headers
 
             # Verify request contained the expected tool_choice
-            assert payload_capture["request_data"] is not None
-            assert payload_capture["request_data"].tool_choice["type"] == "function"
-            assert (
-                payload_capture["request_data"].tool_choice["function"]["name"]
-                == "get_weather"
-            )
+            called_request_data = mock_parent_chat_completions.call_args.kwargs[
+                "request_data"
+            ]
+            assert called_request_data.tool_choice["type"] == "function"
+            assert called_request_data.tool_choice["function"]["name"] == "get_weather"
 
             # Verify response contains the expected tool call
             assert "choices" in response_data
@@ -349,7 +326,9 @@ class TestQwenOAuthToolCallingEnhanced:
             assert tool_call["function"]["name"] == "get_weather"
 
     @pytest.mark.asyncio
-    async def test_streaming_with_tool_calls(self, connector):
+    async def test_streaming_with_tool_calls(
+        self, connector, mock_parent_chat_completions
+    ):
         """Test streaming response with tool calls."""
         tools = [
             ToolDefinition(
@@ -397,15 +376,10 @@ class TestQwenOAuthToolCallingEnhanced:
             headers=mock_stream_response.headers,
         )
 
-        # Directly mock the parent class's chat_completions method for streaming
-        with (
-            patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ),
-            patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(return_value=mock_stream_envelope),
-            ),
+        mock_parent_chat_completions.return_value = mock_stream_envelope
+
+        with patch.object(
+            connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
         ):
             # Act
             result = await connector.chat_completions(
@@ -419,7 +393,9 @@ class TestQwenOAuthToolCallingEnhanced:
             assert result.media_type == "text/event-stream"
 
     @pytest.mark.asyncio
-    async def test_multi_turn_tool_conversation(self, connector):
+    async def test_multi_turn_tool_conversation(
+        self, connector, mock_parent_chat_completions
+    ):
         """Test multi-turn conversation with tool calls and responses."""
         # First turn: User message
         user_message = ChatMessage(role="user", content="Calculate 10 + 5")
@@ -481,24 +457,12 @@ class TestQwenOAuthToolCallingEnhanced:
         }
         mock_headers = {"content-type": "application/json"}
 
-        # Create a wrapper around chat_completions to capture payload
-        payload_capture = {}
+        mock_parent_chat_completions.return_value = ResponseEnvelope(
+            content=mock_response_data, headers=mock_headers
+        )
 
-        async def mock_chat_completions(*args, **kwargs):
-            # Capture the payload for verification
-            payload_capture["request_data"] = kwargs.get("request_data")
-            payload_capture["messages"] = kwargs.get("processed_messages")
-            return ResponseEnvelope(content=mock_response_data, headers=mock_headers)
-
-        # Directly mock the parent class's chat_completions method
-        with (
-            patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ),
-            patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(side_effect=mock_chat_completions),
-            ),
+        with patch.object(
+            connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
         ):
             # Act
             result = await connector.chat_completions(
@@ -512,10 +476,11 @@ class TestQwenOAuthToolCallingEnhanced:
             # headers = result.headers
 
             # Verify the conversation context was properly passed
-            assert payload_capture["messages"] == messages
+            called_kwargs = mock_parent_chat_completions.call_args.kwargs
+            assert called_kwargs["processed_messages"] == messages
 
             # Verify message types in the captured request
-            messages_data = payload_capture["request_data"].model_dump()["messages"]
+            messages_data = called_kwargs["request_data"].model_dump()["messages"]
             assert len(messages_data) == 3
             assert messages_data[0]["role"] == "user"
             assert messages_data[1]["role"] == "assistant"
@@ -530,7 +495,9 @@ class TestQwenOAuthToolCallingEnhanced:
             assert "15" in choice["message"]["content"]
 
     @pytest.mark.asyncio
-    async def test_tool_calling_error_handling(self, connector):
+    async def test_tool_calling_error_handling(
+        self, connector, mock_parent_chat_completions
+    ):
         """Test error handling when tool calling fails."""
         tools = [
             ToolDefinition(
@@ -556,21 +523,16 @@ class TestQwenOAuthToolCallingEnhanced:
             stream=False,
         )
 
-        # Directly mock the parent class's chat_completions method to raise an exception
+        # Mock the parent class's chat_completions method to raise an exception
         error_detail = {
             "error": {"message": "Invalid tool definition", "code": "invalid_parameter"}
         }
+        mock_parent_chat_completions.side_effect = HTTPException(
+            status_code=400, detail=error_detail
+        )
 
-        with (
-            patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ),
-            patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(
-                    side_effect=HTTPException(status_code=400, detail=error_detail)
-                ),
-            ),
+        with patch.object(
+            connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
         ):
             # Act & Assert
             with pytest.raises(HTTPException) as exc_info:
@@ -585,7 +547,9 @@ class TestQwenOAuthToolCallingEnhanced:
             assert exc_info.value.detail == error_detail
 
     @pytest.mark.asyncio
-    async def test_model_prefix_stripping(self, connector):
+    async def test_model_prefix_stripping(
+        self, connector, mock_parent_chat_completions
+    ):
         """Test that qwen-oauth: prefix is properly stripped from model names."""
         test_message = ChatMessage(role="user", content="Test message")
         request_data = ChatRequest(
@@ -610,23 +574,12 @@ class TestQwenOAuthToolCallingEnhanced:
         }
         mock_headers = {"content-type": "application/json"}
 
-        # Create a wrapper around chat_completions to capture the effective model
-        model_capture = {}
+        mock_parent_chat_completions.return_value = ResponseEnvelope(
+            content=mock_response_data, headers=mock_headers
+        )
 
-        async def mock_chat_completions(*args, **kwargs):
-            # Capture the effective model for verification
-            model_capture["effective_model"] = kwargs.get("effective_model")
-            return ResponseEnvelope(content=mock_response_data, headers=mock_headers)
-
-        # Directly mock the parent class's chat_completions method
-        with (
-            patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            ),
-            patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
-                AsyncMock(side_effect=mock_chat_completions),
-            ),
+        with patch.object(
+            connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
         ):
             # Act
             result = await connector.chat_completions(
@@ -636,7 +589,8 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert the prefix was stripped
-            assert model_capture["effective_model"] == "qwen3-coder-plus"
+            called_kwargs = mock_parent_chat_completions.call_args.kwargs
+            assert called_kwargs["effective_model"] == "qwen3-coder-plus"
 
             # Verify the response was passed through correctly
             response_data = result.content

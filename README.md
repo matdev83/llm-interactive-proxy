@@ -111,6 +111,8 @@ graph TD
     - `EDIT_PRECISION_MIN_TOP_P=0.3`
     - `EDIT_PRECISION_OVERRIDE_TOP_P=false|true`
     - `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX="<pattern>"`
+    - `DISABLE_GEMINI_OAUTH_FALLBACK=true|false` (default: false) prevents Gemini OAuth connectors from automatically falling back to `gemini-2.5-flash` when the primary model is rate-limited.
+    - `DISABLE_GEMINI_OAUTH_FALLBACK=true|false` (default: false) to keep Gemini OAuth connectors from falling back to `gemini-2.5-flash` when encountering rate limits.
   - **YAML** (`config.yaml`):
     ```yaml
     edit_precision:

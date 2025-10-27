@@ -131,6 +131,7 @@ properties:
     additionalProperties: true
     properties:
       default_backend: { type: string }
+      disable_gemini_oauth_fallback: { type: boolean }
   default_backend: { type: string }
   reasoning_aliases:
     type: object

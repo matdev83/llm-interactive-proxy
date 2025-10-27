@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import random
 import shutil
 import subprocess
 import threading
@@ -92,10 +93,10 @@ DEFAULT_CONNECTION_TIMEOUT = 60.0
 DEFAULT_READ_TIMEOUT = 300.0  # 5 minutes to handle large file reads and long responses
 
 # Graceful degradation configuration
-DEFAULT_RETRY_DELAYS = [6, 12]  # Wait 6s, then 12s between retries
-DEFAULT_MAX_TOTAL_ATTEMPTS = 6  # Maximum total attempts across all models
-DEFAULT_COOLDOWN_DURATION = 300.0  # 5 minutes cooldown after exhaustion
-DEFAULT_RECOVERY_PROBE_INTERVAL = 60.0  # Check recovery every minute
+DEFAULT_RETRY_DELAYS = [15, 30, 60]  # Wait 15s, then 30s, then 60s between retries
+DEFAULT_MAX_TOTAL_ATTEMPTS = 9  # Maximum total attempts across all models
+DEFAULT_COOLDOWN_DURATION = 600.0  # 10 minutes cooldown after exhaustion
+DEFAULT_RECOVERY_PROBE_INTERVAL = 120.0  # Check recovery every 2 minutes
 
 # Code Assist plan-specific prompt allowance (per request).
 # The margin stops us before the backend enforces the hard cap.
@@ -457,7 +458,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         # Initialize graceful degradation
         self._degradation_config = GracefulDegradationConfig.from_config(self.config)
         self._model_retry_states: dict[str, ModelRetryState] = {}
-        self._total_attempts = 0
         self._permanently_failed = False
         self._recovery_probe_task: asyncio.Task[Any] | None = None
 
@@ -2253,6 +2253,48 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                 else:
                                     # Convert non-streaming response to streaming chunks
                                     # This is a fallback case, shouldn't normally happen
+                                    # Ensure we always yield at least one chunk to prevent empty responses
+                                    if not chunks_yielded:
+                                        logger.warning("No chunks were yielded during streaming, sending fallback response")
+                                        fallback_chunk = self.translation_service.to_domain_stream_chunk(
+                                            chunk={
+                                                "id": f"chatcmpl-fallback-{int(time.time())}",
+                                                "object": "chat.completion.chunk",
+                                                "created": int(time.time()),
+                                                "model": "code-assist-model",
+                                                "choices": [
+                                                    {
+                                                        "index": 0,
+                                                        "delta": {"content": "I apologize, but there was an issue with the streaming response. Please try again."},
+                                                        "finish_reason": None
+                                                    }
+                                                ]
+                                            },
+                                            source_format="code_assist"
+                                        )
+                                        yield ProcessedResponse(content=fallback_chunk)
+                                    
+                                    # Ensure we always yield at least one chunk to prevent empty responses
+                                    if not chunks_yielded:
+                                        logger.warning("No chunks were yielded during streaming, sending fallback response")
+                                        fallback_chunk = self.translation_service.to_domain_stream_chunk(
+                                            chunk={
+                                                "id": f"chatcmpl-fallback-{int(time.time())}",
+                                                "object": "chat.completion.chunk", 
+                                                "created": int(time.time()),
+                                                "model": "code-assist-model",
+                                                "choices": [
+                                                    {
+                                                        "index": 0,
+                                                        "delta": {"content": "I apologize, but there was an issue with the streaming response. Please try again."},
+                                                        "finish_reason": None
+                                                    }
+                                                ]
+                                            },
+                                            source_format="code_assist"
+                                        )
+                                        yield ProcessedResponse(content=fallback_chunk)
+                                    
                                     final_chunk = (
                                         self.translation_service.to_domain_stream_chunk(
                                             chunk=None, source_format="code_assist"
@@ -2353,6 +2395,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
                     line_buffer = ""
                     done = False
+                    chunks_yielded = False
                     for chunk in response.iter_content(
                         chunk_size=512, decode_unicode=False
                     ):
@@ -2379,14 +2422,39 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                     break
                                 try:
                                     data = json.loads(data_str)
-                                except json.JSONDecodeError:
+                                except json.JSONDecodeError as e:
+                                    # Log incomplete/malformed JSON chunks for debugging
+                                    logger.warning(
+                                        "Received malformed JSON chunk in streaming response: %s (error: %s)",
+                                        data_str[:100] + "..." if len(data_str) > 100 else data_str,
+                                        str(e)
+                                    )
+                                    # For incomplete chunks, yield an error response to prevent empty responses
+                                    if data_str and not data_str.strip().endswith('}'):
+                                        logger.error("Detected incomplete JSON chunk, yielding error response")
+                                        error_chunk = self.translation_service.to_domain_stream_chunk(
+                                            chunk=None, source_format="code_assist"
+                                        )
+                                        yield ProcessedResponse(content=error_chunk)
+                                        done = True
+                                        break
                                     continue
 
-                                domain_chunk = (
-                                    self.translation_service.to_domain_stream_chunk(
-                                        chunk=data, source_format="code_assist"
+                                try:
+                                    domain_chunk = (
+                                        self.translation_service.to_domain_stream_chunk(
+                                            chunk=data, source_format="code_assist"
+                                        )
                                     )
-                                )
+                                except Exception as e:
+                                    logger.error("Failed to process streaming chunk: %s", str(e))
+                                    # Yield an error chunk to prevent empty responses
+                                    error_chunk = self.translation_service.to_domain_stream_chunk(
+                                        chunk=None, source_format="code_assist"
+                                    )
+                                    yield ProcessedResponse(content=error_chunk)
+                                    done = True
+                                    break
 
                                 if domain_chunk and domain_chunk.get("choices"):
                                     choice = domain_chunk["choices"][0]
@@ -2579,6 +2647,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                     content=domain_chunk,
                                     metadata=metadata,
                                 )
+                                chunks_yielded = True
                             elif decoded_line.strip():
                                 yield ProcessedResponse(
                                     content=self.translation_service.to_domain_stream_chunk(
@@ -2962,6 +3031,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 status_code=429,
             )
 
+        # Track attempts per request (not globally) to prevent premature exhaustion
+        request_attempts = 0
+
         if not self._degradation_config.enabled:
             # If graceful degradation is disabled, use original behavior
             self._mark_backend_unusable()
@@ -2972,7 +3044,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             )
 
         models_to_try = [original_model]
-        fallback_model = self._get_fallback_model(original_model)
+        disable_fallback = False
+        try:
+            disable_fallback = bool(self.config.backends.disable_gemini_oauth_fallback)
+        except AttributeError:  # pragma: no cover - defensive for legacy configs
+            disable_fallback = False
+
+        fallback_model = (
+            None if disable_fallback else self._get_fallback_model(original_model)
+        )
         if fallback_model:
             models_to_try.append(fallback_model)
 
@@ -3028,16 +3108,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
             # Try the model with retries
             for attempt in range(len(self._degradation_config.retry_delays) + 1):
-                self._total_attempts += 1
-
-                if self._total_attempts >= self._degradation_config.max_total_attempts:
-                    self._mark_backend_unusable()
-                    self._permanently_failed = True
+                # Check per-request attempt limit (not global) to prevent premature exhaustion
+                if request_attempts >= self._degradation_config.max_total_attempts:
                     raise BackendError(
                         message="Maximum total attempts exceeded in graceful degradation",
                         code="max_attempts_exceeded",
                         status_code=429,
                     )
+
+                request_attempts += 1
 
                 state.attempts = attempt
 
@@ -3046,14 +3125,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                         # First attempt, no delay
                         pass
                     else:
-                        # Retry with delay
+                        # Retry with delay and jitter to prevent thundering herd
                         delay_idx = min(
                             attempt - 1, len(self._degradation_config.retry_delays) - 1
                         )
-                        delay = self._degradation_config.retry_delays[delay_idx]
+                        base_delay = self._degradation_config.retry_delays[delay_idx]
+
+                        # Add jitter: ±25% of the base delay to prevent synchronized retries
+                        jitter_factor = 0.25
+                        jitter_range = base_delay * jitter_factor
+                        jitter = random.uniform(-jitter_range, jitter_range)
+                        delay = max(0, base_delay + jitter)  # Ensure non-negative delay
+
                         if logger.isEnabledFor(logging.INFO):
                             logger.info(
-                                f"Retrying model {model} after {delay}s delay (attempt {attempt})"
+                                f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt}, base: {base_delay}s, jitter: {jitter:+.1f}s)"
                             )
                         await asyncio.sleep(delay)
 
