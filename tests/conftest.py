@@ -6,6 +6,7 @@ import sys
 import types
 import warnings
 import xml.etree.ElementTree
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -41,14 +42,14 @@ if not HAS_PYTEST_ASYNCIO:
 
         return decorator
 
-    module.fixture = _asyncio_fixture  # type: ignore[assignment]
-    sys.modules.setdefault("pytest_asyncio", module)
+    module.fixture = _asyncio_fixture  # type: ignore[assignment,attr-defined]
+    sys.modules.setdefault("pytest_asyncio", module)  # type: ignore[assignment]
 
 
 if not HAS_PYTEST_HTTPX:
     module = types.ModuleType("pytest_httpx")
-    module.HTTPXMock = Any  # type: ignore[assignment]
-    sys.modules.setdefault("pytest_httpx", module)
+    module.HTTPXMock = Any  # type: ignore[assignment,attr-defined]
+    sys.modules.setdefault("pytest_httpx", module)  # type: ignore[assignment]
 
 
 if not HAS_PYTEST_HTTPX:
@@ -115,7 +116,7 @@ def temp_config_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def test_client() -> TestClient:
+def test_client() -> Generator[TestClient, None, None]:
     """A basic TestClient using the default test app with auth disabled."""
     app = build_test_app()
     client = TestClient(app, headers={"Authorization": "Bearer test-proxy-key"})
@@ -167,7 +168,7 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
 
 
 # Test helper utilities expected by some tests
-def get_backend_instance(app: any, backend_type: str):  # type: ignore[no-untyped-def]
+def get_backend_instance(app: Any, backend_type: str) -> Any:  # type: ignore[no-untyped-def]
     """Inject and return a backend instance used by BackendService.
 
     If the backend is not yet created, insert a simple placeholder object under
@@ -197,12 +198,12 @@ def get_backend_instance(app: any, backend_type: str):  # type: ignore[no-untype
     return cache[backend_type]
 
 
-def get_session_service_from_app(app: any) -> ISessionService:  # type: ignore[no-untyped-def]
+def get_session_service_from_app(app: Any) -> ISessionService:  # type: ignore[no-untyped-def]
     """Resolve the ISessionService from DI."""
     service_provider = getattr(app.state, "service_provider", None)
     if service_provider is None:
         raise RuntimeError("service_provider not found on app.state")
-    return service_provider.get_required_service(ISessionService)
+    return service_provider.get_required_service(ISessionService)  # type: ignore[return-value,no-any-return]
 
 
 @pytest.fixture
