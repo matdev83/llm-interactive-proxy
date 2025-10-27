@@ -2127,75 +2127,108 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                     )
 
                                 # If the degraded response is streaming, yield its chunks
+                                degraded_usage: dict[str, Any] | None = None
                                 if isinstance(
                                     degraded_response, StreamingResponseEnvelope
                                 ):
                                     stream_content = degraded_response.content
+                                    streamed_chunks = False
                                     if stream_content is not None:
                                         async for chunk in stream_content:
+                                            streamed_chunks = True
                                             yield chunk
-                                else:
-                                    # Convert non-streaming response to streaming chunks
-                                    # This is a fallback case, shouldn't normally happen
-                                    # Ensure we always yield at least one chunk to prevent empty responses
-                                    chunks_yielded: bool = (
-                                        False  # Initialize the variable
+                                    if streamed_chunks:
+                                        return
+                                    degraded_usage = getattr(
+                                        degraded_response, "usage", None
                                     )
-                                    if not chunks_yielded:
-                                        logger.warning(
-                                            "No chunks were yielded during streaming, sending fallback response"
-                                        )
-                                        fallback_chunk = self.translation_service.to_domain_stream_chunk(
+                                else:
+                                    degraded_usage = getattr(
+                                        degraded_response, "usage", None
+                                    )
+                                    response_text = ""
+                                    content_value = getattr(
+                                        degraded_response, "content", None
+                                    )
+                                    if isinstance(content_value, str):
+                                        response_text = content_value
+                                    elif content_value is not None:
+                                        try:
+                                            response_text = json.dumps(
+                                                content_value, ensure_ascii=False
+                                            )
+                                        except Exception:
+                                            response_text = str(content_value)
+                                    response_text = response_text.strip()
+                                    if response_text:
+                                        degraded_chunk = self.translation_service.to_domain_stream_chunk(
                                             chunk={
-                                                "id": f"chatcmpl-fallback-{int(time.time())}",
-                                                "object": "chat.completion.chunk",
-                                                "created": int(time.time()),
-                                                "model": "code-assist-model",
-                                                "choices": [
-                                                    {
-                                                        "index": 0,
-                                                        "delta": {
-                                                            "content": "I apologize, but there was an issue with the streaming response. Please try again."
-                                                        },
-                                                        "finish_reason": None,
-                                                    }
-                                                ],
+                                                "response": {
+                                                    "candidates": [
+                                                        {
+                                                            "content": {
+                                                                "role": "model",
+                                                                "parts": [
+                                                                    {
+                                                                        "text": response_text
+                                                                    }
+                                                                ],
+                                                            },
+                                                            "finishReason": "STOP",
+                                                        }
+                                                    ]
+                                                }
                                             },
                                             source_format="code_assist",
                                         )
-                                        yield ProcessedResponse(content=fallback_chunk)
-
-                                    # Ensure we always yield at least one chunk to prevent empty responses
-                                    if not chunks_yielded:
-                                        logger.warning(
-                                            "No chunks were yielded during streaming, sending fallback response"
-                                        )
-                                        fallback_chunk = self.translation_service.to_domain_stream_chunk(
-                                            chunk={
-                                                "id": f"chatcmpl-fallback-{int(time.time())}",
-                                                "object": "chat.completion.chunk",
-                                                "created": int(time.time()),
-                                                "model": "code-assist-model",
-                                                "choices": [
-                                                    {
-                                                        "index": 0,
-                                                        "delta": {
-                                                            "content": "I apologize, but there was an issue with the streaming response. Please try again."
-                                                        },
-                                                        "finish_reason": None,
-                                                    }
-                                                ],
-                                            },
-                                            source_format="code_assist",
-                                        )
-                                        yield ProcessedResponse(content=fallback_chunk)
-
-                                    final_chunk = (
-                                        self.translation_service.to_domain_stream_chunk(
+                                        degraded_chunk["model"] = effective_model
+                                        yield ProcessedResponse(content=degraded_chunk)
+                                        final_chunk = self.translation_service.to_domain_stream_chunk(
                                             chunk=None, source_format="code_assist"
                                         )
+                                        final_chunk["model"] = effective_model
+                                        yield ProcessedResponse(
+                                            content=final_chunk,
+                                            usage=degraded_usage,
+                                        )
+                                        return
+
+                                if logger.isEnabledFor(logging.WARNING):
+                                    logger.warning(
+                                        "No chunks were yielded during streaming, sending fallback response"
                                     )
-                                    yield ProcessedResponse(content=final_chunk)
+                                fallback_chunk = self.translation_service.to_domain_stream_chunk(
+                                    chunk={
+                                        "response": {
+                                            "candidates": [
+                                                {
+                                                    "content": {
+                                                        "role": "model",
+                                                        "parts": [
+                                                            {
+                                                                "text": "I apologize, but there was an issue with the streaming response. Please try again."
+                                                            }
+                                                        ],
+                                                    },
+                                                    "finishReason": "STOP",
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    source_format="code_assist",
+                                )
+                                fallback_chunk["model"] = effective_model
+                                yield ProcessedResponse(content=fallback_chunk)
+                                final_chunk = (
+                                    self.translation_service.to_domain_stream_chunk(
+                                        chunk=None, source_format="code_assist"
+                                    )
+                                )
+                                final_chunk["model"] = effective_model
+                                yield ProcessedResponse(
+                                    content=final_chunk,
+                                    usage=degraded_usage,
+                                )
                                 return
                             except Exception as e:
                                 # If graceful degradation fails, return a user-friendly error instead of raw 429
@@ -2290,7 +2323,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
                     line_buffer = ""
                     done = False
-                    chunks_yielded = False
                     for chunk in response.iter_content(
                         chunk_size=512, decode_unicode=False
                     ):
@@ -2552,7 +2584,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                     content=domain_chunk,
                                     metadata=metadata,
                                 )
-                                chunks_yielded = True
                             elif decoded_line.strip():
                                 yield ProcessedResponse(
                                     content=self.translation_service.to_domain_stream_chunk(

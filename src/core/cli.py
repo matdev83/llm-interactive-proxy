@@ -810,17 +810,13 @@ def apply_cli_args(
         backend_overrides["static_route"] = args.static_route
         os.environ["STATIC_ROUTE"] = args.static_route
         record_cli("backends.static_route", args.static_route, "--static-route")
-    if getattr(args, "disable_gemini_oauth_fallback", None) is not None:
+    if getattr(args, "disable_gemini_oauth_fallback", False):
         backend_overrides = cli_overrides.setdefault("backends", {})
-        backend_overrides["disable_gemini_oauth_fallback"] = (
-            args.disable_gemini_oauth_fallback
-        )
-        os.environ["DISABLE_GEMINI_OAUTH_FALLBACK"] = (
-            "1" if args.disable_gemini_oauth_fallback else "0"
-        )
+        backend_overrides["disable_gemini_oauth_fallback"] = True
+        os.environ["DISABLE_GEMINI_OAUTH_FALLBACK"] = "1"
         record_cli(
             "backends.disable_gemini_oauth_fallback",
-            args.disable_gemini_oauth_fallback,
+            True,
             "--disable-gemini-oauth-fallback",
         )
 

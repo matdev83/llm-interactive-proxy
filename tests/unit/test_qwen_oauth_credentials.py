@@ -253,6 +253,7 @@ class TestQwenOAuthCredentials:
             mock_launch.assert_called_once()
 
     @pytest.mark.slow
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_refresh_token_waits_for_delayed_cli_update(
         self, connector, monkeypatch
@@ -296,8 +297,7 @@ class TestQwenOAuthCredentials:
         assert sleep_calls >= 7
         assert connector._oauth_credentials["access_token"].startswith("new-token")
 
-    @pytest.mark.asyncio
-    async def test_get_headers(self, connector):
+    def test_get_headers(self, connector):
         """Test getting headers with access token."""
         connector._oauth_credentials = {
             "access_token": "test-access-token",

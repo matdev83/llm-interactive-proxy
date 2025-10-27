@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 
 
 @pytest.fixture
@@ -128,3 +130,81 @@ class TestGeminiOAuthPlanConnector:
             headers={"Content-Type": "application/json"},
             timeout=30.0,
         )
+
+    @pytest.mark.asyncio
+    async def test_streaming_429_graceful_degradation_returns_content(
+        self,
+        connector,
+        monkeypatch,
+    ):
+        """Ensure streaming degradation surfaces recovered content to the client."""
+
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
+        connector._discover_project_id = AsyncMock(return_value="project-id")
+        connector.gemini_api_base_url = "https://example.com"
+
+        degraded_usage = {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+        connector._handle_429_with_graceful_degradation = AsyncMock(
+            return_value=ResponseEnvelope(
+                content="degraded answer",
+                usage=degraded_usage,
+                status_code=200,
+            )
+        )
+
+        class FakeResponse:
+            status_code = 429
+            text = "Resource exhausted"
+
+            @staticmethod
+            def json() -> dict[str, dict[str, str]]:
+                return {
+                    "error": {
+                        "code": 429,
+                        "message": "Resource exhausted. Please try again later.",
+                        "status": "RESOURCE_EXHAUSTED",
+                    }
+                }
+
+        fake_response = FakeResponse()
+
+        class FakeAuthorizedSession:
+            def __init__(self, creds):
+                self._creds = creds
+
+            def request(self, *args, **kwargs):
+                return fake_response
+
+        monkeypatch.setattr(
+            "src.connectors.gemini_oauth_base.google.auth.transport.requests.AuthorizedSession",
+            FakeAuthorizedSession,
+        )
+
+        request = CanonicalChatRequest(
+            model="gemini-2.5-pro",
+            messages=[ChatMessage(role="user", content="Hello")],
+        )
+
+        envelope = await connector._chat_completions_code_assist_streaming(
+            request_data=request,
+            processed_messages=[],
+            effective_model="gemini-2.5-pro",
+        )
+
+        assert isinstance(envelope, StreamingResponseEnvelope)
+        assert envelope.content is not None
+
+        chunks = []
+        async for processed in envelope.content:
+            chunks.append(processed)
+
+        assert chunks, "Expected at least one processed chunk"
+
+        first_chunk = chunks[0].content
+        assert isinstance(first_chunk, dict)
+        first_choice = first_chunk["choices"][0]
+        assert first_choice["delta"].get("content") == "degraded answer"
+
+        final_chunk = chunks[-1]
+        assert final_chunk.usage == degraded_usage
