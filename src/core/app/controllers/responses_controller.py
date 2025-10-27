@@ -166,8 +166,10 @@ class ResponsesController:
                 ):
                     json_schema = response_format.json_schema
                     # Add schema to context for middleware processing
+                    from src.core.domain.request_context import ProcessingContext
+
                     if ctx.processing_context is None:
-                        ctx.processing_context = {}
+                        ctx.processing_context = ProcessingContext(values={})
                     schema_dict = json_schema.get_schema()
                     if not isinstance(schema_dict, dict) or "type" not in schema_dict:
                         raise HTTPException(
@@ -181,7 +183,7 @@ class ResponsesController:
                             },
                         )
 
-                    ctx.processing_context.update(
+                    ctx.processing_context.values.update(
                         {
                             "response_schema": schema_dict,
                             "strict_schema_validation": getattr(

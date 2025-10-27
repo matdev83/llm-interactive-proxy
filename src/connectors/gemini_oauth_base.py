@@ -137,6 +137,39 @@ class GracefulDegradationConfig:
 
 
 @dataclass
+class GracefulDegradationMetrics:
+    """Lightweight telemetry for graceful degradation behavior."""
+
+    total_invocations: int = 0
+    total_attempts: int = 0
+    fallback_invocations: int = 0
+    total_wait_time: float = 0.0
+    last_duration: float = 0.0
+
+    def record_attempt(self) -> None:
+        self.total_attempts += 1
+
+    def record_wait(self, wait_seconds: float) -> None:
+        if wait_seconds > 0:
+            self.total_wait_time += wait_seconds
+
+    def record_fallback(self) -> None:
+        self.fallback_invocations += 1
+
+    def record_duration(self, duration_seconds: float) -> None:
+        self.last_duration = max(0.0, duration_seconds)
+
+    def as_dict(self) -> dict[str, float | int]:
+        return {
+            "total_invocations": self.total_invocations,
+            "total_attempts": self.total_attempts,
+            "fallback_invocations": self.fallback_invocations,
+            "total_wait_time": self.total_wait_time,
+            "last_duration": self.last_duration,
+        }
+
+
+@dataclass
 class ModelRetryState:
     """State tracking for model retry attempts."""
 
@@ -452,6 +485,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         )
 
         # Initialize graceful degradation
+        self._graceful_metrics = GracefulDegradationMetrics()
         self._degradation_config = GracefulDegradationConfig.from_config(self.config)
         self._model_retry_states: dict[str, ModelRetryState] = {}
         self._permanently_failed = False
@@ -500,6 +534,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             and not self._initialization_failed
             and len(self._credential_validation_errors) == 0
         )
+
+    def get_graceful_degradation_metrics(self) -> dict[str, float | int]:
+        """Expose graceful degradation telemetry for diagnostics."""
+        return self._graceful_metrics.as_dict()
 
     def get_validation_errors(self) -> list[str]:
         """Get the current list of credential validation errors.
@@ -1914,7 +1952,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             logger.error(f"Authentication error during API call: {e}", exc_info=True)
             raise
         except BackendError as e:
-            logger.error(f"Backend error during API call: {e}", exc_info=True)
+            if self._is_rate_limit_like_error(e):
+                logger.info("Backend rate limited during API call: %s", e)
+            else:
+                logger.error(f"Backend error during API call: {e}", exc_info=True)
             raise
         except InvalidRequestError as e:
             logger.warning("Request blocked locally: %s", e)
@@ -2645,12 +2686,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             )
             raise
         except BackendError as e:
-            # For quota exceeded errors or rate limits, avoid logging full stack traces
-            if (
-                getattr(e, "status_code", None) == 429
-                or "quota exceeded" in str(e).lower()
-            ):
-                logger.error(f"Backend error during streaming API call: {e}")
+            if self._is_rate_limit_like_error(e):
+                logger.info("Backend rate limited during streaming API call: %s", e)
             else:
                 logger.error(
                     f"Backend error during streaming API call: {e}", exc_info=True
@@ -2992,6 +3029,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         if fallback_model:
             models_to_try.append(fallback_model)
 
+        start_time = time.time()
+        self._graceful_metrics.total_invocations += 1
+
         for _, model in enumerate(models_to_try):
             # Reset attempts for this model if needed
             if model not in self._model_retry_states:
@@ -3043,9 +3083,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     continue
 
             # Try the model with retries
-            for attempt in range(len(self._degradation_config.retry_delays) + 1):
+            is_fallback_model = fallback_model is not None and model == fallback_model
+            fallback_recorded = False
+            max_attempts_for_model = len(self._degradation_config.retry_delays) + 1
+            if model == original_model and fallback_model:
+                max_attempts_for_model = 1
+
+            for attempt in range(max_attempts_for_model):
                 # Check per-request attempt limit (not global) to prevent premature exhaustion
                 if request_attempts >= self._degradation_config.max_total_attempts:
+                    self._graceful_metrics.record_duration(time.time() - start_time)
                     raise BackendError(
                         message="Maximum total attempts exceeded in graceful degradation",
                         code="max_attempts_exceeded",
@@ -3053,6 +3100,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     )
 
                 request_attempts += 1
+                self._graceful_metrics.record_attempt()
+                if hasattr(self, "_total_attempts"):
+                    with contextlib.suppress(Exception):
+                        self._total_attempts += 1  # type: ignore[operator]
 
                 state.attempts = attempt
 
@@ -3077,21 +3128,29 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                             logger.info(
                                 f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt}, base: {base_delay}s, jitter: {jitter:+.1f}s)"
                             )
+                        self._graceful_metrics.record_wait(delay)
                         await asyncio.sleep(delay)
+
+                    if is_fallback_model and not fallback_recorded:
+                        self._graceful_metrics.record_fallback()
+                        fallback_recorded = True
 
                     # Make the API call
                     # IMPORTANT: Always use non-streaming method for graceful degradation
                     # to prevent recursive 429 loops from streaming SSE processing
-                    return await self._chat_completions_code_assist(
+                    result = await self._chat_completions_code_assist(
                         request_data=request_data,
                         processed_messages=processed_messages,
                         effective_model=model,
                         _in_graceful_degradation=True,
                         **kwargs,
                     )
+                    self._graceful_metrics.record_duration(time.time() - start_time)
+                    return result
 
                 except BackendError as e:
                     if not self._is_rate_limit_like_error(e):
+                        self._graceful_metrics.record_duration(time.time() - start_time)
                         raise
 
                     if logger.isEnabledFor(logging.INFO):
@@ -3107,7 +3166,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                             )
 
                     # If this was our last attempt for this model, move to next model
-                    if attempt >= len(self._degradation_config.retry_delays):
+                    if attempt >= max_attempts_for_model - 1:
                         if logger.isEnabledFor(logging.INFO):
                             logger.info(
                                 f"Model {model} exhausted after {attempt + 1} attempts"
@@ -3136,6 +3195,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     self.is_functional = False
 
         # If we get here, all models failed
+        self._graceful_metrics.record_duration(time.time() - start_time)
         self._mark_backend_unusable()
         self._permanently_failed = True
         raise BackendError(

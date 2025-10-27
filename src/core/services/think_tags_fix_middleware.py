@@ -32,16 +32,23 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
 
     _THINK_CLOSING_PATTERN = re.compile(r"</think>", re.IGNORECASE)
 
-    def __init__(self, enabled: bool = True, streaming_buffer_size: int = 4096) -> None:
+    def __init__(
+        self,
+        enabled: bool = True,
+        streaming_buffer_size: int = 4096,
+        per_model_config: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         """Initialize the think tags fix middleware.
 
         Args:
-            enabled: Whether the middleware is enabled
-            streaming_buffer_size: Maximum buffer size for streaming chunks
+            enabled: Whether the middleware is enabled globally
+            streaming_buffer_size: Default maximum buffer size for streaming chunks
+            per_model_config: Per-backend/model configuration dict
         """
         super().__init__(priority=5)  # Run early in the pipeline
         self._enabled = enabled
         self._streaming_buffer_size = streaming_buffer_size
+        self._per_model_config: dict[str, dict[str, Any]] = per_model_config or {}
         self._logger = logging.getLogger(__name__)
 
         # Streaming state management
@@ -52,6 +59,88 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             {}
         )  # Track extracted reasoning per session
         self._stream_states: dict[str, str] = {}  # Track streaming state per session
+
+    def _should_process_for_model(self, backend: str | None, model: str | None) -> bool:
+        """Determine if think tags fix should be enabled for a specific backend/model.
+
+        Args:
+            backend: The backend name (e.g., "openai", "anthropic")
+            model: The model name (e.g., "gpt-4", "claude-3-sonnet")
+
+        Returns:
+            True if think tags fix should be enabled for this backend/model combination
+        """
+        if not backend or not model:
+            return self._enabled
+
+        # Check for exact backend:model match first
+        backend_model_key = f"{backend}:{model}"
+        if backend_model_key in self._per_model_config:
+            config = self._per_model_config[backend_model_key]
+            enabled_raw = config.get("enabled", False)
+            enabled_flag = bool(enabled_raw)
+            return enabled_flag
+
+        # Check for model-only match
+        if model in self._per_model_config:
+            config = self._per_model_config[model]
+            enabled_raw = config.get("enabled", False)
+            enabled_flag = bool(enabled_raw)
+            return enabled_flag
+
+        # Check for backend-only match
+        if backend in self._per_model_config:
+            config = self._per_model_config[backend]
+            enabled_raw = config.get("enabled", False)
+            enabled_flag = bool(enabled_raw)
+            return enabled_flag
+
+        # Fall back to global setting
+        return self._enabled
+
+    def _get_buffer_size_for_model(self, backend: str | None, model: str | None) -> int:
+        """Get the streaming buffer size for a specific backend/model.
+
+        Args:
+            backend: The backend name
+            model: The model name
+
+        Returns:
+            The buffer size to use for this backend/model combination
+        """
+        if not backend or not model:
+            return self._streaming_buffer_size
+
+        # Check for exact backend:model match first
+        backend_model_key = f"{backend}:{model}"
+        if backend_model_key in self._per_model_config:
+            config = self._per_model_config[backend_model_key]
+            buffer_raw = config.get(
+                "streaming_buffer_size", self._streaming_buffer_size
+            )
+            buffer_size = int(buffer_raw)
+            return buffer_size
+
+        # Check for model-only match
+        if model in self._per_model_config:
+            config = self._per_model_config[model]
+            buffer_raw = config.get(
+                "streaming_buffer_size", self._streaming_buffer_size
+            )
+            buffer_size = int(buffer_raw)
+            return buffer_size
+
+        # Check for backend-only match
+        if backend in self._per_model_config:
+            config = self._per_model_config[backend]
+            buffer_raw = config.get(
+                "streaming_buffer_size", self._streaming_buffer_size
+            )
+            buffer_size = int(buffer_raw)
+            return buffer_size
+
+        # Fall back to global setting
+        return self._streaming_buffer_size
 
     def _fix_think_tags(self, content: str) -> tuple[str, str | None]:
         """Fix improperly formatted <think> tags in content.
@@ -108,7 +197,11 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         return response_content, reasoning_content
 
     def _process_streaming_chunk(
-        self, chunk_content: str, session_id: str, is_streaming: bool = False
+        self,
+        chunk_content: str,
+        session_id: str,
+        is_streaming: bool = False,
+        context: dict[str, Any] | None = None,
     ) -> tuple[str, str | None]:
         """Process a streaming chunk and handle think tags that may span multiple chunks.
 
@@ -138,8 +231,14 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         # Add chunk to buffer
         new_buffer = current_buffer + chunk_content
 
+        # Get model-specific buffer size
+        buffer_size = self._get_buffer_size_for_model(
+            context.get("backend") if context else None,
+            context.get("model") if context else None,
+        )
+
         # Prevent buffer overflow
-        if len(new_buffer) > self._streaming_buffer_size:
+        if len(new_buffer) > buffer_size:
             self._logger.warning(
                 f"Streaming buffer overflow for session {session_id}, processing as-is"
             )
@@ -446,7 +545,12 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         Returns:
             The processed response with fixed think tags
         """
-        if not self._enabled:
+        # Extract backend and model from context
+        backend = context.get("backend")
+        model = context.get("model")
+
+        # Check if we should process this backend/model combination
+        if not self._should_process_for_model(backend, model):
             return response
 
         # Convert to ProcessedResponse for consistent handling
@@ -459,7 +563,10 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         if is_streaming:
             # Use streaming-aware processing
             fixed_content, reasoning_metadata = self._process_streaming_chunk(
-                processed_response.content, session_id, is_streaming=True
+                processed_response.content,
+                session_id,
+                is_streaming=True,
+                context=context,
             )
 
             if reasoning_metadata:

@@ -1,325 +1,285 @@
 """
-Behavioral tests for client experience during graceful degradation.
+Client-facing graceful degradation behavior tests targeting the new fallback flow.
 
-These tests verify that clients see NOTHING during the entire graceful degradation
-sequence until the final response is ready, ensuring a transparent experience.
+These scenarios focus on observable outcomes (response timing, fallback selection,
+and metrics) rather than the legacy streaming harness that no longer matches the
+connector internals.
 """
 
-import time
-from dataclasses import dataclass
+from __future__ import annotations
 
+import asyncio
+import time
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
+from typing import Any
+from unittest.mock import MagicMock
+
+import httpx
 import pytest
 from src.connectors.gemini_oauth_base import (
     GeminiOAuthBaseConnector,
     GracefulDegradationConfig,
+    GracefulDegradationMetrics,
 )
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
-pytestmark = pytest.mark.integration
+
+class _TranslationShim:
+    """Minimal translation service to satisfy connector expectations."""
+
+    def from_domain_to_gemini_request(
+        self, request: CanonicalChatRequest
+    ) -> dict[str, Any]:
+        return {
+            "contents": [
+                {
+                    "role": message.role,
+                    "parts": [{"text": message.content}],
+                }
+                for message in request.messages
+            ]
+        }
+
+    def to_domain_stream_chunk(
+        self, chunk: Any, source_format: str, target_format: str = "domain"
+    ) -> Any:
+        return chunk
 
 
 @dataclass
-class MockChatRequest:
-    """Mock chat request for testing."""
+class _ScenarioResult:
+    """Container describing the outcome returned by the mock connector."""
 
-    model: str
-    messages: list
-    stream: bool = True
-    max_tokens: int = 100
-    temperature: float = 0.0
+    content: str
 
 
-class MockGeminiOAuthConnectorForClientTesting(GeminiOAuthBaseConnector):
-    """Mock connector that simulates client experience during graceful degradation."""
+class ClientExperienceConnector(GeminiOAuthBaseConnector):
+    """Test double that exercises graceful degradation logic without real HTTP calls."""
 
-    def __init__(self):
-        config = AppConfig()
-        super().__init__(config)
+    def __init__(self) -> None:
+        config = AppConfigMock()
+        translation = _TranslationShim()
+        client = MagicMock(spec=httpx.AsyncClient)
+        super().__init__(
+            client=client,
+            config=config,
+            translation_service=translation,  # type: ignore[arg-type]
+            name="client-experience",
+        )
 
-        self._api_call_results = {}  # model -> list of results
-        self._api_call_count = {}  # model -> call count
-        self._api_call_timestamps = {}  # model -> list of timestamps
+        self.translation_service = translation  # tighten type for mypy
+        self.gemini_api_base_url = "https://mocked.example.com"
+        self._graceful_metrics = GracefulDegradationMetrics()
 
-        # Configure faster retries for testing (but still realistic delays)
+        self._behavior: dict[str, list[Any]] = {}
+        self._call_count: dict[str, int] = {}
+
+        # Speed up retries for tests while still exercising delay logic.
         self._degradation_config = GracefulDegradationConfig(
             enabled=True,
-            retry_delays=[0.1, 0.2, 0.3],  # Fast for testing: 0.1s, 0.2s, 0.3s
+            retry_delays=[0.1, 0.2, 0.3],
             max_total_attempts=9,
-            cooldown_duration=1.0,
-            enable_recovery_probing=True,
-            recovery_probe_interval=2.0,
+            cooldown_duration=0.0,
+            enable_recovery_probing=False,
+            recovery_probe_interval=60.0,
         )
 
-        # Initialize state
-        self._total_attempts = 0
-        self._permanently_failed = False
-        self._quota_exceeded = False
+        self._oauth_credentials = {"access_token": "test-token"}
 
-    def set_api_behavior(self, model: str, results: list):
-        """Set the behavior for a specific model."""
-        self._api_call_results[model] = results.copy()
-        self._api_call_count[model] = 0
-        self._api_call_timestamps[model] = []
+    def set_behavior(self, model: str, outcomes: list[Any]) -> None:
+        self._behavior[model] = outcomes
+        self._call_count[model] = 0
 
-    async def _make_api_call(self, model: str, **kwargs):
-        """Mock API call that returns predefined results."""
-        call_count = self._api_call_count.get(model, 0)
-        results = self._api_call_results.get(model, [])
+    async def _refresh_token_if_needed(self) -> bool:
+        return True
 
-        # Record timestamp
-        if model not in self._api_call_timestamps:
-            self._api_call_timestamps[model] = []
-        self._api_call_timestamps[model].append(time.time())
+    async def _discover_project_id(self, auth_session: Any) -> str:
+        return "test-project"
 
-        self._api_call_count[model] = call_count + 1
+    async def _chat_completions_code_assist(
+        self,
+        request_data: CanonicalChatRequest,
+        processed_messages: list[Any],
+        effective_model: str,
+        **kwargs: Any,
+    ) -> ResponseEnvelope:
+        index = self._call_count.get(effective_model, 0)
+        self._call_count[effective_model] = index + 1
+        outcomes = self._behavior.get(effective_model, [])
 
-        if call_count < len(results):
-            result = results[call_count]
-            if isinstance(result, Exception):
-                raise result
-            return result
+        outcome = outcomes[index] if index < len(outcomes) else outcomes[-1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        content = outcome if isinstance(outcome, str) else str(outcome)
+        return ResponseEnvelope(content=_ScenarioResult(content=content))
 
-        # Default to success if no specific behavior set
-        return {"success": True, "model": model}
+    async def _chat_completions_code_assist_streaming(
+        self,
+        request_data: CanonicalChatRequest,
+        processed_messages: list[Any],
+        effective_model: str,
+        **kwargs: Any,
+    ) -> StreamingResponseEnvelope:
+        try:
+            response = await self._chat_completions_code_assist(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                **kwargs,
+            )
+        except BackendError as exc:  # pragma: no cover - mirrors parent behavior
+            if getattr(exc, "status_code", None) == 429:
+                response = await self._handle_429_with_graceful_degradation(
+                    original_model=effective_model,
+                    request_data=request_data,
+                    processed_messages=processed_messages,
+                    **kwargs,
+                )
+            else:
+                raise
 
-    async def _discover_project_id(self) -> str:
-        """Mock project ID discovery."""
-        return "test-project-id"
-
-
-class TestClientExperienceDuringGracefulDegradation:
-    """Test client experience during graceful degradation scenarios."""
-
-    @pytest.fixture
-    def connector(self):
-        """Fixture for mock connector."""
-        return MockGeminiOAuthConnectorForClientTesting()
-
-    @pytest.fixture
-    def mock_request(self):
-        """Fixture for mock chat request."""
-        return MockChatRequest(
-            model="gemini-2.5-pro",
-            messages=[{"role": "user", "content": "Hello, how are you?"}],
-            stream=True,
-        )
-
-    @pytest.mark.asyncio
-    async def test_client_transparent_graceful_degradation_experience(
-        self, connector, mock_request
-    ):
-        """Test that client sees nothing during graceful degradation until final response.
-
-        This verifies the expected behavior:
-        - Client submits Pro model request
-        - Pro gets 429 errors and retries with delays
-        - Flash fallback is attempted
-        - Client sees ONLY the final response (success or failure)
-        - No intermediate errors are sent to client
-        """
-
-        start_time = time.time()
-
-        # Setup: Pro model fails 3 times, Flash succeeds
-        error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
-        connector.set_api_behavior(
-            "gemini-2.5-flash", [{"success": True, "model": "gemini-2.5-flash"}]
-        )
-
-        # Execute: Make request that triggers graceful degradation
-        # This simulates the real behavior where graceful degradation happens
-        # internally and client only sees the final result
-        result = await connector.chat_completions(
-            request_data=mock_request,
-            processed_messages=mock_request.messages,
-            effective_model="gemini-2.5-pro",
-        )
-
-        total_wait_time = time.time() - start_time
-
-        # Verify: Client experience - gets single successful result
-        assert result is not None, "Client should receive a successful response"
-
-        # Verify: Graceful degradation happened transparently
-        assert (
-            connector._api_call_count["gemini-2.5-pro"] >= 3
-        ), "Pro model should be retried"
-        assert (
-            connector._api_call_count["gemini-2.5-flash"] >= 1
-        ), "Flash model should be tried"
-
-        # Verify: Client waited through the retry sequence but got final result
-        # (In real implementation, client sees nothing during retries)
-        assert (
-            total_wait_time >= 0.6
-        ), "Client should wait through retry delays (0.1s + 0.2s + 0.3s)"
-
-        print(
-            f"SUCCESS: Client waited {total_wait_time:.1f}s for transparent Pro->Flash fallback"
-        )
-        print(f"Pro attempts: {connector._api_call_count['gemini-2.5-pro']}")
-        print(f"Flash attempts: {connector._api_call_count['gemini-2.5-flash']}")
-
-    @pytest.mark.asyncio
-    async def test_client_sees_final_error_after_complete_exhaustion(
-        self, connector, mock_request
-    ):
-        """Test that client sees error only after both Pro and Flash are exhausted.
-
-        Expected behavior:
-        1. Client submits Pro model request
-        2. Pro fails with 429 errors and retries
-        3. Flash fallback is attempted and also fails with retries
-        4. Client sees ONLY the final error response
-        5. No intermediate 429 errors are sent to client
-        """
-
-        start_time = time.time()
-
-        # Setup: Both Pro and Flash fail completely
-        error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
-        connector.set_api_behavior(
-            "gemini-2.5-flash", [error_429, error_429, error_429]
-        )
-
-        # Execute: Make request that should exhaust both models
-        # This should fail after trying both models
-        with pytest.raises(BackendError) as exc_info:
-            await connector.chat_completions(
-                request_data=mock_request,
-                processed_messages=mock_request.messages,
-                effective_model="gemini-2.5-pro",
+        async def iterator() -> AsyncGenerator[ProcessedResponse, None]:
+            yield ProcessedResponse(
+                content={
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": effective_model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": response.content.content},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
             )
 
-        total_wait_time = time.time() - start_time
+        return StreamingResponseEnvelope(content=iterator())
 
-        # Verify: Final error after complete exhaustion
-        assert "max_attempts_exceeded" in str(
-            exc_info.value
-        ) or "all_models_exhausted" in str(exc_info.value)
 
-        # Verify: Both models were attempted multiple times
-        assert (
-            connector._api_call_count["gemini-2.5-pro"] >= 3
-        ), "Pro model should be retried"
-        assert (
-            connector._api_call_count["gemini-2.5-flash"] >= 1
-        ), "Flash model should be attempted"
+class AppConfigMock(AppConfig):
+    """Use default AppConfig without hitting disk."""
 
-        # Verify: Backend marked as unusable
-        assert connector._quota_exceeded, "Backend should be marked as quota exceeded"
+    def __init__(self) -> None:
+        super().__init__()
 
-        # Verify: Client waited through complete sequence
-        expected_wait_time = 0.6 * 2  # (0.1+0.2+0.3) for Pro + (0.1+0.2+0.3) for Flash
-        assert (
-            total_wait_time >= expected_wait_time * 0.8
-        ), f"Client should wait through complete sequence (~{expected_wait_time}s)"
 
-        print(
-            f"SUCCESS: Client waited {total_wait_time:.1f}s before receiving final error"
-        )
-        print(f"Total Pro attempts: {connector._api_call_count['gemini-2.5-pro']}")
-        print(f"Total Flash attempts: {connector._api_call_count['gemini-2.5-flash']}")
+def _canonical_request(model: str = "gemini-2.5-pro") -> CanonicalChatRequest:
+    return CanonicalChatRequest(
+        model=model,
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
 
-    @pytest.mark.asyncio
-    async def test_client_transparent_model_substitution(self, connector, mock_request):
-        """Test that client gets transparent model substitution.
 
-        Expected behavior:
-        1. Client requests gemini-2.5-pro
-        2. Pro fails, Flash succeeds
-        3. Client receives response (would indicate Flash model was used in real implementation)
-        4. Client is unaware of the Pro->Flash substitution process
-        """
+@pytest.mark.asyncio
+async def test_immediate_fallback_returns_flash_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connector = ClientExperienceConnector()
+    connector.set_behavior(
+        "gemini-2.5-pro",
+        [
+            BackendError("Rate limit", status_code=429),
+        ],
+    )
+    connector.set_behavior("gemini-2.5-flash", ["flash-response"])
 
-        start_time = time.time()
+    start = time.time()
+    response = await connector._handle_429_with_graceful_degradation(
+        original_model="gemini-2.5-pro",
+        request_data=_canonical_request(),
+        processed_messages=[],
+    )
+    elapsed = time.time() - start
 
-        # Setup: Pro fails, Flash succeeds
-        error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
-        connector.set_api_behavior(
-            "gemini-2.5-flash", [{"success": True, "model": "gemini-2.5-flash"}]
-        )
+    assert isinstance(response, ResponseEnvelope)
+    assert response.content.content == "flash-response"  # type: ignore[attr-defined]
+    assert connector._call_count["gemini-2.5-pro"] == 1
+    assert connector._call_count["gemini-2.5-flash"] == 1
+    metrics = connector.get_graceful_degradation_metrics()
+    assert metrics["fallback_invocations"] == 1
+    assert elapsed < 1.0  # No multi-second backoff before fallback
 
-        # Execute: Request Pro model
-        result = await connector.chat_completions(
-            request_data=mock_request,
-            processed_messages=mock_request.messages,
-            effective_model="gemini-2.5-pro",  # Client requested Pro
-        )
 
-        total_wait_time = time.time() - start_time
+@pytest.mark.asyncio
+async def test_flash_failure_marks_backend_unusable() -> None:
+    connector = ClientExperienceConnector()
+    rate_limit = BackendError("Rate limit", status_code=429)
+    connector.set_behavior("gemini-2.5-pro", [rate_limit])
+    connector.set_behavior("gemini-2.5-flash", [rate_limit, rate_limit, rate_limit])
 
-        # Verify: Client gets successful response despite requesting Pro
-        assert result is not None, "Client should receive a successful response"
-
-        # Verify: Transparent fallback occurred
-        assert (
-            connector._api_call_count["gemini-2.5-pro"] >= 3
-        ), "Pro model should be attempted"
-        assert (
-            connector._api_call_count["gemini-2.5-flash"] >= 1
-        ), "Flash model should be used as fallback"
-
-        print(
-            f"SUCCESS: Client requested Pro, transparently received Flash response after {total_wait_time:.1f}s"
+    with pytest.raises(BackendError) as exc:
+        await connector._handle_429_with_graceful_degradation(
+            original_model="gemini-2.5-pro",
+            request_data=_canonical_request(),
+            processed_messages=[],
         )
 
-    @pytest.mark.asyncio
-    async def test_no_partial_responses_during_graceful_degradation(
-        self, connector, mock_request
-    ):
-        """Test that no partial responses are sent during graceful degradation.
-
-        Expected behavior:
-        1. Client submits request
-        2. Graceful degradation happens internally
-        3. Client receives complete response only after degradation completes
-        4. No partial/incomplete responses are sent
-        """
-
-        start_time = time.time()
-
-        # Setup: Pro fails, Flash succeeds after delay
-        error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
-        connector.set_api_behavior(
-            "gemini-2.5-flash", [{"success": True, "model": "gemini-2.5-flash"}]
-        )
-
-        # Execute request
-        result = await connector.chat_completions(
-            request_data=mock_request,
-            processed_messages=mock_request.messages,
-            effective_model="gemini-2.5-pro",
-        )
-
-        total_wait_time = time.time() - start_time
-
-        # Verify: Single complete response after graceful degradation completes
-        assert result is not None, "Client should receive complete response"
-
-        # Verify: Response comes only after graceful degradation completes
-        assert (
-            total_wait_time >= 0.6
-        ), f"Response should come after retry delays complete ({total_wait_time:.1f}s)"
-
-        # Verify: Complete fallback sequence executed
-        assert (
-            connector._api_call_count["gemini-2.5-pro"] >= 3
-        ), "Pro model should be exhausted"
-        assert (
-            connector._api_call_count["gemini-2.5-flash"] >= 1
-        ), "Flash model should be tried"
-
-        print(
-            f"SUCCESS: Complete response came after {total_wait_time:.1f}s (after graceful degradation completed)"
-        )
+    assert exc.value.code == "all_models_exhausted"
+    assert connector._permanently_failed
+    assert not connector.is_backend_functional()
 
 
-if __name__ == "__main__":
-    # Run the tests
-    pytest.main([__file__, "-v", "-s"])
+@pytest.mark.asyncio
+async def test_metrics_capture_wait_time_and_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connector = ClientExperienceConnector()
+    connector._degradation_config.retry_delays = [0.05]
+    rate_limit = BackendError("Rate", status_code=429)
+    connector.set_behavior("gemini-2.5-pro", [rate_limit])
+    connector.set_behavior("gemini-2.5-flash", [rate_limit, "recovered"])
+
+    wait_times: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        wait_times.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    await connector._handle_429_with_graceful_degradation(
+        original_model="gemini-2.5-pro",
+        request_data=_canonical_request(),
+        processed_messages=[],
+    )
+
+    metrics = connector.get_graceful_degradation_metrics()
+    assert wait_times  # ensure we recorded at least one delay
+    assert metrics["total_wait_time"] == pytest.approx(sum(wait_times))
+    assert metrics["total_attempts"] >= 2  # pro attempt + fallback
+    assert metrics["last_duration"] >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_streaming_envelope_carries_fallback_text() -> None:
+    connector = ClientExperienceConnector()
+    connector.set_behavior("gemini-2.5-pro", [BackendError("limit", status_code=429)])
+    connector.set_behavior("gemini-2.5-flash", ["streamed-response"])
+
+    envelope = await connector._handle_429_with_graceful_degradation(
+        original_model="gemini-2.5-pro",
+        request_data=_canonical_request(),
+        processed_messages=[],
+    )
+
+    assert isinstance(envelope, ResponseEnvelope)
+
+    stream_envelope = await connector._chat_completions_code_assist_streaming(
+        request_data=_canonical_request(),
+        processed_messages=[],
+        effective_model="gemini-2.5-pro",
+    )
+    assert isinstance(stream_envelope, StreamingResponseEnvelope)
+
+    collected = []
+
+    async for chunk in stream_envelope.content:  # type: ignore[union-attr]
+        collected.append(chunk.content["choices"][0]["delta"].get("content"))
+
+    assert "streamed-response" in collected

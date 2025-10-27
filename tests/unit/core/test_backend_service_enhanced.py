@@ -21,7 +21,11 @@ from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
 )
-from src.core.domain.request_context import RequestContext
+from src.core.domain.request_context import (
+    RequestContext,
+    RequestCookies,
+    RequestHeaders,
+)
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
@@ -501,10 +505,10 @@ class TestBackendServiceCompletions:
         service._session_service.get_session = AsyncMock(return_value=session_obj)
 
         context = RequestContext(
-            headers={},
-            cookies={},
-            state=None,
-            app_state=None,
+            headers=RequestHeaders(raw={"x-session-id": "session-123"}),
+            cookies=RequestCookies(raw={}),
+            state={},
+            app_state={},
             session_id="session-123",
         )
 
@@ -629,12 +633,10 @@ class TestBackendServiceCompletions:
         service._session_service.get_session = AsyncMock(return_value=session)
 
         context = RequestContext(
-            headers={},
-            cookies={},
-            state=SimpleNamespace(),
-            app_state=SimpleNamespace(),
-            client_host="127.0.0.1",
-            session_id="sess-123",
+            headers=RequestHeaders(raw={"x-session-id": "session-123"}),
+            cookies=RequestCookies(raw={}),
+            state={},
+            app_state={},
         )
 
         request_with_session = chat_request.model_copy(

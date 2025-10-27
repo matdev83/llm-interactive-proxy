@@ -179,12 +179,17 @@ class IntelligentSessionResolver(ISessionResolver):
         components = []
 
         # Include client host/IP if configured
-        if self._client_key_includes_ip and context.client_host:
-            components.append(context.client_host)
+        if self._client_key_includes_ip:
+            client_host = context.client_host
+            if isinstance(client_host, str) and client_host:
+                components.append(client_host)
 
         # Include user agent (always)
         user_agent = context.headers.get("user-agent", "unknown")
-        components.append(user_agent)
+        if user_agent is not None:
+            components.append(user_agent)
+        else:
+            components.append("unknown")
 
         # Hash to create stable but anonymized key
         key_str = "|".join(components)

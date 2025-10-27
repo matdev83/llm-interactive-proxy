@@ -11,6 +11,7 @@ import pytest
 from src.connectors.gemini_oauth_base import (
     GeminiOAuthBaseConnector,
     GracefulDegradationConfig,
+    GracefulDegradationMetrics,
     ModelRetryState,
 )
 from src.core.common.exceptions import BackendError
@@ -70,6 +71,7 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         # Mock API call behavior
         self._api_call_results: dict[str, list[Any]] = {}
         self._api_call_count: dict[str, int] = {}
+        self._graceful_metrics = GracefulDegradationMetrics()
 
     def set_api_behavior(self, model: str, results: list[Any]) -> None:
         """Configure mock API behavior for a model."""
@@ -237,7 +239,7 @@ class TestDisableGeminiOAuthFallbackBehavior:
         )
 
         # Verify: Both models were attempted
-        assert connector_fallback_enabled._api_call_count["gemini-2.5-pro"] >= 3
+        assert connector_fallback_enabled._api_call_count["gemini-2.5-pro"] == 2
         assert connector_fallback_enabled._api_call_count["gemini-2.5-flash"] >= 1
 
         # Verify: Request succeeded
@@ -320,7 +322,7 @@ class TestDisableGeminiOAuthFallbackBehavior:
             )
 
         # Verify: Both models were attempted
-        assert connector_fallback_enabled._api_call_count["gemini-2.5-pro"] >= 3
+        assert connector_fallback_enabled._api_call_count["gemini-2.5-pro"] == 2
         assert connector_fallback_enabled._api_call_count["gemini-2.5-flash"] >= 1
 
         # Cleanup
