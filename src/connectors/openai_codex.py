@@ -1166,6 +1166,17 @@ class OpenAICodexConnector(OpenAIConnector):
 
         return headers
 
+    def _refresh_codex_headers_auth(
+        self, headers: dict[str, str], conversation_id: str
+    ) -> None:
+        """Update Codex headers in place with latest auth token and session markers."""
+        fresh_headers = self.get_headers() or {}
+        for key, value in fresh_headers.items():
+            headers[key] = value
+        # Ensure conversation metadata stays aligned with the current request
+        headers["conversation_id"] = conversation_id
+        headers["session_id"] = conversation_id
+
     @staticmethod
     def _extract_status_code_from_payload(
         payload: Mapping[str, Any] | None
@@ -1393,8 +1404,8 @@ class OpenAICodexConnector(OpenAIConnector):
                                 attempts_used += 1
                                 if delay > 0:
                                     await asyncio.sleep(delay)
-                                current_headers = self._build_codex_headers(
-                                    conversation_id
+                                self._refresh_codex_headers_auth(
+                                    current_headers, conversation_id
                                 )
                                 continue
                             raise
@@ -1467,7 +1478,9 @@ class OpenAICodexConnector(OpenAIConnector):
                             attempts_used += 1
                             if delay > 0:
                                 await asyncio.sleep(delay)
-                            current_headers = self._build_codex_headers(conversation_id)
+                            self._refresh_codex_headers_auth(
+                                current_headers, conversation_id
+                            )
                             continue
 
                         current_cancel[0] = None
@@ -1509,7 +1522,7 @@ class OpenAICodexConnector(OpenAIConnector):
                     refreshed = await self._refresh_access_token()
                     if refreshed:
                         # No need to rebuild payload or conversation_id - just update headers with new token
-                        headers = self._build_codex_headers(conversation_id)
+                        self._refresh_codex_headers_auth(headers, conversation_id)
                         continue
                 raise
 
