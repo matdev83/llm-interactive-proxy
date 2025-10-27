@@ -63,7 +63,7 @@ async def test_chat_completions_with_tiktoken_usage_calculation():
         "choices": [{"delta": {"content": "World"}}]
     }
     mock_translation_service.from_domain_to_openai_response.side_effect = (
-        lambda response: {
+        lambda openai_response: {
             "id": "chatcmpl-123",
             "object": "chat.completion",
             "created": 1234567890,
@@ -73,12 +73,12 @@ async def test_chat_completions_with_tiktoken_usage_calculation():
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": response.choices[0].message.content,
+                        "content": openai_response.choices[0].message.content,
                     },
                     "finish_reason": "stop",
                 }
             ],
-            "usage": response.usage,
+            "usage": openai_response.usage,
         }
     )
 

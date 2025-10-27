@@ -30,6 +30,8 @@ import uvicorn
 
 # Suppress Windows ProactorEventLoop and upstream websockets deprecations for this module
 pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.network,
     pytest.mark.filterwarnings(
         "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
     ),

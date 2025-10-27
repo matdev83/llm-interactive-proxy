@@ -30,9 +30,6 @@ from watchdog.observers import Observer
 
 from src.core.domain.chat import (
     CanonicalChatRequest,
-    CanonicalChatResponse,
-    ChatCompletionChoice,
-    ChatCompletionChoiceMessage,
     ChatMessage,
 )
 
@@ -50,7 +47,6 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.gemini_metadata import (
     create_gemini_generation_config,
     create_gemini_response_metadata,
-    create_gemini_usage_info,
 )
 from src.core.domain.responses import (
     ProcessedResponse,
@@ -1867,22 +1863,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making Code Assist API call to: {url}")
 
-            # Use the auth_session.request exactly like KiloCode
-            # Add ?alt=sse for server-sent events streaming
-            # Use tuple for (connect_timeout, read_timeout) to handle large responses
-            # REMOVED: Duplicate non-streaming request that was causing 429 errors
-            # The actual streaming request is made in stream_generator() method
-            with contextlib.suppress(Exception):
-                # Skip the duplicate request - we'll handle everything in streaming mode
-                pass
-
-            # FIXED: Make direct non-streaming API call instead of calling streaming method
-            # This prevents duplicate requests that cause 429 quota exhaustion errors
-            response = None
-            generated_text = ""
-
+            # Make the actual API call
             try:
-                # Make direct API call for non-streaming mode
                 response = await asyncio.to_thread(
                     auth_session.request,
                     method="POST",
@@ -1891,133 +1873,35 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     headers={"Content-Type": "application/json"},
                     timeout=int(DEFAULT_READ_TIMEOUT),
                 )
+            except requests.exceptions.Timeout as te:
+                logger.error(f"Timeout calling {url}: {te}", exc_info=True)
+                raise BackendError(f"Request timeout: {te}")
+            except requests.exceptions.RequestException as rexc:
+                logger.error(f"Connection error calling {url}: {rexc}", exc_info=True)
+                raise BackendError(f"Connection failed: {rexc}")
 
-                response_text = response.text
-                if logger.isEnabledFor(logging.DEBUG):
-                    preview = response_text[:512]
-                    if len(response_text) > 512:
-                        preview += "…"
-                    logger.debug(
-                        "Gemini response summary: status=%s content_type=%s body_preview=%s",
-                        response.status_code,
-                        response.headers.get("Content-Type"),
-                        preview,
-                    )
+            if response.status_code >= 400:
+                self._handle_streaming_error(response)
 
-                if response.status_code >= 400:
-                    if response.status_code == 429:
-                        # Prevent recursive graceful degradation calls
-                        if _in_graceful_degradation:
-                            raise BackendError(
-                                message="Rate limit exceeded during graceful degradation",
-                                code="rate_limit_exceeded",
-                                status_code=429,
-                            )
-
-                        # Handle 429 with graceful degradation
-                        return await self._handle_429_with_graceful_degradation(
-                            original_model=effective_model,
-                            request_data=request_data,
-                            processed_messages=processed_messages,
-                            **kwargs,
-                        )
-                    else:
-                        self._handle_streaming_error(response)
-
-                # Parse the non-streaming response
-                try:
-                    response_data = response.json()
-                except ValueError as exc:  # pragma: no cover - defensive logging
-                    preview = response_text[:512]
-                    if len(response_text) > 512:
-                        preview += "…"
-                    logger.error(
-                        "Failed to decode Gemini JSON response: %s; body_preview=%s",
-                        exc,
-                        preview,
-                        exc_info=True,
-                    )
-                    raise BackendError(
-                        message="Gemini API returned invalid JSON payload",
-                        code="invalid_json",
-                        status_code=502,
-                    ) from exc
-
-                generated_text = self._extract_generated_text_from_response(
-                    response_data
-                )
-
-            except BackendError:
-                raise
-            except Exception as e:
-                logger.error(f"Error in non-streaming API call: {e}", exc_info=True)
-                raise BackendError(f"Non-streaming API call failed: {e}") from e
-            finally:
-                if response is not None:
-                    with contextlib.suppress(Exception):
-                        response.close()
-
-            # Manually calculate token usage since the API doesn't provide it
+            # Extract and process the response
             try:
-                encoding = tiktoken.get_encoding("cl100k_base")
-
-                if prompt_tokens_estimate is None:
-                    prompt_text_parts = []
-                    if code_assist_request.get("systemInstruction"):
-                        for part in code_assist_request["systemInstruction"].get(
-                            "parts", []
-                        ):
-                            if "text" in part:
-                                prompt_text_parts.append(part["text"])
-
-                    for content in code_assist_request.get("contents", []):
-                        for part in content.get("parts", []):
-                            if "text" in part:
-                                prompt_text_parts.append(part["text"])
-
-                    full_prompt = "\n".join(prompt_text_parts)
-                    prompt_tokens = len(encoding.encode(full_prompt))
-                else:
-                    prompt_tokens = prompt_tokens_estimate
-
-                # Calculate completion tokens from the actual response
-                completion_tokens = (
-                    len(encoding.encode(generated_text)) if generated_text else 0
+                response_json = response.json()
+                openai_response = self._extract_generated_text_from_response(
+                    response_json
                 )
-                total_tokens = prompt_tokens + completion_tokens
-                usage = create_gemini_usage_info(
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=total_tokens,
-                ).model_dump()
             except Exception as e:
-                logger.warning(f"Could not calculate token usage with tiktoken: {e}")
-                usage = create_gemini_usage_info(
-                    prompt_tokens=0, completion_tokens=0, total_tokens=0
-                ).model_dump()
+                logger.error(f"Failed to process API response: {e}", exc_info=True)
+                raise BackendError(f"Failed to process API response: {e}")
 
-            # Create a new CanonicalChatResponse with the full content and usage
-            domain_response = CanonicalChatResponse(
-                id=f"chatcmpl-code-assist-{int(time.time())}",
-                object="chat.completion",
-                created=int(time.time()),
-                model=effective_model,
-                choices=[
-                    ChatCompletionChoice(
-                        index=0,
-                        message=ChatCompletionChoiceMessage(
-                            role="assistant", content=generated_text
-                        ),
-                        finish_reason="stop",
-                    )
-                ],
-                usage=usage,
-            )
-
-            # Convert to OpenAI-compatible format
-            openai_response = self.translation_service.from_domain_to_openai_response(
-                domain_response
-            )
+            # Calculate usage (best effort)
+            encoding = tiktoken.get_encoding("cl100k_base")
+            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
+            completion_tokens = len(encoding.encode(openai_response))
+            usage = {
+                "prompt_tokens": prompt_tokens_estimate or 0,
+                "completion_tokens": completion_tokens,
+                "total_tokens": (prompt_tokens_estimate or 0) + completion_tokens,
+            }
 
             logger.info(
                 "Successfully received and processed response from Code Assist API"
@@ -2254,8 +2138,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                     # Convert non-streaming response to streaming chunks
                                     # This is a fallback case, shouldn't normally happen
                                     # Ensure we always yield at least one chunk to prevent empty responses
+                                    chunks_yielded: bool = (
+                                        False  # Initialize the variable
+                                    )
                                     if not chunks_yielded:
-                                        logger.warning("No chunks were yielded during streaming, sending fallback response")
+                                        logger.warning(
+                                            "No chunks were yielded during streaming, sending fallback response"
+                                        )
                                         fallback_chunk = self.translation_service.to_domain_stream_chunk(
                                             chunk={
                                                 "id": f"chatcmpl-fallback-{int(time.time())}",
@@ -2265,36 +2154,42 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                                 "choices": [
                                                     {
                                                         "index": 0,
-                                                        "delta": {"content": "I apologize, but there was an issue with the streaming response. Please try again."},
-                                                        "finish_reason": None
+                                                        "delta": {
+                                                            "content": "I apologize, but there was an issue with the streaming response. Please try again."
+                                                        },
+                                                        "finish_reason": None,
                                                     }
-                                                ]
+                                                ],
                                             },
-                                            source_format="code_assist"
+                                            source_format="code_assist",
                                         )
                                         yield ProcessedResponse(content=fallback_chunk)
-                                    
+
                                     # Ensure we always yield at least one chunk to prevent empty responses
                                     if not chunks_yielded:
-                                        logger.warning("No chunks were yielded during streaming, sending fallback response")
+                                        logger.warning(
+                                            "No chunks were yielded during streaming, sending fallback response"
+                                        )
                                         fallback_chunk = self.translation_service.to_domain_stream_chunk(
                                             chunk={
                                                 "id": f"chatcmpl-fallback-{int(time.time())}",
-                                                "object": "chat.completion.chunk", 
+                                                "object": "chat.completion.chunk",
                                                 "created": int(time.time()),
                                                 "model": "code-assist-model",
                                                 "choices": [
                                                     {
                                                         "index": 0,
-                                                        "delta": {"content": "I apologize, but there was an issue with the streaming response. Please try again."},
-                                                        "finish_reason": None
+                                                        "delta": {
+                                                            "content": "I apologize, but there was an issue with the streaming response. Please try again."
+                                                        },
+                                                        "finish_reason": None,
                                                     }
-                                                ]
+                                                ],
                                             },
-                                            source_format="code_assist"
+                                            source_format="code_assist",
                                         )
                                         yield ProcessedResponse(content=fallback_chunk)
-                                    
+
                                     final_chunk = (
                                         self.translation_service.to_domain_stream_chunk(
                                             chunk=None, source_format="code_assist"
@@ -2426,12 +2321,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                     # Log incomplete/malformed JSON chunks for debugging
                                     logger.warning(
                                         "Received malformed JSON chunk in streaming response: %s (error: %s)",
-                                        data_str[:100] + "..." if len(data_str) > 100 else data_str,
-                                        str(e)
+                                        (
+                                            data_str[:100] + "..."
+                                            if len(data_str) > 100
+                                            else data_str
+                                        ),
+                                        str(e),
                                     )
                                     # For incomplete chunks, yield an error response to prevent empty responses
-                                    if data_str and not data_str.strip().endswith('}'):
-                                        logger.error("Detected incomplete JSON chunk, yielding error response")
+                                    if data_str and not data_str.strip().endswith("}"):
+                                        logger.error(
+                                            "Detected incomplete JSON chunk, yielding error response"
+                                        )
                                         error_chunk = self.translation_service.to_domain_stream_chunk(
                                             chunk=None, source_format="code_assist"
                                         )
@@ -2447,10 +2348,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                         )
                                     )
                                 except Exception as e:
-                                    logger.error("Failed to process streaming chunk: %s", str(e))
+                                    logger.error(
+                                        "Failed to process streaming chunk: %s", str(e)
+                                    )
                                     # Yield an error chunk to prevent empty responses
-                                    error_chunk = self.translation_service.to_domain_stream_chunk(
-                                        chunk=None, source_format="code_assist"
+                                    error_chunk = (
+                                        self.translation_service.to_domain_stream_chunk(
+                                            chunk=None, source_format="code_assist"
+                                        )
                                     )
                                     yield ProcessedResponse(content=error_chunk)
                                     done = True
@@ -2661,7 +2566,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                         usage = {
                             "prompt_tokens": prompt_tokens,
                             "completion_tokens": completion_tokens,
-                            "total_tokens": prompt_tokens + completion_tokens,
+                            "total_tokens": (prompt_tokens or 0) + completion_tokens,
                         }
                         usage_chunk = {
                             "id": f"chatcmpl-gemini-usage-{int(time.time())}",

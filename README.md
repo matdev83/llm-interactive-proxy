@@ -207,6 +207,77 @@ python -m src.core.cli \
 
 The system operates transparently in the background, only intervening when it detects genuine unproductive patterns with high confidence. Assessment failures never break the main conversation flow.
 
+## Think Tags Fix
+
+Some models from less known vendors produce `<think>` tags inside plain message body instead of using standard reasoning/thinking token separation. This results in reasoning content being visible to users as part of the response.
+
+### Problem Example
+```
+Model output: "<think>Let me analyze this step by step...</think>Here's the answer: 42."
+User sees: "<think>Let me analyze this step by step...</think>Here's the answer: 42."
+```
+
+### Solution
+The think tags fix feature detects and corrects such improperly marked reasoning streams:
+
+```
+Model output: "<think>Let me analyze this step by step...</think>Here's the answer: 42."
+User sees: "Here's the answer: 42."
+Developer access: "Let me analyze this step by step..." (in reasoning field/metadata)
+```
+
+### Configuration
+
+Enable via CLI flag:
+```bash
+python -m src.core.cli --fix-think-tags
+```
+
+Enable via environment variable:
+```bash
+export FIX_THINK_TAGS_ENABLED=true
+export FIX_THINK_TAGS_STREAMING_BUFFER_SIZE=4096  # Optional: buffer size for streaming
+```
+
+Enable via config file:
+```yaml
+session:
+  fix_think_tags_enabled: true
+  fix_think_tags_streaming_buffer_size: 4096  # Optional: default 4KB
+```
+
+### Features
+
+- **Universal Backend Support**: Works with all connectors (OpenAI, Anthropic, Gemini, custom backends)
+- **Streaming Support**: Handles think tags split across multiple streaming chunks with session-based buffering
+- **Reasoning Preservation**: Preserves reasoning content in appropriate fields instead of discarding it
+- **Multiple Response Formats**: 
+  - OpenAI-style: Adds `reasoning` field to message
+  - Dict responses: Adds reasoning to metadata
+  - ProcessedResponse: Adds reasoning to metadata
+- **Standards Compliant**: Follows established LLM API patterns for reasoning separation
+- **Opt-in Feature**: Disabled by default, no impact on existing functionality
+
+### Client Integration
+
+Web UI example:
+```javascript
+// Show clean response with optional reasoning
+if (response.message.reasoning) {
+  showExpandableReasoning(response.message.reasoning);
+}
+displayMainResponse(response.message.content);
+```
+
+API client example:
+```python
+# Handle reasoning appropriately
+if response.metadata.get("reasoning"):
+    log_reasoning_for_debugging(response.metadata["reasoning"])
+    show_thinking_if_requested(response.metadata["reasoning"])
+display_clean_response(response.content)
+```
+
 ## Killer Features
 
 ### Compatibility
@@ -382,6 +453,7 @@ Useful flags
 - `--strict-command-detection` to enable strict command detection (only process commands on last non-blank line)
 - `--enable-pytest-compression` to enable pytest output compression
 - `--enable-pytest-context-saving` to enable automatic addition of `-r fE` and `-q` flags to pytest commands
+- `--fix-think-tags` to enable correction of improperly formatted `<think>` tags in model responses
 - `--enable-edit-precision` / `--disable-edit-precision` to control automated edit-precision tuning
 - `--edit-precision-temperature TEMP` to set target temperature for edit failures (default: 0.1)
 - `--edit-precision-min-top-p FLOAT` to set minimum top_p for edit failures (default: 0.3)
@@ -1000,6 +1072,10 @@ The feature can be controlled via CLI flag, environment variable, or the `config
   ```yaml
   session:
     pytest_compression_enabled: true  # Default: true
+  
+  # Fix improperly formatted <think> tags in model responses
+  fix_think_tags_enabled: false  # Set to true to enable think tags correction
+  fix_think_tags_streaming_buffer_size: 4096  # Buffer size for streaming (optional)
   ```
 
 **Example Output Transformation:**

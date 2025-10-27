@@ -37,6 +37,9 @@ session:
   # Tool call reactor steering for pytest full-suite runs (requires opt-in)
   pytest_full_suite_steering_enabled: false
 
+  # Fix improperly formatted <think> tags in model responses
+  fix_think_tags_enabled: false  # Set to true to enable think tags correction
+
 # Logging
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL

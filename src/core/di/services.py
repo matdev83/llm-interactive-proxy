@@ -587,6 +587,28 @@ def register_core_services(
                 exc_info=True,
             )
 
+        # Think tags fix middleware (optional)
+        try:
+            if getattr(cfg.session, "fix_think_tags_enabled", False):
+                from src.core.services.think_tags_fix_middleware import (
+                    ThinkTagsFixMiddleware,
+                )
+
+                # Configure streaming buffer size from config
+                buffer_size = getattr(
+                    cfg.session, "fix_think_tags_streaming_buffer_size", 4096
+                )
+                middlewares.append(
+                    ThinkTagsFixMiddleware(
+                        enabled=True, streaming_buffer_size=buffer_size
+                    )
+                )
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Error configuring ThinkTagsFixMiddleware: {e}",
+                exc_info=True,
+            )
+
         if getattr(cfg.session, "json_repair_enabled", False):
             json_service: JsonRepairService = provider.get_required_service(
                 JsonRepairService

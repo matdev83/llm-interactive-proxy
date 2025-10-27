@@ -9,6 +9,7 @@ import pytest
 import requests
 
 pytestmark = [
+    pytest.mark.network,
     pytest.mark.integration,
     pytest.mark.no_global_mock,
     # Suppress occasional unclosed file warning from pytest internals on Windows

@@ -368,6 +368,9 @@ class ToolCallReactorConfig(DomainModel):
     pytest_context_saving_enabled: bool = False
     """Whether pytest context-saving command rewrites are enabled."""
 
+    fix_think_tags_enabled: bool = False
+    """Whether correction of improperly formatted <think> tags is enabled."""
+
     # New: fully configurable steering rules
     steering_rules: list[dict[str, Any]] = Field(default_factory=list)
     """Configurable steering rules.
@@ -438,6 +441,8 @@ class SessionConfig(DomainModel):
     pytest_compression_min_lines: int = 30
     pytest_full_suite_steering_enabled: bool | None = None
     pytest_full_suite_steering_message: str | None = None
+    fix_think_tags_enabled: bool = False
+    fix_think_tags_streaming_buffer_size: int = 4096
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
     max_per_session_backends: int = 32
     session_continuity: SessionContinuityConfig = Field(
@@ -1175,6 +1180,20 @@ class AppConfig(DomainModel, IConfig):
                 "PYTEST_FULL_SUITE_STEERING_MESSAGE",
                 None,
                 path="session.pytest_full_suite_steering_message",
+                resolution=resolution,
+            ),
+            "fix_think_tags_enabled": _env_to_bool(
+                "FIX_THINK_TAGS_ENABLED",
+                False,
+                env,
+                path="session.fix_think_tags_enabled",
+                resolution=resolution,
+            ),
+            "fix_think_tags_streaming_buffer_size": _env_to_int(
+                "FIX_THINK_TAGS_STREAMING_BUFFER_SIZE",
+                4096,
+                env,
+                path="session.fix_think_tags_streaming_buffer_size",
                 resolution=resolution,
             ),
             "planning_phase": {

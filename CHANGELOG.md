@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Think Tags Fix Feature**: Added `--fix-think-tags` CLI flag and `FIX_THINK_TAGS_ENABLED` environment variable to correct improperly formatted `<think>` tags in model responses
+  - Detects and fixes models that expose reasoning content as `<think>reasoning</think>response` instead of using proper reasoning/thinking token separation
+  - Preserves reasoning content in appropriate fields (OpenAI-style `reasoning` field, metadata, etc.) instead of discarding it
+  - Full streaming support with session-based buffering for think tags split across multiple chunks
+  - Universal backend compatibility - works with all connectors (OpenAI, Anthropic, Gemini, custom, etc.)
+  - Multiple response format support: OpenAI-style responses, dict responses, ProcessedResponse objects
+  - Configurable streaming buffer size via `FIX_THINK_TAGS_STREAMING_BUFFER_SIZE` environment variable
+  - Opt-in feature (disabled by default) with comprehensive logging and debugging metadata
+  - Standards-compliant reasoning separation following established LLM API patterns
+
 ## [2025-10-23]
 
 ### Added

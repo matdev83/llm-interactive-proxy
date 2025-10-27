@@ -27,6 +27,7 @@ import requests
 import yaml
 
 pytestmark = [
+    pytest.mark.network,
     pytest.mark.integration,
     pytest.mark.no_global_mock,
     pytest.mark.xdist_group(

@@ -124,9 +124,6 @@ def test_specific_code_assist_pattern_not_present():
     """
     file_path = "src/connectors/gemini_oauth_base.py"
 
-    if not os.path.exists(file_path):
-        pytest.skip(f"File {file_path} not found")
-
     with open(file_path) as f:
         content = f.read()
 
@@ -169,9 +166,6 @@ def test_cloud_project_pattern_not_present():
     Test that the cloud project connector doesn't have the same issue.
     """
     file_path = "src/connectors/gemini_cloud_project.py"
-
-    if not os.path.exists(file_path):
-        pytest.skip(f"File {file_path} not found")
 
     with open(file_path) as f:
         content = f.read()
@@ -262,9 +256,6 @@ def test_quota_exhaustion_prevention_mechanisms_exist():
     """
     file_path = "src/connectors/gemini_oauth_base.py"
 
-    if not os.path.exists(file_path):
-        pytest.skip(f"File {file_path} not found")
-
     with open(file_path) as f:
         content = f.read()
 
@@ -292,9 +283,6 @@ def test_request_counter_mechanism_exists():
     Test that request counter mechanism exists for tracking API usage.
     """
     file_path = "src/connectors/gemini_oauth_base.py"
-
-    if not os.path.exists(file_path):
-        pytest.skip(f"File {file_path} not found")
 
     with open(file_path) as f:
         content = f.read()

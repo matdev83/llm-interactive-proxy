@@ -34,8 +34,12 @@ MOCK_RESPONSE = {
 }
 
 
-@pytest.mark.skip(
-    reason="Reasoning-effort and thinking-budget features are not yet implemented"
+# TODO: Implement reasoning-effort and thinking-budget features - tests ready for implementation
+# Change the skipif condition to a feature flag when implementing these features
+# Feature flags to consider: REASONING_EFFORT_ENABLED, THINKING_BUDGET_ENABLED
+@pytest.mark.skipif(
+    False,  # Change to feature flag check when implemented (e.g., not config.REASONING_EFFORT_ENABLED)
+    reason="TODO: Implement reasoning-effort and thinking-budget features - tests ready for implementation",
 )
 @pytest.mark.integration
 @patch("requests.post")
@@ -123,8 +127,12 @@ def test_provider_specific_reasoning(mock_post):
         assert "provider_info" in result
 
 
-@pytest.mark.skip(
-    reason="Reasoning-effort and thinking-budget features are not yet implemented"
+# TODO: Implement reasoning-effort and thinking-budget features - tests ready for implementation
+# Change the skipif condition to a feature flag when implementing these features
+# Feature flags to consider: REASONING_EFFORT_ENABLED, THINKING_BUDGET_ENABLED
+@pytest.mark.skipif(
+    False,  # Change to feature flag check when implemented (e.g., not config.REASONING_EFFORT_ENABLED)
+    reason="TODO: Implement reasoning-effort and thinking-budget features - tests ready for implementation",
 )
 @pytest.mark.integration
 @pytest.mark.asyncio

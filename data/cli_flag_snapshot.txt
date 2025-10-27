@@ -41,6 +41,7 @@
 --enable-pytest-compression
 --enable-pytest-context-saving
 --enable-pytest-full-suite-steering
+--fix-think-tags
 --force-context-window
 --force-set-project
 --gemini-api-base-url

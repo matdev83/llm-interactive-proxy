@@ -322,16 +322,32 @@ def test_invalid_command_prefix_cli(
 def test_check_privileges_root(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.core.cli import _check_privileges
 
-    # Force Unix/Linux path by mocking os.name
-    monkeypatch.setattr(os, "name", "posix")
-    monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
+    # Simulate elevated privileges regardless of platform
+    monkeypatch.setattr("src.core.cli._is_admin", lambda: True)
 
-    with pytest.raises(SystemExit):
+    expected_message = (
+        "Refusing to run as root user"
+        if os.name != "nt"
+        else "Refusing to run with administrative privileges"
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
         _check_privileges()
+
+    assert str(exc_info.value) == expected_message
 
 
 def test_check_privileges_non_root(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.core.cli import _check_privileges
+
+    # Mock all the group checking functions to avoid false positives
+    try:
+        import grp
+
+        monkeypatch.setattr(grp, "getgrnam", lambda name: None, raising=False)
+    except ImportError:
+        # grp module doesn't exist on Windows
+        pass
 
     # Mock Unix/Linux non-root check
     monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
@@ -367,6 +383,130 @@ def test_check_privileges_non_admin_windows(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(ctypes.windll, "shell32", mock_shell32)
 
     _check_privileges()
+
+
+def test_check_privileges_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test admin privilege detection (cross-platform)."""
+    from src.core.cli import _check_privileges, _has_privilege_functionality
+
+    # Skip test if platform doesn't support privilege checking
+    if not _has_privilege_functionality():
+        pytest.skip("Platform doesn't support privilege checks")
+
+    if os.name != "nt":
+        # Mock Unix/Linux admin check (root user)
+        monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
+
+        with pytest.raises(SystemExit, match="Refusing to run as root user"):
+            _check_privileges()
+    else:
+        # Mock Windows admin check
+        import ctypes
+
+        monkeypatch.setattr(ctypes, "windll", MagicMock())
+        mock_shell32 = MagicMock()
+        mock_shell32.IsUserAnAdmin.return_value = 1
+        monkeypatch.setattr(ctypes.windll, "shell32", mock_shell32)
+
+        with pytest.raises(
+            SystemExit, match="Refusing to run with administrative privileges"
+        ):
+            _check_privileges()
+
+
+def test_check_privileges_non_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test non-admin privilege detection (cross-platform)."""
+    from src.core.cli import _check_privileges, _has_privilege_functionality
+
+    # Skip test if platform doesn't support privilege checking
+    if not _has_privilege_functionality():
+        pytest.skip("Platform doesn't support privilege checks")
+
+    if os.name != "nt":
+        # Mock all the group checking functions to avoid false positives
+        import grp
+
+        monkeypatch.setattr(grp, "getgrnam", lambda name: None, raising=False)
+
+        # Mock Unix/Linux non-admin check (regular user)
+        monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
+
+        # Should not raise an exception for non-admin users
+        _check_privileges()
+    else:
+        # Mock Windows non-admin check
+        import ctypes
+
+        monkeypatch.setattr(ctypes, "windll", MagicMock())
+        mock_shell32 = MagicMock()
+        mock_shell32.IsUserAnAdmin.return_value = 0
+        monkeypatch.setattr(ctypes.windll, "shell32", mock_shell32)
+
+        # Should not raise an exception for non-admin users
+        _check_privileges()
+
+
+def test_check_privileges_is_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test the _is_admin utility function (cross-platform)."""
+    from src.core.cli import _has_privilege_functionality, _is_admin
+
+    # Skip test if platform doesn't support privilege checking
+    if not _has_privilege_functionality():
+        pytest.skip("Platform doesn't support privilege checks")
+
+    if os.name != "nt":
+        # Mock all the group checking functions to avoid false positives
+        import grp
+
+        monkeypatch.setattr(grp, "getgrnam", lambda name: None, raising=False)
+
+        # Test Unix/Linux admin detection (root user)
+        monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
+        assert _is_admin() is True
+
+        # Test Unix/Linux non-admin detection (regular user)
+        monkeypatch.setattr(os, "geteuid", lambda: 1000, raising=False)
+        assert _is_admin() is False
+
+        # Test Unix/Linux with missing geteuid (fallback)
+        monkeypatch.delattr(os, "geteuid", raising=False)
+        assert _is_admin() is False
+    else:
+        # Test Windows admin detection
+        import ctypes
+
+        monkeypatch.setattr(ctypes, "windll", MagicMock())
+        mock_shell32 = MagicMock()
+        mock_shell32.IsUserAnAdmin.return_value = 1
+        monkeypatch.setattr(ctypes.windll, "shell32", mock_shell32)
+        assert _is_admin() is True
+
+        # Test Windows non-admin detection
+        mock_shell32.IsUserAnAdmin.return_value = 0
+        assert _is_admin() is False
+
+        # Test Windows with missing windll (fallback)
+        monkeypatch.delattr(ctypes, "windll", raising=False)
+        assert _is_admin() is False
+
+
+def test_check_privileges_has_functionality() -> None:
+    """Test the _has_privilege_functionality utility function."""
+    from src.core.cli import _has_privilege_functionality
+
+    # Should return True on both Unix/Linux and Windows platforms
+    # (assuming the platform supports the necessary functions)
+    result = _has_privilege_functionality()
+    assert isinstance(result, bool)
+
+    # The function should return True on most modern systems
+    # that support privilege checking functionality
+    if os.name != "nt":
+        # Unix/Linux systems should have geteuid
+        assert result is True
+    else:
+        # Windows systems should have ctypes.windll
+        assert result is True
 
 
 def test_parse_cli_args_basic() -> None:

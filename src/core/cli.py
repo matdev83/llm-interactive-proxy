@@ -507,6 +507,15 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Enable pytest context saving - adds -r fE and -q flags to pytest commands (overrides config)",
     )
 
+    # Think tags fix
+    parser.add_argument(
+        "--fix-think-tags",
+        action="store_true",
+        dest="fix_think_tags_enabled",
+        default=None,
+        help="Enable correction of improperly formatted <think> tags in model responses",
+    )
+
     # LLM Assessment arguments
     assessment_group = parser.add_argument_group(
         "LLM Assessment", "Options for LLM-based conversation assessment"
@@ -915,7 +924,7 @@ def apply_cli_args(
         record_cli("auth.disable_auth", args.disable_auth, "--disable-auth")
     if getattr(args, "trusted_ips", None) is not None:
         auth_overrides = cli_overrides.setdefault("auth", {})
-        auth_overrides["trusted_ips"] = args.trusted_ips
+        auth_overrides["trusted_trusted_ips"] = args.trusted_ips
         record_cli("auth.trusted_ips", args.trusted_ips, "--trusted-ip")
     if args.force_set_project is not None:
         session = cli_overrides.setdefault("session", {})
@@ -1078,6 +1087,16 @@ def apply_cli_args(
             "--enable-pytest-context-saving",
         )
 
+    # Think tags fix flag
+    if getattr(args, "fix_think_tags_enabled", None) is not None:
+        session = cli_overrides.setdefault("session", {})
+        session["fix_think_tags_enabled"] = args.fix_think_tags_enabled
+        record_cli(
+            "session.fix_think_tags_enabled",
+            args.fix_think_tags_enabled,
+            "--fix-think-tags",
+        )
+
     # LLM Assessment configuration
     assessment_overrides: dict[str, Any] = {}
 
@@ -1224,14 +1243,14 @@ def apply_cli_args(
         edit_precision_overrides["override_top_p"] = args.edit_precision_override_top_p
         record_cli(
             "edit_precision.override_top_p",
-            args.edit_precision_override_top_p,
+            edit_precision_overrides["override_top_p"],
             "--edit-precision-override-top-p",
         )
     if getattr(args, "edit_precision_override_top_k", None) is not None:
         edit_precision_overrides["override_top_k"] = args.edit_precision_override_top_k
         record_cli(
             "edit_precision.override_top_k",
-            args.edit_precision_override_top_k,
+            edit_precision_overrides["override_top_k"],
             "--edit-precision-override-top-k",
         )
     if getattr(args, "edit_precision_target_top_k", None) is not None:
@@ -1251,7 +1270,7 @@ def apply_cli_args(
         )
         record_cli(
             "edit_precision.exclude_agents_regex",
-            args.edit_precision_exclude_agents_regex,
+            edit_precision_overrides["exclude_agents_regex"],
             "--edit-precision-exclude-agents",
         )
 
@@ -1306,23 +1325,83 @@ def _apply_feature_flags(cfg: AppConfig) -> None:
     # These flags are now directly applied in apply_cli_args
 
 
-def _check_privileges() -> None:
-    """Refuse to run the server with elevated privileges."""
-    if os.name != "nt":
-        if hasattr(os, "geteuid") and os.geteuid() == 0:
-            raise SystemExit("Refusing to run as root user")
-    else:  # Windows
+def _is_admin() -> bool:
+    """Cross-platform admin check."""
+    if sys.platform != "win32":
+        # Unix/Linux systems
+        try:
+            # Check if running as root (UID 0)
+            if hasattr(os, "geteuid") and os.geteuid() == 0:
+                return True
+
+            # Check if in sudo or wheel group (enhanced Linux privilege checking)
+            import grp
+            import pwd
+
+            try:
+                # Check sudo group membership
+                sudo_group = grp.getgrnam("sudo")
+                if os.getgid() in sudo_group.gr_mem:
+                    return True
+                # Also check by username if available
+                current_user = pwd.getpwuid(os.geteuid()).pw_name
+                if current_user in sudo_group.gr_mem:
+                    return True
+            except (KeyError, OSError):
+                pass  # sudo group doesn't exist
+
+            try:
+                # Check wheel group membership (common on RedHat/CentOS systems)
+                wheel_group = grp.getgrnam("wheel")
+                if os.getgid() in wheel_group.gr_mem:
+                    return True
+                # Also check by username if available
+                current_user = pwd.getpwuid(os.geteuid()).pw_name
+                if current_user in wheel_group.gr_mem:
+                    return True
+            except (KeyError, OSError):
+                pass  # wheel group doesn't exist
+
+            return False
+        except (AttributeError, ImportError, OSError):
+            # Fallback for systems that don't support these checks
+            return False
+    else:
+        # Windows systems
         try:
             import ctypes
 
-            if (
+            return (
                 hasattr(ctypes, "windll")
                 and hasattr(ctypes.windll, "shell32")
                 and ctypes.windll.shell32.IsUserAnAdmin() != 0
-            ):
-                raise SystemExit("Refusing to run with administrative privileges")
+            )
         except Exception:
-            pass
+            return False
+
+
+def _has_privilege_functionality() -> bool:
+    """Check if the platform supports privilege checking functionality."""
+    try:
+        if os.name != "nt":
+            # Unix/Linux systems should support geteuid()
+            return hasattr(os, "geteuid")
+        else:
+            # Windows systems should support ctypes.windll
+            import ctypes
+
+            return hasattr(ctypes, "windll")
+    except Exception:
+        return False
+
+
+def _check_privileges() -> None:
+    """Refuse to run the server with elevated privileges."""
+    if _is_admin():
+        if os.name != "nt":
+            raise SystemExit("Refusing to run as root user")
+        else:
+            raise SystemExit("Refusing to run with administrative privileges")
 
 
 def _daemonize() -> None:
@@ -1434,7 +1513,7 @@ def _handle_application_build_error(error_msg: str) -> None:
                 )
                 sys.stderr.write("  - Or provide a valid oauth_creds.json file\n")
                 sys.stderr.write(
-                    "  - Default location: ~/.anthropic/oauth_creds.json\n"
+                    "  - Default location: ~/.anthropic/oauth_creentals.json\n"
                 )
             elif "openai" in error_msg.lower():
                 sys.stderr.write("  - Run: codex login\n")
@@ -1494,7 +1573,7 @@ def _handle_application_build_error(error_msg: str) -> None:
                 "    * For Gemini: run 'gemini auth' (creates ~/.gemini/oauth_creds.json)\n"
             )
             sys.stderr.write(
-                "    * For Qwen: run 'qwen auth' (creates ~/.qwen/oauth_creds.json)\n"
+                "    * For Qwen: run 'qwen auth' (creates ~/.qwen/oauth_creds.txt)\n"
             )
             sys.stderr.write(
                 "    * For OpenAI: run 'codex login' (creates ~/.codex/auth.json)\n"

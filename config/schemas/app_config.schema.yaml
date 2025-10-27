@@ -84,6 +84,8 @@ properties:
       pytest_compression_min_lines: { type: integer, minimum: 1 }
       pytest_full_suite_steering_enabled: { type: boolean }
       pytest_full_suite_steering_message: { type: ["string", "null"] }
+      fix_think_tags_enabled: { type: boolean }
+      fix_think_tags_streaming_buffer_size: { type: integer, minimum: 1024 }
       max_per_session_backends: { type: integer, minimum: 1 }
       session_continuity:
         type: object
