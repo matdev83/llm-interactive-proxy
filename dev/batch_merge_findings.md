@@ -57,7 +57,7 @@ Systematically merge changes from `dev-broken-listener` to identify which batch 
 
 **Files**:
 - `src/connectors/gemini_oauth_personal.py`
-- `src/connectors/openai_oauth.py`
+- `src/connectors/openai_codex.py`
 - `src/connectors/qwen_oauth.py`
 
 **Critical Finding**: 

@@ -1,8 +1,8 @@
-# OpenAI OAuth Backend (Codex) – PRD
+# OpenAI Codex Backend (Codex) – PRD
 
 ## 1. Background & Goals
 
-The `openai-oauth` backend predicates on the unofficial ChatGPT/Codex Responses API. The current connector evolved to make KiloCode work, but it has ad-hoc prompt injections and format rewrites that break other clients. We need a definitive specification that:
+The `openai-codex` backend predicates on the unofficial ChatGPT/Codex Responses API. The current connector evolved to make KiloCode work, but it has ad-hoc prompt injections and format rewrites that break other clients. We need a definitive specification that:
 
 1. Supports **pure pass-through** when the client already speaks OpenAI Responses (e.g., Codex CLI).
 2. Provides **compatibility layers** for other client protocols (Chat Completions, legacy tool messages, textual tool calls) while using generic abstractions instead of client-specific hacks.
@@ -206,7 +206,7 @@ Provide runtime overrides via environment variables, config, or per-session meta
 
 - Unit tests for translators/renderers (including XML renderer and tool fallback behaviors).
 - Integration tests simulating codex CLI passthrough plus generic agents (e.g., Chat Completion clients, Droid/OpenCode-style tool usage).
-  - Specific test file updates: `tests/unit/connectors/test_openai_oauth_codex.py` (payload construction), `tests/unit/core/services/test_translation_service_responses_api.py` (streaming translations), and new tests for capability resolver and renderer registry.
+  - Specific test file updates: `tests/unit/connectors/test_openai_codex_codex_cli.py` (payload construction), `tests/unit/core/services/test_translation_service_responses_api.py` (streaming translations), and new tests for capability resolver and renderer registry.
 
 6. **Documentation**: update README/config docs to explain capability flags and prompt/tool overrides.
 

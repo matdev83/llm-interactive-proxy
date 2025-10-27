@@ -299,7 +299,7 @@ display_clean_response(response.content)
 - Loop detection: detect repeated patterns and halt infinite loops
 - Dangerous-command prevention: steer away from destructive shell actions
 - Key hygiene: redact API keys in prompts and logs
-- Stale token handling: automatic detection and recovery for expired OAuth tokens in backends like Gemini CLI, Anthropic, and OpenAI OAuth
+- Stale token handling: automatic detection and recovery for expired OAuth tokens in backends like Gemini CLI, Anthropic, and OpenAI Codex
 - Brute-force protection: per-IP tracking of invalid API keys with exponential back-off blocking
 - Repair helpers: tool-call and JSON repair to fix malformed model outputs
 
@@ -332,7 +332,7 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | Backend ID | Provider | Authentication | Notes |
 | - | - | - | - |
 | `openai` | OpenAI | `OPENAI_API_KEY` | Standard OpenAI API |
-| `openai-oauth` | OpenAI (ChatGPT/Codex OAuth) | Local `.codex/auth.json` | Uses ChatGPT login token instead of API key |
+| `openai-codex` | OpenAI (ChatGPT/Codex OAuth) | Local `.codex/auth.json` | Uses ChatGPT login token instead of API key |
 | `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | Claude models via Messages API |
 | `anthropic-oauth` | Anthropic (OAuth) | Local OAuth token | Claude via OAuth credential flow |
 | `gemini` | Google Gemini | `GEMINI_API_KEY` | Metered API key |
@@ -345,8 +345,8 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
 | `qwen-oauth` | Alibaba Qwen | Local `oauth_creds.json` | Qwen CLI OAuth; OpenAI-compatible endpoint |
 
-For detailed OpenAI OAuth backend configuration (capabilities, renderer overrides,
-prompt and tool schema providers) see [`docs/openai_oauth.md`](docs/openai_oauth.md).
+For detailed OpenAI Codex backend configuration (capabilities, renderer overrides,
+prompt and tool schema providers) see [`docs/openai_codex.md`](docs/openai_codex.md).
 
 ## Gemini Backends Overview
 

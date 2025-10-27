@@ -1160,8 +1160,10 @@ async def test_process_streaming_request(session_service: MockSessionService) ->
         yield ProcessedResponse(content=b"data: [DONE]\n\n")
 
     # Create StreamingResponseEnvelope to return
+    streaming_generator = mock_stream_generator()
+
     streaming_envelope = StreamingResponseEnvelope(
-        content=mock_stream_generator(),
+        content=streaming_generator,
         media_type="text/event-stream",
     )
 
@@ -1177,6 +1179,8 @@ async def test_process_streaming_request(session_service: MockSessionService) ->
 
     # Collect the streamed chunks
     chunks: list[str] = []
+    assert response.content is not None
+
     async for chunk in response.content:
         chunks.append((chunk.content or b"").decode("utf-8"))
 

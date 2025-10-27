@@ -1,8 +1,8 @@
-# OpenAI OAuth Connector Fixes - Implementation Summary
+# OpenAI Codex Connector Fixes - Implementation Summary
 
 ## Overview
 
-Completed comprehensive code review and fixes for the `openai-oauth` backend connector. The connector is now substantially more robust with critical race conditions eliminated and validation improved.
+Completed comprehensive code review and fixes for the `openai-codex` backend connector. The connector is now substantially more robust with critical race conditions eliminated and validation improved.
 
 ## Fixes Applied
 
@@ -92,7 +92,7 @@ os.replace(temp_path, auth_path)  # Atomic!
 
 ## Files Modified
 
-1. **src/connectors/openai_oauth.py** - Main connector implementation
+1. **src/connectors/openai_codex.py** - Main connector implementation
    - Added `tempfile` import
    - Fixed race conditions in token refresh
    - Implemented atomic file writes
@@ -101,7 +101,7 @@ os.replace(temp_path, auth_path)  # Atomic!
    - Fixed empty prompt handling
    - Migrated to threading.Event
 
-2. **docs/openai_oauth.md** - Documentation
+2. **docs/openai_codex.md** - Documentation
    - Added tool schema mode selection guide
    - Documented agent override precedence
    - Added streaming behavior notes
@@ -115,7 +115,7 @@ os.replace(temp_path, auth_path)  # Atomic!
    - Noted known limitations
    - Outlined future work priorities
 
-4. **dev/openai-oauth-review-findings.md** - Review report (NEW)
+4. **dev/openai-codex-review-findings.md** - Review report (NEW)
    - Comprehensive analysis of 12 issues
    - Priority categorization
    - Testing gap identification
@@ -139,10 +139,10 @@ os.replace(temp_path, auth_path)  # Atomic!
 
 ### NOT Fixed (Requires More Work)
 
-1. **Streaming token refresh** - Streams still fail if token expires mid-stream
-   - Requires retry wrapper around streaming responses
-   - Complex to implement correctly
-   - Marked as future work
+1. **Streaming token refresh resilience** - Multi-retry with configurable backoff; no resumable offsets yet
+   - Current behaviour retries up to `streaming.max_retries` times on authentication failures (handshake or chunk)
+   - Resumable streaming (resume tokens / offsets) still requires design
+   - Monitor for repeated 401s during long-running sessions to tune retry budget
 
 2. **Renderer integration incomplete** - Only `codex_xml` mode fully wired
    - Markdown/summary renderers registered but not used
@@ -163,7 +163,7 @@ os.replace(temp_path, auth_path)  # Atomic!
 - ✅ Critical race conditions fixed
 - ✅ File corruption prevented
 - ✅ Validation improved
-- ⚠️ Streaming token refresh still missing
+- ✅ Streaming token refresh covered with configurable multi-retry/backoff
 - ⚠️ Renderer system needs decision (complete or remove)
 
 ### Current Status: **85% Production Ready**
@@ -174,7 +174,7 @@ os.replace(temp_path, auth_path)  # Atomic!
 - Single-process deployments
 
 **Requires attention before production**:
-- Add streaming token refresh
+- Monitor streaming retry telemetry and tune backoff/limits as needed
 - Resolve renderer integration (complete or remove)
 - Add comprehensive integration tests
 - Load test with concurrent requests
@@ -182,7 +182,7 @@ os.replace(temp_path, auth_path)  # Atomic!
 ## Deployment Recommendations
 
 1. **For immediate use**: Deploy with non-streaming requests only
-2. **For production**: Implement streaming token refresh first
+2. **For production**: Evaluate whether multi-retry budget suffices; add resumable streaming if logs show repeated failures
 3. **For multi-process**: Test auth.json sharing with load tests
 4. **Monitoring**: Watch logs for tool schema collisions and validation warnings
 
@@ -203,7 +203,7 @@ os.replace(temp_path, auth_path)  # Atomic!
 3. Add priority test cases
 
 ### Short-term
-4. Implement streaming token refresh
+4. Add resumable streaming (resume tokens / partial replay)
 5. Add integration tests with real frontends
 6. Load test multi-process scenarios
 
@@ -214,7 +214,7 @@ os.replace(temp_path, auth_path)  # Atomic!
 
 ## References
 
-- Original review: `dev/openai-oauth-review-findings.md`
-- Configuration guide: `docs/openai_oauth.md`
+- Original review: `dev/openai-codex-review-findings.md`
+- Configuration guide: `docs/openai_codex.md`
 - Knowledge base: `src/connectors/knowledge.md`
-- Tests: `tests/unit/connectors/test_openai_oauth*.py`
+- Tests: `tests/unit/connectors/test_openai_codex*.py`

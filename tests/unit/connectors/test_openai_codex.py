@@ -8,9 +8,9 @@ import httpx
 import pytest
 import pytest_asyncio
 from pytest_httpx import HTTPXMock
-from src.connectors.openai_oauth import (
+from src.connectors.openai_codex import (
+    OpenAICodexConnector,
     OpenAICredentialsFileHandler,
-    OpenAIOAuthConnector,
 )
 from src.core.domain.chat import ChatMessage, ChatRequest
 
@@ -24,15 +24,15 @@ async def auth_dir_tmp(tmp_path: Path):
     return tmp_path
 
 
-@pytest_asyncio.fixture(name="openai_oauth_backend")
-async def openai_oauth_backend_fixture(auth_dir: Path):
+@pytest_asyncio.fixture(name="openai_codex_backend")
+async def openai_codex_backend_fixture(auth_dir: Path):
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
         # Mock the validation and file watching methods for testing
         with (
@@ -44,19 +44,19 @@ async def openai_oauth_backend_fixture(auth_dir: Path):
             ),
             patch.object(backend, "_start_file_watching"),
         ):
-            await backend.initialize(openai_oauth_path=str(auth_dir))
+            await backend.initialize(openai_codex_path=str(auth_dir))
             # Set the credentials for the test
             backend._auth_credentials = {"tokens": {"access_token": "chatgpt_token"}}
             yield backend
 
 
 @pytest.mark.asyncio
-async def test_openai_oauth_uses_bearer_from_auth_json(
-    openai_oauth_backend: OpenAIOAuthConnector, httpx_mock: HTTPXMock
+async def test_openai_codex_uses_bearer_from_auth_json(
+    openai_codex_backend: OpenAICodexConnector, httpx_mock: HTTPXMock
 ):
     # Mock chat completion
     httpx_mock.add_response(
-        url=f"{openai_oauth_backend.api_base_url}/chat/completions",
+        url=f"{openai_codex_backend.api_base_url}/chat/completions",
         method="POST",
         json={
             "id": "cmpl_1",
@@ -75,7 +75,7 @@ async def test_openai_oauth_uses_bearer_from_auth_json(
     )
 
     req = ChatRequest(
-        model="openai-oauth:gpt-4o-mini",
+        model="openai-codex:gpt-4o-mini",
         messages=[ChatMessage(role="user", content="hi")],
         max_tokens=16,
         stream=False,
@@ -83,9 +83,9 @@ async def test_openai_oauth_uses_bearer_from_auth_json(
 
     # Mock runtime validation for the test
     with patch.object(
-        openai_oauth_backend, "_validate_runtime_credentials", return_value=(True, [])
+        openai_codex_backend, "_validate_runtime_credentials", return_value=(True, [])
     ):
-        await openai_oauth_backend.chat_completions(
+        await openai_codex_backend.chat_completions(
             request_data=req,
             processed_messages=[ChatMessage(role="user", content="hi")],
             effective_model="gpt-4o-mini",
@@ -98,10 +98,10 @@ async def test_openai_oauth_uses_bearer_from_auth_json(
 
 
 @pytest.mark.asyncio
-async def test_openai_oauth_reload_scheduled_from_thread(
-    openai_oauth_backend: OpenAIOAuthConnector,
+async def test_openai_codex_reload_scheduled_from_thread(
+    openai_codex_backend: OpenAICodexConnector,
 ):
-    backend = openai_oauth_backend
+    backend = openai_codex_backend
 
     reload_event = asyncio.Event()
 
@@ -152,7 +152,7 @@ async def test_start_file_watching_success(auth_dir: Path):
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
         with (
             patch.object(
@@ -162,7 +162,7 @@ async def test_start_file_watching_success(auth_dir: Path):
                 backend, "_validate_credentials_structure", return_value=(True, [])
             ),
         ):
-            await backend.initialize(openai_oauth_path=str(auth_dir))
+            await backend.initialize(openai_codex_path=str(auth_dir))
 
         # Verify file observer was started
         assert backend._file_observer is not None
@@ -181,7 +181,7 @@ async def test_start_file_watching_no_credentials_path():
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
         # Try to start file watching without setting credentials path
         backend._start_file_watching()
@@ -199,7 +199,7 @@ async def test_stop_file_watching_success(auth_dir: Path):
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
         with (
             patch.object(
@@ -209,7 +209,7 @@ async def test_stop_file_watching_success(auth_dir: Path):
                 backend, "_validate_credentials_structure", return_value=(True, [])
             ),
         ):
-            await backend.initialize(openai_oauth_path=str(auth_dir))
+            await backend.initialize(openai_codex_path=str(auth_dir))
 
         assert backend._file_observer is not None
 
@@ -229,7 +229,7 @@ async def test_stop_file_watching_no_observer():
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
         # Should not raise an error
         backend._stop_file_watching()
@@ -245,7 +245,7 @@ async def test_schedule_credentials_reload_valid_update(auth_dir: Path):
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
         with (
             patch.object(
@@ -256,7 +256,7 @@ async def test_schedule_credentials_reload_valid_update(auth_dir: Path):
             ),
             patch.object(backend, "_start_file_watching"),
         ):
-            await backend.initialize(openai_oauth_path=str(auth_dir))
+            await backend.initialize(openai_codex_path=str(auth_dir))
 
         # Update credentials file with new token
         new_data = {"tokens": {"access_token": "new_token_123"}}
@@ -286,7 +286,7 @@ async def test_schedule_credentials_reload_invalid_file(auth_dir: Path):
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
         with (
             patch.object(
@@ -297,7 +297,7 @@ async def test_schedule_credentials_reload_invalid_file(auth_dir: Path):
             ),
             patch.object(backend, "_start_file_watching"),
         ):
-            await backend.initialize(openai_oauth_path=str(auth_dir))
+            await backend.initialize(openai_codex_path=str(auth_dir))
 
         # Mock validation to return failure
         with (
@@ -331,7 +331,7 @@ async def test_schedule_credentials_reload_load_failure(auth_dir: Path):
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
         with (
             patch.object(
@@ -342,7 +342,7 @@ async def test_schedule_credentials_reload_load_failure(auth_dir: Path):
             ),
             patch.object(backend, "_start_file_watching"),
         ):
-            await backend.initialize(openai_oauth_path=str(auth_dir))
+            await backend.initialize(openai_codex_path=str(auth_dir))
 
         # Mock _load_auth to fail
         with patch.object(backend, "_load_auth", return_value=False):
@@ -369,7 +369,7 @@ async def test_load_auth_with_force_reload(auth_dir: Path):
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
         backend._oauth_dir_override = auth_dir
 
         # First load
@@ -409,7 +409,7 @@ async def test_file_handler_on_modified_path_comparison(auth_dir: Path):
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
         backend._oauth_dir_override = auth_dir
         await backend._load_auth()
 
@@ -435,7 +435,7 @@ async def test_file_handler_on_modified_different_file(auth_dir: Path):
 
         cfg = AppConfig()
         ts = TranslationService()
-        backend = OpenAIOAuthConnector(client, cfg, translation_service=ts)
+        backend = OpenAICodexConnector(client, cfg, translation_service=ts)
         backend._oauth_dir_override = auth_dir
         await backend._load_auth()
 

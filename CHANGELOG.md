@@ -231,7 +231,7 @@
   - **Force Reload Tests**: Tests confirm that force_reload bypasses timestamp caching as expected
   - **Cross-Platform Tests**: Tests validate proper handling of different file path formats
 
-- **OAuth Backends**: Enhanced credential management for `anthropic-oauth`, `gemini-oauth-personal`, and `openai-oauth` backends with improved reliability and automatic refresh
+- **OAuth Backends**: Enhanced credential management for `anthropic-oauth`, `gemini-oauth-personal`, and `openai-codex` backends with improved reliability and automatic refresh
 ## 2025-10-01 - Code Quality and Type Hinting Improvements
 
 - **Enhancement**: Added comprehensive type hints across the codebase to improve code quality, maintainability, and developer experience
@@ -406,7 +406,7 @@
 ## 2025-09-11 – Enhanced Authentication Reliability with Stale Token Handling
 
 - **Major Enhancement**: Implemented comprehensive stale authentication token handling pattern across all file-backed OAuth backends
-  - **Affected Backends**: `gemini-cli-cloud-project`, `gemini-oauth-plan`, `gemini-oauth-free`, `anthropic-oauth`, and `openai-oauth`
+  - **Affected Backends**: `gemini-cli-cloud-project`, `gemini-oauth-plan`, `gemini-oauth-free`, `anthropic-oauth`, and `openai-codex`
   - **Startup Validation**: Enhanced initialization with fail-fast validation pipeline
     - File existence and readability checks
     - JSON structure validation
@@ -540,15 +540,15 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - Can be set as the default backend via `LLM_BACKEND=anthropic-oauth` or `backends.default_backend`.
   - Documentation added under README “Anthropic OAuth Backend”.
 
-## 2025-08-31 – OpenAI OAuth Backend
+## 2025-08-31 – OpenAI Codex Backend
 
-- New backend: `openai-oauth` for using OpenAI without storing API keys in proxy config.
+- New backend: `openai-codex` for using OpenAI without storing API keys in proxy config.
   - Reads Codex CLI `auth.json` (ChatGPT login) and uses `tokens.access_token` as bearer; falls back to `OPENAI_API_KEY` if present.
   - Default search paths: `~/.codex/auth.json` and on Windows `%USERPROFILE%/.codex/auth.json`.
-  - Optional `openai_oauth_path` to point at a specific directory containing `auth.json`.
+  - Optional `openai_codex_path` to point at a specific directory containing `auth.json`.
   - Optional `openai_api_base_url` to override the default `https://api.openai.com/v1` (env `OPENAI_BASE_URL` can also be used in some environments).
-  - Can be selected via `LLM_BACKEND=openai-oauth` or per-request model prefix `openai-oauth:<model>`.
-  - Documentation added under README “OpenAI OAuth Backend”.
+  - Can be selected via `LLM_BACKEND=openai-codex` or per-request model prefix `openai-codex:<model>`.
+  - Documentation added under README “OpenAI Codex Backend”.
 
 ## 2025-08-29 – Automated Edit-Precision Tuning
 

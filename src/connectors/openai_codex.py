@@ -1,5 +1,5 @@
 r"""
-OpenAI OAuth connector that uses ChatGPT/Codex auth.json tokens instead of API keys.
+OpenAI Codex connector that uses ChatGPT/Codex auth.json tokens instead of API keys.
 
 This backend reads a local `auth.json` file (created by Codex CLI via ChatGPT login)
 and uses `tokens.access_token` as the bearer for OpenAI API requests. If the file
@@ -10,13 +10,14 @@ Default credential file locations (first that exists is used):
 - Cross-platform: ~/.codex/auth.json
 
 Configuration:
-- `openai_oauth_path`: optional directory that contains `auth.json` (overrides defaults)
+- `openai_codex_path`: optional directory that contains `auth.json` (overrides defaults)
 - `openai_api_base_url`: optional base URL override (default: https://api.openai.com/v1)
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -25,7 +26,7 @@ import tempfile
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -40,15 +41,16 @@ from watchdog.observers import Observer
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
-from src.connectors._openai_oauth_capabilities import (
+from src.connectors._openai_codex_capabilities import (
     CodexCapabilityResolver,
     CodexClientCapabilities,
 )
-from src.connectors._openai_oauth_request_translator import CodexRequestTranslator
+from src.connectors._openai_codex_request_translator import CodexRequestTranslator
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
 from src.core.services.tool_text_renderer import (
     OverrideRenderer,
@@ -86,6 +88,46 @@ def _to_mapping(candidate: Any) -> dict[str, Any] | None:
             return None
     if hasattr(candidate, "__dict__"):
         return dict(candidate.__dict__)
+    return None
+
+
+def _coerce_positive_int(value: Any) -> int | None:
+    """Return a positive int coerced from arbitrary input."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str):
+        if not value.strip().isdigit():
+            return None
+        numeric = int(value.strip())
+        return numeric if numeric >= 0 else None
+    return None
+
+
+def _coerce_float_sequence(value: Any) -> tuple[float, ...] | None:
+    """Convert a value into a tuple of non-negative floats."""
+    if value is None:
+        return None
+    if isinstance(value, list | tuple | set):
+        result: list[float] = []
+        for item in value:
+            try:
+                numeric = float(item)
+            except (TypeError, ValueError):
+                continue
+            if numeric < 0:
+                continue
+            result.append(numeric)
+        return tuple(result)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parts = [part.strip() for part in value.split(",")]
+            return _coerce_float_sequence(parts)
+        else:
+            return _coerce_float_sequence(parsed)
     return None
 
 
@@ -175,9 +217,9 @@ def _normalize_tool_schema_list(value: Any, *, context: str) -> list[dict[str, A
 
 
 class OpenAICredentialsFileHandler(FileSystemEventHandler):
-    """File watcher handler for OpenAI OAuth credentials."""
+    """File watcher handler for OpenAI Codex credentials."""
 
-    def __init__(self, connector: OpenAIOAuthConnector) -> None:
+    def __init__(self, connector: OpenAICodexConnector) -> None:
         super().__init__()
         self.connector = connector
 
@@ -195,15 +237,15 @@ class OpenAICredentialsFileHandler(FileSystemEventHandler):
 
                 if auth_path and event_path == auth_path:
                     logger.debug(
-                        "OpenAI OAuth credentials file changed, scheduling reload"
+                        "OpenAI Codex credentials file changed, scheduling reload"
                     )
                     self.connector._schedule_credentials_reload()
             except Exception as e:
                 logger.error(f"Error processing file modification event: {e}")
 
 
-class OpenAIOAuthConnector(OpenAIConnector):
-    backend_type: str = "openai-oauth"
+class OpenAICodexConnector(OpenAIConnector):
+    backend_type: str = "openai-codex"
     CODEX_PROMPT_RESOURCE_PACKAGE = "src.resources.codex"
     CODEX_PROMPT_RESOURCE_NAME = "gpt_5_codex_prompt.md"
     CODEX_ORIGINATOR = "codex_cli_rs"
@@ -282,7 +324,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
             base = "WindowsTerminal"
         else:
             base = os.getenv("TERM", "unknown")
-        return OpenAIOAuthConnector._sanitize_header_value(base)
+        return OpenAICodexConnector._sanitize_header_value(base)
 
     def __init__(
         self,
@@ -298,7 +340,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
             translation_service=translation_service,
             response_processor=response_processor,
         )
-        self.name = "openai-oauth"
+        self.name = "openai-codex"
         self._oauth_dir_override: Path | None = None
         self._auth_path: Path | None = None
         self._last_modified: float = 0.0
@@ -315,6 +357,12 @@ class OpenAIOAuthConnector(OpenAIConnector):
         )
         self._custom_tool_schema_default: list[dict[str, Any]] = (
             self._connector_settings["tool_schema"]["custom_tools"]
+        )
+        streaming_cfg = self._connector_settings.get("streaming", {})
+        self._stream_retry_limit: int = int(streaming_cfg.get("max_retries", 2))
+        backoff_seq = streaming_cfg.get("retry_backoff_seconds") or ()
+        self._stream_retry_backoff: tuple[float, ...] = (
+            tuple(backoff_seq) if backoff_seq else ()
         )
 
         # Stale token handling pattern attributes
@@ -362,9 +410,13 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 "base_tools": None,
                 "custom_tools": [],
             },
+            "streaming": {
+                "max_retries": 2,
+                "retry_backoff_seconds": (0.5, 1.5, 3.0),
+            },
         }
 
-        backend_config = getattr(app_config.backends, "openai_oauth", None)
+        backend_config = getattr(app_config.backends, "openai_codex", None)
         backend_extra = {}
         if backend_config and hasattr(backend_config, "extra"):
             try:
@@ -379,7 +431,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
         # Default capabilities
         for override_source in (
             codex_cfg.get("default_capabilities"),
-            _load_json_env("OPENAI_OAUTH_DEFAULT_CAPABILITIES"),
+            _load_json_env("OPENAI_CODEX_DEFAULT_CAPABILITIES"),
         ):
             mapping = _to_mapping(override_source)
             if mapping:
@@ -391,7 +443,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
         combined_agent_overrides: dict[str, dict[str, Any]] = {}
         for source in (
             codex_cfg.get("agent_capabilities"),
-            _load_json_env("OPENAI_OAUTH_AGENT_CAPABILITIES"),
+            _load_json_env("OPENAI_CODEX_AGENT_CAPABILITIES"),
         ):
             mapping = _to_mapping(source)
             if not mapping:
@@ -413,17 +465,17 @@ class OpenAIOAuthConnector(OpenAIConnector):
         renderer_aliases = _to_mapping(renderer_cfg.get("aliases")) or {}
         renderer_modules = _to_mapping(renderer_cfg.get("modules")) or {}
         env_renderer_aliases = (
-            _to_mapping(_load_json_env("OPENAI_OAUTH_RENDERER_ALIASES") or {}) or {}
+            _to_mapping(_load_json_env("OPENAI_CODEX_RENDERER_ALIASES") or {}) or {}
         )
         env_renderer_modules = (
-            _to_mapping(_load_json_env("OPENAI_OAUTH_RENDERER_MODULES") or {}) or {}
+            _to_mapping(_load_json_env("OPENAI_CODEX_RENDERER_MODULES") or {}) or {}
         )
 
         renderer_default = renderer_cfg.get("default") or os.getenv(
-            "OPENAI_OAUTH_RENDERER_DEFAULT"
+            "OPENAI_CODEX_RENDERER_DEFAULT"
         )
         renderer_fallback = renderer_cfg.get("fallback") or os.getenv(
-            "OPENAI_OAUTH_RENDERER_FALLBACK"
+            "OPENAI_CODEX_RENDERER_FALLBACK"
         )
         renderer_default = (renderer_default or "none").strip() or "none"
         renderer_fallback = (renderer_fallback or "summary").strip() or "summary"
@@ -431,15 +483,15 @@ class OpenAIOAuthConnector(OpenAIConnector):
         # Prompt configuration
         prompt_cfg = _to_mapping(codex_cfg.get("prompt")) or {}
         prompt_template = prompt_cfg.get("template") or os.getenv(
-            "OPENAI_OAUTH_PROMPT_TEMPLATE"
+            "OPENAI_CODEX_PROMPT_TEMPLATE"
         )
         prepend_sections = _to_string_list(prompt_cfg.get("prepend")) + _to_string_list(
-            _load_json_env("OPENAI_OAUTH_PROMPT_PREPEND")
+            _load_json_env("OPENAI_CODEX_PROMPT_PREPEND")
         )
         append_sections = _to_string_list(prompt_cfg.get("append")) + _to_string_list(
-            _load_json_env("OPENAI_OAUTH_PROMPT_APPEND")
+            _load_json_env("OPENAI_CODEX_PROMPT_APPEND")
         )
-        prompt_deduplicate_env = os.getenv("OPENAI_OAUTH_PROMPT_DEDUPLICATE")
+        prompt_deduplicate_env = os.getenv("OPENAI_CODEX_PROMPT_DEDUPLICATE")
         if prompt_deduplicate_env is not None:
             prompt_deduplicate = prompt_deduplicate_env.strip().lower() in {
                 "1",
@@ -449,7 +501,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
             }
         else:
             prompt_deduplicate = bool(prompt_cfg.get("deduplicate", True))
-        fallback_to_default_env = os.getenv("OPENAI_OAUTH_PROMPT_FALLBACK_DEFAULT")
+        fallback_to_default_env = os.getenv("OPENAI_CODEX_PROMPT_FALLBACK_DEFAULT")
         if fallback_to_default_env is not None:
             fallback_to_default = fallback_to_default_env.strip().lower() in {
                 "1",
@@ -478,12 +530,12 @@ class OpenAIOAuthConnector(OpenAIConnector):
         tool_schema_cfg = _to_mapping(codex_cfg.get("tool_schema")) or {}
         base_tools = _normalize_tool_schema_list(
             tool_schema_cfg.get("base_tools")
-            or _load_json_env("OPENAI_OAUTH_TOOL_SCHEMA_BASE"),
+            or _load_json_env("OPENAI_CODEX_TOOL_SCHEMA_BASE"),
             context="codex.tool_schema.base_tools",
         )
         custom_tools = _normalize_tool_schema_list(
             tool_schema_cfg.get("custom_tools")
-            or _load_json_env("OPENAI_OAUTH_TOOL_SCHEMA_CUSTOM"),
+            or _load_json_env("OPENAI_CODEX_TOOL_SCHEMA_CUSTOM"),
             context="codex.tool_schema.custom_tools",
         )
         settings["tool_schema"].update(
@@ -551,6 +603,35 @@ class OpenAIOAuthConnector(OpenAIConnector):
             renderer_default,
             renderer_fallback,
         )
+        # Streaming settings (max retries/backoff)
+        streaming_cfg = _to_mapping(codex_cfg.get("streaming")) or {}
+        max_retries = _coerce_positive_int(streaming_cfg.get("max_retries"))
+        env_max_retries = os.getenv("OPENAI_CODEX_STREAMING_MAX_RETRIES")
+        if env_max_retries is not None:
+            max_retries_env = _coerce_positive_int(env_max_retries)
+            if max_retries_env is not None:
+                max_retries = max_retries_env
+        if max_retries is None:
+            max_retries = settings["streaming"]["max_retries"]
+
+        backoff_seq = (
+            _coerce_float_sequence(streaming_cfg.get("retry_backoff_seconds"))
+            or settings["streaming"]["retry_backoff_seconds"]
+        )
+        env_backoff = os.getenv("OPENAI_CODEX_STREAMING_RETRY_BACKOFF")
+        if env_backoff:
+            maybe_env_backoff = _coerce_float_sequence(env_backoff)
+            if maybe_env_backoff:
+                backoff_seq = maybe_env_backoff
+
+        if not backoff_seq:
+            backoff_seq = (0.5, 1.5, 3.0)
+
+        settings["streaming"] = {
+            "max_retries": max_retries,
+            "retry_backoff_seconds": tuple(backoff_seq),
+        }
+
         return settings
 
     @staticmethod
@@ -1085,6 +1166,104 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
         return headers
 
+    @staticmethod
+    def _extract_status_code_from_payload(
+        payload: Mapping[str, Any] | None
+    ) -> int | None:
+        """Extract an HTTP status code from an error payload, if present."""
+        if not isinstance(payload, Mapping):
+            return None
+        for key in ("status", "status_code", "http_status", "code"):
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            if isinstance(value, int):
+                if 100 <= value <= 599:
+                    return value
+                continue
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped.isdigit():
+                    numeric = int(stripped)
+                    if 100 <= numeric <= 599:
+                        return numeric
+        return None
+
+    def _should_retry_stream_for_auth_error(
+        self, chunk: ProcessedResponse | Any
+    ) -> bool:
+        """Return True if a streaming chunk indicates an authentication failure."""
+        content = getattr(chunk, "content", None)
+        if content is None:
+            content = chunk
+
+        if not isinstance(content, Mapping):
+            return False
+
+        # Primary signal: explicit error payload from translation layer
+        error_flag = content.get("error")
+        details = content.get("details")
+
+        status = self._extract_status_code_from_payload(
+            details if isinstance(details, Mapping) else None
+        )
+        if status in {401, 403}:
+            return True
+
+        # Some payloads stash status inside nested metadata objects
+        if isinstance(details, Mapping):
+            metadata = details.get("metadata")
+            if isinstance(metadata, Mapping):
+                status = self._extract_status_code_from_payload(metadata)
+                if status in {401, 403}:
+                    return True
+
+        # Fall back to heuristics based on codes/messages
+        code = None
+        if isinstance(details, Mapping):
+            code = details.get("code")
+        if code is None and isinstance(content, Mapping):
+            code = content.get("code")
+
+        def _is_auth_code(value: Any) -> bool:
+            if not isinstance(value, str):
+                return False
+            lowered = value.lower()
+            return any(
+                token in lowered
+                for token in (
+                    "auth",
+                    "unauthorized",
+                    "invalid_token",
+                    "invalid_api_key",
+                    "token_expired",
+                    "access_denied",
+                )
+            )
+
+        if _is_auth_code(code):
+            return True
+
+        for candidate in (error_flag, content.get("message")):
+            if isinstance(candidate, str):
+                lowered = candidate.lower()
+                if "401" in lowered or "403" in lowered or "unauthorized" in lowered:
+                    return True
+                if "token" in lowered and "expired" in lowered:
+                    return True
+
+        return False
+
+    def _stream_retry_delay(self, attempt_index: int) -> float:
+        """Return the delay applied before retrying a streaming request."""
+        if attempt_index < 0:
+            return 0.0
+        if not self._stream_retry_backoff:
+            return 0.0
+        if attempt_index < len(self._stream_retry_backoff):
+            return self._stream_retry_backoff[attempt_index]
+        return self._stream_retry_backoff[-1]
+
     def _select_renderer_key(self, capabilities: CodexClientCapabilities) -> str:
         """Map capability preference to a registered renderer key."""
         preferred = (capabilities.tool_text_format or self._renderer_default).strip()
@@ -1148,25 +1327,157 @@ class OpenAIOAuthConnector(OpenAIConnector):
             is_streaming_request: bool,
         ) -> Any:
             if is_streaming_request:
-                with OverrideRenderer(renderer_key):
-                    stream_handle = await self._handle_streaming_response(
-                        url,
-                        request_payload,
-                        request_headers,
-                        request_session_id,
-                        "responses",
-                    )
+                headers_holder: dict[str, str] = {}
+                current_cancel: list[Callable[[], Awaitable[None]] | None] = [None]
+
+                async def cancel_active_stream() -> None:
+                    cancel_cb = current_cancel[0]
+                    if cancel_cb is not None:
+                        await cancel_cb()
 
                 async def _rendered_iterator() -> AsyncIterator[Any]:
-                    with OverrideRenderer(renderer_key):
-                        async for chunk in stream_handle.iterator:
-                            yield chunk
+                    attempts_used = 0
+                    max_retries = max(0, self._stream_retry_limit)
+                    current_headers = dict(request_headers)
+                    while True:
+                        try:
+                            with OverrideRenderer(renderer_key):
+                                stream_handle = await self._handle_streaming_response(
+                                    url,
+                                    request_payload,
+                                    current_headers,
+                                    request_session_id,
+                                    "responses",
+                                )
+                        except HTTPException as exc:
+                            if exc.status_code == 401:
+                                if attempts_used >= max_retries:
+                                    self._degrade(
+                                        [
+                                            "Streaming authentication failed during initial handshake after "
+                                            f"{attempts_used} retry attempts (limit {max_retries})."
+                                        ]
+                                    )
+                                    raise HTTPException(
+                                        status_code=401,
+                                        detail={
+                                            "error": "openai_codex_stream_auth_failed",
+                                            "message": "Codex streaming request failed authentication during handshake and could not be recovered.",
+                                            "details": {
+                                                "backend": self.name,
+                                                "attempts": attempts_used,
+                                                "max_retries": max_retries,
+                                            },
+                                        },
+                                    )
+                                refreshed = await self._refresh_access_token()
+                                if not refreshed:
+                                    self._degrade(
+                                        [
+                                            "Streaming authentication failed during initial handshake; token refresh unsuccessful."
+                                        ]
+                                    )
+                                    raise HTTPException(
+                                        status_code=401,
+                                        detail={
+                                            "error": "openai_codex_stream_auth_failed",
+                                            "message": "Codex streaming request failed authentication during handshake and could not be recovered.",
+                                            "details": {
+                                                "backend": self.name,
+                                                "attempts": attempts_used,
+                                                "max_retries": max_retries,
+                                            },
+                                        },
+                                    )
+                                delay = self._stream_retry_delay(attempts_used)
+                                attempts_used += 1
+                                if delay > 0:
+                                    await asyncio.sleep(delay)
+                                current_headers = self._build_codex_headers(
+                                    conversation_id
+                                )
+                                continue
+                            raise
+                        current_cancel[0] = stream_handle.cancel_callback
+                        headers_holder.clear()
+                        try:
+                            headers_holder.update(dict(stream_handle.headers or {}))
+                        except Exception:
+                            headers_holder.clear()
+
+                        restart_stream = False
+                        with OverrideRenderer(renderer_key):
+                            async for processed_chunk in stream_handle.iterator:
+                                if self._should_retry_stream_for_auth_error(
+                                    processed_chunk
+                                ):
+                                    restart_stream = True
+                                    logger.info(
+                                        "Codex streaming chunk reported authentication failure; attempting token refresh."
+                                    )
+                                    break
+                                yield processed_chunk
+
+                        if restart_stream:
+                            if stream_handle.cancel_callback is not None:
+                                with contextlib.suppress(Exception):
+                                    await stream_handle.cancel_callback()
+
+                            if attempts_used >= max_retries:
+                                self._degrade(
+                                    [
+                                        "Streaming authentication failed after retries were exhausted "
+                                        f"({attempts_used} attempts, limit {max_retries})."
+                                    ]
+                                )
+                                raise HTTPException(
+                                    status_code=401,
+                                    detail={
+                                        "error": "openai_codex_stream_auth_failed",
+                                        "message": "Codex streaming request failed authentication and could not be recovered.",
+                                        "details": {
+                                            "backend": self.name,
+                                            "attempts": attempts_used,
+                                            "max_retries": max_retries,
+                                        },
+                                    },
+                                )
+
+                            refreshed = await self._refresh_access_token()
+                            if not refreshed:
+                                self._degrade(
+                                    [
+                                        "Streaming authentication failed after token refresh."
+                                    ]
+                                )
+                                raise HTTPException(
+                                    status_code=401,
+                                    detail={
+                                        "error": "openai_codex_stream_auth_failed",
+                                        "message": "Codex streaming request failed authentication and could not be recovered.",
+                                        "details": {
+                                            "backend": self.name,
+                                            "attempts": attempts_used,
+                                            "max_retries": max_retries,
+                                        },
+                                    },
+                                )
+
+                            delay = self._stream_retry_delay(attempts_used)
+                            attempts_used += 1
+                            if delay > 0:
+                                await asyncio.sleep(delay)
+                            current_headers = self._build_codex_headers(conversation_id)
+                            continue
+
+                        current_cancel[0] = None
+                        return
 
                 return StreamingResponseEnvelope(
                     content=_rendered_iterator(),
                     media_type="text/event-stream",
-                    headers=stream_handle.headers,
-                    cancel_callback=stream_handle.cancel_callback,
+                    headers=headers_holder,
+                    cancel_callback=cancel_active_stream,
                 )
             else:
                 with OverrideRenderer(renderer_key):
@@ -1194,11 +1505,11 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 raise HTTPException(status_code=exc.response.status_code, detail=body)
             except HTTPException as exc:
                 if exc.status_code == 401 and attempt == 0:
+                    # Only refresh token - reuse same payload and conversation_id to maintain session continuity
                     refreshed = await self._refresh_access_token()
                     if refreshed:
-                        # FIXED: Only refresh token, reuse same payload and conversation_id
-                        # No need to rebuild payload - just update authorization
-                        # Keep same conversation_id to maintain session continuity
+                        # No need to rebuild payload or conversation_id - just update headers with new token
+                        headers = self._build_codex_headers(conversation_id)
                         continue
                 raise
 
@@ -1209,28 +1520,28 @@ class OpenAIOAuthConnector(OpenAIConnector):
         """Attempt to refresh the Codex OAuth access token using the stored refresh token."""
         async with self._token_refresh_lock:
             logger.info(
-                "Attempting to refresh OpenAI OAuth access token after authentication failure."
+                "Attempting to refresh OpenAI Codex access token after authentication failure."
             )
             # CRITICAL: Always reload credentials inside the lock to avoid race conditions
             # This ensures stale tokens aren't used by parallel coroutines
             await self._load_auth(force_reload=True)
             if not self._auth_credentials:
                 logger.warning(
-                    "Cannot refresh OpenAI OAuth token: credentials not loaded."
+                    "Cannot refresh OpenAI Codex token: credentials not loaded."
                 )
                 return False
 
             tokens = self._auth_credentials.get("tokens")
             if not isinstance(tokens, dict):
                 logger.warning(
-                    "Cannot refresh OpenAI OAuth token: tokens payload missing in auth.json."
+                    "Cannot refresh OpenAI Codex token: tokens payload missing in auth.json."
                 )
                 return False
 
             refresh_token = tokens.get("refresh_token")
             if not isinstance(refresh_token, str) or not refresh_token:
                 logger.warning(
-                    "Cannot refresh OpenAI OAuth token: refresh_token not present in auth.json."
+                    "Cannot refresh OpenAI Codex token: refresh_token not present in auth.json."
                 )
                 return False
 
@@ -1249,13 +1560,13 @@ class OpenAIOAuthConnector(OpenAIConnector):
                     timeout=15.0,
                 )
             except httpx.HTTPError as exc:
-                logger.warning("Failed to refresh OpenAI OAuth token: %s", exc)
+                logger.warning("Failed to refresh OpenAI Codex token: %s", exc)
                 return False
 
             if response.status_code >= 400:
                 body = response.text
                 logger.warning(
-                    "OpenAI OAuth token refresh failed with status %s: %s",
+                    "OpenAI Codex token refresh failed with status %s: %s",
                     response.status_code,
                     body,
                 )
@@ -1322,7 +1633,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
             self._auth_credentials = updated_credentials
             await self._load_auth(force_reload=True)
-            logger.info("Successfully refreshed OpenAI OAuth access token.")
+            logger.info("Successfully refreshed OpenAI Codex access token.")
             return True
 
     # -----------------------------
@@ -1341,20 +1652,20 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self._initialization_failed = True
         self.is_functional = False
         self._credential_validation_errors = errors
-        logger.error(f"OpenAI OAuth initialization failed: {'; '.join(errors)}")
+        logger.error(f"OpenAI Codex initialization failed: {'; '.join(errors)}")
 
     def _degrade(self, errors: list[str]) -> None:
         """Mark backend as degraded due to runtime validation failures."""
         self.is_functional = False
         self._credential_validation_errors = errors
-        logger.warning(f"OpenAI OAuth backend degraded: {'; '.join(errors)}")
+        logger.warning(f"OpenAI Codex backend degraded: {'; '.join(errors)}")
 
     def _recover(self) -> None:
         """Mark backend as recovered after successful validation."""
         self.is_functional = True
         self._credential_validation_errors = []
         self._last_validation_time = time.time()
-        logger.info("OpenAI OAuth backend recovered")
+        logger.info("OpenAI Codex backend recovered")
 
     # -----------------------------
     # Validation methods (stale token handling pattern)
@@ -1459,11 +1770,11 @@ class OpenAIOAuthConnector(OpenAIConnector):
             self._file_observer.schedule(handler, str(watch_dir), recursive=False)
             self._file_observer.start()
             logger.debug(
-                f"Started watching OpenAI OAuth credentials directory: {watch_dir}"
+                f"Started watching OpenAI Codex credentials directory: {watch_dir}"
             )
         except Exception as e:
             logger.warning(
-                f"Failed to start file watching for OpenAI OAuth credentials: {e}"
+                f"Failed to start file watching for OpenAI Codex credentials: {e}"
             )
 
     def _stop_file_watching(self) -> None:
@@ -1473,7 +1784,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 self._file_observer.stop()
                 self._file_observer.join(timeout=1.0)
             except Exception as e:
-                logger.debug(f"Error stopping OpenAI OAuth file watcher: {e}")
+                logger.debug(f"Error stopping OpenAI Codex file watcher: {e}")
             finally:
                 self._file_observer = None
 
@@ -1499,7 +1810,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
         async def reload_task() -> None:
             try:
-                logger.debug("Reloading OpenAI OAuth credentials due to file change")
+                logger.debug("Reloading OpenAI Codex credentials due to file change")
                 # Use force_reload=True to bypass cache
                 try:
                     loaded = await self._load_auth(force_reload=True)
@@ -1521,7 +1832,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
                 else:
                     self._degrade(["Failed to reload credentials from file"])
             except Exception as e:
-                logger.error(f"Error during OpenAI OAuth credentials reload: {e}")
+                logger.error(f"Error during OpenAI Codex credentials reload: {e}")
                 self._degrade([f"Credentials reload failed: {e}"])
 
         loop = self._event_loop
@@ -1568,14 +1879,14 @@ class OpenAIOAuthConnector(OpenAIConnector):
                     _assign_task(task)
                 except Exception as exc:
                     logger.warning(
-                        "Failed to schedule OpenAI OAuth credentials reload: %s", exc
+                        "Failed to schedule OpenAI Codex credentials reload: %s", exc
                     )
                     self._reload_scheduling_event.clear()
 
             loop.call_soon_threadsafe(schedule_task)
         except RuntimeError as exc:
             logger.warning(
-                "Failed to schedule OpenAI OAuth credentials reload: %s", exc
+                "Failed to schedule OpenAI Codex credentials reload: %s", exc
             )
             self._reload_scheduling_event.clear()
 
@@ -1607,7 +1918,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
         """
         auth_path = self._discover_auth_path()
         if auth_path is None:
-            logger.warning("OpenAI OAuth auth.json not found in default locations")
+            logger.warning("OpenAI Codex auth.json not found in default locations")
             return False
 
         self._auth_path = auth_path
@@ -1618,7 +1929,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
                     mtime = auth_path.stat().st_mtime
                     if mtime == self._last_modified and self.api_key:
                         logger.debug(
-                            "OpenAI OAuth credentials file not modified, using cached."
+                            "OpenAI Codex credentials file not modified, using cached."
                         )
                         return True
                 except OSError:
@@ -1649,7 +1960,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
 
             if not token:
                 logger.warning(
-                    "OpenAI OAuth auth.json missing tokens.access_token and OPENAI_API_KEY"
+                    "OpenAI Codex auth.json missing tokens.access_token and OPENAI_API_KEY"
                 )
                 return False
 
@@ -1657,23 +1968,23 @@ class OpenAIOAuthConnector(OpenAIConnector):
             self.api_key = token
             # Store credentials for validation
             self._auth_credentials = data
-            log_msg = "Successfully loaded OpenAI OAuth credentials"
+            log_msg = "Successfully loaded OpenAI Codex credentials"
             if force_reload:
                 log_msg += " (force reload)"
             logger.info(log_msg + ".")
             return True
         except json.JSONDecodeError as e:
-            logger.error("Malformed auth.json for OpenAI OAuth: %s", e, exc_info=True)
+            logger.error("Malformed auth.json for OpenAI Codex: %s", e, exc_info=True)
             return False
         except Exception as e:
             logger.error(
-                "Failed to load OpenAI OAuth credentials: %s", e, exc_info=True
+                "Failed to load OpenAI Codex credentials: %s", e, exc_info=True
             )
             return False
 
     async def initialize(self, **kwargs: Any) -> None:  # type: ignore[override]
         """Initialize backend with enhanced validation using stale token handling pattern."""
-        logger.info("Initializing OpenAI OAuth backend with enhanced validation.")
+        logger.info("Initializing OpenAI Codex backend with enhanced validation.")
 
         try:
             self._event_loop = asyncio.get_running_loop()
@@ -1686,7 +1997,7 @@ class OpenAIOAuthConnector(OpenAIConnector):
             self.api_base_url = base
 
         # Optional directory override for auth.json
-        dir_override = kwargs.get("openai_oauth_path")
+        dir_override = kwargs.get("openai_codex_path")
         if isinstance(dir_override, str) and dir_override:
             self._oauth_dir_override = Path(dir_override)
 
@@ -1738,8 +2049,8 @@ class OpenAIOAuthConnector(OpenAIConnector):
             raise HTTPException(
                 status_code=502,
                 detail={
-                    "error": "openai_oauth_credentials_invalid",
-                    "message": f"OpenAI OAuth credentials validation failed: {'; '.join(errors)}",
+                    "error": "openai_codex_credentials_invalid",
+                    "message": f"OpenAI Codex credentials validation failed: {'; '.join(errors)}",
                     "details": {
                         "backend": self.name,
                         "validation_errors": errors,
@@ -1755,8 +2066,8 @@ class OpenAIOAuthConnector(OpenAIConnector):
             raise HTTPException(
                 status_code=502,
                 detail={
-                    "error": "openai_oauth_credentials_unavailable",
-                    "message": "OpenAI OAuth credentials not initialized. Backend may have failed to start.",
+                    "error": "openai_codex_credentials_unavailable",
+                    "message": "OpenAI Codex credentials not initialized. Backend may have failed to start.",
                     "details": {
                         "backend": self.name,
                         "validation_errors": self.get_validation_errors(),
@@ -1813,4 +2124,4 @@ class OpenAIOAuthConnector(OpenAIConnector):
         self._stop_file_watching()
 
 
-backend_registry.register_backend("openai-oauth", OpenAIOAuthConnector)
+backend_registry.register_backend("openai-codex", OpenAICodexConnector)

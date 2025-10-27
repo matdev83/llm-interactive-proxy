@@ -260,9 +260,61 @@ def _install_global_warning_filters() -> None:
     warnings.filterwarnings("ignore", category=UserWarning)
 
 
-def pytest_cmdline_main(config):
+@pytest.hookimpl(wrapper=True)
+def pytest_cmdline_parse(pluginmanager, args):
     """
     Dynamically modifies pytest arguments before test collection.
+    """
+    config = yield
+    modified_args = args.copy()  # Don't modify original args
+
+    has_test_paths = any(arg for arg in modified_args if not arg.startswith("-"))
+    has_maxfail = any(arg.startswith("--maxfail") for arg in modified_args)
+    has_lf = "--lf" in modified_args
+
+    # Handle test paths and add default configuration
+    if not has_test_paths and not any(
+        arg in ("--version", "--help", "--fixtures") for arg in modified_args
+    ):
+        # Use testpaths from the config file
+        testpaths = config.getini("testpaths")
+        modified_args = testpaths + modified_args
+
+        if not has_maxfail and not has_lf:
+            try:
+                tree = xml.etree.ElementTree.parse("test-results.xml")
+                root = tree.getroot()
+                testsuite = root.find("testsuite")
+                if testsuite is not None:
+                    failures = int(testsuite.attrib.get("failures", 0))
+                    if failures > 0:
+                        if "--ff" not in modified_args:
+                            modified_args.append("--ff")
+                        modified_args.append(f"--maxfail={failures}")
+                    else:
+                        modified_args.append("--maxfail=1")
+                else:
+                    modified_args.append("--maxfail=1")
+            except (xml.etree.ElementTree.ParseError, FileNotFoundError):
+                modified_args.append("--maxfail=1")
+
+        # Add -q for quiet output unless user specified a verbosity level
+        has_verbosity_flag = any(
+            arg in ("-v", "--verbose", "-q", "--quiet") for arg in modified_args
+        )
+        if not has_verbosity_flag:
+            modified_args.append("-q")
+
+        if "-rfE" not in modified_args:
+            modified_args.append("-rfE")
+
+    # Update config args and return
+    config.args = modified_args
+
+
+def pytest_cmdline_main(config):
+    """
+    Backward compatibility function for testing pytest_cmdline_main.
     """
     has_test_paths = any(arg for arg in config.args if not arg.startswith("-"))
     has_maxfail = any(arg.startswith("--maxfail") for arg in config.args)

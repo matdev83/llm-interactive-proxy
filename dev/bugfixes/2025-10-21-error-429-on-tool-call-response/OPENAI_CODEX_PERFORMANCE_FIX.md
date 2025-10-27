@@ -1,17 +1,17 @@
-# OpenAI OAuth Performance Fix: Eliminated Unnecessary Payload Rebuilding
+# OpenAI Codex Performance Fix: Eliminated Unnecessary Payload Rebuilding
 
 ## ✅ **CRITICAL PERFORMANCE ISSUE DISCOVERED AND FIXED**
 
 ### **Problem Identified**
 
-The OpenAI OAuth connector had a **major performance bottleneck** in its token refresh retry logic that was causing:
+The OpenAI Codex connector had a **major performance bottleneck** in its token refresh retry logic that was causing:
 - **🐌 Slow performance** due to unnecessary payload rebuilding
 - **💸 Rapid quota consumption** from inefficient retry patterns
 - **🔗 Session fragmentation** from generating new conversation IDs
 
 ### **Root Cause Analysis**
 
-**Location**: `src/connectors/openai_oauth.py` lines 704-714
+**Location**: `src/connectors/openai_codex.py` lines 704-714
 
 **Problematic Pattern**:
 ```python
@@ -112,13 +112,13 @@ except HTTPException as exc:
 
 ### **Files Modified**
 
-1. **`src/connectors/openai_oauth.py`**:
+1. **`src/connectors/openai_codex.py`**:
    - ✅ Removed unnecessary payload rebuilding in retry logic
    - ✅ Eliminated conversation_id regeneration on token refresh
    - ✅ Removed header reconstruction overhead
    - ✅ Added performance optimization comments
 
-2. **`tests/unit/connectors/test_openai_oauth_performance_fix.py`** (NEW):
+2. **`tests/unit/connectors/test_openai_codex_performance_fix.py`** (NEW):
    - ✅ Verifies no unnecessary payload rebuilding
    - ✅ Tests efficient retry patterns
    - ✅ Validates session continuity preservation
@@ -178,7 +178,7 @@ except HTTPException as exc:
 
 ## **Conclusion**
 
-The OpenAI OAuth connector performance issue has been **completely resolved**:
+The OpenAI Codex connector performance issue has been **completely resolved**:
 
 1. ✅ **Eliminated unnecessary payload rebuilding** that was causing slow performance
 2. ✅ **Preserved session continuity** by reusing conversation IDs

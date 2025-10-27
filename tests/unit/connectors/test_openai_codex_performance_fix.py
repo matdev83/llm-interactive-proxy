@@ -1,5 +1,5 @@
 """
-Test performance optimization in OpenAI OAuth connector.
+Test performance optimization in OpenAI Codex connector.
 
 This test ensures that token refresh doesn't trigger unnecessary payload rebuilding
 that was causing slow performance and rapid quota consumption.
@@ -10,8 +10,8 @@ import re
 import pytest
 
 
-class TestOpenAIOAuthPerformanceOptimization:
-    """Test suite for OpenAI OAuth performance optimization."""
+class TestOpenAICodexPerformanceOptimization:
+    """Test suite for OpenAI Codex performance optimization."""
 
     def test_no_unnecessary_payload_rebuilding_on_token_refresh(self):
         """
@@ -19,7 +19,7 @@ class TestOpenAIOAuthPerformanceOptimization:
 
         This was causing slow performance and rapid quota consumption.
         """
-        with open("src/connectors/openai_oauth.py") as f:
+        with open("src/connectors/openai_codex.py") as f:
             source_code = f.read()
 
         # Look for the retry logic section
@@ -53,7 +53,7 @@ class TestOpenAIOAuthPerformanceOptimization:
         """
         Test that retry logic is efficient and doesn't waste resources.
         """
-        with open("src/connectors/openai_oauth.py") as f:
+        with open("src/connectors/openai_codex.py") as f:
             source_code = f.read()
 
         # Should have token refresh capability
@@ -75,7 +75,7 @@ class TestOpenAIOAuthPerformanceOptimization:
         """
         Test that session continuity is preserved during token refresh.
         """
-        with open("src/connectors/openai_oauth.py") as f:
+        with open("src/connectors/openai_codex.py") as f:
             source_code = f.read()
 
         # Look for conversation_id generation
@@ -93,7 +93,7 @@ class TestOpenAIOAuthPerformanceOptimization:
         """
         Test that there are no patterns that could cause double processing.
         """
-        with open("src/connectors/openai_oauth.py") as f:
+        with open("src/connectors/openai_codex.py") as f:
             source_code = f.read()
 
         # Look for retry sections
@@ -119,7 +119,7 @@ class TestOpenAIOAuthPerformanceOptimization:
         """
         Test for indicators of quota-efficient implementation.
         """
-        with open("src/connectors/openai_oauth.py") as f:
+        with open("src/connectors/openai_codex.py") as f:
             source_code = f.read()
 
         # Should have comments indicating the fix

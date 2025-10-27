@@ -104,7 +104,7 @@ and pushing changes we'll revert local back to remote dev and try merging files 
 
   Batch 4: Connector and OAuth Changes
   - src/connectors/gemini_oauth_personal.py
-  - src/connectors/openai_oauth.py
+  - src/connectors/openai_codex.py
   - src/connectors/qwen_oauth.py
   - Hypothesis: OAuth imports during module loading could interfere
 

@@ -101,7 +101,7 @@ class TestBackendImportsIntegration:
             "gemini-oauth-free",
             "gemini-oauth-plan",
             "openai",
-            "openai-oauth",
+            "openai-codex",
             "openrouter",
             "qwen-oauth",
             "zai",

@@ -1,9 +1,9 @@
-# OpenAI OAuth Backend Configuration
+# OpenAI Codex Backend Configuration
 
-The `openai-oauth` connector now exposes a configuration surface that lets you
+The `openai-codex` connector now exposes a configuration surface that lets you
 control capability defaults, prompt management, renderer selection, and tool
 schema injection without touching the source code. All options live under the
-`backends.openai_oauth.extra.codex` section of your application config and can
+`backends.openai_codex.extra.codex` section of your application config and can
 be overridden with dedicated environment variables.
 
 ## Capability Defaults
@@ -13,7 +13,7 @@ You can override the defaults globally:
 
 ```yaml
 backends:
-  openai_oauth:
+  openai_codex:
     extra:
       codex:
         default_capabilities:
@@ -24,12 +24,12 @@ backends:
           include_environment_context: false
 ```
 
-Environment override: set `OPENAI_OAUTH_DEFAULT_CAPABILITIES` to a JSON mapping
+Environment override: set `OPENAI_CODEX_DEFAULT_CAPABILITIES` to a JSON mapping
 with the same keys (e.g. `{"prompt_mode":"custom_only"}`).
 
 Agent-specific capability defaults can be registered via
 `agent_capabilities` (mapping of agent name → capability overrides) or the
-`OPENAI_OAUTH_AGENT_CAPABILITIES` environment variable.
+`OPENAI_CODEX_AGENT_CAPABILITIES` environment variable.
 
 ## Tool Text Renderer Registry
 
@@ -46,7 +46,7 @@ Configuration example:
 
 ```yaml
 backends:
-  openai_oauth:
+  openai_codex:
     extra:
       codex:
         renderer:
@@ -63,10 +63,10 @@ Setting `renderer.default` automatically updates the default capability unless
 you explicitly set `tool_text_format` elsewhere. Renderer configuration can also
 be supplied via environment variables:
 
-- `OPENAI_OAUTH_RENDERER_DEFAULT`
-- `OPENAI_OAUTH_RENDERER_FALLBACK`
-- `OPENAI_OAUTH_RENDERER_ALIASES` (JSON mapping)
-- `OPENAI_OAUTH_RENDERER_MODULES` (JSON mapping, values must be `module.Class`)
+- `OPENAI_CODEX_RENDERER_DEFAULT`
+- `OPENAI_CODEX_RENDERER_FALLBACK`
+- `OPENAI_CODEX_RENDERER_ALIASES` (JSON mapping)
+- `OPENAI_CODEX_RENDERER_MODULES` (JSON mapping, values must be `module.Class`)
 
 ## Prompt Management
 
@@ -75,7 +75,7 @@ replace it entirely.
 
 ```yaml
 backends:
-  openai_oauth:
+  openai_codex:
     extra:
       codex:
         prompt:
@@ -99,11 +99,11 @@ Environment overrides:
 
 | Variable                               | Description                                  |
 |----------------------------------------|----------------------------------------------|
-| `OPENAI_OAUTH_PROMPT_TEMPLATE`         | Replacement prompt text                      |
-| `OPENAI_OAUTH_PROMPT_PREPEND`          | JSON string or comma-separated list          |
-| `OPENAI_OAUTH_PROMPT_APPEND`           | JSON string or comma-separated list          |
-| `OPENAI_OAUTH_PROMPT_DEDUPLICATE`      | `true` / `false`                             |
-| `OPENAI_OAUTH_PROMPT_FALLBACK_DEFAULT` | `true` / `false`                             |
+| `OPENAI_CODEX_PROMPT_TEMPLATE`         | Replacement prompt text                      |
+| `OPENAI_CODEX_PROMPT_PREPEND`          | JSON string or comma-separated list          |
+| `OPENAI_CODEX_PROMPT_APPEND`           | JSON string or comma-separated list          |
+| `OPENAI_CODEX_PROMPT_DEDUPLICATE`      | `true` / `false`                             |
+| `OPENAI_CODEX_PROMPT_FALLBACK_DEFAULT` | `true` / `false`                             |
 
 ## Tool Schema Providers
 
@@ -113,7 +113,7 @@ tool definitions.
 
 ```yaml
 backends:
-  openai_oauth:
+  openai_codex:
     extra:
       codex:
         tool_schema:
@@ -146,8 +146,8 @@ Environment overrides:
 
 | Variable                           | Description                |
 |------------------------------------|----------------------------|
-| `OPENAI_OAUTH_TOOL_SCHEMA_BASE`    | JSON array of base tools   |
-| `OPENAI_OAUTH_TOOL_SCHEMA_CUSTOM`  | JSON array of custom tools |
+| `OPENAI_CODEX_TOOL_SCHEMA_BASE`    | JSON array of base tools   |
+| `OPENAI_CODEX_TOOL_SCHEMA_CUSTOM`  | JSON array of custom tools |
 
 Each tool entry must include a `name` field; invalid definitions are skipped
 with a warning.
@@ -197,6 +197,37 @@ codex:
 ```
 
 If a request explicitly sets `tool_text_format: none`, the agent override will NOT be applied.
+
+## Streaming Retry Configuration
+
+Codex streaming requests now support configurable authentication retry handling:
+
+```yaml
+backends:
+  openai_codex:
+    extra:
+      codex:
+        streaming:
+          max_retries: 2               # total retries after the initial attempt
+          retry_backoff_seconds: [0.5, 1.5, 3.0]  # per-attempt delays
+```
+
+- `max_retries` controls how many times the connector will attempt to refresh credentials
+  and re-establish the stream after a 401/403 (handshake or mid-stream). The default is `2`.
+- `retry_backoff_seconds` accepts a list of non-negative floats (seconds). The connector uses
+  the first value for the first retry, the second value for the next retry, and reuses the final
+  value for any additional retries.
+
+Environment overrides:
+
+| Variable                                  | Description                                            |
+|-------------------------------------------|--------------------------------------------------------|
+| `OPENAI_CODEX_STREAMING_MAX_RETRIES`      | Overrides `max_retries`                                |
+| `OPENAI_CODEX_STREAMING_RETRY_BACKOFF`    | Comma- or JSON-separated list of retry delays in sec |
+
+During a streaming retry the connector reuses the same `prompt_cache_key` / conversation id so the Codex
+backend can resume where it left off. If all retries are exhausted or the token refresh fails, the stream
+is cancelled, the backend is degraded, and an HTTP 401 is surfaced to the caller.
 
 ## Streaming Behavior and Token Refresh
 
@@ -313,19 +344,19 @@ The connector performs validation on:
 
 | Variable                                  | Purpose                                    |
 |-------------------------------------------|--------------------------------------------|
-| `OPENAI_OAUTH_DEFAULT_CAPABILITIES`       | JSON default capability overrides          |
-| `OPENAI_OAUTH_AGENT_CAPABILITIES`         | JSON agent → capability map                |
-| `OPENAI_OAUTH_RENDERER_DEFAULT`           | Default renderer key                       |
-| `OPENAI_OAUTH_RENDERER_FALLBACK`          | Fallback renderer key                      |
-| `OPENAI_OAUTH_RENDERER_ALIASES`           | JSON alias mapping                         |
-| `OPENAI_OAUTH_RENDERER_MODULES`           | JSON name → `module.Class` mapping         |
-| `OPENAI_OAUTH_PROMPT_TEMPLATE`            | Replacement system prompt                  |
-| `OPENAI_OAUTH_PROMPT_PREPEND`             | JSON/List of prepend sections              |
-| `OPENAI_OAUTH_PROMPT_APPEND`              | JSON/List of append sections               |
-| `OPENAI_OAUTH_PROMPT_DEDUPLICATE`         | Toggle deduplication                       |
-| `OPENAI_OAUTH_PROMPT_FALLBACK_DEFAULT`    | Toggle fallback when custom prompt empty   |
-| `OPENAI_OAUTH_TOOL_SCHEMA_BASE`           | JSON base schema override                  |
-| `OPENAI_OAUTH_TOOL_SCHEMA_CUSTOM`         | JSON reusable custom schema entries        |
+| `OPENAI_CODEX_DEFAULT_CAPABILITIES`       | JSON default capability overrides          |
+| `OPENAI_CODEX_AGENT_CAPABILITIES`         | JSON agent → capability map                |
+| `OPENAI_CODEX_RENDERER_DEFAULT`           | Default renderer key                       |
+| `OPENAI_CODEX_RENDERER_FALLBACK`          | Fallback renderer key                      |
+| `OPENAI_CODEX_RENDERER_ALIASES`           | JSON alias mapping                         |
+| `OPENAI_CODEX_RENDERER_MODULES`           | JSON name → `module.Class` mapping         |
+| `OPENAI_CODEX_PROMPT_TEMPLATE`            | Replacement system prompt                  |
+| `OPENAI_CODEX_PROMPT_PREPEND`             | JSON/List of prepend sections              |
+| `OPENAI_CODEX_PROMPT_APPEND`              | JSON/List of append sections               |
+| `OPENAI_CODEX_PROMPT_DEDUPLICATE`         | Toggle deduplication                       |
+| `OPENAI_CODEX_PROMPT_FALLBACK_DEFAULT`    | Toggle fallback when custom prompt empty   |
+| `OPENAI_CODEX_TOOL_SCHEMA_BASE`           | JSON base schema override                  |
+| `OPENAI_CODEX_TOOL_SCHEMA_CUSTOM`         | JSON reusable custom schema entries        |
 
 ## Observability
 
@@ -336,6 +367,6 @@ The connector performs validation on:
 - Prompt and tool schema helpers validate definitions and skip malformed entries
   with clear warnings.
 
-With these knobs you can tailor the `openai-oauth` backend to match each
+With these knobs you can tailor the `openai-codex` backend to match each
 client's expectations while preserving the canonical tool call metadata the
 proxy relies on.

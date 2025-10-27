@@ -1543,7 +1543,7 @@ def _handle_application_build_error(error_msg: str) -> None:
             )
             sys.stderr.write("    * qwen-oauth (uses qwen CLI auth)\n")
             sys.stderr.write("    * anthropic-oauth (uses Claude Code auth)\n")
-            sys.stderr.write("    * openai-oauth (uses codex CLI auth)\n")
+            sys.stderr.write("    * openai-codex (uses codex CLI auth)\n")
         elif "oauth_credentials_invalid" in error_msg:
             sys.stderr.write(
                 "\nDETECTED ISSUE: OAuth credentials are invalid or corrupted\n"

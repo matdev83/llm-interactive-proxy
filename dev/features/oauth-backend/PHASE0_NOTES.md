@@ -1,9 +1,9 @@
-# Phase 0 Audit Notes – OpenAI OAuth Connector
+# Phase 0 Audit Notes – OpenAI Codex Connector
 
 ## Overview
 Initial inventory of Kilo/Cline-specific behaviors baked into the Codex connector and streaming pipeline. Line references use the current repository state at the time of review.
 
-## Connector (`src/connectors/openai_oauth.py`)
+## Connector (`src/connectors/openai_codex.py`)
 - `._codex_system_prompt()` hardcodes the Codex CLI system prompt for every request (`instructions` field) regardless of client needs (lines 54-126, 451-468).
 - `_default_user_instructions()` loads `AGENTS.md` and `_build_user_instructions_block()` wraps all system prompts in a `<user_instructions>` XML block (lines 267-304), mirroring KiloCode expectations.
 - `_build_environment_context_block()` injects environment metadata as `<environment_context>` XML regardless of client protocol (lines 305-333).
@@ -22,7 +22,7 @@ Initial inventory of Kilo/Cline-specific behaviors baked into the Codex connecto
 - Broader codebase tracks `session.agent == "cline"` (`src/core/services/response_manager_service.py:235-352`, `src/core/domain/session.py:654-670`, `src/agents.py`), but connector/translator do not currently surface capability objects—logic branches directly on the agent flag.
 
 ## Tests
-- `tests/unit/connectors/test_openai_oauth_codex.py` asserts that the payload contains the `<user_instructions>` / `<environment_context>` XML and Codex CLI prompt (lines 23-87), locking in Kilo behaviors.
+- `tests/unit/connectors/test_openai_codex_codex_cli.py` asserts that the payload contains the `<user_instructions>` / `<environment_context>` XML and Codex CLI prompt (lines 23-87), locking in Kilo behaviors.
 
 ## Gaps Identified
 - No capability abstraction: all behavior assumes Kilo/Codex CLI flow.

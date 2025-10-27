@@ -1,31 +1,31 @@
-# OpenAI OAuth Connector Code Review - Comprehensive Findings
+# OpenAI Codex Connector Code Review - Comprehensive Findings
 
 ## Executive Summary
 
-The OpenAI OAuth connector (`openai-oauth` backend) is **substantially complete** with sophisticated features for OAuth token management, Codex API integration, and multi-protocol translation. However, there are **incomplete features, edge cases, and implementation gaps** that need attention before considering it production-ready.
+The OpenAI Codex connector (`openai-codex` backend) is **substantially complete** with sophisticated features for OAuth token management, Codex API integration, and multi-protocol translation. However, there are **incomplete features, edge cases, and implementation gaps** that need attention before considering it production-ready.
 
 ## Critical Issues (High Priority)
 
 ### 1. Race Condition in Token Refresh
-**Location**: `src/connectors/openai_oauth.py` line ~1211 in `chat_completions`
+**Location**: `src/connectors/openai_codex.py` line ~1211 in `chat_completions`
 **Issue**: `_load_auth()` is called **before** acquiring the `_token_refresh_lock`, creating a window where stale tokens could be used
 **Impact**: Failed requests with 401 errors even after successful token refresh in parallel coroutine
 **Fix**: Move `_load_auth()` call inside the lock in `_refresh_access_token()`
 
 ### 2. Non-Atomic Credential File Writes
-**Location**: `src/connectors/openai_oauth.py` lines ~1049-1054
+**Location**: `src/connectors/openai_codex.py` lines ~1049-1054
 **Issue**: Direct write to auth.json without atomic temp-file-then-rename pattern
 **Impact**: Concurrent processes could corrupt the file, or readers get partial JSON during write
 **Fix**: Use `tempfile.NamedTemporaryFile` with `os.replace()` for atomic writes
 
 ### 3. Overly Broad Passthrough Detection
-**Location**: `src/connectors/openai_oauth.py` line ~708 in `_is_native_responses_payload`
+**Location**: `src/connectors/openai_codex.py` line ~708 in `_is_native_responses_payload`
 **Issue**: Heuristic `"input" in data or "prompt_cache_key" in data` could misclassify OpenAI requests
 **Impact**: Incorrect translation bypass, breaking request processing
 **Fix**: Add stricter validation - check for Responses-specific structure (e.g., input must be list of dicts with specific keys)
 
 ### 4. Missing Streaming Token Refresh
-**Location**: `src/connectors/openai_oauth.py` line ~899 in `_call_codex_responses_api`
+**Location**: `src/connectors/openai_codex.py` line ~899 in `_call_codex_responses_api`
 **Issue**: Token refresh only works for non-streaming requests; streaming responses don't retry on 401
 **Impact**: Streaming requests fail mid-stream if token expires
 **Fix**: Implement streaming wrapper that can restart stream on 401
@@ -37,15 +37,15 @@ The OpenAI OAuth connector (`openai-oauth` backend) is **substantially complete*
 - Renderers (markdown, xml, summary) registered but not used in canonical path
 - `render_tool_call()` called but output not integrated into non-XML translation
 **Locations**: 
-- `src/connectors/_openai_oauth_request_translator.py` line ~170 (dual path fork)
-- `src/connectors/openai_oauth.py` line ~922 (renderer selection)
+- `src/connectors/_openai_codex_request_translator.py` line ~170 (dual path fork)
+- `src/connectors/openai_codex.py` line ~922 (renderer selection)
 **Fix**: Either complete renderer integration for all modes or remove unused renderers
 
 ### 6. Tool Call Parsing Gap in Canonical Mode
 **Issue**: Only `codex_xml` mode parses textual tool invocations/results
 - Canonical mode (default for most clients) ignores text-based tool calls entirely
 - Creates feature disparity between Cline/Kilo (XML) and other clients (canonical)
-**Location**: `src/connectors/_openai_oauth_request_translator.py` lines ~66-270
+**Location**: `src/connectors/_openai_codex_request_translator.py` lines ~66-270
 **Impact**: Non-Cline clients can't use textual tool format
 **Fix**: Add textual tool parsing to canonical path or document this as intentional limitation
 
@@ -53,7 +53,7 @@ The OpenAI OAuth connector (`openai-oauth` backend) is **substantially complete*
 **Issue**: Connector returns Codex Responses API format but no explicit translation back to canonical
 - `translation.py` has converters but connector doesn't invoke them
 - Downstream systems must handle Responses format directly
-**Location**: `src/connectors/openai_oauth.py` line ~899 (returns StreamingResponseEnvelope with Responses chunks)
+**Location**: `src/connectors/openai_codex.py` line ~899 (returns StreamingResponseEnvelope with Responses chunks)
 **Impact**: Front-end API compatibility unclear - does proxy translate Responses → OpenAI/Anthropic/Gemini?
 **Fix**: Add explicit translation layer or document that proxy handles this
 
@@ -61,7 +61,7 @@ The OpenAI OAuth connector (`openai-oauth` backend) is **substantially complete*
 **Issue**: `_reload_scheduling_in_progress` flag not fully thread-safe
 - Set/cleared with lock but checked without lock in some paths
 - Multiple file events could create duplicate reload tasks
-**Location**: `src/connectors/openai_oauth.py` lines ~1122-1225
+**Location**: `src/connectors/openai_codex.py` lines ~1122-1225
 **Fix**: Use proper threading primitives (threading.Event) instead of manual flag
 
 ## Edge Cases & Validation Gaps (Low-Medium Priority)
@@ -70,20 +70,20 @@ The OpenAI OAuth connector (`openai-oauth` backend) is **substantially complete*
 **Issue**: `custom_only` mode with empty custom prompts returns `None`
 - Unclear if downstream systems handle `None` correctly
 - Fallback behavior depends on `fallback_to_default` flag
-**Location**: `src/connectors/openai_oauth.py` line ~786 in `_resolve_system_prompt`
+**Location**: `src/connectors/openai_codex.py` line ~786 in `_resolve_system_prompt`
 **Fix**: Return empty string instead of None, or document None handling contract
 
 ### 10. Tool Schema Name Collisions Not Resolved
 **Issue**: `merge_custom` mode overwrites by name without conflict detection
 - If custom tool has same name as default but different parameters, last one wins
-**Location**: `src/connectors/openai_oauth.py` line ~681 in `_resolve_tool_schema`
+**Location**: `src/connectors/openai_codex.py` line ~681 in `_resolve_tool_schema`
 **Fix**: Add warning when schemas conflict, or merge parameter schemas
 
 ### 11. Environment Context Block Added to All Requests
 **Issue**: `<environment_context>` XML block prepended to every request by default
 - Bloats token usage for non-Codex use cases
 - No way to disable per-request (only global `include_environment_context=False`)
-**Location**: `src/connectors/_openai_oauth_request_translator.py` line ~39
+**Location**: `src/connectors/_openai_codex_request_translator.py` line ~39
 **Fix**: Make environment context opt-in or detect when it's needed
 
 ### 12. Configuration Validation Missing
@@ -209,6 +209,6 @@ The OpenAI OAuth connector (`openai-oauth` backend) is **substantially complete*
 
 ## Conclusion
 
-The OpenAI OAuth connector is **architecturally sound** with sophisticated features, but has **critical race conditions and incomplete integration** that must be addressed. The implementation is ~85% complete - core functionality works, but edge cases, error handling, and production hardening need attention.
+The OpenAI Codex connector is **architecturally sound** with sophisticated features, but has **critical race conditions and incomplete integration** that must be addressed. The implementation is ~85% complete - core functionality works, but edge cases, error handling, and production hardening need attention.
 
 **Recommended approach**: Fix the 4 critical issues (#1-4) immediately, then address incomplete features (#5-8) before considering this backend production-ready. The connector can be used in development/testing environments as-is, but requires fixes for production deployment.

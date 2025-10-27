@@ -1,12 +1,12 @@
-# OpenAI OAuth Connector Refactor Plan
+# OpenAI Codex Connector Refactor Plan
 
-Goal: reorganize the `openai-oauth` backend into a client-agnostic, capability-driven connector that can serve Codex CLI, generic Chat Completion agents (e.g., Droid/OpenCode), and structured tool-call agents without bespoke code paths.
+Goal: reorganize the `openai-codex` backend into a client-agnostic, capability-driven connector that can serve Codex CLI, generic Chat Completion agents (e.g., Droid/OpenCode), and structured tool-call agents without bespoke code paths.
 
 ---
 
 ## Phase 0 – Foundations / Analysis
 1. **Inventory current behavior**  
-   - Document the existing translation layers, prompt injection points, and tool rendering logic (surrounding `src/connectors/openai_oauth.py`, `src/core/domain/translation.py`, `src/core/services/translation_service.py`).  
+   - Document the existing translation layers, prompt injection points, and tool rendering logic (surrounding `src/connectors/openai_codex.py`, `src/core/domain/translation.py`, `src/core/services/translation_service.py`).  
    - Capture the current detection mechanisms for Kilo/Cline forks and how they influence translation.
 2. **Define capability schema**  
    - Draft the capability keys (`protocol`, `tool_text_format`, `prompt_mode`, `tool_schema_mode`, etc.) and default precedence rules described in the PRD.
@@ -95,6 +95,6 @@ Deliverable: comprehensive automated coverage affirming backward compatibility a
 3. **POC validation**  
    - Run manual tests with Droid/OpenCode clients to confirm general-purpose behavior before tackling advanced features (rate limiting, metrics, etc.).
 
-Deliverable: ready-to-share documentation and POC validation results; baseline reference implementation for future enhancements. **Status:** Implemented (public documentation in `docs/openai_oauth.md`, enhanced logging of capability decisions, renderer configuration warnings).
+Deliverable: ready-to-share documentation and POC validation results; baseline reference implementation for future enhancements. **Status:** Implemented (public documentation in `docs/openai_codex.md`, enhanced logging of capability decisions, renderer configuration warnings).
 
 ---

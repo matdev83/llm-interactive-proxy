@@ -1,8 +1,8 @@
-# OpenAI OAuth Connector Knowledge
+# OpenAI Codex Connector Knowledge
 
 ## Purpose
 
-The `openai-oauth` backend enables users to leverage ChatGPT Plus subscription allowances via OAuth authentication from the codex-cli command-line tool. This is distinct from the standard OpenAI API - it uses personal OAuth tokens and routes through the Codex Responses API endpoint.
+The `openai-codex` backend enables users to leverage ChatGPT Plus subscription allowances via OAuth authentication from the codex-cli command-line tool. This is distinct from the standard OpenAI API - it uses personal OAuth tokens and routes through the Codex Responses API endpoint.
 
 ## Critical Implementation Details
 
@@ -117,7 +117,7 @@ Tool schemas are validated with `_validate_tool_schema()`:
 ## Limitations
 
 ### Known Gaps
-1. **Streaming token refresh**: Not implemented - streams fail if token expires mid-stream
+1. **Streaming token refresh**: Configurable retry budget (default 2) with automatic token refresh on handshake or chunk authentication failures; further enhancements like resumable offsets remain future work.
 2. **Proactive token refresh**: Waits for 401, doesn't predict expiration
 3. **Renderer integration**: Only complete for `codex_xml` mode
 4. **Canonical mode text parsing**: Doesn't parse textual tool invocations
@@ -146,8 +146,8 @@ Tool schemas are validated with `_validate_tool_schema()`:
 
 ## Related Files
 
-- `_openai_oauth_capabilities.py` - Capability resolution
-- `_openai_oauth_request_translator.py` - Request translation
-- `docs/openai_oauth.md` - Configuration guide
+- `_openai_codex_capabilities.py` - Capability resolution
+- `_openai_codex_request_translator.py` - Request translation
+- `docs/openai_codex.md` - Configuration guide
 - `src/core/domain/translation.py` - Response translation utilities
 - `src/core/services/tool_text_renderer.py` - Tool text rendering system
