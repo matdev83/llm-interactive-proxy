@@ -417,12 +417,11 @@ class SetCommand(StatefulCommandBase, BaseCommand):
             try:
                 return policy.is_static_route_enforced()
             except Exception as exc:  # pragma: no cover - defensive logging
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Policy service failed to determine static routing: %s",
-                        exc,
-                        exc_info=True,
-                    )
+                logger.debug(
+                    "Policy service failed to determine static routing: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         import os
 

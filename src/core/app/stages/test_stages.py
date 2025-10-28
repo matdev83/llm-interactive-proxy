@@ -457,17 +457,15 @@ class MockBackendStage(InitializationStage):
 
                     httpx_client = self._resolve_httpx_client(services)
                     if httpx_client is None:
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "No shared HTTP client available; using mock backend"
-                            )
+                        logger.debug(
+                            "No shared HTTP client available; using mock backend"
+                        )
                         return await mock_chat_completions(*args, **kwargs)
 
                     if translation_service is None:
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "TranslationService unavailable for mock backend factory"
-                            )
+                        logger.debug(
+                            "TranslationService unavailable for mock backend factory"
+                        )
                         return await mock_chat_completions(*args, **kwargs)
 
                     real_backend = AnthropicBackend(
@@ -561,18 +559,16 @@ class MockBackendStage(InitializationStage):
 
                         httpx_client = self._resolve_httpx_client(services)
                         if httpx_client is None:
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    "No shared HTTP client available for anthropic backend; "
-                                    "falling back to mock"
-                                )
+                            logger.debug(
+                                "No shared HTTP client available for anthropic backend; "
+                                "falling back to mock"
+                            )
                             # Fall back to mock behavior instead of raising error
                         else:
                             if translation_service is None:
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        "TranslationService unavailable for mock backend factory"
-                                    )
+                                logger.debug(
+                                    "TranslationService unavailable for mock backend factory"
+                                )
                                 # Return a mock backend since we can't create a real one
                                 mock_backend = MagicMock()
                                 mock_backend.chat_completions = AsyncMock(

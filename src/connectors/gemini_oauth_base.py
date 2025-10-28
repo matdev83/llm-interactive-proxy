@@ -204,14 +204,12 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                 )
 
                 if credentials_path and event_path == credentials_path:
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Credentials file modified: {event.src_path}")
+                    logger.info(f"Credentials file modified: {event.src_path}")
 
                     # Schedule credential reload in the connector's event loop in a thread-safe way
                     self.connector._schedule_credentials_reload()
             except Exception as e:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Error processing file modification event: {e}")
+                logger.error(f"Error processing file modification event: {e}")
 
 
 class _StaticTokenCreds:
@@ -868,13 +866,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             watch_dir = self._credentials_path.parent
             self._file_observer.schedule(event_handler, str(watch_dir), recursive=False)
             self._file_observer.start()
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"Started watching credentials file: {self._credentials_path}"
-                )
+            logger.info(f"Started watching credentials file: {self._credentials_path}")
         except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to start file watching: {e}")
+            logger.warning(f"Failed to start file watching: {e}")
 
     def _stop_file_watching(self) -> None:
         """Stop watching the credentials file."""
@@ -883,13 +877,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             try:
                 if observer.is_alive():
                     observer.stop()
-                    observer.join()
+                    # Only join if we're not in the observer thread to avoid "cannot join current thread" error
+                    current_thread = threading.current_thread()
+                    if (
+                        hasattr(observer, "_thread")
+                        and observer._thread != current_thread
+                    ):
+                        observer.join()
                 self._file_observer = None
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("Stopped watching credentials file")
+                logger.info("Stopped watching credentials file")
             except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error stopping file watcher: {e}")
+                logger.warning(f"Error stopping file watcher: {e}")
 
     def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload when the credentials file changes."""
@@ -915,19 +913,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             self._main_loop = loop
 
         if loop is None:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Cannot schedule credentials reload: no running event loop available."
-                )
+            logger.warning(
+                "Cannot schedule credentials reload: no running event loop available."
+            )
             with self._reload_task_lock:
                 self._reload_scheduling_in_progress = False
             return
 
         if loop.is_closed():
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Skipping credentials reload scheduling: event loop is closed. Stopping file watcher."
-                )
+            logger.debug(
+                "Skipping credentials reload scheduling: event loop is closed. Stopping file watcher."
+            )
             self._stop_file_watching()
             self._main_loop = None
             with self._reload_task_lock:
@@ -961,19 +957,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 task = loop.create_task(reload_task())
                 _assign_task(task)
             except Exception as exc:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to schedule credentials reload: %s", exc)
+                logger.warning("Failed to schedule credentials reload: %s", exc)
                 with self._reload_task_lock:
                     self._reload_scheduling_in_progress = False
 
         try:
             loop.call_soon_threadsafe(schedule_task)
         except RuntimeError as exc:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Event loop unavailable for credentials reload scheduling: %s",
-                    exc,
-                )
+            logger.debug(
+                "Event loop unavailable for credentials reload scheduling: %s",
+                exc,
+            )
             self._stop_file_watching()
             self._main_loop = None
             with self._reload_task_lock:
@@ -988,17 +982,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         to ensure the latest token is loaded even if the file timestamp didn't change.
         """
         try:
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("Handling credentials file change...")
+            logger.info("Handling credentials file change...")
 
             # Validate file first
             ok, errs = self._validate_credentials_file_exists()
             if not ok:
                 self._degrade(errs)
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Updated credentials file is invalid: {'; '.join(errs)}"
-                    )
+                logger.warning(
+                    f"Updated credentials file is invalid: {'; '.join(errs)}"
+                )
                 return
 
             # Attempt to reload with force_reload=True to bypass cache
@@ -1006,29 +998,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 refreshed = await self._refresh_token_if_needed()
                 if refreshed:
                     self._recover()
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Successfully reloaded credentials from updated file"
-                        )
+                    logger.info("Successfully reloaded credentials from updated file")
                 else:
                     self._degrade(
                         ["Credentials refreshed from file but token remains invalid"]
                     )
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Credentials file reload completed but token is still invalid"
-                        )
+                    logger.warning(
+                        "Credentials file reload completed but token is still invalid"
+                    )
             else:
                 self._degrade(["Failed to reload credentials after file change"])
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error("Failed to reload credentials after file change")
+                logger.error("Failed to reload credentials after file change")
 
         except Exception as e:
             self._degrade([f"Error handling credentials file change: {e}"])
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Error handling credentials file change: {e}", exc_info=True
-                )
+            logger.error(f"Error handling credentials file change: {e}", exc_info=True)
 
     async def _validate_runtime_credentials(self) -> bool:
         """Validate credentials at runtime with throttling.
@@ -1044,10 +1028,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         refreshed = await self._refresh_token_if_needed()
         if not refreshed:
             self._degrade(["Token expired and automatic refresh failed"])
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Token validation failed; automatic refresh did not produce a valid token."
-                )
+            logger.warning(
+                "Token validation failed; automatic refresh did not produce a valid token."
+            )
             return False
 
         if not self.is_backend_functional():
@@ -1123,22 +1106,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 stderr=subprocess.DEVNULL,
             )
             self._last_cli_refresh_attempt = now
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("Triggered Gemini CLI background refresh process")
+            logger.info("Triggered Gemini CLI background refresh process")
         except FileNotFoundError:
             self._last_cli_refresh_attempt = now
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Gemini CLI binary not found; cannot refresh OAuth token automatically."
-                )
+            logger.error(
+                "Gemini CLI binary not found; cannot refresh OAuth token automatically."
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             self._last_cli_refresh_attempt = now
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Failed to launch Gemini CLI for token refresh: %s",
-                    exc,
-                    exc_info=True,
-                )
+            logger.error(
+                "Failed to launch Gemini CLI for token refresh: %s",
+                exc,
+                exc_info=True,
+            )
 
     async def _poll_for_new_token(self, max_wait_seconds: float | None = None) -> bool:
         """Poll the credential file for an updated token after CLI refresh."""
@@ -1164,20 +1144,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             attempts += 1
             loaded = await self._load_oauth_credentials()
             if loaded and not self._is_token_expired():
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Token refresh succeeded after %d poll attempts", attempts
-                    )
+                logger.debug("Token refresh succeeded after %d poll attempts", attempts)
                 return True
 
         # One final check in case the token refreshed just as the loop exited
         loaded = await self._load_oauth_credentials()
         if loaded and not self._is_token_expired():
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Token refresh finalized after max wait window (%s seconds)",
-                    wait_window,
-                )
+            logger.debug(
+                "Token refresh finalized after max wait window (%s seconds)",
+                wait_window,
+            )
             return True
 
         return not self._is_token_expired()
@@ -1224,10 +1200,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             if not expired:
                 return True
 
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Access token expired; reloading credentials and invoking CLI refresh if needed."
-                )
+            logger.info(
+                "Access token expired; reloading credentials and invoking CLI refresh if needed."
+            )
 
             reloaded = await self._load_oauth_credentials()
             if reloaded and not self._is_token_expired():
@@ -1241,10 +1216,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             if refreshed:
                 return True
 
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Automatic Gemini CLI refresh did not produce a valid token in time."
-                )
+            logger.warning(
+                "Automatic Gemini CLI refresh did not produce a valid token in time."
+            )
             return False
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
@@ -1257,13 +1231,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(f"Gemini OAuth credentials saved to {creds_path}")
+            logger.info(f"Gemini OAuth credentials saved to {creds_path}")
         except OSError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Error saving Gemini OAuth credentials: {e}", exc_info=True
-                )
+            logger.error(f"Error saving Gemini OAuth credentials: {e}", exc_info=True)
 
     async def _load_oauth_credentials(self, force_reload: bool = False) -> bool:
         """Load OAuth credentials from oauth_creds.json file.
@@ -1284,10 +1254,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             self._credentials_path = creds_path
 
             if not creds_path.exists():
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Gemini OAuth credentials not found at {creds_path}"
-                    )
+                logger.warning(f"Gemini OAuth credentials not found at {creds_path}")
                 return False
 
             # Check if file has been modified since last load (unless force_reload is True)
@@ -1299,10 +1266,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                         and self._oauth_credentials
                     ):
                         # File hasn't changed and credentials are in memory, no need to reload
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "Gemini OAuth credentials file not modified, using cached."
-                            )
+                        logger.debug(
+                            "Gemini OAuth credentials file not modified, using cached."
+                        )
                         return True
                 except OSError:
                     # If cannot get file stats, proceed with reading
@@ -1320,10 +1286,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
             # Validate essential fields
             if "access_token" not in credentials:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Malformed Gemini OAuth credentials: missing access_token"
-                    )
+                logger.warning(
+                    "Malformed Gemini OAuth credentials: missing access_token"
+                )
                 return False
 
             self._oauth_credentials = credentials
@@ -1334,25 +1299,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 logger.info(log_msg + ".")
             return True
         except json.JSONDecodeError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Error decoding Gemini OAuth credentials JSON: {e}",
-                    exc_info=True,
-                )
+            logger.error(
+                f"Error decoding Gemini OAuth credentials JSON: {e}",
+                exc_info=True,
+            )
             return False
         except OSError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Error loading Gemini OAuth credentials: {e}", exc_info=True
-                )
+            logger.error(f"Error loading Gemini OAuth credentials: {e}", exc_info=True)
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize backend with enhanced validation following the stale token handling pattern."""
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Initializing Gemini OAuth Personal backend with enhanced validation."
-            )
+        logger.info(
+            "Initializing Gemini OAuth Personal backend with enhanced validation."
+        )
 
         # Capture the current event loop for thread-safe operations
         try:
@@ -1399,21 +1359,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             self._start_file_watching()
             self._initialization_failed = False
             self._last_validation_time = time.time()
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Gemini OAuth Personal backend started with an expired token; "
-                    "waiting for the Gemini CLI to refresh credentials."
-                )
+            logger.warning(
+                "Gemini OAuth Personal backend started with an expired token; "
+                "waiting for the Gemini CLI to refresh credentials."
+            )
             return
 
         # 5) Load models (non-fatal)
         try:
             await self._ensure_models_loaded()
         except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to load models during initialization: {e}", exc_info=True
-                )
+            logger.warning(
+                f"Failed to load models during initialization: {e}", exc_info=True
+            )
             # Continue with initialization even if model loading fails
 
         # 6) Start file watching and mark functional
@@ -1421,10 +1379,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         self.is_functional = True
         self._last_validation_time = time.time()
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"Gemini OAuth Personal backend initialized successfully with {len(self.available_models)} models."
-            )
+        logger.info(
+            f"Gemini OAuth Personal backend initialized successfully with {len(self.available_models)} models."
+        )
 
     async def _ensure_models_loaded(self) -> None:
         """Fetch models if not already cached - OAuth version.
@@ -1455,10 +1412,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 # Embedding model
                 "gemini-embedding-001",
             ]
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"Loaded {len(self.available_models)} known Code Assist models"
-                )
+            logger.info(f"Loaded {len(self.available_models)} known Code Assist models")
 
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
@@ -1491,18 +1445,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             result: dict[str, Any] = response.json()
             return result
         except httpx.TimeoutException as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Timeout connecting to Gemini OAuth API: %s", e, exc_info=True
-                )
+            logger.error("Timeout connecting to Gemini OAuth API: %s", e, exc_info=True)
             raise ServiceUnavailableError(
                 message=f"Timeout connecting to Gemini OAuth API ({e})"
             )
         except httpx.RequestError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Request error connecting to Gemini OAuth API: %s", e, exc_info=True
-                )
+            logger.error(
+                "Request error connecting to Gemini OAuth API: %s", e, exc_info=True
+            )
             raise ServiceUnavailableError(
                 message=f"Could not connect to Gemini OAuth API ({e})"
             )
@@ -2149,10 +2099,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                     if response.status_code >= 400:
                         # Handle 429 with graceful degradation
                         if response.status_code == 429:
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    f"Received 429 response in streaming, attempting graceful degradation for model {effective_model}"
-                                )
+                            logger.info(
+                                f"Received 429 response in streaming, attempting graceful degradation for model {effective_model}"
+                            )
                             try:
                                 degraded_response = (
                                     await self._handle_429_with_graceful_degradation(
@@ -2162,10 +2111,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                         **kwargs,
                                     )
                                 )
-                                if logger.isEnabledFor(logging.INFO):
-                                    logger.info(
-                                        f"Graceful degradation succeeded for model {effective_model}"
-                                    )
+                                logger.info(
+                                    f"Graceful degradation succeeded for model {effective_model}"
+                                )
 
                                 # If the degraded response is streaming, yield its chunks
                                 degraded_usage: dict[str, Any] | None = None
@@ -2234,10 +2182,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                         )
                                         return
 
-                                if logger.isEnabledFor(logging.WARNING):
-                                    logger.warning(
-                                        "No chunks were yielded during streaming, sending fallback response"
-                                    )
+                                logger.warning(
+                                    "No chunks were yielded during streaming, sending fallback response"
+                                )
                                 fallback_chunk = self.translation_service.to_domain_stream_chunk(
                                     chunk={
                                         "response": {
@@ -2273,10 +2220,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                                 return
                             except Exception as e:
                                 # If graceful degradation fails, return a user-friendly error instead of raw 429
-                                if logger.isEnabledFor(logging.WARNING):
-                                    logger.warning(
-                                        f"Graceful degradation failed for model {effective_model}: {e}"
-                                    )
+                                logger.warning(
+                                    f"Graceful degradation failed for model {effective_model}: {e}"
+                                )
 
                                 # Return a user-friendly error message instead of the raw 429 error
                                 error_chunk = {
@@ -2892,8 +2838,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
         state.attempts = 0  # Reset attempts after cooldown
         state.probe_success_count = 0
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Model {model} put in cooldown until {state.cooldown_until}")
+        logger.info(f"Model {model} put in cooldown until {state.cooldown_until}")
 
     @staticmethod
     def _is_rate_limit_like_error(error: BackendError) -> bool:
@@ -2935,8 +2880,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
         try:
             # Make a simple test request to check if model is working
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Probing recovery for model {model}")
+            logger.debug(f"Probing recovery for model {model}")
 
             # Create a minimal test request
             test_request = CanonicalChatRequest(
@@ -2965,20 +2909,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 )  # Clear cooldown (set to past time)
                 state.attempts = 0
                 state.probe_success_count = 0
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"Model {model} recovered from cooldown")
+                logger.info(f"Model {model} recovered from cooldown")
                 return True
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Model {model} probe {state.probe_success_count}/2 succeeded"
-                )
+            logger.debug(f"Model {model} probe {state.probe_success_count}/2 succeeded")
 
         except Exception as e:
             # Probe failed, reset success count
             state.probe_success_count = 0
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Model {model} recovery probe failed: {e}")
+            logger.debug(f"Model {model} recovery probe failed: {e}")
 
         return False
 
@@ -3124,10 +3063,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                         jitter = random.uniform(-jitter_range, jitter_range)
                         delay = max(0, base_delay + jitter)  # Ensure non-negative delay
 
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info(
-                                f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt}, base: {base_delay}s, jitter: {jitter:+.1f}s)"
-                            )
+                        logger.info(
+                            f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt}, base: {base_delay}s, jitter: {jitter:+.1f}s)"
+                        )
                         self._graceful_metrics.record_wait(delay)
                         await asyncio.sleep(delay)
 
@@ -3167,10 +3105,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
 
                     # If this was our last attempt for this model, move to next model
                     if attempt >= max_attempts_for_model - 1:
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info(
-                                f"Model {model} exhausted after {attempt + 1} attempts"
-                            )
+                        logger.info(
+                            f"Model {model} exhausted after {attempt + 1} attempts"
+                        )
                         break
 
             # If we get here, all attempts for this model failed
@@ -3226,8 +3163,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error in recovery probing loop: {e}")
+                logger.warning(f"Error in recovery probing loop: {e}")
 
     @abc.abstractmethod
     async def _discover_project_id(self, auth_session) -> str:

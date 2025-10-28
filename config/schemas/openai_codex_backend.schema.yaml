@@ -1,0 +1,349 @@
+# JSON Schema for OpenAI Codex Backend Configuration
+# This schema validates the structure and values of the backend configuration
+
+$schema: "http://json-schema.org/draft-07/schema#"
+title: "OpenAI Codex Backend Configuration Schema"
+description: "Schema for validating OpenAI Codex backend configuration including compatibility layer settings"
+type: object
+
+properties:
+  backend_type:
+    type: string
+    const: "openai-codex"
+    description: "Backend type identifier"
+  
+  timeout:
+    type: integer
+    minimum: 1
+    maximum: 600
+    default: 120
+    description: "Request timeout in seconds"
+  
+  compatibility_layer:
+    type: object
+    description: "Codex-KiloCode compatibility layer configuration"
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: "Global enable/disable flag for compatibility layer"
+      
+      detection:
+        type: object
+        description: "Client detection configuration"
+        properties:
+          cache_ttl_seconds:
+            type: integer
+            minimum: 0
+            maximum: 86400
+            default: 3600
+            description: "Cache TTL for detection results in seconds"
+          
+          heuristic_threshold:
+            type: integer
+            minimum: 1
+            maximum: 10
+            default: 2
+            description: "Minimum XML tags required for heuristic detection"
+          
+          methods:
+            type: object
+            description: "Enable/disable specific detection methods"
+            properties:
+              metadata:
+                type: boolean
+                default: true
+                description: "Enable metadata-based detection"
+              
+              header:
+                type: boolean
+                default: true
+                description: "Enable header-based detection"
+              
+              heuristic:
+                type: boolean
+                default: true
+                description: "Enable heuristic detection"
+            
+            additionalProperties: false
+        
+        additionalProperties: false
+      
+      translation:
+        type: object
+        description: "Tool translation configuration"
+        properties:
+          max_tool_execution_timeout:
+            type: integer
+            minimum: 1
+            maximum: 300
+            default: 30
+            description: "Maximum timeout for tool execution in seconds"
+          
+          result_format:
+            type: string
+            enum: ["kilo_standard", "verbose"]
+            default: "kilo_standard"
+            description: "Result format for tool execution responses"
+          
+          tools:
+            type: object
+            description: "Enable/disable specific tools"
+            properties:
+              read_file:
+                type: boolean
+                default: true
+              list_files:
+                type: boolean
+                default: true
+              execute_command:
+                type: boolean
+                default: true
+              codebase_search:
+                type: boolean
+                default: true
+              search_files:
+                type: boolean
+                default: true
+              use_mcp_tool:
+                type: boolean
+                default: true
+              access_mcp_resource:
+                type: boolean
+                default: true
+              attempt_completion:
+                type: boolean
+                default: true
+              ask_followup_question:
+                type: boolean
+                default: true
+              search_and_replace:
+                type: boolean
+                default: true
+              write_to_file:
+                type: boolean
+                default: true
+              insert_content:
+                type: boolean
+                default: true
+              edit_file:
+                type: boolean
+                default: true
+            
+            additionalProperties: false
+          
+          command_execution:
+            type: object
+            description: "Command execution security settings"
+            properties:
+              allowed_shells:
+                type: array
+                items:
+                  type: string
+                  enum: ["bash", "sh", "zsh", "cmd", "powershell", "pwsh"]
+                minItems: 1
+                default: ["bash", "sh", "cmd", "powershell"]
+                description: "Allowed shells for command execution"
+              
+              restrict_to_workspace:
+                type: boolean
+                default: true
+                description: "Restrict commands to workspace directory"
+              
+              max_output_size:
+                type: integer
+                minimum: 1024
+                maximum: 104857600
+                default: 1048576
+                description: "Maximum command output size in bytes"
+            
+            additionalProperties: false
+          
+          file_operations:
+            type: object
+            description: "File operation security settings"
+            properties:
+              restrict_to_workspace:
+                type: boolean
+                default: true
+                description: "Restrict file operations to workspace"
+              
+              max_file_size:
+                type: integer
+                minimum: 1024
+                maximum: 1073741824
+                default: 10485760
+                description: "Maximum file size for read operations in bytes"
+              
+              allowed_extensions:
+                type: array
+                items:
+                  type: string
+                  pattern: "^\\."
+                default: []
+                description: "Allowed file extensions (empty = all allowed)"
+              
+              blocked_patterns:
+                type: array
+                items:
+                  type: string
+                default:
+                  - "**/.env"
+                  - "**/.env.*"
+                  - "**/id_rsa"
+                  - "**/id_dsa"
+                  - "**/*.key"
+                  - "**/*.pem"
+                  - "**/credentials.json"
+                  - "**/secrets.yaml"
+                description: "Blocked file patterns (glob)"
+            
+            additionalProperties: false
+        
+        additionalProperties: false
+      
+      telemetry:
+        type: object
+        description: "Telemetry and monitoring configuration"
+        properties:
+          log_translations:
+            type: boolean
+            default: true
+            description: "Enable logging of translation events"
+          
+          log_detection:
+            type: boolean
+            default: true
+            description: "Enable logging of detection events"
+          
+          emit_metrics:
+            type: boolean
+            default: true
+            description: "Enable metrics emission"
+          
+          log_level:
+            type: string
+            enum: ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+            default: "INFO"
+            description: "Log level for compatibility layer events"
+          
+          include_xml_in_errors:
+            type: boolean
+            default: false
+            description: "Include full XML in error logs"
+        
+        additionalProperties: false
+      
+      error_handling:
+        type: object
+        description: "Error handling configuration"
+        properties:
+          detailed_errors:
+            type: boolean
+            default: true
+            description: "Return detailed error messages to client"
+          
+          include_suggestions:
+            type: boolean
+            default: true
+            description: "Include suggested alternatives in error messages"
+          
+          fail_fast:
+            type: boolean
+            default: true
+            description: "Stop processing on first translation error"
+        
+        additionalProperties: false
+    
+    additionalProperties: false
+  
+  models:
+    type: object
+    description: "Model capabilities and limits"
+    patternProperties:
+      ".*":
+        type: object
+        properties:
+          capabilities:
+            type: array
+            items:
+              type: string
+            description: "Model capabilities"
+          
+          limits:
+            type: object
+            properties:
+              context_window:
+                type: integer
+                minimum: 1
+              max_input_tokens:
+                type: integer
+                minimum: 1
+              max_output_tokens:
+                type: integer
+                minimum: 1
+              requests_per_minute:
+                type: integer
+                minimum: 1
+              tokens_per_minute:
+                type: integer
+                minimum: 1
+              max_temperature:
+                type: number
+                minimum: 0
+                maximum: 2
+              min_temperature:
+                type: number
+                minimum: 0
+                maximum: 2
+              max_top_p:
+                type: number
+                minimum: 0
+                maximum: 1
+              min_top_p:
+                type: number
+                minimum: 0
+                maximum: 1
+          
+          metadata:
+            type: object
+            properties:
+              display_name:
+                type: string
+              description:
+                type: string
+              provider:
+                type: string
+              model_type:
+                type: string
+              architecture:
+                type: string
+              tags:
+                type: array
+                items:
+                  type: string
+  
+  default_model:
+    type: string
+    description: "Default model to use when no specific model is requested"
+  
+  model_defaults:
+    type: object
+    description: "Model-specific defaults"
+    properties:
+      temperature:
+        type: number
+        minimum: 0
+        maximum: 2
+      top_p:
+        type: number
+        minimum: 0
+        maximum: 1
+      max_tokens:
+        type: ["integer", "null"]
+        minimum: 1
+
+required:
+  - backend_type
+
+additionalProperties: false

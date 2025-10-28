@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from uuid import uuid4
 
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -17,6 +18,7 @@ from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.repositories_interface import ISessionRepository
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.services.conversation_fingerprint_service import (
+    ConversationFingerprintBundle,
     ConversationFingerprintService,
 )
 
@@ -48,6 +50,9 @@ class IntelligentSessionResolver(ISessionResolver):
         self._fuzzy_matching = True
         self._max_session_age_seconds = 604800  # 7 days default
         self._client_key_includes_ip = True
+        self._topic_similarity_threshold = 0.3
+        self._topic_overlap_min_tokens = 10
+        self._recent_session_window_seconds = 900
 
         if config and hasattr(config, "session"):
             session_config = config.session
@@ -60,6 +65,15 @@ class IntelligentSessionResolver(ISessionResolver):
                 )
                 self._client_key_includes_ip = getattr(
                     continuity, "client_key_includes_ip", True
+                )
+                self._topic_similarity_threshold = getattr(
+                    continuity, "topic_similarity_threshold", 0.3
+                )
+                self._topic_overlap_min_tokens = getattr(
+                    continuity, "topic_overlap_min_tokens", 10
+                )
+                self._recent_session_window_seconds = getattr(
+                    continuity, "recent_session_window_seconds", 900
                 )
 
     async def resolve_session_id(self, context: RequestContext) -> str:
@@ -103,11 +117,15 @@ class IntelligentSessionResolver(ISessionResolver):
             return session_id
 
         # 5. Compute conversation fingerprint
-        fp_result = self._fingerprint_service.compute_fingerprint(messages)
-        conversation_fp = fp_result.fingerprint
+        fp_bundle = self._fingerprint_service.compute_fingerprint_bundle(messages)
+        conversation_fp = fp_bundle.primary.fingerprint
 
         logger.debug(
-            f"Computed fingerprint {conversation_fp} from {fp_result.message_count} messages"
+            "Computed fingerprint bundle primary=%s message_count=%s rolling=%s topic_hash=%s",
+            conversation_fp,
+            fp_bundle.message_count,
+            len(fp_bundle.rolling_fingerprints),
+            fp_bundle.topic_hash,
         )
 
         # 6. Try exact fingerprint match
@@ -125,7 +143,7 @@ class IntelligentSessionResolver(ISessionResolver):
 
         # 7. Try fuzzy matching if enabled
         if self._fuzzy_matching:
-            fuzzy_match = await self._try_fuzzy_match(client_key, messages)
+            fuzzy_match = await self._try_fuzzy_match(client_key, fp_bundle)
             if fuzzy_match:
                 logger.info(
                     f"Fuzzy matched continuation of session {fuzzy_match} for client {client_key}"
@@ -164,6 +182,19 @@ class IntelligentSessionResolver(ISessionResolver):
         cookie_value = context.cookies.get("session_id")
         if isinstance(cookie_value, str) and cookie_value:
             return cookie_value
+
+        # Check query parameters as a fallback for explicit session ID
+        if (
+            hasattr(context, "original_request")
+            and context.original_request is not None
+            and hasattr(context.original_request, "query_params")
+        ):
+            query_param_value = context.original_request.query_params.get("session_id")
+            if isinstance(query_param_value, str) and query_param_value:
+                logger.debug(
+                    f"Found session ID in query parameters: {query_param_value}"
+                )
+                return query_param_value
 
         return None
 
@@ -218,18 +249,19 @@ class IntelligentSessionResolver(ISessionResolver):
         return None
 
     async def _try_fuzzy_match(
-        self, client_key: str, messages: list[ChatMessage]
+        self,
+        client_key: str,
+        bundle: ConversationFingerprintBundle,
     ) -> str | None:
         """Try fuzzy matching to find continuation session.
 
         Args:
             client_key: Client identifier
-            messages: Current request messages
+            bundle: Incoming fingerprint bundle
 
         Returns:
             Session ID if matched, None otherwise
         """
-        # Get recent sessions for this client
         recent_sessions = await self._session_repository.find_recent_sessions_by_client(
             client_key, self._max_session_age_seconds
         )
@@ -237,33 +269,114 @@ class IntelligentSessionResolver(ISessionResolver):
         if not recent_sessions:
             return None
 
-        # Check each session for continuation
         for session in recent_sessions:
-            # Get the stored fingerprint for this session
-            session_fp = await self._session_repository.get_session_fingerprint(
+            stored_bundle = await self._session_repository.get_fingerprint_bundle(
                 session.id
             )
 
-            if not session_fp:
-                continue
-
-            # Try to reconstruct the previous message sequence
-            # by computing rolling fingerprints from current messages
-            # and checking if any match the session's fingerprint
-            # Try multiple window sizes to maximize chance of finding a match
-            for window_size in [3, 4, 5, 6]:
-                if len(messages) < window_size:
-                    continue
-
-                rolling_fps = self._fingerprint_service.compute_rolling_fingerprints(
-                    messages, window_size=window_size
+            if stored_bundle and self._has_rolling_overlap(bundle, stored_bundle):
+                logger.debug(
+                    "Fuzzy match: session %s matched via rolling fingerprint overlap",
+                    session.id,
                 )
+                return str(session.id)
 
-                if session_fp in rolling_fps:
-                    # Found a match - this is likely a continuation
-                    logger.debug(
-                        f"Fuzzy match: session {session.id} fingerprint (window={window_size}) found in message history"
-                    )
-                    return str(session.id)
+            if stored_bundle and self._has_user_hash_alignment(bundle, stored_bundle):
+                logger.debug(
+                    "Fuzzy match: session %s matched via last user hash continuity",
+                    session.id,
+                )
+                return str(session.id)
+
+            if (
+                stored_bundle
+                and self._has_topic_similarity(bundle, stored_bundle)
+                and await self._is_recent_session(session.id)
+            ):
+                logger.debug(
+                    "Fuzzy match: session %s matched via topic similarity",
+                    session.id,
+                )
+                return str(session.id)
+
+            # Legacy fallback using stored primary fingerprint
+            session_fp = await self._session_repository.get_session_fingerprint(
+                session.id
+            )
+            if session_fp and session_fp in bundle.rolling_fingerprints:
+                logger.debug(
+                    "Fuzzy match: session %s matched via legacy rolling fingerprint",
+                    session.id,
+                )
+                return str(session.id)
 
         return None
+
+    def _has_rolling_overlap(
+        self,
+        incoming: ConversationFingerprintBundle,
+        stored: ConversationFingerprintBundle,
+    ) -> bool:
+        """Check whether rolling fingerprint windows overlap."""
+        if not incoming.rolling_fingerprints or not stored.rolling_fingerprints:
+            return False
+        return bool(
+            incoming.rolling_fingerprints.intersection(stored.rolling_fingerprints)
+        )
+
+    def _has_user_hash_alignment(
+        self,
+        incoming: ConversationFingerprintBundle,
+        stored: ConversationFingerprintBundle,
+    ) -> bool:
+        """Check whether the last user message hash aligns."""
+        return bool(
+            incoming.last_user_hash
+            and stored.last_user_hash
+            and incoming.last_user_hash == stored.last_user_hash
+        )
+
+    def _has_topic_similarity(
+        self,
+        incoming: ConversationFingerprintBundle,
+        stored: ConversationFingerprintBundle,
+    ) -> bool:
+        """Check whether the topic token sets are similar enough."""
+        if (
+            not incoming.topic_tokens
+            or not stored.topic_tokens
+            or self._topic_similarity_threshold <= 0
+        ):
+            return False
+
+        intersection = incoming.topic_tokens.intersection(stored.topic_tokens)
+        if not intersection:
+            return False
+
+        union = incoming.topic_tokens.union(stored.topic_tokens)
+        if not union:
+            return False
+
+        intersection_size = len(intersection)
+        union_size = len(union)
+        similarity = intersection_size / union_size
+
+        if similarity >= self._topic_similarity_threshold:
+            return True
+
+        return (
+            self._topic_overlap_min_tokens > 0
+            and intersection_size >= self._topic_overlap_min_tokens
+            and similarity >= 0.18
+        )
+
+    async def _is_recent_session(self, session_id: str) -> bool:
+        """Check whether a candidate session was active recently."""
+        if self._recent_session_window_seconds <= 0:
+            return True
+
+        last_access = await self._session_repository.get_session_last_access(session_id)
+        if last_access is None:
+            return True
+
+        return (time.time() - last_access) <= self._recent_session_window_seconds

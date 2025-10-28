@@ -89,10 +89,7 @@ class GeminiBackend(LLMBackend):
                     m.get("name") for m in data.get("models", []) if m.get("name")
                 ]
             except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Failed to fetch Gemini models: %s", e, exc_info=True
-                    )
+                logger.warning("Failed to fetch Gemini models: %s", e, exc_info=True)
                 # Return empty list on failure, don't crash
                 self.available_models = []
 
@@ -280,8 +277,7 @@ class GeminiBackend(LLMBackend):
             )
             response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+            logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
         except (AttributeError, TypeError):
             request = self.client.build_request(
@@ -290,10 +286,7 @@ class GeminiBackend(LLMBackend):
             try:
                 response = await self.client.send(request, stream=True)
             except httpx.RequestError as e:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        "Request error connecting to Gemini: %s", e, exc_info=True
-                    )
+                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
                 raise ServiceUnavailableError(
                     message=f"Could not connect to Gemini ({e})"
                 )
@@ -310,12 +303,11 @@ class GeminiBackend(LLMBackend):
             finally:
                 if hasattr(response, "aclose"):
                     await response.aclose()
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "HTTP error during Gemini stream: %s - %s",
-                    response.status_code,
-                    body_text,
-                )
+            logger.error(
+                "HTTP error during Gemini stream: %s - %s",
+                response.status_code,
+                body_text,
+            )
             raise BackendError(
                 message=f"Gemini stream error: {response.status_code} - {body_text}",
                 code="gemini_error",
@@ -390,12 +382,11 @@ class GeminiBackend(LLMBackend):
                     )
                 )
             except httpx.RequestError as stream_error:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        "Request error while streaming from Gemini: %s",
-                        stream_error,
-                        exc_info=True,
-                    )
+                logger.error(
+                    "Request error while streaming from Gemini: %s",
+                    stream_error,
+                    exc_info=True,
+                )
                 raise ServiceUnavailableError(
                     message=f"Gemini streaming connection error ({stream_error})"
                 ) from stream_error
@@ -513,13 +504,11 @@ class GeminiBackend(LLMBackend):
         # into 'generationConfig' in _apply_generation_config.
         payload.pop("generation_config", None)
         # Debug output
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Final payload: %s", payload)
+        logger.debug("Final payload: %s", payload)
 
         # Normalize model id and construct URL
         model_name = self._normalize_model_name(effective_model)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Constructing Gemini API URL with model_name: %s", model_name)
+        logger.debug("Constructing Gemini API URL with model_name: %s", model_name)
         model_url = f"{base_api_url}/v1beta/models/{model_name}"
 
         # Streaming vs non-streaming
@@ -596,10 +585,9 @@ class GeminiBackend(LLMBackend):
         if temperature is not None:
             # Clamp temperature to [0,1] range for Gemini
             if float(temperature) > 1.0:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
-                    )
+                logger.warning(
+                    f"Temperature {temperature} > 1.0 for Gemini, clamping to 1.0"
+                )
                 temperature = 1.0
             generation_config["temperature"] = float(temperature)
 
@@ -640,11 +628,10 @@ class GeminiBackend(LLMBackend):
         if model_name.startswith("gemini/"):
             model_name = model_name.split("/", 1)[1]
         if "/" in model_name:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.",
-                    model_name,
-                )
+            logger.debug(
+                "Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.",
+                model_name,
+            )
             model_name = model_name.rsplit("/", 1)[-1]
         return model_name
 
@@ -666,8 +653,7 @@ class GeminiBackend(LLMBackend):
                     status_code=response.status_code,
                 )
             data = response.json()
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Gemini response headers: %s", dict(response.headers))
+            logger.debug("Gemini response headers: %s", dict(response.headers))
             return ResponseEnvelope(
                 content=self.translation_service.to_domain_response(
                     data, source_format="gemini"
@@ -676,8 +662,7 @@ class GeminiBackend(LLMBackend):
                 status_code=response.status_code,
             )
         except httpx.RequestError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+            logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
     async def list_models(
@@ -699,8 +684,7 @@ class GeminiBackend(LLMBackend):
                 )
             return cast(dict[str, Any], response.json())
         except httpx.RequestError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+            logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
 
 

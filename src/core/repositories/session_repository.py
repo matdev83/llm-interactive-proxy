@@ -4,6 +4,9 @@ import logging
 
 from src.core.domain.session import Session
 from src.core.interfaces.repositories_interface import ISessionRepository
+from src.core.services.conversation_fingerprint_service import (
+    ConversationFingerprintBundle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +120,22 @@ class PersistentSessionRepository(ISessionRepository):
     async def get_session_fingerprint(self, session_id: str) -> str | None:
         """Get the conversation fingerprint for a session."""
         return await self._memory_repo.get_session_fingerprint(session_id)
+
+    async def update_fingerprint_bundle(
+        self, session_id: str, bundle: ConversationFingerprintBundle
+    ) -> None:
+        """Update fingerprint metadata for a session."""
+        await self._memory_repo.update_fingerprint_bundle(session_id, bundle)
+
+    async def get_fingerprint_bundle(
+        self, session_id: str
+    ) -> ConversationFingerprintBundle | None:
+        """Get fingerprint metadata for a session."""
+        return await self._memory_repo.get_fingerprint_bundle(session_id)
+
+    async def get_session_last_access(self, session_id: str) -> float | None:
+        """Get last access timestamp for a session."""
+        return await self._memory_repo.get_session_last_access(session_id)
 
     # Future methods for storage persistence
     # async def _save_session_to_storage(self, session: Session) -> None:

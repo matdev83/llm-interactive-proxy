@@ -393,10 +393,7 @@ class ResponseProcessor(IResponseProcessor):
                 KeyError,
             ) as inner_e:
                 # Catch common expected exceptions; others will be caught by the global error handler
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        f"Error in stream processing: {inner_e}", exc_info=True
-                    )
+                logger.error(f"Error in stream processing: {inner_e}", exc_info=True)
                 yield ProcessedResponse(
                     content=f"Error in stream processing: {inner_e}",
                     usage=None,

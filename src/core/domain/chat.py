@@ -146,6 +146,7 @@ class ChatRequest(ValueObject):
 
     model: str
     messages: list[ChatMessage]
+    system_prompt: str | None = None  # Add system_prompt field
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None

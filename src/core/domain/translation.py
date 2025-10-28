@@ -3422,11 +3422,10 @@ class Translation(BaseTranslator):
                     candidate = content[start_index : index + 1]
                     start_index = None
                     if len(candidate) > max_object_size:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Skipping oversized JSON candidate (%d bytes)",
-                                len(candidate),
-                            )
+                        logger.warning(
+                            "Skipping oversized JSON candidate (%d bytes)",
+                            len(candidate),
+                        )
                         continue
                     candidates.append(candidate)
                     if len(candidates) >= max_candidates:

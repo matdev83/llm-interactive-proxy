@@ -133,10 +133,9 @@ class OpenAIConnector(LLMBackend):
 
         # Proceed to fetch models only when we have credentials; failures are non-fatal
         if not self.api_key:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Skipping OpenAI model listing during init; no API key configured"
-                )
+            logger.debug(
+                "Skipping OpenAI model listing during init; no API key configured"
+            )
         else:
             try:
                 headers = self.get_headers()
@@ -148,8 +147,7 @@ class OpenAIConnector(LLMBackend):
                 data = response.json()
                 self.available_models = [model["id"] for model in data.get("data", [])]
             except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to fetch models: %s", e, exc_info=True)
+                logger.warning("Failed to fetch models: %s", e, exc_info=True)
                 # Log the error but don't fail initialization
 
     async def _perform_health_check(self) -> bool:
@@ -186,10 +184,7 @@ class OpenAIConnector(LLMBackend):
                 return False
 
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Health check failed - unexpected error: %s", e, exc_info=True
-                )
+            logger.error("Health check failed - unexpected error: %s", e, exc_info=True)
             return False
 
     async def _ensure_healthy(self) -> None:

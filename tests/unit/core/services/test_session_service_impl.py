@@ -1,6 +1,9 @@
 import pytest
 from src.core.domain.session import Session
 from src.core.interfaces.repositories_interface import ISessionRepository
+from src.core.services.conversation_fingerprint_service import (
+    ConversationFingerprintBundle,
+)
 from src.core.services.session_service_impl import SessionService
 
 
@@ -52,6 +55,19 @@ class InMemorySessionRepository(ISessionRepository):
         return []
 
     async def get_session_fingerprint(self, session_id: str) -> str | None:
+        return None
+
+    async def update_fingerprint_bundle(
+        self, session_id: str, bundle: ConversationFingerprintBundle
+    ) -> None:
+        pass
+
+    async def get_fingerprint_bundle(
+        self, session_id: str
+    ) -> ConversationFingerprintBundle | None:
+        return None
+
+    async def get_session_last_access(self, session_id: str) -> float | None:
         return None
 
 

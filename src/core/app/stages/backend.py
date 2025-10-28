@@ -53,21 +53,18 @@ class BackendStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register backend services."""
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Initializing backend services...")
+        logger.info("Initializing backend services...")
 
         try:
             # Import connectors package to trigger backend registrations via side effects
             import importlib
 
             importlib.import_module("src.connectors")
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
-                )
+            logger.debug(
+                f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
+            )
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to import connectors: {e}")
+            logger.warning(f"Failed to import connectors: {e}")
 
         # Validate static_route backend early - fail fast if invalid
         self._validate_static_route_backend(config)
@@ -78,8 +75,7 @@ class BackendStage(InitializationStage):
         self._register_backend_config_provider(services)
         self._register_backend_service(services)
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Backend services initialized successfully")
+        logger.info("Backend services initialized successfully")
 
     def _register_backend_registry(self, services: ServiceCollection) -> None:
         """Register backend registry as singleton instance."""
@@ -91,11 +87,9 @@ class BackendStage(InitializationStage):
 
             services.add_instance(BackendRegistry, backend_registry)
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered backend registry instance")
+            logger.debug("Registered backend registry instance")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend registry: {e}")
+            logger.warning(f"Could not register backend registry: {e}")
 
     def _register_backend_factory(self, services: ServiceCollection) -> None:
         """Register backend factory with HTTP client dependency."""
@@ -129,11 +123,9 @@ class BackendStage(InitializationStage):
                 BackendFactory, implementation_factory=backend_factory_factory
             )
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered backend factory with dependencies")
+            logger.debug("Registered backend factory with dependencies")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend factory: {e}")
+            logger.warning(f"Could not register backend factory: {e}")
 
     def _register_translation_service(self, services: ServiceCollection) -> None:
         """Register translation service."""
@@ -157,11 +149,9 @@ class BackendStage(InitializationStage):
                 implementation_factory=_translation_service_alias_factory,
             )
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered translation service")
+            logger.debug("Registered translation service")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register translation service: {e}")
+            logger.warning(f"Could not register translation service: {e}")
 
     def _register_backend_config_provider(self, services: ServiceCollection) -> None:
         """Register backend configuration provider."""
@@ -183,11 +173,9 @@ class BackendStage(InitializationStage):
                 implementation_factory=backend_config_provider_factory,
             )
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered backend config provider")
+            logger.debug("Registered backend config provider")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend config provider: {e}")
+            logger.warning(f"Could not register backend config provider: {e}")
 
     def _register_backend_service(self, services: ServiceCollection) -> None:
         """Register main backend service with all dependencies."""
@@ -258,11 +246,9 @@ class BackendStage(InitializationStage):
                 ),
             )
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered backend service with all dependencies")
+            logger.debug("Registered backend service with all dependencies")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend service: {e}")
+            logger.warning(f"Could not register backend service: {e}")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that backend services can be registered and backends are functional."""
@@ -464,8 +450,7 @@ class BackendStage(InitializationStage):
 
                     if is_functional:
                         functional_backends.append(backend_name)
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info(f"Backend '{backend_name}' is functional")
+                        logger.info(f"Backend '{backend_name}' is functional")
                     else:
                         # Get error details if available
                         error_details = ""
@@ -474,10 +459,9 @@ class BackendStage(InitializationStage):
                             if errors:
                                 error_details = f": {'; '.join(errors)}"
 
-                        if logger.isEnabledFor(logging.ERROR):
-                            logger.error(
-                                f"Backend '{backend_name}' is not functional{error_details}"
-                            )
+                        logger.error(
+                            f"Backend '{backend_name}' is not functional{error_details}"
+                        )
 
                 except Exception as e:
                     logger.error(f"Failed to validate backend '{backend_name}': {e}")
@@ -621,8 +605,7 @@ class BackendStage(InitializationStage):
 
                         if is_functional:
                             functional_backends.append(backend_name)
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(f"Backend '{backend_name}' is functional")
+                            logger.info(f"Backend '{backend_name}' is functional")
                         else:
                             error_details = ""
                             if hasattr(backend, "get_validation_errors"):
@@ -630,10 +613,9 @@ class BackendStage(InitializationStage):
                                 if errors:
                                     error_details = f": {'; '.join(errors)}"
 
-                            if logger.isEnabledFor(logging.ERROR):
-                                logger.error(
-                                    f"Backend '{backend_name}' is not functional{error_details}"
-                                )
+                            logger.error(
+                                f"Backend '{backend_name}' is not functional{error_details}"
+                            )
 
                     except Exception as e:
                         logger.error(

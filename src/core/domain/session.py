@@ -247,8 +247,7 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         try:
             return bool(self._state.backend_config.interactive_mode)
         except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Error checking interactive mode: {e}", exc_info=True)
+            logger.warning(f"Error checking interactive mode: {e}", exc_info=True)
             return False
 
     @property

@@ -114,11 +114,10 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
         flush_text = "".join(flushed_chars)
 
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "ToolCallRepairProcessor buffer exceeded %d bytes; flushed %d characters",
-                self._max_buffer_bytes,
-                len(flush_text),
-            )
+        logger.warning(
+            "ToolCallRepairProcessor buffer exceeded %d bytes; flushed %d characters",
+            self._max_buffer_bytes,
+            len(flush_text),
+        )
 
         return flush_text

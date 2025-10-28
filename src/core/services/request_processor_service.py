@@ -196,15 +196,14 @@ class RequestProcessor(IRequestProcessor):
                         model_defaults = md
                         break
 
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Model limits lookup: requested_model=%s backend=%s model=%s candidates=%s found=%s",
-                        requested_model,
-                        backend_key,
-                        model_name,
-                        candidate_keys,
-                        bool(model_defaults),
-                    )
+                logger.info(
+                    "Model limits lookup: requested_model=%s backend=%s model=%s candidates=%s found=%s",
+                    requested_model,
+                    backend_key,
+                    model_name,
+                    candidate_keys,
+                    bool(model_defaults),
+                )
 
                 # Check for CLI context window override first
                 cli_context_window = None
@@ -257,12 +256,11 @@ class RequestProcessor(IRequestProcessor):
                             ),
                         }
 
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Applied CLI context window override: %s tokens for model %s",
-                            cli_context_window,
-                            requested_model or model_name,
-                        )
+                    logger.info(
+                        "Applied CLI context window override: %s tokens for model %s",
+                        cli_context_window,
+                        requested_model or model_name,
+                    )
                 if limits is not None:
                     # Note: max_output_tokens enforcement removed as it's redundant with backend limits
                     # and provides limited practical value. Backend providers already enforce
@@ -346,29 +344,26 @@ class RequestProcessor(IRequestProcessor):
                         raise
                     except Exception:
                         # Best-effort enforcement; don't fail on unexpected issues
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "Failed to enforce input token limit; continuing",
-                                exc_info=True,
-                            )
+                        logger.debug(
+                            "Failed to enforce input token limit; continuing",
+                            exc_info=True,
+                        )
             except InvalidRequestError:
                 # Bubble up to FastAPI exception handlers
                 raise
             except Exception:
                 # If anything in enforcement fails, continue without blocking
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Model limits enforcement encountered an error; proceeding",
-                        exc_info=True,
-                    )
+                logger.debug(
+                    "Model limits enforcement encountered an error; proceeding",
+                    exc_info=True,
+                )
 
         # Apply request redaction middleware (API keys and proxy commands)
         # just before calling the backend, so both original and command-modified
         # messages are covered.
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                f"Redaction check: backend_request is not None = {backend_request is not None}"
-            )
+        logger.debug(
+            f"Redaction check: backend_request is not None = {backend_request is not None}"
+        )
         if backend_request is not None:
             try:
                 from src.core.common.logging_utils import (
@@ -642,11 +637,10 @@ class RequestProcessor(IRequestProcessor):
                     )
             except (AttributeError, TypeError, ValueError):
                 # Never block on precision tuning; proceed with original request
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Edit-precision middleware failed; proceeding without overrides",
-                        exc_info=True,
-                    )
+                logger.debug(
+                    "Edit-precision middleware failed; proceeding without overrides",
+                    exc_info=True,
+                )
 
         if backend_request is None:
             # Skip backend call and return command result directly

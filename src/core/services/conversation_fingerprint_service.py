@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from dataclasses import dataclass
+import re
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 
 from src.core.domain.chat import ChatMessage
 
@@ -25,6 +28,18 @@ class ConversationFingerprint:
     last_role: str | None = None
 
 
+@dataclass(frozen=True)
+class ConversationFingerprintBundle:
+    """Collection of fingerprints and semantic signals for a conversation."""
+
+    primary: ConversationFingerprint
+    rolling_fingerprints: frozenset[str] = field(default_factory=frozenset)
+    topic_tokens: frozenset[str] = field(default_factory=frozenset)
+    topic_hash: str | None = None
+    last_user_hash: str | None = None
+    message_count: int = 0
+
+
 class ConversationFingerprintService:
     """Service for computing stable fingerprints from message sequences."""
 
@@ -35,6 +50,8 @@ class ConversationFingerprintService:
             fingerprint_message_count: Number of recent messages to include in fingerprint
         """
         self._fingerprint_message_count = fingerprint_message_count
+        self._token_pattern = re.compile(r"[a-z0-9]{3,}")
+        self._topic_token_limit = 128
 
     def compute_fingerprint(
         self, messages: list[ChatMessage], count: int | None = None
@@ -75,6 +92,25 @@ class ConversationFingerprintService:
             fingerprint=fingerprint_hex,
             message_count=len(relevant_messages),
             last_role=relevant_messages[-1].role if relevant_messages else None,
+        )
+
+    def compute_fingerprint_bundle(
+        self, messages: list[ChatMessage]
+    ) -> ConversationFingerprintBundle:
+        """Compute a bundle of fingerprints and semantic signals."""
+        primary = self.compute_fingerprint(messages)
+        rolling = self._collect_rolling_fingerprints(messages)
+        topic_tokens = self._collect_topic_tokens(messages)
+        topic_hash = self._hash_tokens(topic_tokens) if topic_tokens else None
+        last_user_hash = self._hash_last_user_message(messages)
+
+        return ConversationFingerprintBundle(
+            primary=primary,
+            rolling_fingerprints=rolling,
+            topic_tokens=topic_tokens,
+            topic_hash=topic_hash,
+            last_user_hash=last_user_hash,
+            message_count=len(messages),
         )
 
     def compute_rolling_fingerprints(
@@ -199,3 +235,100 @@ class ConversationFingerprintService:
         curr_fp = self.compute_fingerprint(curr_check, count=len(curr_check))
 
         return prev_fp.fingerprint == curr_fp.fingerprint
+
+    def _collect_rolling_fingerprints(
+        self, messages: list[ChatMessage]
+    ) -> frozenset[str]:
+        """Collect rolling fingerprints across multiple window sizes."""
+        if len(messages) < 3:
+            return frozenset()
+
+        window_sizes = range(3, min(len(messages), self._fingerprint_message_count + 3))
+        fingerprints: set[str] = set()
+
+        for window_size in window_sizes:
+            window_fps = self.compute_rolling_fingerprints(
+                messages, window_size=window_size
+            )
+            fingerprints.update(window_fps)
+
+        return frozenset(fingerprints)
+
+    def _collect_topic_tokens(self, messages: Iterable[ChatMessage]) -> frozenset[str]:
+        """Collect salient tokens from the conversation."""
+        text_fragments: list[str] = []
+
+        for message in messages:
+            extracted = self._extract_full_text(message)
+            if extracted:
+                text_fragments.append(extracted.lower())
+
+        if not text_fragments:
+            return frozenset()
+
+        joined_text = " ".join(text_fragments)
+        tokens = self._token_pattern.findall(joined_text)
+
+        if not tokens:
+            return frozenset()
+
+        token_counts = Counter(tokens)
+        most_common = token_counts.most_common(self._topic_token_limit)
+        token_set = {token for token, _ in most_common}
+
+        return frozenset(token_set)
+
+    def _hash_tokens(self, tokens: frozenset[str]) -> str:
+        """Create a stable hash from a set of tokens."""
+        if not tokens:
+            return "empty"
+
+        joined = "|".join(sorted(tokens))
+        hash_obj = hashlib.sha256(joined.encode("utf-8"))
+        return hash_obj.hexdigest()[:32]
+
+    def _hash_last_user_message(self, messages: list[ChatMessage]) -> str | None:
+        """Hash the most recent user message for continuity checks."""
+        for message in reversed(messages):
+            if message.role != "user":
+                continue
+
+            text = self._extract_full_text(message)
+            if not text:
+                continue
+
+            normalized = " ".join(text.split())
+            hash_obj = hashlib.sha256(normalized.encode("utf-8"))
+            return hash_obj.hexdigest()[:32]
+
+        return None
+
+    def _extract_full_text(self, message: ChatMessage) -> str:
+        """Extract full text content from a chat message."""
+        content = message.content
+
+        if content is None:
+            if message.tool_calls:
+                tool_names = [tc.function.name for tc in message.tool_calls]
+                return " ".join(tool_names)
+            return ""
+
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text" and "text" in part:
+                        parts.append(str(part["text"]))
+                    elif part.get("type") == "image_url":
+                        parts.append("[image]")
+                elif hasattr(part, "type"):
+                    if part.type == "text" and hasattr(part, "text"):
+                        parts.append(str(part.text))
+                    elif part.type == "image_url":
+                        parts.append("[image]")
+            return " ".join(parts)
+
+        return str(content)

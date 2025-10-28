@@ -173,6 +173,46 @@ class UniversalMCPClient:
                 "error": str(e),
             }
 
+    async def read_resource(self, uri: str) -> dict[str, Any]:
+        """Read an MCP resource by URI.
+
+        Args:
+            uri: Resource URI to access
+
+        Returns:
+            Resource content
+
+        Raises:
+            Exception: If resource access fails
+        """
+        try:
+            # TODO: Implement actual MCP resource reading via MCP protocol
+            # This would involve:
+            # 1. Parsing the URI to determine which server to query
+            # 2. Sending a "resources/read" request to the MCP server
+            # 3. Waiting for the response
+            # 4. Handling any errors
+            # 5. Returning the resource content
+
+            logger.debug(f"Reading MCP resource: {uri}")
+
+            # Placeholder implementation
+            # In a real implementation, we would:
+            # 1. Determine which server can handle this URI
+            # 2. Send the appropriate MCP request
+            # 3. Return the actual resource content
+
+            # For now, return a placeholder response
+            return {
+                "content": f"MCP resource content for URI: {uri}",
+                "uri": uri,
+                "mimeType": "text/plain",
+            }
+
+        except Exception as e:
+            logger.error(f"Error reading MCP resource {uri}: {e}", exc_info=True)
+            raise
+
     async def _send_tool_call(
         self, server_name: str, tool_name: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:

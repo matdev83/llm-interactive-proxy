@@ -160,10 +160,9 @@ class ChatController:
             # Use already-validated request_data instead of re-parsing
             domain_request = request_data
 
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
-                )
+            logger.info(
+                f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
+            )
             if self._processor is None:
                 raise HTTPException(status_code=500, detail="Processor is None")
 
@@ -292,10 +291,7 @@ class ChatController:
                         request_payload=domain_request,
                     )
                 except Exception:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Wire capture (inbound request) failed", exc_info=True
-                        )
+                    logger.debug("Wire capture (inbound request) failed", exc_info=True)
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, domain_request)
@@ -614,8 +610,7 @@ class ChatController:
             raise
         except Exception as e:
             # Log and convert other exceptions to HTTP exceptions
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error handling chat completion: {e}", exc_info=True)
+            logger.error(f"Error handling chat completion: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail={"error": {"message": str(e), "type": "server_error"}},

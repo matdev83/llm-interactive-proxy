@@ -82,10 +82,9 @@ async def main() -> None:
     )
     server = uvicorn.Server(server_config)
 
-    if logger.isEnabledFor(logging.INFO):
-        logger.info(
-            f"Starting Anthropic server on http://{config.host}:{config.anthropic_port}"
-        )
+    logger.info(
+        f"Starting Anthropic server on http://{config.host}:{config.anthropic_port}"
+    )
     await server.serve()
 
 

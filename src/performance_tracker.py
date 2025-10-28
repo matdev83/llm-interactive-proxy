@@ -98,8 +98,7 @@ class PerformanceMetrics(InternalDTO):
             if overhead > 0:
                 summary_parts.append(f"overhead={overhead:.3f}s")
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(" | ".join(summary_parts))
+        logger.info(" | ".join(summary_parts))
 
     def _format_summary_prefix(self) -> list[str]:
         return [

@@ -78,8 +78,7 @@ def _create_file_handler(connector: "QwenOAuthConnector"):
             if not event.is_directory and event.src_path == str(
                 self.connector._credentials_path
             ):
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"OAuth credentials file modified: {event.src_path}")
+                logger.info(f"OAuth credentials file modified: {event.src_path}")
                 self.connector._schedule_credentials_reload()
 
     return QwenCredentialsFileHandler(connector)
@@ -200,22 +199,19 @@ class QwenOAuthConnector(OpenAIConnector):
                 stderr=subprocess.DEVNULL,
             )
             self._last_cli_refresh_attempt = now
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("Triggered Qwen CLI background refresh process")
+            logger.info("Triggered Qwen CLI background refresh process")
         except FileNotFoundError:
             self._last_cli_refresh_attempt = now
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Qwen CLI binary not found; cannot refresh OAuth token automatically."
-                )
+            logger.error(
+                "Qwen CLI binary not found; cannot refresh OAuth token automatically."
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             self._last_cli_refresh_attempt = now
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Failed to launch Qwen CLI for token refresh: %s",
-                    exc,
-                    exc_info=True,
-                )
+            logger.error(
+                "Failed to launch Qwen CLI for token refresh: %s",
+                exc,
+                exc_info=True,
+            )
 
     async def _poll_for_new_token(self, max_wait_seconds: float | None = None) -> bool:
         """Poll the credential file for an updated token after CLI refresh."""
@@ -241,20 +237,18 @@ class QwenOAuthConnector(OpenAIConnector):
             attempts += 1
             loaded = await self._load_oauth_credentials()
             if loaded and not self._is_token_expired():
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Qwen OAuth token refresh succeeded after %d poll attempts",
-                        attempts,
-                    )
+                logger.debug(
+                    "Qwen OAuth token refresh succeeded after %d poll attempts",
+                    attempts,
+                )
                 return True
 
         loaded = await self._load_oauth_credentials()
         if loaded and not self._is_token_expired():
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Qwen OAuth token refresh finalized after max wait window (%s seconds)",
-                    wait_window,
-                )
+            logger.debug(
+                "Qwen OAuth token refresh finalized after max wait window (%s seconds)",
+                wait_window,
+            )
             return True
 
         return not self._is_token_expired()
@@ -364,10 +358,9 @@ class QwenOAuthConnector(OpenAIConnector):
     async def _handle_credentials_file_change(self) -> None:
         """Handle changes to the OAuth credentials file."""
         try:
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Detected OAuth credentials file change, attempting to reload..."
-                )
+            logger.info(
+                "Detected OAuth credentials file change, attempting to reload..."
+            )
 
             # Validate the file first
             is_valid, errors = self._validate_credentials_file_exists()
@@ -382,21 +375,16 @@ class QwenOAuthConnector(OpenAIConnector):
 
             # File is valid, try to load it
             if await self._load_oauth_credentials():
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Successfully reloaded OAuth credentials from updated file"
-                    )
+                logger.info("Successfully reloaded OAuth credentials from updated file")
                 self._credential_validation_errors = []
                 self.is_functional = True
                 self._last_validation_time = time.time()
             else:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error("Failed to load updated OAuth credentials file")
+                logger.error("Failed to load updated OAuth credentials file")
                 self.is_functional = False
 
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error handling credentials file change: {e}")
+            logger.error(f"Error handling credentials file change: {e}")
             self.is_functional = False
 
     def _start_file_watching(self) -> None:
@@ -412,15 +400,11 @@ class QwenOAuthConnector(OpenAIConnector):
                 watch_dir = self._credentials_path.parent
                 self._file_observer.schedule(handler, str(watch_dir), recursive=False)
                 self._file_observer.start()
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Started watching OAuth credentials file: {self._credentials_path}"
-                    )
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to start file watching for OAuth credentials: {e}"
+                logger.info(
+                    f"Started watching OAuth credentials file: {self._credentials_path}"
                 )
+        except Exception as e:
+            logger.warning(f"Failed to start file watching for OAuth credentials: {e}")
 
     def _stop_file_watching(self) -> None:
         """Stop watching the OAuth credentials file."""
@@ -438,8 +422,7 @@ class QwenOAuthConnector(OpenAIConnector):
                     self._file_observer.join(timeout=5.0)
                 logger.info("Stopped watching OAuth credentials file")
             except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error stopping file watcher: {e}")
+                logger.warning(f"Error stopping file watcher: {e}")
             finally:
                 self._file_observer = None
 
@@ -455,10 +438,9 @@ class QwenOAuthConnector(OpenAIConnector):
 
         # Check if token is expired
         if self._is_token_expired():
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Access token expired during runtime, attempting to reload credentials..."
-                )
+            logger.info(
+                "Access token expired during runtime, attempting to reload credentials..."
+            )
 
             # Try to reload credentials file first
             if await self._load_oauth_credentials():
@@ -614,8 +596,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 json.dump(credentials, f, indent=4)
             logger.info(f"Qwen OAuth credentials saved to {creds_path}")
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error saving Qwen OAuth credentials: {e}")
+            logger.error(f"Error saving Qwen OAuth credentials: {e}")
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
@@ -663,12 +644,10 @@ class QwenOAuthConnector(OpenAIConnector):
             logger.info("Successfully loaded Qwen OAuth credentials.")
             return True
         except json.JSONDecodeError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error decoding Qwen OAuth credentials JSON: {e}")
+            logger.error(f"Error decoding Qwen OAuth credentials JSON: {e}")
             return False
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error loading Qwen OAuth credentials: {e}")
+            logger.error(f"Error loading Qwen OAuth credentials: {e}")
             return False
 
     def get_headers(self) -> dict[str, str]:
@@ -717,8 +696,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 return False
 
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Qwen OAuth health check failed - unexpected error: {e}")
+            logger.error(f"Qwen OAuth health check failed - unexpected error: {e}")
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -822,9 +800,8 @@ class QwenOAuthConnector(OpenAIConnector):
 
     def _get_endpoint_url(self) -> str:
         """Get the API endpoint URL."""
-        # Use resource_url from credentials if available, otherwise default
-        if self._oauth_credentials and self._oauth_credentials.get("resource_url"):
-            return f"https://{self._oauth_credentials['resource_url']}/v1"
+        # Use the default Qwen API endpoint always, as the resource_url from credentials
+        # may be incorrect for API calls (it's likely for portal access only)
         return self._default_endpoint
 
     def get_available_models(self) -> list[str]:
@@ -849,10 +826,9 @@ class QwenOAuthConnector(OpenAIConnector):
             target_loop = self._event_loop
 
         if target_loop is None:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "No running event loop available to schedule Qwen OAuth credential reload"
-                )
+            logger.warning(
+                "No running event loop available to schedule Qwen OAuth credential reload"
+            )
             return
 
         if target_loop is current_loop:
@@ -897,10 +873,52 @@ class QwenOAuthConnector(OpenAIConnector):
             )
 
         try:
-            # Use the effective model (strip qwen-oauth: prefix if present)
+            # Use the effective model and properly extract just the model name part
+            # Strip any backend prefix (like "qwen-oauth:", "gemini-cli-oauth-personal:", etc.)
             model_name = effective_model
-            if model_name.startswith("qwen-oauth:"):
-                model_name = model_name[11:]  # Remove "qwen-oauth:" prefix
+            if ":" in model_name:
+                # Extract just the model name part after the last colon
+                model_name = model_name.split(":")[-1]
+
+            # Further clean up the model name to remove any prefixes like "models/"
+            if model_name.startswith("models/"):
+                model_name = model_name[7:]  # Remove "models/" prefix
+
+            # Additional safety check: if the model name doesn't look like a Qwen model,
+            # fall back to the default model to prevent API errors
+            valid_qwen_models = {
+                "qwen3-coder-plus",
+                "qwen3-coder-flash",
+                "qwen-turbo",
+                "qwen-plus",
+                "qwen-max",
+                "qwen2.5-72b-instruct",
+                "qwen2.5-32b-instruct",
+                "qwen2.5-14b-instruct",
+                "qwen2.5-7b-instruct",
+                "qwen2.5-3b-instruct",
+                "qwen2.5-1.5b-instruct",
+                "qwen2.5-0.5b-instruct",
+            }
+
+            # If the model name is not in our valid list, try to map common names or default
+            if model_name not in valid_qwen_models:
+                # Map common model name patterns to Qwen equivalents
+                if "qwen" in model_name.lower():
+                    # If it contains qwen, it might be a valid qwen model
+                    pass  # Allow it through
+                elif "turbo" in model_name.lower():
+                    model_name = "qwen-turbo"
+                elif "plus" in model_name.lower():
+                    model_name = "qwen-plus"
+                elif "max" in model_name.lower():
+                    model_name = "qwen-max"
+                else:
+                    # Default to a known working model
+                    model_name = "qwen-turbo"
+                    logger.warning(
+                        f"Unknown model '{effective_model}' mapped to '{model_name}' for Qwen OAuth"
+                    )
 
             # Convert request_data to ChatRequest using the adapter
             if not isinstance(request_data, dict):
@@ -939,8 +957,7 @@ class QwenOAuthConnector(OpenAIConnector):
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error in Qwen OAuth chat_completions: {e}")
+            logger.error(f"Error in Qwen OAuth chat_completions: {e}")
             raise BackendError(
                 message=f"Qwen OAuth chat completion failed: {e!s}"
             ) from e

@@ -99,10 +99,7 @@ class AnthropicBackend(LLMBackend):
                     if isinstance(m, dict) and m.get("name", m.get("id")) is not None
                 ]
             except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Failed to fetch Anthropic models: %s", e, exc_info=True
-                    )
+                logger.warning("Failed to fetch Anthropic models: %s", e, exc_info=True)
                 # Return empty list on failure, don't crash
                 self.available_models = []
 
@@ -184,16 +181,12 @@ class AnthropicBackend(LLMBackend):
 
         request_headers = ensure_loop_guard_header(request_headers)
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Forwarding to Anthropic. Model: %s Stream: %s",
-                effective_model,
-                domain_request.stream,
-            )
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Anthropic payload: %s", json.dumps(anthropic_payload, indent=2)
-            )
+        logger.info(
+            "Forwarding to Anthropic. Model: %s Stream: %s",
+            effective_model,
+            domain_request.stream,
+        )
+        logger.debug("Anthropic payload: %s", json.dumps(anthropic_payload, indent=2))
 
         if domain_request.stream:
             stream_handle = await self._handle_streaming_response(
@@ -249,8 +242,7 @@ class AnthropicBackend(LLMBackend):
                 content = getattr(msg, "content", None)
 
             if not role:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Skipping message without role: %r", msg)
+                logger.debug("Skipping message without role: %r", msg)
                 continue
 
             if role == "system":
@@ -363,10 +355,9 @@ class AnthropicBackend(LLMBackend):
     ) -> ResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         try:
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"Sending request to {url} with headers: {headers} and payload: {payload}"
-                )
+            logger.info(
+                f"Sending request to {url} with headers: {headers} and payload: {payload}"
+            )
             response = await self.client.post(url, json=payload, headers=headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(

@@ -154,11 +154,10 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                     return []
             else:
                 # Unsupported content type (e.g., streaming iterators)
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Unsupported response content type for tool call extraction: %s",
-                        type(content).__name__,
-                    )
+                logger.debug(
+                    "Unsupported response content type for tool call extraction: %s",
+                    type(content).__name__,
+                )
                 return []
 
         # Check for OpenAI format
@@ -191,11 +190,10 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         """Ensure the session tracker cache does not grow without bound."""
         while len(self._session_trackers) > self._max_cached_sessions:
             evicted_session_id, _ = self._session_trackers.popitem(last=False)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Evicted tool call tracker for session %s due to cache limit",
-                    evicted_session_id,
-                )
+            logger.debug(
+                "Evicted tool call tracker for session %s due to cache limit",
+                evicted_session_id,
+            )
 
     def _build_tracker_config(
         self, config: LoopDetectionConfiguration
@@ -224,10 +222,9 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             try:
                 return ToolLoopMode(normalized)
             except ValueError:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Invalid tool loop mode '%s' provided; falling back to break mode.",
-                        mode_value,
-                    )
+                logger.warning(
+                    "Invalid tool loop mode '%s' provided; falling back to break mode.",
+                    mode_value,
+                )
 
         return ToolLoopMode.BREAK

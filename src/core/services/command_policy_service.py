@@ -58,12 +58,11 @@ class CommandPolicyService(ICommandPolicyService):
                 if self._app_state.get_disable_interactive_commands():
                     return True
             except Exception as exc:  # pragma: no cover - defensive logging
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Unable to read disable_interactive_commands from app state: %s",
-                        exc,
-                        exc_info=True,
-                    )
+                logger.debug(
+                    "Unable to read disable_interactive_commands from app state: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         env_value = _coerce_env_flag(os.environ.get("DISABLE_INTERACTIVE_COMMANDS"))
         if env_value is True:
@@ -99,12 +98,11 @@ class CommandPolicyService(ICommandPolicyService):
             try:
                 app_prefix = self._app_state.get_command_prefix()
             except Exception as exc:  # pragma: no cover
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Unable to read command prefix from app state: %s",
-                        exc,
-                        exc_info=True,
-                    )
+                logger.debug(
+                    "Unable to read command prefix from app state: %s",
+                    exc,
+                    exc_info=True,
+                )
                 app_prefix = None
             if isinstance(app_prefix, str) and app_prefix.strip():
                 return app_prefix

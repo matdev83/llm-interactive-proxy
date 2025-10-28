@@ -76,8 +76,7 @@ class ApplicationBuilder:
             raise ValueError(f"Stage '{stage.name}' is already registered")
 
         self._stages[stage.name] = stage
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Added stage: {stage}")
+        logger.debug(f"Added stage: {stage}")
         return self
 
     def add_default_stages(self) -> ApplicationBuilder:

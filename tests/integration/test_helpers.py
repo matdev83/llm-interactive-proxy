@@ -9,6 +9,40 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app
+from src.core.config.app_config import (
+    AppConfig,
+    AuthConfig,
+    BackendConfig,
+    BackendSettings,
+    SessionConfig,
+)
+from src.core.interfaces.session_service_interface import ISessionService
+
+
+def create_test_config(project_dir_resolution_mode: str) -> AppConfig:
+    """Create a test configuration for integration tests."""
+    return AppConfig(
+        auth=AuthConfig(disable_auth=True),
+        session=SessionConfig(
+            project_dir_resolution_mode=project_dir_resolution_mode,
+            cleanup_enabled=False,
+        ),
+        backends=BackendSettings(
+            openai=BackendConfig(api_key=["test-key"]),
+            openrouter=BackendConfig(api_key=["test-key"]),
+            anthropic=BackendConfig(api_key=["test-key"]),
+            gemini=BackendConfig(api_key=["test-key"]),
+        ),
+    )
+
+
+def get_test_client(config: AppConfig) -> TestClient:
+    app = build_test_app(config=config)
+    return TestClient(app)
+
+
+def get_session_service(client: TestClient) -> ISessionService:
+    return client.app.state.service_provider.get_required_service(ISessionService)
 
 
 def build_test_app_with_response_handlers(app_config=None) -> FastAPI:

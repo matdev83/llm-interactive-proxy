@@ -64,16 +64,14 @@ class EditPrecisionTemperaturesConfig(DomainModel):
         model_lower = model_name.lower()
         for pattern in self.model_patterns:
             if pattern.pattern.lower() in model_lower:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Matched model '{model_name}' to pattern '{pattern.pattern}' -> temperature={pattern.temperature}"
-                    )
+                logger.debug(
+                    f"Matched model '{model_name}' to pattern '{pattern.pattern}' -> temperature={pattern.temperature}"
+                )
                 return pattern.temperature
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                f"No pattern matched for model '{model_name}', using default temperature={self.default_temperature}"
-            )
+        logger.debug(
+            f"No pattern matched for model '{model_name}', using default temperature={self.default_temperature}"
+        )
         return self.default_temperature
 
 

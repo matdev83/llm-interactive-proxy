@@ -44,8 +44,7 @@ class InfrastructureStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register infrastructure services."""
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Initializing infrastructure services...")
+        logger.info("Initializing infrastructure services...")
 
         # Register shared HTTP client
         self._register_http_client(services)
@@ -56,8 +55,7 @@ class InfrastructureStage(InitializationStage):
         # Register loop detector
         self._register_loop_detector(services)
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Infrastructure services initialized successfully")
+        logger.info("Infrastructure services initialized successfully")
 
     def _register_http_client(self, services: ServiceCollection) -> None:
         """Register shared HTTP client as singleton."""
@@ -91,11 +89,9 @@ class InfrastructureStage(InitializationStage):
             # Register as singleton instance
             services.add_instance(httpx.AsyncClient, shared_httpx_client)
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered shared HTTP client")
+            logger.debug("Registered shared HTTP client")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register HTTP client: {e}")
+            logger.warning(f"Could not register HTTP client: {e}")
 
     def _register_rate_limiter(self, services: ServiceCollection) -> None:
         """Register rate limiter service."""
@@ -105,11 +101,9 @@ class InfrastructureStage(InitializationStage):
             # Register as singleton (no dependencies)
             services.add_singleton(RateLimiter)
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered rate limiter service")
+            logger.debug("Registered rate limiter service")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register rate limiter: {e}")
+            logger.warning(f"Could not register rate limiter: {e}")
 
     def _register_loop_detector(self, services: ServiceCollection) -> None:
         """Register loop detector service."""
@@ -167,8 +161,7 @@ class InfrastructureStage(InitializationStage):
                 cast(type, ILoopDetector), implementation_factory=loop_detector_factory
             )
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered HybridLoopDetector with DI container")
+            logger.debug("Registered HybridLoopDetector with DI container")
 
         except ImportError as e:
             logger.warning(f"Could not register loop detector: {e}")
@@ -180,6 +173,5 @@ class InfrastructureStage(InitializationStage):
 
             return True
         except ImportError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Infrastructure services validation failed: {e}")
+            logger.error(f"Infrastructure services validation failed: {e}")
             return False

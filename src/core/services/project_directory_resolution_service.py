@@ -45,10 +45,43 @@ _COMMON_PROJECT_SUBDIRS = {
     "public",
     "docs",
     "tests",
-    "test",
 }
 _LEADING_STRIP_CHARS = "\"'`([{<"
 _TRAILING_STRIP_CHARS = ",.;:!?)]}`>\"'`"
+
+
+# Directories that are invalid as project roots themselves, but their subdirectories may be valid.
+_INVALID_PROJECT_ROOT_EXACT = {"users", "home"}
+
+# Path prefixes that make the entire subtree invalid as a project root.
+_INVALID_PROJECT_ROOT_PREFIXES_WIN = {
+    "program files",
+    "program files (x86)",
+    "windows",
+    "programdata",
+    ".venv",
+}
+_INVALID_PROJECT_ROOT_PREFIXES_UNIX = {
+    "bin",
+    "boot",
+    "dev",
+    "etc",
+    "lib",
+    "lib64",
+    "media",
+    "mnt",
+    "opt",
+    "proc",
+    "root",
+    "run",
+    "sbin",
+    "srv",
+    "sys",
+    "tmp",
+    "usr",
+    "var",
+    "private",
+}
 
 
 class ProjectDirectoryResolutionService:
@@ -178,19 +211,99 @@ class ProjectDirectoryResolutionService:
         if pure_path.suffix:
             pure_path = pure_path.parent
 
-        # Remove common leaf directories such as src/tests when we have higher-level context
-        while pure_path.name and pure_path.name.lower() in _COMMON_PROJECT_SUBDIRS:
-            if len(pure_path.parts) <= 2:
-                break
-            parent = pure_path.parent
-            if parent == pure_path:
-                break
-            pure_path = parent
+        # Traverse up from a path to find the project root, which is the parent of a common subdir.
+        search_path = pure_path
+        while len(search_path.parts) > 1 and search_path.parent != search_path:
+            # If a directory name is a common project subdir (e.g., 'src', 'tests'),
+            # we assume its parent is the project root.
+            if search_path.name.lower() in _COMMON_PROJECT_SUBDIRS:
+                pure_path = search_path.parent
+                break  # Found the root, stop searching
+            search_path = search_path.parent
 
         normalized = str(pure_path)
         if path_type == "unc":
             normalized = self._normalize_unc_path(normalized)
         return normalized
+
+    def _is_valid_project_directory_candidate(
+        self, path: str, path_type: _PathType
+    ) -> bool:
+        """Validate if a path is a plausible project directory."""
+        try:
+            pure_path = (
+                PureWindowsPath(path)
+                if path_type in ("windows", "unc")
+                else PurePosixPath(path)
+            )
+        except Exception:
+            return False
+
+        parts = pure_path.parts
+
+        if path_type == "windows":
+            # Path must be at least C:\foo (2 parts)
+            if len(parts) < 2:
+                return False
+            first_dir = parts[1].lower()
+            # Reject C:\Users, C:\Windows, etc.
+            if first_dir in _INVALID_PROJECT_ROOT_PREFIXES_WIN:
+                return False
+            # Reject C:\Users if it's the whole path
+            if len(parts) == 2 and first_dir in _INVALID_PROJECT_ROOT_EXACT:
+                return False
+        elif path_type == "unc":
+            # For UNC paths, pathlib.parts behaves differently.
+            # '\\\\server\\share' is the 'drive', and parts are subsequent dirs.
+            # e.g., PureWindowsPath('\\\\server\\share\\project').parts is ('\\\\server\\share', 'project')
+            # A valid project path must have at least one directory after the share.
+            # So, we expect at least 2 parts.
+            if len(parts) < 2:
+                return False
+        elif path_type == "unix":
+            # Path must be at least /foo (2 parts)
+            if len(parts) < 2:
+                return False
+            first_dir = parts[1].lower()
+            # Reject /home, /usr, etc. if they are the whole path (only 2 parts)
+            if len(parts) == 2 and first_dir in _INVALID_PROJECT_ROOT_EXACT:
+                return False
+            # Always reject paths starting with core system directories
+            # Allow some common exceptions like var/www for web projects
+            ALWAYS_SYSTEM_DIRS = {
+                "bin",
+                "boot",
+                "dev",
+                "etc",
+                "lib",
+                "lib64",
+                "media",
+                "mnt",
+                "opt",
+                "proc",
+                "root",
+                "run",
+                "sbin",
+                "srv",
+                "sys",
+                "tmp",
+                "usr",
+                "private",
+            }
+            if first_dir in ALWAYS_SYSTEM_DIRS:
+                return False
+
+            # Special handling for /var - reject unless it's a web project
+            if first_dir == "var" and len(parts) >= 2:
+                second_dir = parts[2].lower() if len(parts) > 2 else ""
+                if second_dir != "www":
+                    return False
+
+            # Reject user directories like /home only if they are exactly 2 parts (too shallow)
+            if len(parts) == 2 and first_dir in _INVALID_PROJECT_ROOT_EXACT:
+                return False
+
+        return True
 
     def _longest_common_directory(
         self, directories: list[str], path_type: _PathType
@@ -236,10 +349,10 @@ class ProjectDirectoryResolutionService:
 
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
         """
-        Try to find the common base project directory from all absolute paths
-        found in the prompt.
+        Find the best project directory from all absolute paths in the prompt
+        by scoring individual candidates.
         """
-        path_buckets: dict[_PathType, list[tuple[str, int]]] = {}
+        candidates: list[tuple[str, _PathType]] = []
         patterns = [
             _WINDOWS_PATH_PATTERN,
             _UNC_PATH_PATTERN,
@@ -263,32 +376,94 @@ class ProjectDirectoryResolutionService:
                 if not self._looks_like_absolute_path(cleaned):
                     continue
 
+                # We validate the *normalized* directory, not the raw path
                 directory = self._normalize_directory_candidate(cleaned, path_type)
                 if not directory:
                     continue
 
-                path_buckets.setdefault(path_type, []).append(
-                    (directory, match.start())
-                )
+                # Re-detect type for the normalized directory, as it might change
+                final_path_type = self._detect_path_type(directory)
+                if not final_path_type:
+                    continue
 
-        if not path_buckets:
+                if not self._is_valid_project_directory_candidate(
+                    directory, final_path_type
+                ):
+                    continue
+
+                candidates.append((directory, final_path_type))
+
+        if not candidates:
             return None
 
-        best_path: str | None = None
-        best_score = (-1, 0, 0, 0)
-        for path_type, entries in path_buckets.items():
-            directories = [directory for directory, _ in entries]
-            lcp_result = self._longest_common_directory(directories, path_type)
-            if not lcp_result:
-                continue
-            common_path, depth = lcp_result
-            earliest_index = min(index for _, index in entries)
-            score = (len(directories), -earliest_index, depth, len(common_path))
-            if score > best_score:
-                best_score = score
-                best_path = common_path
+        # Score candidates and prefer the best one
+        # Prefer deeper paths over shallow ones, but exclude paths that are too deep
+        # (like src directories which are children of project directories)
+        scored_candidates = []
+        for directory, path_type in candidates:
+            try:
+                pure_path = (
+                    PureWindowsPath(directory)
+                    if path_type in ("windows", "unc")
+                    else PurePosixPath(directory)
+                )
 
-        return best_path
+                # Base score is the depth (number of parts)
+                # but don't over-pref depth - only give bonus for significant depth
+                depth = len(pure_path.parts)
+                score = depth
+
+                # Give extra bonus only for paths that are significantly deeper
+                # This prevents slight depth differences from overriding first-occurrence preference
+                if depth > 3:
+                    score += 1  # Small bonus for very deep paths
+
+                # Penalty if the last part is a common source subdirectory
+                if pure_path.name.lower() in _COMMON_PROJECT_SUBDIRS:
+                    score -= 10  # Heavy penalty for source directories
+
+                # Bonus if the directory name looks like a project name
+                # (not a generic system/user directory)
+                GENERIC_NAMES = {
+                    "users",
+                    "test",
+                    "project",
+                    "projects",
+                    "code",
+                    "dev",
+                    "development",
+                }
+                if pure_path.name.lower() not in GENERIC_NAMES:
+                    score += 2  # Bonus for specific project names
+
+                scored_candidates.append((score, directory))
+            except Exception:
+                continue
+
+        if scored_candidates:
+            # Find the best scoring candidate, but prefer first occurrence when scores are close
+            best_score = max(score for score, _ in scored_candidates)
+            best_candidates = [
+                (score, directory)
+                for score, directory in scored_candidates
+                if score == best_score
+            ]
+
+            # If there's a clear winner by score, return it
+            if len(best_candidates) == 1:
+                return best_candidates[0][1]
+
+            # If multiple candidates have the same best score, prefer the first one
+            # But if there's a significant score difference (>2), prefer the higher scoring one
+            first_score = scored_candidates[0][0]
+            if best_score > first_score + 2:
+                return best_candidates[0][
+                    1
+                ]  # Return the first of the best scoring candidates
+            else:
+                return scored_candidates[0][1]  # Return the first candidate overall
+
+        return None
 
     def _extract_directory_from_path(self, path: str) -> str:
         """Extract directory portion from a path that may include a filename."""
@@ -366,12 +541,11 @@ class ProjectDirectoryResolutionService:
             try:
                 response = await self._call_resolution_model(prompt_text)
             except Exception as exc:  # pragma: no cover - defensive logging
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Project directory auto-detection call failed: %s",
-                        exc,
-                        exc_info=True,
-                    )
+                logger.warning(
+                    "Project directory auto-detection call failed: %s",
+                    exc,
+                    exc_info=True,
+                )
                 await self._persist_state(
                     session,
                     directory=None,
@@ -437,12 +611,11 @@ class ProjectDirectoryResolutionService:
         try:
             await self._session_service.update_session(session)
         except Exception as exc:  # pragma: no cover - defensive logging
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to persist project directory detection state: %s",
-                    exc,
-                    exc_info=True,
-                )
+            logger.warning(
+                "Failed to persist project directory detection state: %s",
+                exc,
+                exc_info=True,
+            )
         logger.info(message)
 
     async def _call_resolution_model(self, prompt_text: str) -> ResponseEnvelope:

@@ -43,8 +43,7 @@ class CommandStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register command services."""
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Initializing command services...")
+        logger.info("Initializing command services...")
 
         # Register command settings service
         self._register_command_settings_service(services, config)
@@ -55,8 +54,7 @@ class CommandStage(InitializationStage):
         # Register command service
         self._register_command_service(services)
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Command services initialized successfully")
+        logger.info("Command services initialized successfully")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that command services can be registered."""
@@ -71,8 +69,7 @@ class CommandStage(InitializationStage):
 
             return True
         except ImportError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Command services validation failed: {e}")
+            logger.error(f"Command services validation failed: {e}")
             return False
 
     def _register_command_settings_service(
@@ -97,11 +94,9 @@ class CommandStage(InitializationStage):
             services.add_instance(CommandSettingsService, cmd_settings)
             services.add_instance(ICommandSettingsService, cmd_settings)  # type: ignore[type-abstract] # Mypy incorrectly flags interface as abstract for instance registration
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered command settings service")
+            logger.debug("Registered command settings service")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register command settings service: {e}")
+            logger.warning(f"Could not register command settings service: {e}")
 
     def _register_command_support_services(self, services: ServiceCollection) -> None:
         """Register policy, state, and pipeline helpers used by command execution."""
@@ -152,11 +147,9 @@ class CommandStage(InitializationStage):
                 ),
             )  # type: ignore[type-abstract]
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered command policy/state services")
+            logger.debug("Registered command policy/state services")
         except Exception as exc:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register command support services: %s", exc)
+            logger.warning("Could not register command support services: %s", exc)
 
     def _register_command_service(self, services: ServiceCollection) -> None:
         """Register command service with dependencies."""
@@ -221,10 +214,6 @@ class CommandStage(InitializationStage):
             services.add_singleton(CommandParser)
             services.add_singleton(cast(type, ICommandParser), CommandParser)
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Registered new command service and parser with dependencies"
-                )
+            logger.debug("Registered new command service and parser with dependencies")
         except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register command service or parser: {e}")
+            logger.warning(f"Could not register command service or parser: {e}")

@@ -223,8 +223,7 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         # Check if project directory actually changed
         if new_project_dir == self._project_dir:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Project directory already set to {project_dir}")
+            logger.debug(f"Project directory already set to {project_dir}")
             return
 
         # Kill existing process
@@ -260,8 +259,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                 cmd.append("-y")  # YOLO mode (auto-accept)
 
             # Spawn process
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Spawning gemini-cli process: {' '.join(cmd)}")
+            logger.debug(f"Spawning gemini-cli process: {' '.join(cmd)}")
             self._process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -356,8 +354,7 @@ class GeminiCliAcpConnector(GeminiBackend):
             self._process.stdin.write(message_str.encode("utf-8"))
             self._process.stdin.flush()
             self._last_activity = asyncio.get_event_loop().time()
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Sent JSON-RPC message: {method}")
+            logger.debug(f"Sent JSON-RPC message: {method}")
         except Exception as e:
             logger.error(f"Failed to send JSON-RPC message: {e}")
             raise APIConnectionError(

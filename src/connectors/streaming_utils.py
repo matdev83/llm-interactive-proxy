@@ -70,10 +70,9 @@ def _resolve_stream_normalizer_via_di() -> IStreamNormalizer | None:
         provider = get_or_build_service_provider()
         normalizer = provider.get_service(cast(type, IStreamNormalizer))
     except Exception as exc:  # pragma: no cover - defensive logging
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Failed to resolve IStreamNormalizer from DI: %s", exc, exc_info=True
-            )
+        logger.debug(
+            "Failed to resolve IStreamNormalizer from DI: %s", exc, exc_info=True
+        )
         return None
 
     return cast("IStreamNormalizer | None", normalizer)
@@ -99,11 +98,10 @@ def _build_fallback_stream_normalizer() -> IStreamNormalizer:
     try:
         set_service_provider(fallback_provider)
     except Exception:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Failed to update global provider while creating fallback normalizer",
-                exc_info=True,
-            )
+        logger.debug(
+            "Failed to update global provider while creating fallback normalizer",
+            exc_info=True,
+        )
 
     try:
         normalizer = fallback_provider.get_service(cast(type, IStreamNormalizer))
@@ -113,10 +111,9 @@ def _build_fallback_stream_normalizer() -> IStreamNormalizer:
     if normalizer is not None:
         return normalizer
 
-    if logger.isEnabledFor(logging.WARNING):
-        logger.warning(
-            "Falling back to passthrough stream normalizer; loop detection may be unavailable"
-        )
+    logger.warning(
+        "Falling back to passthrough stream normalizer; loop detection may be unavailable"
+    )
 
     return _PassthroughStreamNormalizer()
 
@@ -224,12 +221,11 @@ def normalize_streaming_response(
                 try:
                     reset_method()
                 except Exception as exc:  # pragma: no cover - defensive logging
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Failed to reset stream normalizer: %s",
-                            exc,
-                            exc_info=True,
-                        )
+                    logger.debug(
+                        "Failed to reset stream normalizer: %s",
+                        exc,
+                        exc_info=True,
+                    )
             processed_stream = normalizer.process_stream(
                 iterator, output_format="bytes"
             )

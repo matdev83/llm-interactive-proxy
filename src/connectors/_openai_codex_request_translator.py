@@ -35,12 +35,11 @@ class CodexRequestTranslator:
         custom_instruction_sections: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Transform processed messages into Codex Responses `input` array."""
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Building Codex input items (protocol=%s, tool_text_format=%s)",
-                capabilities.protocol,
-                capabilities.tool_text_format,
-            )
+        logger.debug(
+            "Building Codex input items (protocol=%s, tool_text_format=%s)",
+            capabilities.protocol,
+            capabilities.tool_text_format,
+        )
         input_items: list[dict[str, Any]] = []
 
         prompt_mode = (capabilities.prompt_mode or "codex_default").lower()

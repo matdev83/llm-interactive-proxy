@@ -70,8 +70,7 @@ class AnthropicCredentialsFileHandler(FileSystemEventHandler):
                     )
                     self.connector._schedule_credentials_reload()
             except Exception as e:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Error processing file modification event: {e}")
+                logger.error(f"Error processing file modification event: {e}")
 
 
 class AnthropicOAuthBackend(AnthropicBackend):
@@ -302,10 +301,9 @@ class AnthropicOAuthBackend(AnthropicBackend):
             target_loop = self._event_loop
 
         if target_loop is None or target_loop.is_closed():
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Cannot schedule Anthropic OAuth credentials reload: no running event loop available."
-                )
+            logger.warning(
+                "Cannot schedule Anthropic OAuth credentials reload: no running event loop available."
+            )
             return
 
         if target_loop is not self._event_loop:
@@ -325,10 +323,9 @@ class AnthropicOAuthBackend(AnthropicBackend):
             future.add_done_callback(_clear)
             self._pending_reload_task = future
         except RuntimeError as exc:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to schedule Anthropic OAuth credentials reload: %s", exc
-                )
+            logger.warning(
+                "Failed to schedule Anthropic OAuth credentials reload: %s", exc
+            )
 
     # -----------------------------
     # Credential loading utilities
@@ -376,10 +373,9 @@ class AnthropicOAuthBackend(AnthropicBackend):
         """
         creds_path = self._discover_credentials_path()
         if creds_path is None:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Anthropic OAuth credentials file not found in default paths"
-                )
+            logger.warning(
+                "Anthropic OAuth credentials file not found in default paths"
+            )
             return False
 
         self._credentials_path = creds_path
@@ -422,10 +418,9 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 )
 
             if not token:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Anthropic OAuth credentials missing access_token/api_key"
-                    )
+                logger.warning(
+                    "Anthropic OAuth credentials missing access_token/api_key"
+                )
                 return False
 
             self._oauth_credentials = data
@@ -436,17 +431,14 @@ class AnthropicOAuthBackend(AnthropicBackend):
             log_msg = "Successfully loaded Anthropic OAuth credentials"
             if force_reload:
                 log_msg += " (force reload)"
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(log_msg + ".")
+            logger.info(log_msg + ".")
             return True
 
         except json.JSONDecodeError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Malformed Anthropic OAuth credentials JSON: {e}")
+            logger.error(f"Malformed Anthropic OAuth credentials JSON: {e}")
             return False
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error loading Anthropic OAuth credentials: {e}")
+            logger.error(f"Error loading Anthropic OAuth credentials: {e}")
             return False
 
     # -----------------------------

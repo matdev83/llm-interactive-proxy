@@ -152,8 +152,7 @@ def create_validated_test_app() -> Any:
 
         logger = logging.getLogger(__name__)
         for warning in warnings:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Test app validation warning: {warning}")
+            logger.warning(f"Test app validation warning: {warning}")
 
     return app
 

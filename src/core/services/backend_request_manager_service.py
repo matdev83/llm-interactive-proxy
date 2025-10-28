@@ -495,11 +495,10 @@ class BackendRequestManager(IBackendRequestManager):
                 detector.reset()
                 return detector
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Falling back to standalone loop detector for streaming responses",
-                    exc_info=True,
-                )
+            logger.debug(
+                "Falling back to standalone loop detector for streaming responses",
+                exc_info=True,
+            )
         fallback = HybridLoopDetector()
         fallback.reset()
         return fallback

@@ -140,15 +140,9 @@ class ToolCallRepairService:
 
             return self._format_openai_tool_call(name, arguments)
         except json.JSONDecodeError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Failed to encode arguments to JSON: {e}", exc_info=True
-                )
+            logger.warning(f"Failed to encode arguments to JSON: {e}", exc_info=True)
         except (KeyError, TypeError) as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Error processing text tool call match: {e}", exc_info=True
-                )
+            logger.warning(f"Error processing text tool call match: {e}", exc_info=True)
         return None
 
     def _extract_json_object_near_key(self, text: str) -> str | None:

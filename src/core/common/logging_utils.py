@@ -127,7 +127,7 @@ DEFAULT_REDACTED_FIELDS = {
 # - Anthropic keys: ak- followed by specific prefixes like ant-, etc., then 20+ chars
 # This avoids matching "ak_" sequences in common English words like "tracking", "monitoring"
 API_KEY_PATTERN = re.compile(
-    r"(?:sk[-_](?:proj|test|live|team|org|svc|[A-Za-z0-9])[A-Za-z0-9_-]{15,}|ak-(?:ant|sk|proj)[A-Za-z0-9_-]{17,})"
+    r"\b(?:sk[-_](?:proj|test|live|team|org|svc|[A-Za-z0-9])[A-Za-z0-9_-]{15,}|ak-(?:ant|sk|proj)[A-Za-z0-9_-]{17,})\b"
 )
 # ZAI-style keys: 32 hex chars, dot, 16+ mixed alphanum
 ZAI_KEY_PATTERN = re.compile(r"\b[0-9a-f]{32}\.[A-Za-z0-9]{16,}\b")

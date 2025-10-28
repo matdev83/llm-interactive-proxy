@@ -150,12 +150,11 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
             tier_to_use = {"id": "paid-tier"}
 
         selected_tier_id = tier_to_use.get("id") or "paid-tier"
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Selected Code Assist tier '%s' (context_limit=%s)",
-                selected_tier_id,
-                _context_tokens(tier_to_use),
-            )
+        logger.info(
+            "Selected Code Assist tier '%s' (context_limit=%s)",
+            selected_tier_id,
+            _context_tokens(tier_to_use),
+        )
 
         # Step 3: Perform onboarding with the paid tier
         # For paid tiers, we include the cloudaicompanionProject field

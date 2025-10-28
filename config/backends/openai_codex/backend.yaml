@@ -1,0 +1,193 @@
+# OpenAI Codex Backend Configuration
+# This file contains backend-specific configuration for openai-codex
+
+# Backend settings
+backend_type: "openai-codex"
+timeout: 120
+
+# Codex-KiloCode Compatibility Layer Configuration
+# This layer enables seamless communication between KiloCode clients and OpenAI Codex backend
+compatibility_layer:
+  # Global enable/disable flag for the compatibility layer
+  # When disabled, all KiloCode-specific translation is bypassed
+  # Default: false (disabled until explicitly enabled by operator)
+  enabled: false
+  
+  # Client detection configuration
+  detection:
+    # Cache TTL for detection results (in seconds)
+    # Cached results are reused within this time window to avoid repeated detection overhead
+    # Default: 3600 (1 hour)
+    cache_ttl_seconds: 3600
+    
+    # Minimum number of KiloCode-specific XML tags required for heuristic detection
+    # Used as fallback when metadata and headers don't provide client identification
+    # Default: 2
+    heuristic_threshold: 2
+    
+    # Enable/disable specific detection methods
+    # All methods are enabled by default for maximum compatibility
+    methods:
+      metadata: true      # Check request.agent metadata field
+      header: true        # Check HTTP User-Agent header
+      heuristic: true     # Check for KiloCode-specific XML tags in payload
+  
+  # Tool translation configuration
+  translation:
+    # Maximum timeout for proxy-side tool execution (in seconds)
+    # Applies to file operations, command execution, and search operations
+    # Default: 30
+    max_tool_execution_timeout: 30
+    
+    # Result format for tool execution responses
+    # Options: "kilo_standard" (default), "verbose"
+    # kilo_standard: Uses KiloCode's expected "[tool] Result:" format
+    # verbose: Includes additional metadata and debugging information
+    # Default: "kilo_standard"
+    result_format: "kilo_standard"
+    
+    # Enable/disable specific tool translation paths
+    # Disable specific tools if they cause issues or are not needed
+    tools:
+      read_file: true
+      list_files: true
+      execute_command: true
+      codebase_search: true
+      search_files: true
+      use_mcp_tool: true
+      access_mcp_resource: true
+      attempt_completion: true
+      ask_followup_question: true
+      search_and_replace: true
+      write_to_file: true
+      insert_content: true
+      edit_file: true
+    
+    # Command execution security settings
+    command_execution:
+      # Allowed shells for command execution
+      # Default: ["bash", "sh", "cmd", "powershell"]
+      allowed_shells: ["bash", "sh", "cmd", "powershell"]
+      
+      # Working directory restrictions
+      # If true, commands can only execute within the workspace directory
+      # Default: true
+      restrict_to_workspace: true
+      
+      # Maximum command output size (in bytes)
+      # Prevents memory exhaustion from commands with excessive output
+      # Default: 1048576 (1 MB)
+      max_output_size: 1048576
+    
+    # File operation security settings
+    file_operations:
+      # If true, file operations are restricted to workspace directory
+      # Default: true
+      restrict_to_workspace: true
+      
+      # Maximum file size for read operations (in bytes)
+      # Default: 10485760 (10 MB)
+      max_file_size: 10485760
+      
+      # Allowed file extensions for read operations
+      # Empty list means all extensions are allowed
+      # Default: [] (all allowed)
+      allowed_extensions: []
+      
+      # Blocked file patterns (glob patterns)
+      # Files matching these patterns will be rejected
+      # Default: common sensitive files
+      blocked_patterns:
+        - "**/.env"
+        - "**/.env.*"
+        - "**/id_rsa"
+        - "**/id_dsa"
+        - "**/*.key"
+        - "**/*.pem"
+        - "**/credentials.json"
+        - "**/secrets.yaml"
+  
+  # Telemetry and monitoring configuration
+  telemetry:
+    # Enable logging of translation events
+    # Logs include tool name, translation path, and execution time
+    # Default: true
+    log_translations: true
+    
+    # Enable logging of detection events
+    # Logs include detection method, result, and confidence
+    # Default: true
+    log_detection: true
+    
+    # Enable metrics emission
+    # Emits Prometheus-compatible metrics for monitoring
+    # Default: true
+    emit_metrics: true
+    
+    # Log level for compatibility layer events
+    # Options: "DEBUG", "INFO", "WARNING", "ERROR"
+    # Default: "INFO"
+    log_level: "INFO"
+    
+    # Include full XML in error logs
+    # Useful for debugging but may expose sensitive data
+    # Default: false
+    include_xml_in_errors: false
+  
+  # Error handling configuration
+  error_handling:
+    # Return detailed error messages to client
+    # If false, returns generic error messages
+    # Default: true
+    detailed_errors: true
+    
+    # Include suggested alternatives in error messages
+    # Provides actionable guidance when tools are unsupported
+    # Default: true
+    include_suggestions: true
+    
+    # Fail fast on translation errors
+    # If true, stops processing immediately on first error
+    # If false, attempts to continue with partial translation
+    # Default: true
+    fail_fast: true
+
+# Model capabilities and limits for this backend
+models:
+  "gpt-4-codex":
+    capabilities:
+      - "chat"
+      - "completion"
+      - "function_calling"
+      - "tool_use"
+      - "json_mode"
+      - "streaming"
+      - "coding"
+    
+    limits:
+      context_window: 8192
+      max_input_tokens: 6144
+      max_output_tokens: 2048
+      requests_per_minute: 60
+      tokens_per_minute: 90000
+      max_temperature: 2.0
+      min_temperature: 0.0
+      max_top_p: 1.0
+      min_top_p: 0.0
+    
+    metadata:
+      display_name: "GPT-4 Codex"
+      description: "OpenAI's Codex model optimized for code generation"
+      provider: "OpenAI"
+      model_type: "chat"
+      architecture: "transformer"
+      tags: ["coding", "function-calling"]
+
+# Default model to use when no specific model is requested
+default_model: "gpt-4-codex"
+
+# Model-specific defaults
+model_defaults:
+  temperature: 0.7
+  top_p: 1.0
+  max_tokens: null  # Use context window limits instead

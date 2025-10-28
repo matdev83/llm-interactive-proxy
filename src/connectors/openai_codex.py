@@ -46,6 +46,7 @@ from src.connectors._openai_codex_capabilities import (
     CodexClientCapabilities,
 )
 from src.connectors._openai_codex_request_translator import CodexRequestTranslator
+from src.connectors._openai_codex_session_detector import SessionDetector
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import AuthenticationError
 from src.core.config.app_config import AppConfig
@@ -385,6 +386,22 @@ class OpenAICodexConnector(OpenAIConnector):
         self._token_refresh_lock = asyncio.Lock()
         self._universal_executor: UniversalToolExecutor | None = None
 
+        # Initialize compatibility layer components
+        compat_cfg = self._connector_settings["compatibility_layer"]
+        self._compatibility_layer_enabled: bool = compat_cfg["enabled"]
+        self._session_detector: SessionDetector | None = None
+        if self._compatibility_layer_enabled:
+            detection_cfg = compat_cfg["detection"]
+            self._session_detector = SessionDetector(
+                cache_ttl_seconds=detection_cfg["cache_ttl_seconds"],
+                heuristic_threshold=detection_cfg["heuristic_threshold"],
+            )
+            logger.info(
+                "Codex-KiloCode compatibility layer enabled (cache_ttl=%ds, heuristic_threshold=%d)",
+                detection_cfg["cache_ttl_seconds"],
+                detection_cfg["heuristic_threshold"],
+            )
+
         # Health checks are unnecessary for OAuth bearer flow in tests; disable by default
         import contextlib
 
@@ -415,6 +432,22 @@ class OpenAICodexConnector(OpenAIConnector):
             "streaming": {
                 "max_retries": 2,
                 "retry_backoff_seconds": (0.5, 1.5, 3.0),
+            },
+            "compatibility_layer": {
+                "enabled": False,
+                "detection": {
+                    "cache_ttl_seconds": 3600,
+                    "heuristic_threshold": 2,
+                },
+                "translation": {
+                    "max_tool_execution_timeout": 30,
+                    "result_format": "kilo_standard",
+                },
+                "telemetry": {
+                    "log_translations": True,
+                    "log_detection": True,
+                    "emit_metrics": True,
+                },
             },
         }
 
@@ -632,6 +665,88 @@ class OpenAICodexConnector(OpenAIConnector):
         settings["streaming"] = {
             "max_retries": max_retries,
             "retry_backoff_seconds": tuple(backoff_seq),
+        }
+
+        # Compatibility layer settings
+        compat_cfg = _to_mapping(codex_cfg.get("compatibility_layer")) or {}
+
+        # Global enable/disable flag
+        compat_enabled = compat_cfg.get("enabled")
+        env_compat_enabled = os.getenv("OPENAI_CODEX_COMPATIBILITY_LAYER_ENABLED")
+        if env_compat_enabled is not None:
+            compat_enabled = env_compat_enabled.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        elif compat_enabled is None:
+            compat_enabled = settings["compatibility_layer"]["enabled"]
+
+        # Detection settings
+        detection_cfg = _to_mapping(compat_cfg.get("detection")) or {}
+        cache_ttl = _coerce_positive_int(detection_cfg.get("cache_ttl_seconds"))
+        if cache_ttl is None:
+            cache_ttl = settings["compatibility_layer"]["detection"][
+                "cache_ttl_seconds"
+            ]
+
+        heuristic_threshold = _coerce_positive_int(
+            detection_cfg.get("heuristic_threshold")
+        )
+        if heuristic_threshold is None:
+            heuristic_threshold = settings["compatibility_layer"]["detection"][
+                "heuristic_threshold"
+            ]
+
+        # Translation settings
+        translation_cfg = _to_mapping(compat_cfg.get("translation")) or {}
+        max_timeout = _coerce_positive_int(
+            translation_cfg.get("max_tool_execution_timeout")
+        )
+        if max_timeout is None:
+            max_timeout = settings["compatibility_layer"]["translation"][
+                "max_tool_execution_timeout"
+            ]
+
+        result_format = (
+            translation_cfg.get("result_format")
+            or settings["compatibility_layer"]["translation"]["result_format"]
+        )
+
+        # Telemetry settings
+        telemetry_cfg = _to_mapping(compat_cfg.get("telemetry")) or {}
+        log_translations = telemetry_cfg.get("log_translations")
+        if log_translations is None:
+            log_translations = settings["compatibility_layer"]["telemetry"][
+                "log_translations"
+            ]
+
+        log_detection = telemetry_cfg.get("log_detection")
+        if log_detection is None:
+            log_detection = settings["compatibility_layer"]["telemetry"][
+                "log_detection"
+            ]
+
+        emit_metrics = telemetry_cfg.get("emit_metrics")
+        if emit_metrics is None:
+            emit_metrics = settings["compatibility_layer"]["telemetry"]["emit_metrics"]
+
+        settings["compatibility_layer"] = {
+            "enabled": bool(compat_enabled),
+            "detection": {
+                "cache_ttl_seconds": cache_ttl,
+                "heuristic_threshold": heuristic_threshold,
+            },
+            "translation": {
+                "max_tool_execution_timeout": max_timeout,
+                "result_format": str(result_format),
+            },
+            "telemetry": {
+                "log_translations": bool(log_translations),
+                "log_detection": bool(log_detection),
+                "emit_metrics": bool(emit_metrics),
+            },
         }
 
         return settings
@@ -1150,12 +1265,11 @@ class OpenAICodexConnector(OpenAIConnector):
         if system_prompt:
             payload["instructions"] = self._sanitize_codex_instructions(system_prompt)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Constructed Codex payload scaffold (protocol=%s, passthrough=%s)",
-                resolved_capabilities.protocol,
-                resolved_capabilities.codex_passthrough,
-            )
+        logger.debug(
+            "Constructed Codex payload scaffold (protocol=%s, passthrough=%s)",
+            resolved_capabilities.protocol,
+            resolved_capabilities.codex_passthrough,
+        )
         return payload, conversation_id
 
     def _extract_custom_instruction_sections(self, request_data: Any) -> list[str]:
@@ -1309,9 +1423,16 @@ class OpenAICodexConnector(OpenAIConnector):
                 if key in seen:
                     continue
                 seen.add(key)
-            ordered.append(normalized)
+            # Keep the original section content (preserving trailing newlines)
+            ordered.append(section)
         if not ordered:
             return None
+
+        # If only one section, return it as-is
+        if len(ordered) == 1:
+            return ordered[0]
+
+        # When joining multiple sections, use "\n\n" between them
         return "\n\n".join(ordered)
 
     @staticmethod
@@ -1494,6 +1615,43 @@ class OpenAICodexConnector(OpenAIConnector):
             domain_request.processing_context["tool_text_format"] = (
                 capabilities.tool_text_format
             )
+
+        # Detect KiloCode client and activate compatibility layer if enabled
+        session_id = getattr(domain_request, "session_id", None) or str(uuid.uuid4())
+        is_kilocode = False
+        if self._compatibility_layer_enabled and self._session_detector:
+            # Extract metadata for detection
+            metadata = None
+            if hasattr(domain_request, "metadata"):
+                metadata = domain_request.metadata
+            elif hasattr(request_data, "metadata"):
+                metadata = request_data.metadata
+
+            # Perform detection
+            detection_result = await self._session_detector.detect(
+                request_data=request_data,
+                metadata=metadata,
+                session_id=session_id,
+                backend=self.backend_type,
+            )
+            is_kilocode = detection_result.is_kilocode
+
+            # Store detection result in processing context
+            if hasattr(domain_request, "processing_context"):
+                if domain_request.processing_context is None:
+                    domain_request.processing_context = {}
+                domain_request.processing_context["is_kilocode_client"] = is_kilocode
+                domain_request.processing_context["kilocode_detection_method"] = (
+                    detection_result.detection_method
+                )
+
+            if is_kilocode:
+                logger.info(
+                    "KiloCode client detected for session %s (method: %s, confidence: %.2f)",
+                    session_id,
+                    detection_result.detection_method,
+                    detection_result.confidence,
+                )
 
         payload, conversation_id = self._build_codex_payload(
             request_data,

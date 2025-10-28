@@ -189,10 +189,9 @@ class ToolCallTracker:
             active_signatures = set(current_signatures)
             for sig in list(self.consecutive_repeats.keys()):
                 if sig not in active_signatures:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Resetting consecutive count for expired signature: %s", sig
-                        )
+                    logger.debug(
+                        "Resetting consecutive count for expired signature: %s", sig
+                    )
                     del self.consecutive_repeats[sig]
                     # Also clear chance status if present
                     self.chance_given.pop(sig, None)
@@ -261,10 +260,7 @@ class ToolCallTracker:
             )
             repeat_count = self.consecutive_repeats[full_sig]
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Repeated tool call: %s (count: %d)", tool_name, repeat_count
-                )
+            logger.debug("Repeated tool call: %s (count: %d)", tool_name, repeat_count)
 
             # Check if we need to block based on threshold and mode
             if repeat_count >= self.config.max_repeats:
@@ -298,10 +294,9 @@ class ToolCallTracker:
             # Remove oldest entries that exceed the limit
             excess = len(self.signatures) - self.max_signatures
             if excess > 0:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Trimming %d oldest signatures to maintain size limit", excess
-                    )
+                logger.debug(
+                    "Trimming %d oldest signatures to maintain size limit", excess
+                )
                 # Remove oldest entries (at the beginning of the list)
                 self.signatures = self.signatures[excess:]
 

@@ -134,11 +134,10 @@ class CodexCapabilityResolver:
             if filtered_overrides:
                 result = result.merge(filtered_overrides)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Resolved Codex capabilities: %s",
-                result.to_dict(),
-            )
+        logger.debug(
+            "Resolved Codex capabilities: %s",
+            result.to_dict(),
+        )
         return result
 
     @staticmethod

@@ -918,10 +918,9 @@ def register_core_services(
                 loop_detection_processor = provider.get_required_service(
                     LoopDetectionProcessor
                 )
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "LoopDetectionProcessor successfully registered for streaming"
-                    )
+                logger.debug(
+                    "LoopDetectionProcessor successfully registered for streaming"
+                )
             except Exception as e:
                 logger.warning(
                     f"Failed to register LoopDetectionProcessor for streaming: {e}"

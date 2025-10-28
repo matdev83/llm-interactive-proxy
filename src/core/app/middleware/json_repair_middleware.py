@@ -94,8 +94,7 @@ class JsonRepairMiddleware(IResponseMiddleware):
                 )
                 raise
             if repaired_json is not None:
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"JSON detected and repaired for session {session_id}")
+                logger.info(f"JSON detected and repaired for session {session_id}")
                 response.content = json.dumps(repaired_json)
                 response.metadata["repaired"] = True
 

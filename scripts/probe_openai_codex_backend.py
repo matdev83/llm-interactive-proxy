@@ -25,23 +25,21 @@ import argparse
 import asyncio
 import json
 import logging
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import shorten
 from typing import Any
-
-import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import httpx
-
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.di.container import ServiceCollection
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.services.translation_service import TranslationService
 

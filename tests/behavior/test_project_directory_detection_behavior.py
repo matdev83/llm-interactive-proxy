@@ -111,6 +111,8 @@ class TestProjectDirectoryDetectionBehavior:
         ]
 
         for prompt in unix_prompts:
+            # Create fresh session for each test case to avoid state contamination
+            session = Session(session_id="unix_test", state=SessionState())
             request = ChatRequest(
                 model="test-model", messages=[ChatMessage(role="user", content=prompt)]
             )
@@ -512,8 +514,281 @@ class TestProjectDirectoryDetectionBehavior:
         # When
         await service.maybe_resolve_project_directory(session, request)
 
-        # Then - Should extract the first path found (C:\\ProjectA)
-        assert session.state.project_dir == "C:\\ProjectA"
+        # Then - Should extract the most reasonable path (Unix path wins due to depth)
+        assert session.state.project_dir == "/home/user/projectB"
+
+    @pytest.mark.asyncio
+    async def test_project_directory_persistence_across_session_lifecycle(self):
+        """
+        Given: A new session with project directory auto-detection enabled
+        When: Multiple request/response exchanges occur over the session lifecycle
+        Then: Project directory should be detected once and persist throughout all subsequent requests
+        """
+        # Given
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
+        mock_backend = AsyncMock()
+        mock_session = AsyncMock()
+        session_id = "persistence_test_session"
+
+        # Create new session (no history, no existing project_dir)
+        session = Session(session_id=session_id, state=SessionState())
+        service = ProjectDirectoryResolutionService(config, mock_backend, mock_session)
+
+        # Initial request with project directory path
+        initial_request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content="Help me work on my project at C:\\Users\\Developer\\my-awesome-app\\src\\main.py",
+                )
+            ],
+        )
+
+        # When - First request: Should detect and set project directory
+        await service.maybe_resolve_project_directory(session, initial_request)
+
+        # Then - Verify initial detection
+        assert session.state.project_dir == "C:\\Users\\Developer\\my-awesome-app"
+        assert session.state.project_dir_resolution_attempted is True
+        mock_session.update_session.assert_called_once_with(session)
+
+        # Given - Add history to simulate ongoing conversation
+        session.history.extend(
+            [
+                ChatMessage(
+                    role="assistant", content="I'll help you with your project!"
+                ),
+                ChatMessage(
+                    role="user",
+                    content="Show me the dependencies in C:\\Users\\Developer\\my-awesome-app\\requirements.txt",
+                ),
+                ChatMessage(role="assistant", content="Here are your dependencies..."),
+                ChatMessage(
+                    role="user", content="Let's refactor the code in the utils folder"
+                ),
+            ]
+        )
+
+        # Reset mock for subsequent calls
+        mock_session.reset_mock()
+
+        # When - Second request: Should NOT attempt detection again
+        second_request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="user", content="Let's refactor the code in the utils folder"
+                ),
+                ChatMessage(
+                    role="assistant", content="I'll help you refactor the utils folder"
+                ),
+            ],
+        )
+        await service.maybe_resolve_project_directory(session, second_request)
+
+        # Then - Verify no re-detection occurred (should be skipped due to history)
+        mock_session.update_session.assert_not_called()
+        assert (
+            session.state.project_dir == "C:\\Users\\Developer\\my-awesome-app"
+        )  # Still preserved
+        assert session.state.project_dir_resolution_attempted is True  # Flag still set
+
+        # Given - Add more conversation history
+        session.history.extend(
+            [
+                ChatMessage(
+                    role="assistant", content="I've refactored the utils folder"
+                ),
+                ChatMessage(
+                    role="user", content="Great! Now let's add tests for the new utils"
+                ),
+                ChatMessage(role="assistant", content="I'll help you write tests"),
+                ChatMessage(
+                    role="user",
+                    content="Also check the configuration in C:\\Users\\Developer\\my-awesome-app\\config",
+                ),
+            ]
+        )
+
+        # When - Third request with same project path mentioned again: Still should skip detection
+        third_request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content="Also check the configuration in C:\\Users\\Developer\\my-awesome-app\\config",
+                ),
+                ChatMessage(
+                    role="assistant", content="I'll examine the configuration files"
+                ),
+            ],
+        )
+        await service.maybe_resolve_project_directory(session, third_request)
+
+        # Then - Verify project directory persists unchanged
+        assert session.state.project_dir == "C:\\Users\\Developer\\my-awesome-app"
+        mock_session.update_session.assert_not_called()  # No session update for skipped detection
+
+        # When - Fourth request: Different type of request, still no detection
+        fourth_request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(role="user", content="Run the test suite"),
+                ChatMessage(role="assistant", content="I'll run the tests"),
+            ],
+        )
+        await service.maybe_resolve_project_directory(session, fourth_request)
+
+        # Then - Final verification: project directory still persists after multiple exchanges
+        assert session.state.project_dir == "C:\\Users\\Developer\\my-awesome-app"
+        assert session.state.project_dir_resolution_attempted is True
+        assert len(session.history) >= 8  # Verify conversation has progressed
+
+        # Verify the detection flag remains set but no further detection attempts were made
+        mock_session.update_session.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_project_directory_persistence_with_explicit_session_updates(self):
+        """
+        Given: A session where project directory is detected and session state is explicitly updated
+        When: Session state is manually updated between requests (simulating real session persistence)
+        Then: Project directory should persist across state updates and subsequent requests
+        """
+        # Given
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
+        mock_backend = AsyncMock()
+        mock_session = AsyncMock()
+        session_id = "explicit_persistence_test"
+
+        # Start with fresh session
+        session = Session(session_id=session_id, state=SessionState())
+        service = ProjectDirectoryResolutionService(config, mock_backend, mock_session)
+
+        # Initial request with Unix path this time
+        initial_request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content="Work on my Python project at /home/user/projects/data-analysis",
+                )
+            ],
+        )
+
+        # When - Initial detection
+        await service.maybe_resolve_project_directory(session, initial_request)
+
+        # Then - Verify detection
+        assert session.state.project_dir == "/home/user/projects/data-analysis"
+        assert session.state.project_dir_resolution_attempted is True
+
+        # Given - Simulate explicit session state update (like what happens in real session persistence)
+        # This simulates the session being saved and reloaded with the same state
+        updated_state = session.state.with_project_dir_resolution_attempted(True)
+        session.state = updated_state
+
+        # Add conversation history
+        session.history.extend(
+            [
+                ChatMessage(
+                    role="assistant",
+                    content="I'll help you with your data analysis project",
+                ),
+                ChatMessage(role="user", content="Let's examine the datasets"),
+            ]
+        )
+
+        # Reset mock to track new calls
+        mock_session.reset_mock()
+
+        # When - Subsequent request with history present
+        subsequent_request = ChatRequest(
+            model="test-model",
+            messages=[
+                *session.history,
+                ChatMessage(role="user", content="What's in the src directory?"),
+            ],
+        )
+        await service.maybe_resolve_project_directory(session, subsequent_request)
+
+        # Then - Verify detection was skipped and project directory persisted
+        mock_session.update_session.assert_not_called()  # No update needed
+        assert (
+            session.state.project_dir == "/home/user/projects/data-analysis"
+        )  # Unchanged
+
+        # Verify the session has evolved but project_dir remains constant
+        assert len(session.history) >= 2
+
+    @pytest.mark.asyncio
+    async def test_project_directory_persistence_with_preexisting_directory(self):
+        """
+        Given: A session that already has a project directory set
+        When: New requests come in with different project paths in the content
+        Then: Should preserve the existing project directory and not attempt new detection
+        """
+        # Given
+        config = AppConfig(
+            session=SessionConfig(
+                project_dir_resolution_mode="deterministic",
+                project_dir_resolution_model="openai:gpt-4",
+            )
+        )
+        mock_backend = AsyncMock()
+        mock_session = AsyncMock()
+
+        # Session with pre-existing project directory
+        existing_project_dir = "/existing/project/path"
+        session = Session(
+            session_id="preexisting_test",
+            state=SessionState(project_dir=existing_project_dir),
+        )
+        service = ProjectDirectoryResolutionService(config, mock_backend, mock_session)
+
+        # When - Request with different project path mentioned
+        request_with_different_path = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content="Work on the code at /different/project/path/main.py",
+                )
+            ],
+        )
+        await service.maybe_resolve_project_directory(
+            session, request_with_different_path
+        )
+
+        # Then - Should preserve existing directory and not detect new one
+        assert session.state.project_dir == existing_project_dir  # Unchanged
+        assert session.state.project_dir_resolution_attempted is True
+        mock_session.update_session.assert_called_once()  # Called to log the skip message
+
+        # When - Another request yet another path (should be skipped due to attempted flag)
+        another_request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(role="user", content="Check C:\\Another\\Project\\files")
+            ],
+        )
+        await service.maybe_resolve_project_directory(session, another_request)
+
+        # Then - Still should preserve original directory and no additional calls
+        assert session.state.project_dir == existing_project_dir
+        assert (
+            mock_session.update_session.call_count == 1
+        )  # No additional calls (skipped due to attempted flag)
 
 
 class TestEdgeCaseScenarios:

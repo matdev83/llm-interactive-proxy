@@ -25,11 +25,10 @@ def _coerce_to_bool(value: Any) -> bool:
             return True
         if normalized in {"false", "0", "no", "off", ""}:
             return False
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "Unexpected boolean value '%s' in loop detection config; treating as truthy",
-                value,
-            )
+        logger.warning(
+            "Unexpected boolean value '%s' in loop detection config; treating as truthy",
+            value,
+        )
         return True
 
     if isinstance(value, int | float):
@@ -41,11 +40,10 @@ def _coerce_to_bool(value: Any) -> bool:
     if value is None:
         return False
 
-    if logger.isEnabledFor(logging.WARNING):
-        logger.warning(
-            "Unexpected type %s for loop detection boolean config; treating as truthy",
-            type(value).__name__,
-        )
+    logger.warning(
+        "Unexpected type %s for loop detection boolean config; treating as truthy",
+        type(value).__name__,
+    )
     return True
 
 

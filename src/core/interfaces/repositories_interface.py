@@ -5,6 +5,9 @@ from typing import Any, Generic, TypeVar
 
 from src.core.domain.session import Session
 from src.core.domain.usage_data import UsageData
+from src.core.services.conversation_fingerprint_service import (
+    ConversationFingerprintBundle,
+)
 
 T = TypeVar("T")
 
@@ -63,6 +66,22 @@ class ISessionRepository(IRepository["Session"], ABC):
     @abstractmethod
     async def get_session_fingerprint(self, session_id: str) -> str | None:
         """Get the fingerprint for a session."""
+
+    @abstractmethod
+    async def update_fingerprint_bundle(
+        self, session_id: str, bundle: ConversationFingerprintBundle
+    ) -> None:
+        """Update extended fingerprint metadata for a session."""
+
+    @abstractmethod
+    async def get_fingerprint_bundle(
+        self, session_id: str
+    ) -> ConversationFingerprintBundle | None:
+        """Retrieve extended fingerprint metadata."""
+
+    @abstractmethod
+    async def get_session_last_access(self, session_id: str) -> float | None:
+        """Return the last access timestamp for the session."""
 
 
 class IConfigRepository(ABC):

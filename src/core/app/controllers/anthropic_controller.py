@@ -260,8 +260,7 @@ class AnthropicController:
             if is_streaming:
                 # For streaming, we need to return the adapted response directly
                 # since domain_response_to_fastapi should handle streaming properly
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"Returning streaming response: {adapted_response}")
+                logger.info(f"Returning streaming response: {adapted_response}")
                 if isinstance(adapted_response, StreamingResponse):
                     # Ensure Anthropic streaming endpoints advertise proper SSE headers
                     sse_content_type = "text/event-stream; charset=utf-8"
@@ -326,8 +325,7 @@ class AnthropicController:
                     )
             else:
                 # For non-streaming, return Anthropic-formatted JSON response
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"Returning JSON response: {anthropic_response_data}")
+                logger.info(f"Returning JSON response: {anthropic_response_data}")
 
                 status_code = getattr(adapted_response, "status_code", 200)
 

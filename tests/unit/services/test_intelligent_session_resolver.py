@@ -142,8 +142,11 @@ class TestIntelligentSessionResolver:
         await session_repository.add(session)
 
         # Compute and store fingerprint (simulating what session manager would do)
-        fp = fingerprint_service.compute_fingerprint(messages)
-        await session_repository.update_fingerprint(session_id1, fp.fingerprint)
+        fp_bundle = fingerprint_service.compute_fingerprint_bundle(messages)
+        await session_repository.update_fingerprint(
+            session_id1, fp_bundle.primary.fingerprint
+        )
+        await session_repository.update_fingerprint_bundle(session_id1, fp_bundle)
 
         # Second request with same messages from same client - should reuse session
         request2 = ChatRequest(model="test-model", messages=messages)
@@ -179,9 +182,14 @@ class TestIntelligentSessionResolver:
         # Persist session and fingerprint
         session = Session(session_id=session_id1)
         await session_repository.add(session)
-        fp_original = fingerprint_service.compute_fingerprint(original_messages)
+        fp_original_bundle = fingerprint_service.compute_fingerprint_bundle(
+            original_messages
+        )
         await session_repository.update_fingerprint(
-            session_id1, fp_original.fingerprint
+            session_id1, fp_original_bundle.primary.fingerprint
+        )
+        await session_repository.update_fingerprint_bundle(
+            session_id1, fp_original_bundle
         )
 
         # Extended conversation (continuation)
@@ -201,6 +209,85 @@ class TestIntelligentSessionResolver:
         assert session_id2 == session_id1
 
     @pytest.mark.asyncio
+    async def test_resolve_continuation_after_condensed_history(
+        self,
+        resolver: IntelligentSessionResolver,
+        session_repository: InMemorySessionRepository,
+        fingerprint_service: ConversationFingerprintService,
+        config: AppConfig,
+    ) -> None:
+        """Ensure condensed history still matches the original session."""
+        original_messages = [
+            ChatMessage(
+                role="user",
+                content="Diagnose why the project root detection chooses the wrong directory.",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="Reviewing the logs to understand the project directory detection behavior.",
+            ),
+            ChatMessage(
+                role="user",
+                content="Check logs/proxy.log for entries about deterministic detection.",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="Logs show deterministic detection picks C:\\\\repo\\\\.venv\\\\Scripts as the project directory.",
+            ),
+            ChatMessage(
+                role="user",
+                content="We should exclude .venv directories so the resolver returns the repository root.",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="Opening project_directory_resolution_service.py to inspect scoring rules.",
+            ),
+        ]
+
+        initial_request = ChatRequest(model="test-model", messages=original_messages)
+        initial_context = self.create_context(config, domain_request=initial_request)
+
+        initial_session_id = await resolver.resolve_session_id(initial_context)
+        session = Session(session_id=initial_session_id)
+        await session_repository.add(session)
+
+        initial_bundle = fingerprint_service.compute_fingerprint_bundle(
+            original_messages
+        )
+        await session_repository.update_fingerprint(
+            initial_session_id, initial_bundle.primary.fingerprint
+        )
+        await session_repository.update_fingerprint_bundle(
+            initial_session_id, initial_bundle
+        )
+
+        condensed_messages = [
+            ChatMessage(
+                role="system",
+                content=(
+                    "Summary: investigating project directory detection scoring. "
+                    "Deterministic resolver incorrectly returns the .venv\\Scripts path."
+                ),
+            ),
+            ChatMessage(
+                role="user",
+                content=(
+                    "Continue refining exclusion rules so the project root resolves to "
+                    "the repository directory instead of virtual environment folders."
+                ),
+            ),
+        ]
+
+        condensed_request = ChatRequest(model="test-model", messages=condensed_messages)
+        condensed_context = self.create_context(
+            config, domain_request=condensed_request
+        )
+
+        matched_session_id = await resolver.resolve_session_id(condensed_context)
+
+        assert matched_session_id == initial_session_id
+
+    @pytest.mark.asyncio
     async def test_resolve_new_session_different_client(
         self,
         resolver: IntelligentSessionResolver,
@@ -214,12 +301,17 @@ class TestIntelligentSessionResolver:
             ChatMessage(role="assistant", content="Hi there!"),
         ]
 
-        fp = fingerprint_service.compute_fingerprint(messages)
+        fp_bundle = fingerprint_service.compute_fingerprint_bundle(messages)
 
         # Create session for client A
         session_a = Session(session_id="session-client-a")
         await session_repository.add(session_a)
-        await session_repository.update_fingerprint("session-client-a", fp.fingerprint)
+        await session_repository.update_fingerprint(
+            "session-client-a", fp_bundle.primary.fingerprint
+        )
+        await session_repository.update_fingerprint_bundle(
+            "session-client-a", fp_bundle
+        )
         await session_repository.update_client_session(
             "session-client-a", "192.168.1.1:hash123"
         )
@@ -257,12 +349,15 @@ class TestIntelligentSessionResolver:
 
         # Create session with original conversation
         fp_service = ConversationFingerprintService()
-        fp_original = fp_service.compute_fingerprint(original_messages)
+        fp_original_bundle = fp_service.compute_fingerprint_bundle(original_messages)
 
         existing_session = Session(session_id="session-python")
         await session_repository.add(existing_session)
         await session_repository.update_fingerprint(
-            "session-python", fp_original.fingerprint
+            "session-python", fp_original_bundle.primary.fingerprint
+        )
+        await session_repository.update_fingerprint_bundle(
+            "session-python", fp_original_bundle
         )
 
         client_key = "127.0.0.1:5381df75"

@@ -144,8 +144,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             raise exc
 
         # Log the exception
-        if logger.isEnabledFor(logging.ERROR):
-            logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        logger.error(f"Unhandled exception: {exc}", exc_info=True)
 
         # Return a 500 error
         return Response(

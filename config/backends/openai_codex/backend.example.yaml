@@ -1,0 +1,161 @@
+# Example OpenAI Codex Backend Configuration
+# Copy this file to backend.yaml and customize as needed
+
+# Backend settings
+backend_type: "openai-codex"
+timeout: 120
+
+# Codex-KiloCode Compatibility Layer Configuration
+# IMPORTANT: Set enabled: true to activate the compatibility layer
+compatibility_layer:
+  # Global enable/disable flag
+  enabled: false  # Set to true to enable
+  
+  # Client detection configuration
+  detection:
+    cache_ttl_seconds: 3600  # 1 hour cache
+    heuristic_threshold: 2   # Min XML tags for heuristic detection
+    methods:
+      metadata: true   # Check request.agent metadata
+      header: true     # Check User-Agent header
+      heuristic: true  # Check for XML tags in payload
+  
+  # Tool translation configuration
+  translation:
+    max_tool_execution_timeout: 30  # 30 seconds
+    result_format: "kilo_standard"  # or "verbose"
+    
+    # Enable/disable specific tools
+    tools:
+      read_file: true
+      list_files: true
+      execute_command: true
+      codebase_search: true
+      search_files: true
+      use_mcp_tool: true
+      access_mcp_resource: true
+      attempt_completion: true
+      ask_followup_question: true
+      search_and_replace: true
+      write_to_file: true
+      insert_content: true
+      edit_file: true
+    
+    # Command execution security
+    command_execution:
+      allowed_shells: ["bash", "sh", "cmd", "powershell"]
+      restrict_to_workspace: true
+      max_output_size: 1048576  # 1 MB
+    
+    # File operation security
+    file_operations:
+      restrict_to_workspace: true
+      max_file_size: 10485760  # 10 MB
+      allowed_extensions: []  # Empty = all allowed
+      blocked_patterns:
+        - "**/.env"
+        - "**/.env.*"
+        - "**/id_rsa"
+        - "**/id_dsa"
+        - "**/*.key"
+        - "**/*.pem"
+        - "**/credentials.json"
+        - "**/secrets.yaml"
+  
+  # Telemetry and monitoring
+  telemetry:
+    log_translations: true
+    log_detection: true
+    emit_metrics: true
+    log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    include_xml_in_errors: false  # Set to true for debugging
+  
+  # Error handling
+  error_handling:
+    detailed_errors: true
+    include_suggestions: true
+    fail_fast: true
+
+# Model capabilities and limits
+models:
+  "gpt-4-codex":
+    capabilities:
+      - "chat"
+      - "completion"
+      - "function_calling"
+      - "tool_use"
+      - "json_mode"
+      - "streaming"
+      - "coding"
+    
+    limits:
+      context_window: 8192
+      max_input_tokens: 6144
+      max_output_tokens: 2048
+      requests_per_minute: 60
+      tokens_per_minute: 90000
+      max_temperature: 2.0
+      min_temperature: 0.0
+      max_top_p: 1.0
+      min_top_p: 0.0
+    
+    metadata:
+      display_name: "GPT-4 Codex"
+      description: "OpenAI's Codex model optimized for code generation"
+      provider: "OpenAI"
+      model_type: "chat"
+      architecture: "transformer"
+      tags: ["coding", "function-calling"]
+
+# Default model
+default_model: "gpt-4-codex"
+
+# Model-specific defaults
+model_defaults:
+  temperature: 0.7
+  top_p: 1.0
+  max_tokens: null
+
+# Common Configuration Scenarios:
+
+# 1. Maximum Security (uncomment to use)
+# compatibility_layer:
+#   enabled: true
+#   translation:
+#     tools:
+#       execute_command: false
+#       write_to_file: false
+#     file_operations:
+#       restrict_to_workspace: true
+#       blocked_patterns:
+#         - "**/.env*"
+#         - "**/*.key"
+#         - "**/*.pem"
+
+# 2. Development Mode (uncomment to use)
+# compatibility_layer:
+#   enabled: true
+#   translation:
+#     max_tool_execution_timeout: 60
+#   telemetry:
+#     log_level: "DEBUG"
+#     log_translations: true
+#     log_detection: true
+#     include_xml_in_errors: true
+
+# 3. Production Mode (uncomment to use)
+# compatibility_layer:
+#   enabled: true
+#   translation:
+#     max_tool_execution_timeout: 30
+#   telemetry:
+#     log_level: "INFO"
+#     emit_metrics: true
+#     include_xml_in_errors: false
+#   error_handling:
+#     detailed_errors: false
+
+# 4. Minimal Configuration (uncomment to use)
+# compatibility_layer:
+#   enabled: true
+#   # All other settings use defaults

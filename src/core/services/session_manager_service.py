@@ -155,14 +155,20 @@ class SessionManager(ISessionManager):
             return
 
         # Compute fingerprint from messages
-        fp_result = self._fingerprint_service.compute_fingerprint(messages)
+        fp_bundle = self._fingerprint_service.compute_fingerprint_bundle(messages)
 
         # Update in repository
         await self._session_repository.update_fingerprint(
-            session_id, fp_result.fingerprint
+            session_id, fp_bundle.primary.fingerprint
         )
+        await self._session_repository.update_fingerprint_bundle(session_id, fp_bundle)
 
         logger.debug(
-            f"Updated fingerprint for session {session_id}: {fp_result.fingerprint} "
-            f"({fp_result.message_count} messages)"
+            "Updated fingerprint bundle for session %s: primary=%s message_count=%s "
+            "rolling=%s topic_hash=%s",
+            session_id,
+            fp_bundle.primary.fingerprint,
+            fp_bundle.message_count,
+            len(fp_bundle.rolling_fingerprints),
+            fp_bundle.topic_hash,
         )

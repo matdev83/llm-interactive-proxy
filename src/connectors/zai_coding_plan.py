@@ -135,7 +135,8 @@ class ZaiCodingPlanBackend(AnthropicBackend):
         try:
             import logging as _logging
 
-            if _logging.getLogger(__name__).isEnabledFor(_logging.INFO):
+            logger = _logging.getLogger(__name__)
+            if logger.isEnabledFor(_logging.INFO):
                 _logging.getLogger(__name__).info(
                     "ZAI POST %s headers=%s payload=%s", url, headers, payload
                 )

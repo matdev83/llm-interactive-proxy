@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 
 from src.core.domain.session import Session
 from src.core.interfaces.repositories_interface import ISessionRepository
+from src.core.services.conversation_fingerprint_service import (
+    ConversationFingerprintBundle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,7 @@ class InMemorySessionRepository(ISessionRepository):
         # Session continuity tracking
         self._fingerprints: dict[str, str] = {}  # session_id -> fingerprint
         self._client_sessions: dict[str, list[str]] = {}  # client_key -> session_ids
+        self._fingerprint_bundles: dict[str, ConversationFingerprintBundle] = {}
 
     async def get_by_id(self, id: str) -> Session | None:
         """Get a session by its ID."""
@@ -100,6 +104,8 @@ class InMemorySessionRepository(ISessionRepository):
             # Remove from fingerprint tracking
             if id in self._fingerprints:
                 del self._fingerprints[id]
+            if id in self._fingerprint_bundles:
+                del self._fingerprint_bundles[id]
 
             # Remove from client session tracking
             for client_key, session_ids in list(self._client_sessions.items()):
@@ -266,3 +272,20 @@ class InMemorySessionRepository(ISessionRepository):
             Fingerprint if found, None otherwise
         """
         return self._fingerprints.get(session_id)
+
+    async def update_fingerprint_bundle(
+        self, session_id: str, bundle: ConversationFingerprintBundle
+    ) -> None:
+        """Store extended fingerprint metadata."""
+        self._fingerprint_bundles[session_id] = bundle
+        self._last_accessed[session_id] = time.time()
+
+    async def get_fingerprint_bundle(
+        self, session_id: str
+    ) -> ConversationFingerprintBundle | None:
+        """Retrieve stored fingerprint metadata."""
+        return self._fingerprint_bundles.get(session_id)
+
+    async def get_session_last_access(self, session_id: str) -> float | None:
+        """Return the last access timestamp for the session."""
+        return self._last_accessed.get(session_id)

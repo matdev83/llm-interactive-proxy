@@ -216,7 +216,7 @@ class TestProjectDirectoryResolutionService:
         self, mock_backend_service, mock_session_service, caplog
     ):
         session = Session(
-            session_id="test", state=SessionState(project_dir="/already/set")
+            session_id="test", state=SessionState().with_project_dir("/already/set")
         )
         request = ChatRequest(
             model="test-model", messages=[ChatMessage(role="user", content="...")]
@@ -307,3 +307,95 @@ class TestProjectDirectoryResolutionService:
 
         mock_backend_service.call_completion.assert_not_called()
         mock_session_service.update_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+class TestProjectDirectoryValidation:
+    @pytest.mark.parametrize(
+        "invalid_path",
+        [
+            "C:\\",
+            "D:\\",
+            "/",
+            "C:\\Users",
+            "/home",
+            "C:\\Windows\\System32",
+            "/usr/bin",
+            "\\\\server\\share",  # Shallow UNC
+        ],
+    )
+    def test_rejects_invalid_paths(
+        self, invalid_path, mock_backend_service, mock_session_service
+    ):
+        config = create_app_config("deterministic")
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+        path_type = service._detect_path_type(invalid_path)
+        assert path_type is not None, f"Path type for {invalid_path} should be detected"
+        assert not service._is_valid_project_directory_candidate(
+            invalid_path, path_type
+        )
+
+    @pytest.mark.parametrize(
+        "valid_path",
+        [
+            "C:\\Users\\test\\project",
+            "/home/user/project",
+            "\\\\server\\share\\project",
+            "C:\\Users\\some-user\\Desktop\\my-project",
+        ],
+    )
+    def test_accepts_valid_paths(
+        self, valid_path, mock_backend_service, mock_session_service
+    ):
+        config = create_app_config("deterministic")
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+        path_type = service._detect_path_type(valid_path)
+        assert path_type is not None, f"Path type for {valid_path} should be detected"
+        assert service._is_valid_project_directory_candidate(valid_path, path_type)
+
+
+@pytest.mark.asyncio
+async def test_deterministic_scoring_prefers_deeper_paths(
+    mock_backend_service, mock_session_service, session
+):
+    prompt = (
+        "We have C:\\Users\\Test and also C:\\Users\\Test\\ProjectA. "
+        "And another one at C:\\Users\\Test\\ProjectA\\src"
+    )
+    request = ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content=prompt)]
+    )
+    config = create_app_config("deterministic")
+    service = ProjectDirectoryResolutionService(
+        config, mock_backend_service, mock_session_service
+    )
+
+    await service.maybe_resolve_project_directory(session, request)
+
+    # The deepest common path should be preferred
+    assert session.state.project_dir == "C:\\Users\\Test\\ProjectA"
+
+
+@pytest.mark.asyncio
+async def test_deterministic_ignores_system_and_root_paths(
+    mock_backend_service, mock_session_service, session
+):
+    prompt = (
+        "My project is at C:\\Users\\Test\\Project, but I also have "
+        "C:\\Windows and /etc/hosts mentioned."
+    )
+    request = ChatRequest(
+        model="test-model", messages=[ChatMessage(role="user", content=prompt)]
+    )
+    config = create_app_config("deterministic")
+    service = ProjectDirectoryResolutionService(
+        config, mock_backend_service, mock_session_service
+    )
+
+    await service.maybe_resolve_project_directory(session, request)
+
+    assert session.state.project_dir == "C:\\Users\\Test\\Project"

@@ -59,10 +59,9 @@ class RedactionMiddleware(IRequestMiddleware):
         Returns:
             The processed request with sensitive information redacted
         """
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                f"RedactionMiddleware.process called with {len(request.messages if request.messages else [])} messages"
-            )
+        logger.debug(
+            f"RedactionMiddleware.process called with {len(request.messages if request.messages else [])} messages"
+        )
         # Skip if no messages
         if not request.messages:
             return request

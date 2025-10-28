@@ -108,7 +108,9 @@ class TestBackendAutoDiscovery:
         # This test verifies the auto-discovery mechanism would work for new backends
         # by simulating the discovery process
 
-        connectors_path = Path("src/connectors")
+        # Get the project root directory
+        project_root = Path(__file__).parent.parent.parent
+        connectors_path = project_root / "src" / "connectors"
         # Get all Python files in connectors directory (excluding utilities)
         skip_files = (
             "__init__",

@@ -95,8 +95,7 @@ class TestServiceValidator:
                     )
 
             except (TypeError, AttributeError) as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error validating signature: {e}", exc_info=True)
+                logger.warning(f"Error validating signature: {e}", exc_info=True)
 
     @staticmethod
     def validate_sync_method(obj: Any, method_name: str) -> None:
@@ -132,8 +131,7 @@ class TestServiceValidator:
                 )
         except (TypeError, AttributeError) as e:
             # Can't validate dynamically, that's okay
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Error validating instance: {e}", exc_info=True)
+            logger.debug(f"Error validating instance: {e}", exc_info=True)
 
 
 class SafeTestSession(Session):
@@ -253,11 +251,10 @@ class TestStageValidator:
                 import logging
 
                 logger = logging.getLogger(__name__)
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Service {service_type.__name__} is an AsyncMock. "
-                        "Ensure all methods that should be sync return real objects, not coroutines."
-                    )
+                logger.debug(
+                    f"Service {service_type.__name__} is an AsyncMock. "
+                    "Ensure all methods that should be sync return real objects, not coroutines."
+                )
 
 
 class SafeAsyncMockWrapper:
@@ -322,11 +319,10 @@ def enforce_async_sync_separation(cls: type) -> type:
                     import logging
 
                     logger = logging.getLogger(__name__)
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            f"{cls.__name__}.{attr_name} is an AsyncMock. "
-                            "If this method should be synchronous, use MagicMock instead."
-                        )
+                    logger.warning(
+                        f"{cls.__name__}.{attr_name} is an AsyncMock. "
+                        "If this method should be synchronous, use MagicMock instead."
+                    )
 
     cls.__init__ = validated_init  # type: ignore[misc]
     return cls
