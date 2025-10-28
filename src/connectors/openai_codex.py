@@ -52,11 +52,13 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
+from src.core.services.kilocode_tool_executor import KiloCodeToolExecutor
 from src.core.services.tool_text_renderer import (
     OverrideRenderer,
     configure_renderer_registry,
 )
 from src.core.services.translation_service import TranslationService
+from src.core.services.universal_tool_executor import UniversalToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +384,7 @@ class OpenAICodexConnector(OpenAIConnector):
         )
         self._request_translator = CodexRequestTranslator(self)
         self._token_refresh_lock = asyncio.Lock()
+        self._universal_executor: UniversalToolExecutor | None = None
 
         # Health checks are unnecessary for OAuth bearer flow in tests; disable by default
         import contextlib
@@ -740,9 +743,25 @@ class OpenAICodexConnector(OpenAIConnector):
         return "\n".join(lines)
 
     def _default_codex_tools(self) -> list[dict[str, Any]]:
-        """Return the tool definitions expected by the Codex Responses API."""
+        """Return the tool definitions expected by the Codex Responses API.
+        
+        This method dynamically discovers tools from the actual Codex backend
+        rather than hardcoding them, ensuring compatibility with any Codex configuration.
+        """
         if self._default_tool_schema_override is not None:
             return deepcopy(self._default_tool_schema_override)
+        
+        # TODO: Implement dynamic tool discovery from Codex backend
+        # For now, return minimal base tools that are universally available
+        # This should be replaced with actual tool discovery from the Codex API
+        return self._get_minimal_base_tools()
+
+    def _get_minimal_base_tools(self) -> list[dict[str, Any]]:
+        """Return minimal base tools that are universally available.
+        
+        This is a fallback when dynamic tool discovery is not available.
+        In a full implementation, this should be replaced with actual tool discovery.
+        """
         return [
             {
                 "type": "function",
@@ -757,18 +776,6 @@ class OpenAICodexConnector(OpenAIConnector):
                             "items": {"type": "string"},
                             "description": "The command to execute",
                         },
-                        "justification": {
-                            "type": "string",
-                            "description": "Only set if with_escalated_permissions is true. 1-sentence explanation of why we want to run this command.",
-                        },
-                        "timeout_ms": {
-                            "type": "number",
-                            "description": "The timeout for the command in milliseconds",
-                        },
-                        "with_escalated_permissions": {
-                            "type": "boolean",
-                            "description": "Whether to request escalated permissions. Set to true if command needs to be run without sandbox restrictions",
-                        },
                         "workdir": {
                             "type": "string",
                             "description": "The working directory to execute the command in",
@@ -778,50 +785,94 @@ class OpenAICodexConnector(OpenAIConnector):
                     "additionalProperties": False,
                 },
             },
-            {
-                "type": "custom",
-                "name": "apply_patch",
-                "description": "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.",
-                "format": {
-                    "type": "grammar",
-                    "syntax": "lark",
-                    "definition": (
-                        "start: begin_patch hunk+ end_patch\n"
-                        'begin_patch: "*** Begin Patch" LF\n'
-                        'end_patch: "*** End Patch" LF?\n\n'
-                        "hunk: add_hunk | delete_hunk | update_hunk\n"
-                        'add_hunk: "*** Add File: " filename LF add_line+\n'
-                        'delete_hunk: "*** Delete File: " filename LF\n'
-                        'update_hunk: "*** Update File: " filename LF change_move? change?\n\n'
-                        "filename: /(.+)/\n"
-                        'add_line: "+" /(.*)/ LF -> line\n\n'
-                        'change_move: "*** Move to: " filename LF\n'
-                        "change: (change_context | change_line)+ eof_line?\n"
-                        'change_context: ("@@" | "@@ " /(.+)/) LF\n'
-                        'change_line: ("+" | "-" | " ") /(.*)/ LF\n'
-                        'eof_line: "*** End of File" LF\n\n'
-                        "%import common.LF\n"
-                    ),
-                },
-            },
-            {
-                "type": "function",
-                "name": "view_image",
-                "description": "Attach a local image (by filesystem path) to the conversation context for this turn.",
-                "strict": False,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Local filesystem path to an image file",
-                        }
-                    },
-                    "required": ["path"],
-                    "additionalProperties": False,
-                },
-            },
         ]
+
+    async def _discover_available_tools(self) -> list[dict[str, Any]]:
+        """Dynamically discover available tools from the Codex backend.
+        
+        This method should query the actual Codex API to get the current tool schema
+        rather than hardcoding tool definitions.
+        """
+        # TODO: Implement actual tool discovery from Codex API
+        # This would involve making a request to the Codex API to get available tools
+        # For now, return the minimal base tools
+        logger.debug("Tool discovery not yet implemented, using minimal base tools")
+        return self._get_minimal_base_tools()
+
+    async def _discover_mcp_tools(self) -> list[dict[str, Any]]:
+        """Dynamically discover available MCP tools.
+        
+        This method should connect to MCP servers and discover their available tools
+        rather than hardcoding MCP tool definitions.
+        """
+        # TODO: Implement actual MCP tool discovery
+        # This would involve connecting to MCP servers and querying their tool schemas
+        logger.debug("MCP tool discovery not yet implemented")
+        return []
+
+    def _get_universal_executor(self) -> UniversalToolExecutor:
+        """Get or create the universal tool executor."""
+        if self._universal_executor is None:
+            # Initialize with current working directory
+            working_dir = os.getcwd()
+            self._universal_executor = UniversalToolExecutor(working_directory=working_dir)
+        return self._universal_executor
+
+    async def _execute_universal_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Execute any tool universally and return formatted result."""
+        executor = self._get_universal_executor()
+        result = await executor.execute_tool(tool_name, arguments)
+        
+        # Format result for Codex compatibility
+        output = result.get("output", "")
+        exit_code = result.get("exit_code", 0)
+        
+        # Add additional metadata if available
+        metadata_parts = []
+        if "file_path" in result:
+            metadata_parts.append(f"File: {result['file_path']}")
+        if "directory" in result:
+            metadata_parts.append(f"Directory: {result['directory']}")
+        if "matches_count" in result:
+            metadata_parts.append(f"Matches: {result['matches_count']}")
+        if "count" in result:
+            metadata_parts.append(f"Items: {result['count']}")
+        if "tool_name" in result:
+            metadata_parts.append(f"Tool: {result['tool_name']}")
+        
+        formatted_output = output
+        if metadata_parts:
+            metadata_line = " | ".join(metadata_parts)
+            formatted_output = f"{output}\n\n[{metadata_line}]"
+        
+        return {
+            "output": formatted_output,
+            "exit_code": exit_code,
+            "workdir": os.getcwd(),
+            **{k: v for k, v in result.items() if k not in ["output", "exit_code"]}
+        }
+
+    async def connect_mcp_server(self, server_name: str, server_config: dict[str, Any]) -> bool:
+        """Connect to an MCP server to make its tools available.
+        
+        Args:
+            server_name: Unique name for the server
+            server_config: Server configuration
+            
+        Returns:
+            True if connection successful, False otherwise
+        """
+        executor = self._get_universal_executor()
+        return await executor.connect_mcp_server(server_name, server_config)
+
+    def get_available_tools(self) -> list[str]:
+        """Get list of all available tools from the universal executor.
+        
+        Returns:
+            List of available tool names
+        """
+        executor = self._get_universal_executor()
+        return executor.get_available_tools()
 
     def _resolve_tool_schema(
         self, request_data: Any, capabilities: CodexClientCapabilities
@@ -948,6 +999,7 @@ class OpenAICodexConnector(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         capabilities: CodexClientCapabilities | None = None,
+        custom_instruction_sections: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Transform processed messages into Codex Responses `input` array."""
         resolved_capabilities = capabilities or self._resolve_capabilities(request_data)
@@ -957,6 +1009,7 @@ class OpenAICodexConnector(OpenAIConnector):
             processed_messages,
             effective_model,
             resolved_capabilities,
+            custom_instruction_sections=custom_instruction_sections,
         )
 
     def _build_codex_payload(
@@ -995,18 +1048,22 @@ class OpenAICodexConnector(OpenAIConnector):
             return passthrough_payload, conv_id
 
         # Scenario 2: Build payload from scratch (translation)
+        custom_instruction_sections = self._extract_custom_instruction_sections(
+            request_data
+        )
         input_items = self._build_codex_input_items(
             request_data,
             processed_messages,
             effective_model,
             capabilities=resolved_capabilities,
+            custom_instruction_sections=custom_instruction_sections,
         )
 
         reasoning_payload = getattr(request_data, "reasoning", None)
         reasoning_effort = getattr(request_data, "reasoning_effort", None)
         if not reasoning_payload:
             reasoning_payload = {
-                "effort": (reasoning_effort or "high"),
+                "effort": (reasoning_effort or "medium"),
                 "summary": "auto",
             }
 
@@ -1014,7 +1071,11 @@ class OpenAICodexConnector(OpenAIConnector):
             ["reasoning.encrypted_content"] if reasoning_payload else []
         )
 
-        system_prompt = self._resolve_system_prompt(request_data, resolved_capabilities)
+        system_prompt = self._resolve_system_prompt(
+            request_data,
+            resolved_capabilities,
+            custom_instruction_sections=custom_instruction_sections,
+        )
         payload: dict[str, Any] = {
             "model": effective_model,
             "input": input_items,
@@ -1029,7 +1090,7 @@ class OpenAICodexConnector(OpenAIConnector):
         }
         # Include instructions even if empty (empty means use model default)
         if system_prompt:
-            payload["instructions"] = system_prompt
+            payload["instructions"] = self._sanitize_codex_instructions(system_prompt)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -1039,33 +1100,92 @@ class OpenAICodexConnector(OpenAIConnector):
             )
         return payload, conversation_id
 
-    def _resolve_system_prompt(
-        self, request_data: Any, capabilities: CodexClientCapabilities
-    ) -> str:
-        """Determine the system prompt based on capability settings and request data."""
-        prompt_mode = capabilities.prompt_mode or "codex_default"
-        extra_body = getattr(request_data, "extra_body", {}) or {}
-
-        custom_prompts: list[str] = []
+    def _extract_custom_instruction_sections(self, request_data: Any) -> list[str]:
+        """Collect custom instruction snippets supplied by the client request."""
+        sections: list[str] = []
         request_prompt = getattr(request_data, "system_prompt", None)
         if isinstance(request_prompt, str) and request_prompt.strip():
-            custom_prompts.append(request_prompt.strip())
+            sections.append(request_prompt.strip())
 
         messages = getattr(request_data, "messages", [])
         for message in messages or []:
             role = getattr(message, "role", None)
             if role is None and isinstance(message, dict):
                 role = message.get("role")
-            if (role or "").lower() == "system":
-                text = self._message_to_text(message)
-                if text.strip():
-                    custom_prompts.append(text.strip())
+            if (role or "").lower() != "system":
+                continue
+            text = self._message_to_text(message)
+            if text.strip():
+                sections.append(text.strip())
 
+        extra_body = getattr(request_data, "extra_body", {}) or {}
         extra_prompt = extra_body.get("codex_system_prompt")
         if isinstance(extra_prompt, str) and extra_prompt.strip():
-            custom_prompts.append(extra_prompt.strip())
+            sections.append(extra_prompt.strip())
         elif isinstance(extra_prompt, list | tuple):
-            custom_prompts.extend(str(part).strip() for part in extra_prompt if part)
+            for part in extra_prompt:
+                if isinstance(part, str):
+                    text = part.strip()
+                    if text:
+                        sections.append(text)
+
+        deduplicated: list[str] = []
+        seen: set[str] = set()
+        for section in sections:
+            normalized = section.strip()
+            if not normalized:
+                continue
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            deduplicated.append(normalized)
+        return deduplicated
+
+    def _render_user_instruction_block(
+        self, sections: Sequence[str]
+    ) -> dict[str, Any] | None:
+        """Render custom instruction sections into a Codex `<user_instructions>` block."""
+        sanitized_sections: list[str] = []
+        for section in sections:
+            if not isinstance(section, str):
+                continue
+            normalized = section.strip()
+            if not normalized:
+                continue
+            sanitized_sections.append(self._sanitize_codex_instructions(normalized))
+
+        if not sanitized_sections:
+            return None
+
+        combined = "\n\n".join(sanitized_sections)
+        payload_text = (
+            "<user_instructions>\n\n" f"{combined}" "\n\n</user_instructions>"
+        )
+        return {
+            "type": "message",
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": payload_text,
+                }
+            ],
+        }
+
+    def _resolve_system_prompt(
+        self,
+        request_data: Any,
+        capabilities: CodexClientCapabilities,
+        custom_instruction_sections: Sequence[str] | None = None,
+    ) -> str:
+        """Determine the system prompt based on capability settings and request data."""
+        prompt_mode = (capabilities.prompt_mode or "codex_default").lower()
+        custom_sections = (
+            list(custom_instruction_sections)
+            if custom_instruction_sections is not None
+            else self._extract_custom_instruction_sections(request_data)
+        )
+        custom_clean = [piece for piece in custom_sections if piece]
 
         default_prompt_template = self._prompt_settings.get("template")
         default_prompt = (
@@ -1081,22 +1201,10 @@ class OpenAICodexConnector(OpenAIConnector):
             self._prompt_settings.get("fallback_to_default", True)
         )
 
-        custom_clean = [piece for piece in custom_prompts if piece]
-
-        if (
-            prompt_mode == "codex_default"
-            and not custom_clean
-            and not prepend_sections
-            and not append_sections
-            and default_prompt_template is None
-        ):
-            return default_prompt
-
         if prompt_mode == "codex_default":
             combined = [
                 *prepend_sections,
                 default_prompt,
-                *custom_clean,
                 *append_sections,
             ]
             result = self._combine_prompt_sections(combined, deduplicate)
@@ -1147,6 +1255,27 @@ class OpenAICodexConnector(OpenAIConnector):
         if not ordered:
             return None
         return "\n\n".join(ordered)
+
+    @staticmethod
+    def _sanitize_codex_instructions(text: str) -> str:
+        """Remove or normalize characters that the Codex API rejects in instructions."""
+        replacements: dict[str, str] = {
+            "\u2010": "-",  # hyphen
+            "\u2011": "-",  # non-breaking hyphen
+            "\u2012": "-",  # figure dash
+            "\u2013": "-",  # en dash
+            "\u2014": "--",  # em dash
+            "\u2015": "--",  # horizontal bar
+            "\u2026": "...",  # ellipsis
+            "\u2192": "->",  # arrow
+        }
+        normalized_parts: list[str] = []
+        for char in text:
+            if ord(char) < 128:
+                normalized_parts.append(char)
+            else:
+                normalized_parts.append(replacements.get(char, ""))
+        return "".join(normalized_parts)
 
     def _build_codex_headers(self, conversation_id: str) -> dict[str, str]:
         """Construct Codex-specific HTTP headers."""

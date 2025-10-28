@@ -1225,6 +1225,25 @@ def register_core_services(
         implementation_factory=_pytest_compression_service_factory,
     )
 
+    # Register tool access policy service
+    from src.core.services.tool_access_policy_service import ToolAccessPolicyService
+
+    def _tool_access_policy_service_factory(
+        provider: IServiceProvider,
+    ) -> ToolAccessPolicyService:
+        from src.core.config.app_config import AppConfig
+
+        app_config: AppConfig = provider.get_required_service(AppConfig)
+        reactor_config = app_config.session.tool_call_reactor
+
+        # TODO: Add support for global_overrides from CLI parameters
+        return ToolAccessPolicyService(reactor_config, global_overrides=None)
+
+    _add_singleton(
+        ToolAccessPolicyService,
+        implementation_factory=_tool_access_policy_service_factory,
+    )
+
     # Register tool call reactor services
     def _tool_call_history_tracker_factory(
         provider: IServiceProvider,
@@ -1418,6 +1437,41 @@ def register_core_services(
             except Exception as e:
                 logger.warning(
                     f"Failed to register PytestCompressionHandler: {e}", exc_info=True
+                )
+
+            # Register ToolAccessControlHandler if access policies are configured
+            try:
+                from src.core.services.tool_access_policy_service import (
+                    ToolAccessPolicyService,
+                )
+                from src.core.services.tool_call_handlers.tool_access_control_handler import (
+                    ToolAccessControlHandler,
+                )
+
+                # Get the policy service
+                policy_service = provider.get_required_service(ToolAccessPolicyService)
+
+                # Only register if there are policies configured
+                if policy_service._policies:
+                    tool_access_handler = ToolAccessControlHandler(
+                        policy_service=policy_service,
+                        priority=90,  # After dangerous-command handler (100)
+                        reactor_service=reactor,  # Pass reactor for telemetry
+                    )
+                    try:
+                        reactor.register_handler_sync(tool_access_handler)
+                        logger.info(
+                            f"Registered ToolAccessControlHandler with priority 90 "
+                            f"({len(policy_service._policies)} policies loaded)"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to register tool access control handler: {e}",
+                            exc_info=True,
+                        )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register ToolAccessControlHandler: {e}", exc_info=True
                 )
 
         return reactor

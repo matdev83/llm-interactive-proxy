@@ -17,3 +17,79 @@ session:
         rate_limit:
           calls_per_window: 1
           window_seconds: 60
+    
+    # Tool Access Control Policies
+    # Define which tools LLMs can access and execute using regex patterns
+    # Policies are evaluated in priority order (higher priority first)
+    # Allowed patterns override blocked patterns
+    access_policies: []
+      # Example 1: Block dangerous file operations for all models
+      # - name: block_dangerous_file_ops
+      #   model_pattern: ".*"
+      #   default_policy: allow
+      #   blocked_patterns:
+      #     - "delete_file"
+      #     - "rm_.*"
+      #     - "remove_directory"
+      #     - "drop_.*"
+      #   block_message: "File deletion operations are not allowed by policy."
+      #   priority: 100
+      
+      # Example 2: Whitelist specific tools for a particular model (read-only mode)
+      # - name: claude_limited_toolset
+      #   model_pattern: "anthropic:claude-.*"
+      #   agent_pattern: "production-agent"
+      #   default_policy: deny
+      #   allowed_patterns:
+      #     - "read_file"
+      #     - "list_directory"
+      #     - "search_.*"
+      #     - "get_.*"
+      #   block_message: "Only read-only tools are allowed for this model."
+      #   priority: 50
+      
+      # Example 3: Block all tools for a specific model
+      # - name: no_tools_for_gpt4
+      #   model_pattern: "openai:gpt-4-.*"
+      #   default_policy: deny
+      #   allowed_patterns: []
+      #   blocked_patterns: []
+      #   block_message: "Tool calling is disabled for this model."
+      #   priority: 75
+      
+      # Example 4: Agent-specific restrictions (junior agents)
+      # - name: junior_agent_restrictions
+      #   model_pattern: ".*"
+      #   agent_pattern: "junior-.*"
+      #   default_policy: allow
+      #   blocked_patterns:
+      #     - "execute_.*"
+      #     - "deploy_.*"
+      #     - "delete_.*"
+      #     - "modify_.*"
+      #   block_message: "Junior agents cannot execute, deploy, delete, or modify resources."
+      #   priority: 60
+      
+      # Example 5: Prevent database operations
+      # - name: prevent_database_ops
+      #   model_pattern: ".*"
+      #   default_policy: allow
+      #   blocked_patterns:
+      #     - ".*sql.*"
+      #     - ".*database.*"
+      #     - ".*db_.*"
+      #     - "drop_.*"
+      #     - "truncate_.*"
+      #   block_message: "Database operations are not allowed."
+      #   priority: 90
+      
+      # Example 6: Experimental model with minimal tools
+      # - name: restrict_experimental_model
+      #   model_pattern: "experimental-.*"
+      #   default_policy: deny
+      #   allowed_patterns:
+      #     - "read_file"
+      #     - "list_directory"
+      #     - "search_files"
+      #   block_message: "Experimental models have limited tool access for safety."
+      #   priority: 80

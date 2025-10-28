@@ -1,0 +1,359 @@
+# Tool Access Control Configuration Examples
+# 
+# This file contains example configurations for various tool access control scenarios.
+# Copy the relevant examples to your config/tool_call_reactor_config.yaml file.
+#
+# For full documentation, see: docs/tool_access_control.md
+
+session:
+  tool_call_reactor:
+    enabled: true
+    access_policies:
+      
+      # ============================================================================
+      # SECURITY AND SAFETY EXAMPLES
+      # ============================================================================
+      
+      # Example 1: Prevent Destructive File Operations
+      # Blocks all file deletion and destructive operations across all models
+      - name: prevent_destructive_file_ops
+        model_pattern: ".*"
+        default_policy: allow
+        blocked_patterns:
+          - "delete_file"
+          - "delete_.*"
+          - "rm_.*"
+          - "remove_.*"
+          - "drop_.*"
+          - "truncate_.*"
+          - "destroy_.*"
+          - "wipe_.*"
+        block_message: "Destructive file operations are not allowed by security policy."
+        priority: 100
+      
+      # Example 2: Prevent Database Operations
+      # Blocks all database-related operations to prevent accidental data loss
+      - name: prevent_database_ops
+        model_pattern: ".*"
+        default_policy: allow
+        blocked_patterns:
+          - ".*sql.*"
+          - ".*database.*"
+          - ".*db_.*"
+          - "drop_.*"
+          - "truncate_.*"
+          - "alter_.*"
+          - "create_table.*"
+          - "delete_from.*"
+        block_message: "Database operations are not allowed. Please use dedicated database tools."
+        priority: 95
+      
+      # Example 3: Prevent Network Operations
+      # Blocks network-related operations for security
+      - name: prevent_network_ops
+        model_pattern: ".*"
+        default_policy: allow
+        blocked_patterns:
+          - ".*http.*"
+          - ".*request.*"
+          - "fetch_.*"
+          - "download_.*"
+          - "upload_.*"
+          - "curl_.*"
+          - "wget_.*"
+        block_message: "Network operations are not allowed by security policy."
+        priority: 90
+      
+      # ============================================================================
+      # ENVIRONMENT-BASED EXAMPLES
+      # ============================================================================
+      
+      # Example 4: Production Environment - Read-Only Mode
+      # Allows only read operations in production environments
+      - name: production_readonly
+        model_pattern: ".*"
+        agent_pattern: "prod-.*"
+        default_policy: deny
+        allowed_patterns:
+          - "read_.*"
+          - "list_.*"
+          - "get_.*"
+          - "search_.*"
+          - "find_.*"
+          - "query_.*"
+          - "view_.*"
+          - "show_.*"
+        block_message: "Only read operations are allowed in production. Use staging for modifications."
+        priority: 85
+      
+      # Example 5: Development Environment - Full Access
+      # Allows all operations in development environments
+      - name: development_full_access
+        model_pattern: ".*"
+        agent_pattern: "dev-.*"
+        default_policy: allow
+        blocked_patterns: []
+        block_message: "This should not appear - dev has full access."
+        priority: 80
+      
+      # Example 6: Staging Environment - Limited Write Access
+      # Allows most operations but blocks critical destructive actions
+      - name: staging_limited_write
+        model_pattern: ".*"
+        agent_pattern: "staging-.*"
+        default_policy: allow
+        blocked_patterns:
+          - "delete_database.*"
+          - "drop_.*"
+          - "truncate_.*"
+          - "destroy_.*"
+        block_message: "Critical destructive operations are not allowed in staging."
+        priority: 75
+      
+      # ============================================================================
+      # MODEL-SPECIFIC EXAMPLES
+      # ============================================================================
+      
+      # Example 7: Experimental Models - Minimal Access
+      # Restricts experimental models to safe, read-only operations
+      - name: experimental_model_restrictions
+        model_pattern: "experimental-.*"
+        default_policy: deny
+        allowed_patterns:
+          - "read_file"
+          - "list_directory"
+          - "search_files"
+          - "get_file_info"
+        block_message: "Experimental models have limited tool access for safety. Use stable models for write operations."
+        priority: 70
+      
+      # Example 8: GPT-4 Models - No Tool Calling
+      # Completely disables tool calling for specific GPT-4 models
+      - name: gpt4_no_tools
+        model_pattern: "openai:gpt-4-.*"
+        default_policy: deny
+        allowed_patterns: []
+        blocked_patterns: []
+        block_message: "Tool calling is disabled for GPT-4 models. Please use GPT-4o or GPT-4-turbo."
+        priority: 65
+      
+      # Example 9: Claude Models - Limited Toolset
+      # Restricts Claude models to specific approved tools
+      - name: claude_limited_toolset
+        model_pattern: "anthropic:claude-.*"
+        default_policy: deny
+        allowed_patterns:
+          - "read_file"
+          - "write_file"
+          - "list_directory"
+          - "search_.*"
+          - "execute_python"
+        block_message: "This tool is not in the approved toolset for Claude models."
+        priority: 60
+      
+      # ============================================================================
+      # AGENT-BASED EXAMPLES
+      # ============================================================================
+      
+      # Example 10: Junior Agents - Restricted Access
+      # Limits junior agents to safe operations only
+      - name: junior_agent_restrictions
+        model_pattern: ".*"
+        agent_pattern: "junior-.*"
+        default_policy: allow
+        blocked_patterns:
+          - "execute_.*"
+          - "deploy_.*"
+          - "delete_.*"
+          - "modify_production_.*"
+          - "alter_.*"
+          - "drop_.*"
+          - "create_user.*"
+          - "grant_.*"
+        block_message: "Junior agents cannot execute, deploy, delete, or modify critical resources. Please escalate to senior agent."
+        priority: 55
+      
+      # Example 11: Senior Agents - Full Access
+      # Grants senior agents full tool access
+      - name: senior_agent_full_access
+        model_pattern: ".*"
+        agent_pattern: "senior-.*"
+        default_policy: allow
+        blocked_patterns: []
+        block_message: "This should not appear - senior agents have full access."
+        priority: 50
+      
+      # Example 12: Audit Agents - Read-Only Access
+      # Restricts audit agents to read-only operations for compliance
+      - name: audit_agent_readonly
+        model_pattern: ".*"
+        agent_pattern: "audit-.*"
+        default_policy: deny
+        allowed_patterns:
+          - "read_.*"
+          - "list_.*"
+          - "get_.*"
+          - "query_.*"
+          - "search_.*"
+          - "view_.*"
+          - "export_.*"
+        block_message: "Audit agents have read-only access for compliance purposes."
+        priority: 45
+      
+      # ============================================================================
+      # USE CASE-SPECIFIC EXAMPLES
+      # ============================================================================
+      
+      # Example 13: Code Review Agent - Analysis Only
+      # Allows code analysis but prevents modifications
+      - name: code_review_analysis_only
+        model_pattern: ".*"
+        agent_pattern: "code-review-.*"
+        default_policy: deny
+        allowed_patterns:
+          - "read_file"
+          - "list_directory"
+          - "search_.*"
+          - "analyze_.*"
+          - "lint_.*"
+          - "check_.*"
+        block_message: "Code review agents can only analyze code, not modify it."
+        priority: 40
+      
+      # Example 14: Documentation Agent - Docs Only
+      # Restricts documentation agents to documentation-related operations
+      - name: documentation_agent_docs_only
+        model_pattern: ".*"
+        agent_pattern: "docs-.*"
+        default_policy: deny
+        allowed_patterns:
+          - "read_file"
+          - "write_file"
+          - "list_directory"
+          - "search_.*"
+          - ".*\\.md"
+          - ".*\\.txt"
+          - ".*\\.rst"
+        block_message: "Documentation agents can only work with documentation files."
+        priority: 35
+      
+      # Example 15: Testing Agent - Test Operations Only
+      # Allows testing operations but prevents production changes
+      - name: testing_agent_test_only
+        model_pattern: ".*"
+        agent_pattern: "test-.*"
+        default_policy: deny
+        allowed_patterns:
+          - "read_.*"
+          - "write_test_.*"
+          - "run_test.*"
+          - "execute_test.*"
+          - "create_test_.*"
+          - "mock_.*"
+        block_message: "Testing agents can only perform test-related operations."
+        priority: 30
+      
+      # ============================================================================
+      # COMPLIANCE AND GOVERNANCE EXAMPLES
+      # ============================================================================
+      
+      # Example 16: GDPR Compliance - No PII Operations
+      # Blocks operations that might expose or modify PII
+      - name: gdpr_no_pii_ops
+        model_pattern: ".*"
+        default_policy: allow
+        blocked_patterns:
+          - ".*user_data.*"
+          - ".*personal_info.*"
+          - ".*pii.*"
+          - "export_users.*"
+          - "get_user_details.*"
+        block_message: "Operations involving PII are restricted for GDPR compliance."
+        priority: 25
+      
+      # Example 17: SOC2 Compliance - Audit Trail Required
+      # Blocks operations that don't support audit trails
+      - name: soc2_audit_trail_required
+        model_pattern: ".*"
+        default_policy: allow
+        blocked_patterns:
+          - ".*_without_audit"
+          - "bypass_.*"
+          - "skip_logging.*"
+        block_message: "Operations must support audit trails for SOC2 compliance."
+        priority: 20
+      
+      # ============================================================================
+      # COST CONTROL EXAMPLES
+      # ============================================================================
+      
+      # Example 18: Expensive Operations - Blocked
+      # Blocks operations that are expensive or resource-intensive
+      - name: block_expensive_ops
+        model_pattern: ".*"
+        default_policy: allow
+        blocked_patterns:
+          - ".*_all_.*"
+          - "bulk_.*"
+          - "mass_.*"
+          - "scan_entire_.*"
+          - "process_all_.*"
+        block_message: "Expensive bulk operations are not allowed. Please use targeted operations."
+        priority: 15
+      
+      # ============================================================================
+      # TESTING AND DEVELOPMENT EXAMPLES
+      # ============================================================================
+      
+      # Example 19: Test Policy - Allow Specific Tools
+      # Simple test policy for development and testing
+      - name: test_policy_allow_specific
+        model_pattern: "test-model-.*"
+        default_policy: deny
+        allowed_patterns:
+          - "read_file"
+          - "write_file"
+          - "list_directory"
+        block_message: "Test policy: Only read_file, write_file, and list_directory are allowed."
+        priority: 10
+      
+      # Example 20: Test Policy - Block Specific Tools
+      # Simple test policy for development and testing
+      - name: test_policy_block_specific
+        model_pattern: "test-model-.*"
+        default_policy: allow
+        blocked_patterns:
+          - "dangerous_tool"
+          - "risky_operation"
+        block_message: "Test policy: dangerous_tool and risky_operation are blocked."
+        priority: 5
+
+# ============================================================================
+# NOTES
+# ============================================================================
+#
+# Pattern Matching:
+# - All patterns are regex and case-insensitive
+# - Use .* for wildcard matching (not just *)
+# - Escape special characters: \., \(, \), \[, \], etc.
+#
+# Precedence Rules:
+# 1. Allowed patterns override blocked patterns
+# 2. Higher priority policies override lower priority
+# 3. Global CLI/env policies override config file policies (when implemented)
+#
+# Default Policy:
+# - "allow": Tools are allowed by default (blacklist mode)
+# - "deny": Tools are blocked by default (whitelist mode)
+#
+# Performance:
+# - Keep number of policies under 20 for optimal performance
+# - Use specific patterns instead of complex regex when possible
+# - All patterns are compiled once at startup
+#
+# Testing:
+# - Test policies in development before production
+# - Review logs for filtered tools and blocked calls
+# - Use test policies (priority 0-10) for experimentation
+#
+# For full documentation, see: docs/tool_access_control.md

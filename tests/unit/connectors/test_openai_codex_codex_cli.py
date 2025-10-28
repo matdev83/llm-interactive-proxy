@@ -66,7 +66,10 @@ async def test_build_codex_payload_structure(connector: OpenAICodexConnector) ->
 
     # With the refactoring, the main system prompt is in the `instructions` field
     assert "instructions" in payload
-    assert payload["instructions"] == connector._codex_system_prompt()
+    expected_prompt = connector._sanitize_codex_instructions(
+        connector._codex_system_prompt()
+    ).rstrip()
+    assert payload["instructions"].rstrip() == expected_prompt
 
     # The input items should contain the environment context and the user message
     input_items = payload["input"]
@@ -80,7 +83,7 @@ async def test_build_codex_payload_structure(connector: OpenAICodexConnector) ->
     assert input_items[1]["role"] == "user"
     assert input_items[1]["content"][0]["type"] == "input_text"
     assert input_items[1]["content"][0]["text"] == "Hello Codex!"
-    assert payload["reasoning"] == {"effort": "high", "summary": "auto"}
+    assert payload["reasoning"] == {"effort": "medium", "summary": "auto"}
     assert payload["include"] == ["reasoning.encrypted_content"]
     tools = payload["tools"]
     names_by_type = {tool["name"]: tool["type"] for tool in tools}
@@ -165,12 +168,21 @@ async def test_codex_default_mode_merges_client_system_prompt(
         chat_request, chat_request.messages, "gpt-5-codex"
     )
 
-    instructions = payload.get("instructions") or ""
-    assert "You are Codex" in instructions
-    assert "Prioritize security fixes." in instructions
-    assert instructions.index("You are Codex") < instructions.index(
-        "Prioritize security fixes."
-    )
+    instructions = (payload.get("instructions") or "").rstrip()
+    expected_prompt = connector._sanitize_codex_instructions(
+        connector._codex_system_prompt()
+    ).rstrip()
+    assert instructions == expected_prompt
+
+    input_items = payload["input"]
+    assert len(input_items) == 3
+    user_block = input_items[0]
+    assert user_block["role"] == "user"
+    assert user_block["content"][0]["type"] == "input_text"
+    assert user_block["content"][0]["text"].startswith("<user_instructions>")
+    assert "Prioritize security fixes." in user_block["content"][0]["text"]
+    env_block = input_items[1]
+    assert env_block["content"][0]["text"].startswith("<environment_context>")
 
 
 @pytest.mark.asyncio

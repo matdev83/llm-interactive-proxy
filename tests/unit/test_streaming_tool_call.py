@@ -10,7 +10,7 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.response_processor_interface import IResponseProcessor, ProcessedResponse
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 
@@ -18,9 +18,9 @@ from src.core.services.request_processor_service import RequestProcessor
 async def _create_streaming_response(content: list[str]) -> StreamingResponseEnvelope:
     """Creates a streaming response envelope from a list of content strings."""
 
-    async def stream_generator() -> AsyncGenerator[str, None]:
+    async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
         for item in content:
-            yield item
+            yield ProcessedResponse(content=item)
 
     return StreamingResponseEnvelope(
         content=stream_generator(),

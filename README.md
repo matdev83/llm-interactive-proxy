@@ -75,6 +75,8 @@ graph TD
 - [Architecture](#architecture)
 - [Use Cases](#use-cases)
 - [Killer Features](#killer-features)
+- [LLM Assessment System](#llm-assessment-system)
+- [Tool Access Control](#tool-access-control)
 - [Supported APIs (Front-Ends) and Providers (Back-Ends)](#supported-apis-front-ends-and-providers-back-ends)
 - [Gemini Backends Overview](#gemini-backends-overview)
 - [Quick Start](#quick-start)
@@ -128,6 +130,7 @@ graph TD
 - **LLM-Based Conversation Assessment**: Automatically detect when conversations become stuck in unproductive patterns using a smaller LLM to assess conversation quality. Inspired by Google's gemini-cli, this feature monitors conversation turns and provides steering messages when repetitive actions or cognitive loops are detected.
 - **Automated Error Detection and Steering**: Detect when an LLM is stuck in a loop or fails to follow instructions, and automatically generate steering commands to get it back on track.
 - **Block Harmful Tool Calls**: Prevent potentially destructive actions, such as deleting your git repository, by detecting and blocking harmful tool calls at the proxy level.
+- **Tool Access Control (NEW)**: Fine-grained control over which tools LLMs can access and execute. Define allowed/blocked tool lists per model or agent using regex patterns, with both whitelist and blacklist modes. Filters tool definitions from requests and blocks disallowed tool calls in responses.
 - **Maximize Free Tiers with API Key Rotation**: Aggregate all your API keys and use auto-rotation to seamlessly switch between them, allowing you to take full advantage of multiple free-tier allowances.
 
 ## LLM Assessment System
@@ -205,6 +208,212 @@ python -m src.core.cli \
 ```
 
 The system operates transparently in the background, only intervening when it detects genuine unproductive patterns with high confidence. Assessment failures never break the main conversation flow.
+
+## Tool Access Control
+
+The proxy provides comprehensive tool access control, allowing you to define which tools LLMs can access and execute. This feature operates at two levels: filtering tool definitions from requests before they reach the LLM (preventing wasted turns), and blocking disallowed tool calls in responses (hard stop enforcement).
+
+### Key Features
+
+- **Flexible Pattern Matching**: Use regex patterns to match tool names, supporting both specific tools and pattern-based rules
+- **Whitelist and Blacklist Modes**: Choose between "allow by default with exceptions" or "deny by default with exceptions"
+- **Per-Model and Per-Agent Policies**: Define different tool access rules for different models or agents
+- **Two-Layer Protection**: Filters tool definitions from requests AND blocks disallowed tool calls in responses
+- **Precedence Rules**: Allowed patterns override blocked patterns; global policies override per-model policies
+- **Observability**: Comprehensive logging and telemetry for policy evaluation and enforcement
+
+### Configuration
+
+Tool access policies are configured in the `tool_call_reactor_config.yaml` file under the `access_policies` section:
+
+**CLI Arguments** (Coming Soon):
+```bash
+--allowed-tools "read_.*,list_.*"      # Global allowed tool patterns
+--blocked-tools "delete_.*,rm_.*"      # Global blocked tool patterns
+--default-policy allow                 # Global default policy (allow or deny)
+```
+
+**Environment Variables** (Coming Soon):
+```bash
+export TOOL_ACCESS_ALLOWED_TOOLS="read_.*,list_.*"
+export TOOL_ACCESS_BLOCKED_TOOLS="delete_.*,rm_.*"
+export TOOL_ACCESS_DEFAULT_POLICY="allow"
+```
+
+**YAML Configuration**:
+```yaml
+session:
+  tool_call_reactor:
+    enabled: true
+    access_policies:
+      # Example 1: Block dangerous file operations for all models
+      - name: block_dangerous_file_ops
+        model_pattern: ".*"
+        default_policy: allow
+        blocked_patterns:
+          - "delete_file"
+          - "rm_.*"
+          - "remove_directory"
+        block_message: "File deletion operations are not allowed by policy."
+        priority: 100
+      
+      # Example 2: Whitelist specific tools for a particular model
+      - name: claude_limited_toolset
+        model_pattern: "anthropic:claude-.*"
+        agent_pattern: "production-agent"
+        default_policy: deny
+        allowed_patterns:
+          - "read_file"
+          - "list_directory"
+          - "search_.*"
+        block_message: "Only read-only tools are allowed for this model."
+        priority: 50
+      
+      # Example 3: Block all tools for a specific model
+      - name: no_tools_for_gpt4
+        model_pattern: "openai:gpt-4-.*"
+        default_policy: deny
+        allowed_patterns: []
+        blocked_patterns: []
+        block_message: "Tool calling is disabled for this model."
+        priority: 75
+```
+
+### Policy Configuration Fields
+
+- **name**: Unique identifier for the policy
+- **model_pattern**: Regex pattern for matching model names (required)
+- **agent_pattern**: Optional regex pattern for matching agent identifiers
+- **allowed_patterns**: List of regex patterns for allowed tools
+- **blocked_patterns**: List of regex patterns for blocked tools
+- **default_policy**: Default behavior when no patterns match - either "allow" or "deny" (required)
+- **block_message**: Message returned when a tool is blocked (optional, has default)
+- **priority**: Policy priority when multiple policies match (higher values take precedence, default: 0)
+
+### Precedence Rules
+
+1. **Pattern Precedence**: Allowed patterns override blocked patterns
+2. **Policy Priority**: Higher priority policies take precedence when multiple policies match
+3. **Global Override**: Global CLI/environment policies override per-model configuration policies (when implemented)
+4. **Specificity**: More specific model patterns are preferred over generic patterns
+
+### Use Cases
+
+**Security and Safety**:
+```yaml
+# Prevent destructive file operations
+- name: prevent_destructive_ops
+  model_pattern: ".*"
+  default_policy: allow
+  blocked_patterns:
+    - "delete_.*"
+    - "rm_.*"
+    - "remove_.*"
+    - "drop_.*"
+  block_message: "Destructive operations are not allowed."
+```
+
+**Read-Only Mode for Production**:
+```yaml
+# Allow only read operations in production
+- name: production_readonly
+  model_pattern: ".*"
+  agent_pattern: "prod-.*"
+  default_policy: deny
+  allowed_patterns:
+    - "read_.*"
+    - "list_.*"
+    - "get_.*"
+    - "search_.*"
+  block_message: "Only read operations are allowed in production."
+```
+
+**Model-Specific Restrictions**:
+```yaml
+# Restrict specific models to safe tools only
+- name: restrict_experimental_model
+  model_pattern: "experimental-.*"
+  default_policy: deny
+  allowed_patterns:
+    - "read_file"
+    - "list_directory"
+  block_message: "Experimental models have limited tool access."
+```
+
+**Agent-Based Access Control**:
+```yaml
+# Different tools for different agents
+- name: junior_agent_restrictions
+  model_pattern: ".*"
+  agent_pattern: "junior-.*"
+  default_policy: allow
+  blocked_patterns:
+    - "execute_.*"
+    - "deploy_.*"
+    - "delete_.*"
+  block_message: "Junior agents cannot execute, deploy, or delete."
+```
+
+### How It Works
+
+1. **Request Filtering**: When a request with tool definitions arrives, the proxy evaluates each tool against applicable policies and removes disallowed tools before sending to the LLM
+2. **Tool Choice Handling**: If `tool_choice` references a filtered tool, it's automatically adjusted to prevent errors
+3. **Response Blocking**: When the LLM attempts to call a tool in its response, the proxy evaluates the tool call and blocks it if disallowed
+4. **Metadata Tracking**: Policy evaluation metadata is stored in requests and responses for observability
+
+### Observability
+
+The proxy provides comprehensive logging and telemetry for tool access control:
+
+```
+# Request filtering logs
+INFO: Filtered 2 tool definitions for model anthropic:claude-3-5-sonnet
+DEBUG: Removed tools: delete_file, remove_directory
+
+# Tool call blocking logs
+INFO: Blocked tool call 'delete_file' by policy 'block_dangerous_file_ops' in session abc123
+DEBUG: Block reason: Tool matches blocked pattern 'delete_.*'
+```
+
+Metadata is also included in `request.extra_body["tool_access"]` and response metadata for downstream consumers.
+
+### Performance Considerations
+
+- **Regex Compilation**: All regex patterns are compiled once during initialization and cached
+- **Policy Selection**: Policies are pre-sorted by priority for efficient matching
+- **Minimal Overhead**: Policy evaluation adds <1ms per request in typical configurations
+- **Fail-Open**: If policy evaluation fails, the proxy defaults to allowing the tool to maintain availability
+
+### Troubleshooting
+
+**Tool definitions not being filtered**:
+- Verify `tool_call_reactor.enabled: true` in configuration
+- Check that your `model_pattern` matches the actual model name (use `.*` for all models)
+- Review logs for policy loading errors during startup
+
+**Tool calls not being blocked**:
+- Ensure the Tool Access Control Handler is registered (check startup logs)
+- Verify your patterns match the tool names exactly (patterns are case-insensitive)
+- Check policy priority - higher priority policies override lower ones
+
+**Regex pattern errors**:
+- Test your regex patterns with a regex validator
+- Escape special characters: `\.`, `\(`, `\)`, `\[`, `\]`, etc.
+- Use `.*` for wildcard matching, not just `*`
+
+**Performance issues**:
+- Limit the number of policies (recommend <20 for optimal performance)
+- Use specific patterns instead of complex regex when possible
+- Monitor policy evaluation time in debug logs
+
+### Best Practices
+
+1. **Start with Blacklist Mode**: Use `default_policy: allow` with specific `blocked_patterns` for easier initial setup
+2. **Use Specific Patterns**: Prefer specific tool names over broad wildcards when possible
+3. **Test Policies**: Test new policies in a development environment before production
+4. **Monitor Logs**: Review filtered tools and blocked calls regularly to refine policies
+5. **Document Policies**: Add comments in your configuration explaining each policy's purpose
+6. **Layer Security**: Combine tool access control with other safety features (dangerous-command prevention, loop detection)
 
 ## Think Tags Fix
 
@@ -1211,6 +1420,7 @@ When limits are exceeded, the proxy returns a structured 400 error:
 - JSON repair: fix common JSON formatting issues (streaming and non-streaming)
 - Tool-call repair: convert textual tool calls to proper `tool_calls`
 - Tool Call Reactor: event-driven system to intercept and steer tool calls (e.g., apply_diff to patch_file), with configurable YAML rules and rate limiting
+- Tool Access Control: fine-grained control over which tools LLMs can access and execute (see [Tool Access Control](#tool-access-control) section and [full documentation](docs/tool_access_control.md))
 - Opt-in pytest full-suite steering: warns before running the entire pytest suite and requires a second confirmation
 - Loop detection: stop repeated identical tool calls
 - Dangerous-command prevention: steer away from destructive shell actions
@@ -1225,6 +1435,7 @@ When limits are exceeded, the proxy returns a structured 400 error:
 - `config/edit_precision_patterns.yaml`: Patterns for auto-tuning on edit failures
 - `config/edit_precision_model_temperatures.yaml`: Model-specific temperature overrides for edit precision (e.g., GPT: 0.2, DeepSeek: 0.0)
 - `config/tool_call_reactor_config.yaml`: Rules for tool call reactions and steering
+- `config/tool_access_control_examples.yaml`: Example configurations for tool access control policies
 
 ## Example Config (minimal)
 

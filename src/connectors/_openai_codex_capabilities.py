@@ -58,6 +58,7 @@ class CodexCapabilityResolver:
         "capabilities",
     )
     _CLINE_LIKE_AGENTS = {"cline", "kilocode", "roocode"}
+    _KILOCODE_ALIASES = {"kilocode", "kilo-code", "kilo_code", "kilocode.ai"}
 
     def __init__(
         self,
@@ -111,6 +112,13 @@ class CodexCapabilityResolver:
 
         agent = self._extract_agent(metadata, request_data)
         if agent in self._CLINE_LIKE_AGENTS and result.tool_text_format in (
+            None,
+            "none",
+        ):
+            result = result.merge({"tool_text_format": "codex_xml"})
+
+        # Enhanced KiloCode detection with alias normalization
+        if self._is_kilocode_agent(agent) and result.tool_text_format in (
             None,
             "none",
         ):
@@ -203,3 +211,18 @@ class CodexCapabilityResolver:
             if "/" in agent:
                 agent = agent.split("/", 1)[0]
         return agent
+
+    def _is_kilocode_agent(self, agent: str | None) -> bool:
+        """Check if the agent is a KiloCode variant."""
+        if not agent:
+            return False
+
+        # Normalize agent name for KiloCode detection
+        normalized = agent.lower().replace("-", "").replace("_", "").replace(".", "")
+
+        # Check direct matches first
+        if normalized in {"kilocode", "kiloc", "kilo"}:
+            return True
+
+        # Check if it starts with kilocode variants
+        return bool(normalized.startswith("kilocode"))

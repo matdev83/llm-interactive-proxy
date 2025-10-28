@@ -51,4 +51,47 @@ properties:
             calls_per_window: { type: integer, minimum: 1 }
             window_seconds: { type: integer, minimum: 1 }
       required: [name, enabled]
+  access_policies:
+    type: array
+    description: Tool access control policies
+    items:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: Unique policy identifier
+        model_pattern:
+          type: string
+          description: Regex pattern for matching model names
+        agent_pattern:
+          type:
+            - string
+            - "null"
+          description: Optional regex pattern for matching agents
+        allowed_patterns:
+          type: array
+          items:
+            type: string
+          description: Regex patterns for allowed tools
+          default: []
+        blocked_patterns:
+          type: array
+          items:
+            type: string
+          description: Regex patterns for blocked tools
+          default: []
+        default_policy:
+          type: string
+          enum: [allow, deny]
+          description: Default behavior when no patterns match
+        block_message:
+          type: string
+          description: Message to return when blocking a tool call
+          default: "This tool is not allowed by the current access policy."
+        priority:
+          type: integer
+          description: Policy priority (higher values take precedence)
+          default: 0
+      required: [name, model_pattern, default_policy]
 required: []

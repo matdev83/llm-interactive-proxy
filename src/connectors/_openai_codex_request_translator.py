@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
@@ -31,6 +32,7 @@ class CodexRequestTranslator:
         processed_messages: list[Any],
         effective_model: str,
         capabilities: CodexClientCapabilities,
+        custom_instruction_sections: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Transform processed messages into Codex Responses `input` array."""
         if logger.isEnabledFor(logging.DEBUG):
@@ -40,6 +42,19 @@ class CodexRequestTranslator:
                 capabilities.tool_text_format,
             )
         input_items: list[dict[str, Any]] = []
+
+        prompt_mode = (capabilities.prompt_mode or "codex_default").lower()
+        if prompt_mode == "codex_default":
+            sections = (
+                list(custom_instruction_sections)
+                if custom_instruction_sections is not None
+                else self._connector._extract_custom_instruction_sections(request_data)
+            )
+            user_instructions_block = self._connector._render_user_instruction_block(
+                sections
+            )
+            if user_instructions_block:
+                input_items.append(user_instructions_block)
 
         # System prompt handling is now centralized in `_resolve_system_prompt`,
         # so we no longer inject user instructions here.

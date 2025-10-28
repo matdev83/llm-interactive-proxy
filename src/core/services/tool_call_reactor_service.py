@@ -50,6 +50,11 @@ class ToolCallReactorService(IToolCallReactor):
         self._history_tracker = history_tracker
         self._lock = asyncio.Lock()
 
+        # Telemetry counters for tool access control
+        self._tool_definitions_filtered_count = 0
+        self._tool_calls_blocked_count = 0
+        self._tool_calls_allowed_count = 0
+
     def register_handler_sync(self, handler: IToolCallHandler) -> None:
         """Register a tool call handler synchronously.
 
@@ -190,6 +195,42 @@ class ToolCallReactorService(IToolCallReactor):
             List of handler names.
         """
         return list(self._handlers.keys())
+
+    def increment_tool_definitions_filtered(self, count: int = 1) -> None:
+        """Increment the counter for filtered tool definitions.
+
+        Args:
+            count: Number of tool definitions filtered (default 1).
+        """
+        self._tool_definitions_filtered_count += count
+
+    def increment_tool_calls_blocked(self, count: int = 1) -> None:
+        """Increment the counter for blocked tool calls.
+
+        Args:
+            count: Number of tool calls blocked (default 1).
+        """
+        self._tool_calls_blocked_count += count
+
+    def increment_tool_calls_allowed(self, count: int = 1) -> None:
+        """Increment the counter for allowed tool calls.
+
+        Args:
+            count: Number of tool calls allowed (default 1).
+        """
+        self._tool_calls_allowed_count += count
+
+    def get_telemetry_stats(self) -> dict[str, int]:
+        """Get telemetry statistics for tool access control.
+
+        Returns:
+            Dictionary containing telemetry counters.
+        """
+        return {
+            "tool_definitions_filtered": self._tool_definitions_filtered_count,
+            "tool_calls_blocked": self._tool_calls_blocked_count,
+            "tool_calls_allowed": self._tool_calls_allowed_count,
+        }
 
     @classmethod
     def _snapshot_tool_arguments(cls, arguments: Any) -> Any:

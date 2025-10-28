@@ -81,6 +81,25 @@ class StreamingContent:
         metadata: dict[str, Any] = {}
         usage: dict[str, Any] | None = None
 
+        from src.core.interfaces.response_processor_interface import (
+            ProcessedResponse,
+        )
+
+        if isinstance(raw_data, ProcessedResponse):
+            metadata = dict(raw_data.metadata) if raw_data.metadata else {}
+            usage = raw_data.usage
+            content = raw_data.content if raw_data.content is not None else ""
+            is_done = bool(metadata.get("is_done", False))
+            is_cancellation = bool(metadata.get("is_cancellation", False))
+            return cls(
+                content=content,
+                is_done=is_done,
+                is_cancellation=is_cancellation,
+                metadata=metadata,
+                usage=usage,
+                raw_data=raw_data,
+            )
+
         if isinstance(raw_data, dict):
             # Handle dictionary (e.g., OpenAI or Anthropic chat completion chunk)
             if raw_data.get("type") == "content_block_delta":

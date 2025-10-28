@@ -663,12 +663,109 @@ class RequestProcessor(IRequestProcessor):
                 command_result, session
             )
 
+        # Apply tool access control filtering if enabled and tools are present
+        if backend_request is not None and getattr(backend_request, "tools", None):
+            try:
+                from src.core.services.tool_access_policy_service import (
+                    ToolAccessPolicyService,
+                )
+
+                policy_service = None
+                if self._app_state is not None:
+                    try:
+                        policy_service = self._app_state.get_service(
+                            ToolAccessPolicyService
+                        )
+                    except (AttributeError, KeyError, TypeError):
+                        policy_service = None
+
+                if policy_service:
+                    model_name = getattr(backend_request, "model", "")
+                    agent = getattr(session, "agent", None)
+
+                    filtered_tools, metadata = policy_service.filter_tool_definitions(
+                        backend_request.tools or [], model_name, agent
+                    )
+
+                    # Create modified request with filtered tools if any were removed
+                    original_tools = backend_request.tools or []
+                    if len(filtered_tools) < len(original_tools):
+                        backend_request = backend_request.model_copy(
+                            update={"tools": filtered_tools}
+                        )
+
+                        # Handle tool_choice if it references a filtered tool
+                        tool_choice = getattr(backend_request, "tool_choice", None)
+                        if tool_choice and isinstance(tool_choice, dict) and "function" in tool_choice:
+                            choice_name = tool_choice.get("function", {}).get(
+                                "name"
+                            )
+                            if choice_name:
+                                # Check if the referenced tool is still in filtered_tools
+                                tool_names = [
+                                    policy_service._extract_tool_name(t)
+                                    for t in filtered_tools
+                                ]
+                                if choice_name not in tool_names:
+                                    # Remove tool_choice or set to "auto"
+                                    backend_request = backend_request.model_copy(
+                                        update={"tool_choice": "auto"}
+                                    )
+                                    logger.info(
+                                        f"Reset tool_choice to 'auto' because referenced tool '{choice_name}' was filtered"
+                                    )
+
+                        # Log the filtering action
+                        removed_count = len(original_tools) - len(filtered_tools)
+                        policy_name = metadata.get("policy_applied", "unknown")
+                        filtered_names = metadata.get("filtered_tool_names", [])
+
+                        logger.info(
+                            f"Filtered {removed_count} tool definition(s) for model "
+                            f"{model_name} by policy '{policy_name}': {filtered_names}"
+                        )
+
+                        # Increment telemetry counter in reactor service
+                        try:
+                            from src.core.services.tool_call_reactor_service import (
+                                ToolCallReactorService,
+                            )
+
+                            if self._app_state:
+                                reactor_service = self._app_state.get_service(
+                                    ToolCallReactorService
+                                )
+                            else:
+                                reactor_service = None
+                            if reactor_service and hasattr(
+                                reactor_service, "increment_tool_definitions_filtered"
+                            ):
+                                reactor_service.increment_tool_definitions_filtered(
+                                    removed_count
+                                )
+                        except (AttributeError, KeyError, TypeError):
+                            pass
+
+                        # Store metadata in extra_body for observability
+                        extra_body_attr = getattr(backend_request, "extra_body", None)
+                        extra_body: dict[str, Any] = (
+                            extra_body_attr.copy() if extra_body_attr else {}
+                        )
+                        extra_body["tool_access"] = metadata
+                        backend_request = backend_request.model_copy(
+                            update={"extra_body": extra_body}
+                        )
+
+            except Exception as e:
+                # Tool definition filtering is fail-open: log warning and proceed
+                logger.warning(f"Tool definition filtering failed: {e}", exc_info=True)
+
         # Add session_id to extra_body if not present
-        extra_body_attr = getattr(backend_request, "extra_body", None)
-        extra_body: dict[str, Any] = extra_body_attr.copy() if extra_body_attr else {}
-        if "session_id" not in extra_body:
-            extra_body["session_id"] = session_id
-        backend_request = backend_request.model_copy(update={"extra_body": extra_body})
+        final_extra_body_attr = getattr(backend_request, "extra_body", None)
+        final_extra_body: dict[str, Any] = final_extra_body_attr.copy() if final_extra_body_attr else {}
+        if "session_id" not in final_extra_body:
+            final_extra_body["session_id"] = session_id
+        backend_request = backend_request.model_copy(update={"extra_body": final_extra_body})
 
         # Process backend request with retry handling
         logger.info(

@@ -364,6 +364,7 @@ class ResponseProcessor(IResponseProcessor):
                             "id": processed_chunk.metadata.get("id"),
                             "created": processed_chunk.metadata.get("created"),
                             "is_done": processed_chunk.is_done,
+                            "is_cancellation": processed_chunk.is_cancellation,
                             "tool_calls": processed_chunk.metadata.get("tool_calls"),
                         }
                         if session_id:

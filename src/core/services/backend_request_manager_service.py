@@ -7,8 +7,8 @@ This module provides the implementation of the backend request manager interface
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import AsyncIterator, Iterable
+from typing import Any, cast
 
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
@@ -16,11 +16,13 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
+from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
+from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 logger = logging.getLogger(__name__)
 
@@ -412,11 +414,63 @@ class BackendRequestManager(IBackendRequestManager):
             async for chunk in original_stream:
                 yield chunk
 
+        cancel_callback = stream_envelope.cancel_callback
+        loop_detector = self._create_loop_detector()
+
+        async def monitored_stream() -> AsyncIterator[ProcessedResponse]:
+            async for chunk in combined_stream():
+                text_fragment = self._extract_text_from_chunk(chunk)
+                if text_fragment:
+                    event = loop_detector.process_chunk(text_fragment)
+                else:
+                    event = None
+
+                if event is not None:
+                    if cancel_callback is not None:
+                        try:
+                            await cancel_callback()
+                        except Exception as exc:
+                            logger.error(
+                                "Failed to invoke streaming cancel callback after loop detection: %s",
+                                exc,
+                                exc_info=True,
+                            )
+
+                    cancellation_message = (
+                        "[Response cancelled: Loop detected - Pattern "
+                        f"'{event.pattern[:30]}...' repeated {event.repetition_count} times]"
+                    )
+                    cancellation_payload = {
+                        "id": f"loop-detector-{int(event.timestamp)}",
+                        "object": "chat.completion.chunk",
+                        "created": int(event.timestamp),
+                        "model": "loop-detector",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": cancellation_message},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                    }
+                    yield ProcessedResponse(
+                        content=cancellation_payload,
+                        metadata={
+                            "is_cancellation": True,
+                            "is_done": True,
+                            "loop_pattern": event.pattern,
+                            "loop_repetitions": event.repetition_count,
+                        },
+                    )
+                    return
+
+                yield chunk
+
         return StreamingResponseEnvelope(
-            content=combined_stream(),
+            content=monitored_stream(),
             media_type=stream_envelope.media_type,
             headers=stream_envelope.headers,
-            cancel_callback=stream_envelope.cancel_callback,
+            cancel_callback=cancel_callback,
         )
 
     async def _create_retry_request(
@@ -429,3 +483,57 @@ class BackendRequestManager(IBackendRequestManager):
 
         # Preserve tools and other fields while appending the recovery message
         return original_request.model_copy(update={"messages": retry_messages})
+
+    def _create_loop_detector(self) -> ILoopDetector:
+        """Create or resolve a loop detector instance for streaming inspection."""
+        try:
+            from src.core.di.services import get_or_build_service_provider
+
+            provider = get_or_build_service_provider()
+            detector = provider.get_service(cast(type, ILoopDetector))
+            if detector is not None:
+                detector.reset()
+                return detector
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Falling back to standalone loop detector for streaming responses",
+                    exc_info=True,
+                )
+        fallback = HybridLoopDetector()
+        fallback.reset()
+        return fallback
+
+    @staticmethod
+    def _extract_text_from_chunk(chunk: ProcessedResponse) -> str:
+        """Extract textual content from a streaming chunk for loop analysis."""
+        data = chunk.content
+        if isinstance(data, str):
+            return data
+        if isinstance(data, dict):
+            choices = data.get("choices")
+            if isinstance(choices, list) and choices:
+                choice = choices[0]
+                if isinstance(choice, dict):
+                    delta = choice.get("delta")
+                    if isinstance(delta, dict):
+                        content = delta.get("content")
+                        if isinstance(content, str):
+                            return content
+                        if isinstance(content, list):
+                            fragments: list[str] = []
+                            for part in content:
+                                if isinstance(part, str):
+                                    fragments.append(part)
+                                elif isinstance(part, dict):
+                                    text_part = part.get("text")
+                                    if isinstance(text_part, str):
+                                        fragments.append(text_part)
+                            if fragments:
+                                return "".join(fragments)
+                    message = choice.get("message")
+                    if isinstance(message, dict):
+                        msg_content = message.get("content")
+                        if isinstance(msg_content, str):
+                            return msg_content
+        return ""

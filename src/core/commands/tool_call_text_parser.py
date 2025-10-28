@@ -14,11 +14,26 @@ __all__ = [
 ]
 
 _TOOL_NAME_ALIASES: dict[str, str] = {
+    # Legacy Cline/Codex mappings
     "execute_command": "shell",
-    "run_command": "shell",
+    "run_command": "shell", 
     "apply_diff": "apply_patch",
     "apply_patch": "apply_patch",
     "view_image": "view_image",
+    
+    # Dynamic tool mappings - these preserve the original tool name
+    # allowing the universal executor to handle them appropriately
+    "read_file": "read_file",
+    "list_files": "list_files", 
+    "list_dir": "list_dir",
+    "codebase_search": "codebase_search",
+    "search_files": "search_files",
+    "grep_files": "grep_files",
+    "use_mcp_tool": "use_mcp_tool",
+    "attempt_completion": "attempt_completion",
+    "ask_followup_question": "ask_followup_question",
+    "completion_marker": "completion_marker",
+    "followup_marker": "followup_marker",
 }
 
 # Pre-compiled regex patterns for performance optimization
@@ -32,6 +47,29 @@ _COMMAND_PATTERN = re.compile(r"<command>(.*?)</command>", re.DOTALL)
 _CWD_PATTERN_XML = re.compile(r"<cwd>(.*?)</cwd>", re.DOTALL)
 _DIFF_PATTERN = re.compile(r"<diff>(.*?)</diff>", re.DOTALL)
 _PATH_PATTERN = re.compile(r"<path>(.*?)</path>", re.DOTALL)
+
+# KiloCode XML patterns
+_READ_FILE_PATTERN = re.compile(r"<read_file[^>]*>(.*?)</read_file>", re.DOTALL)
+_LIST_FILES_PATTERN = re.compile(r"<list_files[^>]*>(.*?)</list_files>", re.DOTALL)
+_SEARCH_FILES_PATTERN = re.compile(
+    r"<(?:codebase_search|search_files)[^>]*>(.*?)</(?:codebase_search|search_files)>",
+    re.DOTALL,
+)
+_USE_MCP_TOOL_PATTERN = re.compile(
+    r"<use_mcp_tool[^>]*>(.*?)</use_mcp_tool>", re.DOTALL
+)
+_ATTEMPT_COMPLETION_PATTERN = re.compile(
+    r"<attempt_completion[^>]*>(.*?)</attempt_completion>", re.DOTALL
+)
+_ASK_FOLLOWUP_PATTERN = re.compile(
+    r"<ask_followup_question[^>]*>(.*?)</ask_followup_question>", re.DOTALL
+)
+
+# Generic XML attribute patterns
+_FILE_PATH_ATTR_PATTERN = re.compile(r'(?:file_path|path)="([^"]*)"')
+_RECURSIVE_ATTR_PATTERN = re.compile(r'recursive="([^"]*)"')
+_PATTERN_ATTR_PATTERN = re.compile(r'pattern="([^"]*)"')
+_TOOL_NAME_ATTR_PATTERN = re.compile(r'tool_name="([^"]*)"')
 
 # Comprehensive pattern for single-pass extraction
 _COMPREHENSIVE_EXTRACTION_PATTERN = re.compile(
@@ -70,12 +108,28 @@ def parse_textual_tool_invocation(text: str) -> TextToolInvocation | None:
     if not stripped:
         return None
 
+    # Legacy Cline/Codex tools
     if stripped.startswith("<execute_command"):
         return _parse_execute_command_invocation(stripped)
     if stripped.startswith("<apply_diff"):
         return _parse_apply_diff_invocation(stripped)
     if stripped.startswith("<view_image"):
         return _parse_view_image_invocation(stripped)
+
+    # KiloCode tools
+    if stripped.startswith("<read_file"):
+        return _parse_read_file_invocation(stripped)
+    if stripped.startswith("<list_files"):
+        return _parse_list_files_invocation(stripped)
+    if stripped.startswith(("<codebase_search", "<search_files")):
+        return _parse_search_files_invocation(stripped)
+    if stripped.startswith("<use_mcp_tool"):
+        return _parse_use_mcp_tool_invocation(stripped)
+    if stripped.startswith("<attempt_completion"):
+        return _parse_attempt_completion_invocation(stripped)
+    if stripped.startswith("<ask_followup_question"):
+        return _parse_ask_followup_invocation(stripped)
+
     return None
 
 
@@ -187,6 +241,161 @@ def _parse_view_image_invocation(text: str) -> TextToolInvocation | None:
     return TextToolInvocation(
         canonical_name="view_image",
         arguments={"path": path_value},
+        raw_text=text,
+        command_text=None,
+    )
+
+
+def _parse_read_file_invocation(text: str) -> TextToolInvocation | None:
+    """Parse KiloCode <read_file> XML invocation."""
+    # Extract file path from attributes or content
+    path_attr_match = _FILE_PATH_ATTR_PATTERN.search(text)
+    if path_attr_match:
+        file_path = path_attr_match.group(1).strip()
+    else:
+        # Try to extract from content
+        content_match = _READ_FILE_PATTERN.search(text)
+        if not content_match:
+            return None
+        file_path = content_match.group(1).strip()
+
+    if not file_path:
+        return None
+
+    arguments = {"file_path": file_path}
+    return TextToolInvocation(
+        canonical_name="read_file",
+        arguments=arguments,
+        raw_text=text,
+        command_text=None,
+    )
+
+
+def _parse_list_files_invocation(text: str) -> TextToolInvocation | None:
+    """Parse KiloCode <list_files> XML invocation."""
+    # Extract path from attributes or content
+    path_attr_match = _FILE_PATH_ATTR_PATTERN.search(text)
+    if path_attr_match:
+        dir_path = path_attr_match.group(1).strip()
+    else:
+        # Try to extract from content
+        content_match = _LIST_FILES_PATTERN.search(text)
+        if content_match:
+            dir_path = content_match.group(1).strip()
+        else:
+            dir_path = "."  # Default to current directory
+
+    # Check for recursive attribute
+    recursive_match = _RECURSIVE_ATTR_PATTERN.search(text)
+    recursive = recursive_match.group(1).lower() == "true" if recursive_match else False
+
+    arguments = {"dir_path": dir_path or "."}
+    if recursive:
+        arguments["recursive"] = recursive
+
+    return TextToolInvocation(
+        canonical_name="list_dir",
+        arguments=arguments,
+        raw_text=text,
+        command_text=None,
+    )
+
+
+def _parse_search_files_invocation(text: str) -> TextToolInvocation | None:
+    """Parse KiloCode <codebase_search> or <search_files> XML invocation."""
+    # Extract pattern from attributes or content
+    pattern_attr_match = _PATTERN_ATTR_PATTERN.search(text)
+    if pattern_attr_match:
+        pattern = pattern_attr_match.group(1).strip()
+    else:
+        # Try to extract from content
+        content_match = _SEARCH_FILES_PATTERN.search(text)
+        if not content_match:
+            return None
+        pattern = content_match.group(1).strip()
+
+    if not pattern:
+        return None
+
+    arguments = {"pattern": pattern}
+
+    # Extract optional path
+    path_attr_match = _FILE_PATH_ATTR_PATTERN.search(text)
+    if path_attr_match:
+        arguments["path"] = path_attr_match.group(1).strip()
+
+    return TextToolInvocation(
+        canonical_name="grep_files",
+        arguments=arguments,
+        raw_text=text,
+        command_text=None,
+    )
+
+
+def _parse_use_mcp_tool_invocation(text: str) -> TextToolInvocation | None:
+    """Parse KiloCode <use_mcp_tool> XML invocation."""
+    # Extract tool name from attributes
+    tool_name_match = _TOOL_NAME_ATTR_PATTERN.search(text)
+    if not tool_name_match:
+        return None
+
+    tool_name = tool_name_match.group(1).strip()
+
+    # For patch_file operations, map to apply_patch
+    if tool_name == "patch_file":
+        # Extract content which should contain the patch
+        content_match = _USE_MCP_TOOL_PATTERN.search(text)
+        if content_match:
+            patch_content = content_match.group(1).strip()
+            arguments = {"patch": patch_content}
+
+            # Try to extract file path if present
+            path_match = _FILE_PATH_ATTR_PATTERN.search(text)
+            if path_match:
+                arguments["path"] = path_match.group(1).strip()
+
+            return TextToolInvocation(
+                canonical_name="apply_patch",
+                arguments=arguments,
+                raw_text=text,
+                command_text=None,
+            )
+
+    # For other MCP tools, return generic MCP invocation
+    content_match = _USE_MCP_TOOL_PATTERN.search(text)
+    arguments = {"tool_name": tool_name}
+    if content_match:
+        arguments["arguments"] = content_match.group(1).strip()
+
+    return TextToolInvocation(
+        canonical_name="use_mcp_tool",
+        arguments=arguments,
+        raw_text=text,
+        command_text=None,
+    )
+
+
+def _parse_attempt_completion_invocation(text: str) -> TextToolInvocation | None:
+    """Parse KiloCode <attempt_completion> XML invocation."""
+    content_match = _ATTEMPT_COMPLETION_PATTERN.search(text)
+    result_text = content_match.group(1).strip() if content_match else ""
+
+    return TextToolInvocation(
+        canonical_name="completion_marker",
+        arguments={"result": result_text},
+        raw_text=text,
+        command_text=None,
+    )
+
+
+def _parse_ask_followup_invocation(text: str) -> TextToolInvocation | None:
+    """Parse KiloCode <ask_followup_question> XML invocation."""
+    content_match = _ASK_FOLLOWUP_PATTERN.search(text)
+    question_text = content_match.group(1).strip() if content_match else ""
+
+    return TextToolInvocation(
+        canonical_name="followup_marker",
+        arguments={"question": question_text},
         raw_text=text,
         command_text=None,
     )

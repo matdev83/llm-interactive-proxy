@@ -385,6 +385,23 @@ class ToolCallReactorConfig(DomainModel):
       - priority: int (optional; higher runs first)
     """
 
+    # Tool access control policies
+    access_policies: list[dict[str, Any]] = Field(default_factory=list)
+    """Tool access control policies.
+
+    Each policy defines which tools are allowed or blocked for specific models/agents.
+    Minimal fields:
+      - name: Unique policy identifier
+      - model_pattern: Regex pattern for matching model names
+      - default_policy: "allow" or "deny"
+    Optional fields:
+      - agent_pattern: Regex pattern for matching agents
+      - allowed_patterns: List of regex patterns for allowed tools
+      - blocked_patterns: List of regex patterns for blocked tools
+      - block_message: Message to return when blocking a tool call
+      - priority: int (higher values take precedence)
+    """
+
 
 class PlanningPhaseConfig(DomainModel):
     """Configuration for planning phase model routing."""

@@ -21,10 +21,12 @@ logger = logging.getLogger(__name__)
 
 # Pre-compiled regex patterns for performance optimization
 _WINDOWS_PATH_PATTERN = re.compile(
-    r'\b[a-zA-Z]:\\(?:[^:"*?<>|\r\n\s\\]*(?:\\[^:"*?<>|\r\n\s\\]*)*)\b'
+    r'\b([a-zA-Z]:\\(?:[^:"*?<>|\r\n\\]*(?:\\[^:"*?<>|\r\n\\]*)*))(?=\s|$|[,.;!?])'
 )
-_UNC_PATH_PATTERN = re.compile(r"\\{2}[^\\]+(?:\\[^\\:\r\n\s]*)*(?:\\[^\\:\r\n\s]*)*\b")
-_UNIX_PATH_PATTERN = re.compile(r"(?:^|\s)(/[^/\\:\r\n\s]*(?:/[^/\\:\r\n\s]*)*)\b")
+_UNC_PATH_PATTERN = re.compile(r"(\\{2}[^\\:\r\n]*(?:\\[^\\:\r\n]*)*)(?=\s|$|[,.;!?])")
+_UNIX_PATH_PATTERN = re.compile(
+    r"(?:^|\s)(/[^/\s:\r\n]*(?:/[^/\s:\r\n]*)*)(?=\s|$|[,.;!?])"
+)
 _UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
 
 
@@ -111,53 +113,34 @@ class ProjectDirectoryResolutionService:
         return path
 
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
-        """Try to find an absolute path in the prompt using regex."""
-        if "\n" in prompt_text or "\r" in prompt_text:
-            return None
-        # Use pre-compiled patterns for performance optimization
+        """
+        Try to find the common base project directory from all absolute paths
+        found in the prompt.
+        """
         patterns = [
             _WINDOWS_PATH_PATTERN,
             _UNC_PATH_PATTERN,
             _UNIX_PATH_PATTERN,
         ]
+
+        all_paths = []
+        # Use finditer to get all non-overlapping matches in the entire prompt text
         for pattern in patterns:
-            match = pattern.search(prompt_text)
-            if match:
+            for match in pattern.finditer(prompt_text):
                 found_path = match.group(1) if match.lastindex else match.group(0)
-                # Clean up any leading whitespace for Unix paths
-                found_path = found_path.strip()
+                # Strip quotes and whitespace
+                found_path = found_path.strip().strip('"').strip("'")
+                if self._looks_like_absolute_path(found_path):
+                    all_paths.append(found_path)
 
-                original_index = prompt_text.find(found_path)
-                if original_index != -1:
-                    suffix = prompt_text[
-                        original_index
-                        + len(found_path) : original_index
-                        + len(found_path)
-                        + 2
-                    ]
-                    if suffix.startswith(("\n", "\r")):
-                        continue
-                    if suffix.startswith(("\\n", "\\r")):
-                        continue
+        if not all_paths:
+            return None
 
-                next_index = match.end()
-                if next_index < len(prompt_text):
-                    next_char = prompt_text[next_index]
-                    if next_char in ("\n", "\r"):
-                        continue
+        if not all_paths:
+            return None
 
-                # Validate the path looks like an absolute path
-                if not self._looks_like_absolute_path(found_path):
-                    continue
-
-                # Post-process to extract directory portion for Windows paths with files
-                found_path = self._extract_directory_from_path(found_path)
-
-                # Normalize UNC paths
-                if found_path.startswith("\\\\"):
-                    return self._normalize_unc_path(found_path)
-                return found_path
-        return None
+        # If multiple paths are found, return the first one.
+        return self._extract_directory_from_path(all_paths[0])
 
     def _extract_directory_from_path(self, path: str) -> str:
         """Extract directory portion from a path that may include a filename."""
@@ -522,13 +505,17 @@ class ProjectDirectoryResolutionService:
         return response
 
     def _extract_user_prompt(self, request: ChatRequest) -> str | None:
-        for message in reversed(request.messages):
-            if message.role != "user":
-                continue
+        """Extract and concatenate content from all messages in the request."""
+        full_prompt_parts: list[str] = []
+        for message in request.messages:
             content = self._normalize_content(message.content)
             if content.strip():
-                return content
-        return None
+                full_prompt_parts.append(content)
+
+        if not full_prompt_parts:
+            return None
+
+        return "\n".join(full_prompt_parts)
 
     def _normalize_content(self, content: Any) -> str:
         if isinstance(content, str):
