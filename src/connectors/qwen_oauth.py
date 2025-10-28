@@ -930,28 +930,16 @@ class QwenOAuthConnector(OpenAIConnector):
                         f"Unknown model '{effective_model}' mapped to '{model_name}' for Qwen OAuth"
                     )
 
-            # Convert request_data to ChatRequest using the adapter
-            if not isinstance(request_data, dict):
-                if hasattr(request_data, "model_dump"):
-                    request_data = request_data.model_dump()  # type: ignore[attr-defined]
-                else:
-                    raise TypeError(
-                        f"Unsupported request_data type: {type(request_data).__name__}"
-                    )
-            chat_request = dict_to_domain_chat_request(request_data)
-
-            # Create a modified request_data with the correct model name.
-            # Use model_copy(update=...) to avoid mutating frozen ValueObject instances.
-            modified_request = chat_request.model_copy(update={"model": model_name})
-
-            # Call the parent class method to handle the actual API request
+            # Call the parent class method directly - it will handle the model override correctly
+            # The parent OpenAIConnector.chat_completions method uses the effective_model parameter
+            # to override the model in the payload, so we don't need to modify request_data
             from src.connectors.openai import OpenAIConnector
 
             response_envelope = await OpenAIConnector.chat_completions(
                 self,
-                request_data=modified_request,
+                request_data=request_data,  # Pass original request_data, let parent handle model override
                 processed_messages=processed_messages,
-                effective_model=model_name,
+                effective_model=model_name,  # Pass our validated/mapped model name
                 **kwargs,
             )
 
