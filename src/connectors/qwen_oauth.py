@@ -101,8 +101,7 @@ class QwenOAuthConnector(OpenAIConnector):
     ) -> None:
         super().__init__(client, config, translation_service=translation_service)
         self.name = "qwen-oauth"
-        self._default_endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        self.api_base_url = self._default_endpoint
+        self._default_endpoint = "https://portal.qwen.ai/v1"
         self.is_functional = False
         self._oauth_credentials: dict[str, Any] | None = None
         self._credentials_path: Path | None = None
@@ -118,6 +117,19 @@ class QwenOAuthConnector(OpenAIConnector):
         self._last_cli_refresh_attempt = 0.0
         self._cli_refresh_process: subprocess.Popen[bytes] | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
+
+    @property
+    def api_base_url(self) -> str:
+        """Return the Qwen API endpoint."""
+        # Use resource_url from credentials if available, otherwise default
+        if self._oauth_credentials and self._oauth_credentials.get("resource_url"):
+            return f"https://{self._oauth_credentials['resource_url']}/v1"
+        return self._default_endpoint
+
+    @api_base_url.setter
+    def api_base_url(self, value: str) -> None:
+        """Set the API base URL."""
+        self._api_base_url = value
 
     def _is_token_expired(
         self, buffer_seconds: float = TOKEN_EXPIRY_BUFFER_SECONDS
@@ -635,11 +647,8 @@ class QwenOAuthConnector(OpenAIConnector):
 
             self._oauth_credentials = credentials
 
-            # Update API base URL if resource_url is provided
-            resource_url = credentials.get("resource_url")
-            if resource_url:
-                self.api_base_url = f"https://{resource_url}/v1"
-                logger.info(f"Qwen API base URL set to: {self.api_base_url}")
+            # Use the DashScope API endpoint for all requests
+            logger.info(f"Qwen OAuth credentials loaded. Using fixed API base URL: {self._default_endpoint}")
 
             logger.info("Successfully loaded Qwen OAuth credentials.")
             return True
@@ -668,32 +677,33 @@ class QwenOAuthConnector(OpenAIConnector):
         )
 
     async def _perform_health_check(self) -> bool:
-        """Override parent health check to use Qwen-specific API endpoint."""
+        """Override parent health check to validate credentials without API calls."""
         try:
-            # Use the Qwen API endpoint instead of OpenAI's
-            if not self._oauth_credentials or not self._oauth_credentials.get(
-                "access_token"
-            ):
-                logger.warning("Health check failed - no access token available")
+            # Check if we have valid OAuth credentials
+            if not self._oauth_credentials:
+                logger.warning("Health check failed - no OAuth credentials available")
                 return False
 
-            headers = self.get_headers()
-            base_url = self._get_endpoint_url()
-            url = f"{base_url}/models"
-
-            response = await self.client.get(url, headers=headers)
-
-            if response.status_code == 200:
-                logger.info(
-                    "Qwen OAuth health check passed - API connectivity verified"
-                )
-                self._health_checked = True
-                return True
-            else:
-                logger.warning(
-                    f"Qwen OAuth health check failed - API returned status {response.status_code}"
-                )
+            if not self._oauth_credentials.get("access_token"):
+                logger.warning("Health check failed - no access token in credentials")
                 return False
+
+            if not self._oauth_credentials.get("refresh_token"):
+                logger.warning("Health check failed - no refresh token in credentials")
+                return False
+
+            # Check if token is expired
+            if self._is_token_expired():
+                logger.warning("Health check failed - token is expired")
+                return False
+
+            # For portal.qwen.ai, the /models endpoint returns 404, but chat/completions work
+            # So we'll validate credentials locally rather than making API calls
+            logger.info(
+                "Qwen OAuth health check passed - credentials are valid and not expired"
+            )
+            self._health_checked = True
+            return True
 
         except Exception as e:
             logger.error(f"Qwen OAuth health check failed - unexpected error: {e}")
