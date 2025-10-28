@@ -45,7 +45,9 @@ class KiloToolTranslator:
             connector: The OpenAI Codex connector instance
         """
         self._connector = connector
-        self._xml_parser = XMLToolParser()
+        self._xml_parser: XMLToolParser | None = (
+            None  # Lazy initialization for performance
+        )
 
     async def translate_tool_invocation(
         self, xml_text: str, session_id: str | None = None
@@ -69,6 +71,10 @@ class KiloToolTranslator:
         telemetry = get_telemetry()
 
         try:
+            # Lazy initialize XML parser on first use
+            if self._xml_parser is None:
+                self._xml_parser = XMLToolParser()
+
             # Parse the XML
             parsed = self._xml_parser.parse(xml_text)
             if not parsed:

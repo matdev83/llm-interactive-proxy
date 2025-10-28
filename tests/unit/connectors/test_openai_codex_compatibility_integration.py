@@ -247,7 +247,7 @@ class TestRequestFlowIntegration:
             ),
         ):
             # Call the method
-            result = await codex_connector_compat_enabled._call_codex_responses_api(
+            await codex_connector_compat_enabled._call_codex_responses_api(
                 request_data=request_data,
                 processed_messages=processed_messages,
                 effective_model="gpt-5-codex",
@@ -314,7 +314,7 @@ class TestRequestFlowIntegration:
             ),
         ):
             # Call the method
-            result = await codex_connector_compat_enabled._call_codex_responses_api(
+            await codex_connector_compat_enabled._call_codex_responses_api(
                 request_data=request_data,
                 processed_messages=processed_messages,
                 effective_model="gpt-5-codex",
