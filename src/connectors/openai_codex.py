@@ -746,15 +746,23 @@ class OpenAICodexConnector(OpenAIConnector):
         """Return the tool definitions expected by the Codex Responses API.
         
         This method dynamically discovers tools from the actual Codex backend
-        rather than hardcoding them, ensuring compatibility with any Codex configuration.
+        and includes tools from the universal executor.
         """
         if self._default_tool_schema_override is not None:
             return deepcopy(self._default_tool_schema_override)
         
-        # TODO: Implement dynamic tool discovery from Codex backend
-        # For now, return minimal base tools that are universally available
-        # This should be replaced with actual tool discovery from the Codex API
-        return self._get_minimal_base_tools()
+        # Get base tools (these would come from actual Codex API discovery in production)
+        base_tools = self._get_minimal_base_tools()
+        
+        # Add tools from universal executor (MCP tools, etc.)
+        executor = self._get_universal_executor()
+        universal_tool_schemas = executor.get_tool_schemas()
+        
+        # Combine base tools with universal tools
+        all_tools = base_tools + universal_tool_schemas
+        
+        logger.debug(f"Providing {len(all_tools)} tools to Codex: {[t['name'] for t in all_tools]}")
+        return all_tools
 
     def _get_minimal_base_tools(self) -> list[dict[str, Any]]:
         """Return minimal base tools that are universally available.

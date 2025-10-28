@@ -27,7 +27,7 @@ _UNC_PATH_PATTERN = re.compile(
     r"(\\{2}[^\\:\r\n\s.]*(?:\\[^\\:\r\n\s.]*)*)(?=\s|$|[,.;!?])"
 )
 _UNIX_PATH_PATTERN = re.compile(
-    r"(?:^|\s)(/[^/\\\s:\r\n]*(?:/[^/\\\s:\r\n]*)*)(?=\s|$|[,.;!?])"
+    r"(?:^|\s)(/[^/\\\s:\r\n.]*(?:/[^/\\\s:\r\n.]*)*)(?=\s|$|[,.;!?])"
 )
 _UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
 
