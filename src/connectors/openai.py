@@ -416,6 +416,7 @@ class OpenAIConnector(LLMBackend):
         # the model value coming from the domain request. Many tests expect
         # the provider payload to use the effective_model.
         if effective_model:
+            logger.info(f"OpenAI DEBUG: Overriding model in payload from '{payload.get('model')}' to '{effective_model}'")
             payload["model"] = effective_model
 
         # Allow request.extra_body to override or augment the final payload.

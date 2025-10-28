@@ -935,6 +935,9 @@ class QwenOAuthConnector(OpenAIConnector):
             # to override the model in the payload, so we don't need to modify request_data
             from src.connectors.openai import OpenAIConnector
 
+            # DEBUG: Log what we're about to do
+            logger.info(f"QwenOAuth DEBUG: Calling parent with effective_model='{model_name}', original request_data model='{request_data.get('model', 'unknown')}'")
+
             response_envelope = await OpenAIConnector.chat_completions(
                 self,
                 request_data=request_data,  # Pass original request_data, let parent handle model override
