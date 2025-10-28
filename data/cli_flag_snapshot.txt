@@ -1,4 +1,5 @@
 --allow-admin
+--allowed-tools
 --anthropic-port
 --auth-brute-force-initial-block
 --auth-brute-force-max-block
@@ -6,6 +7,7 @@
 --auth-brute-force-ttl
 --auth-max-failed-attempts
 --backend
+--blocked-tools
 --capture-file
 --capture-max-bytes
 --capture-max-files
@@ -16,6 +18,7 @@
 --config
 --daemon
 --default-backend
+--default-policy
 --disable-accounting
 --disable-auth
 --disable-brute-force-protection

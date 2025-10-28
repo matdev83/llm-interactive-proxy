@@ -508,11 +508,11 @@ class BackendRequestManager(IBackendRequestManager):
     def _extract_text_from_chunk(chunk: ProcessedResponse | bytes) -> str:
         """Extract textual content from a streaming chunk for loop analysis."""
         import json
-        
+
         # Handle case where chunk is raw bytes (from streaming)
         if isinstance(chunk, bytes):
             try:
-                decoded = chunk.decode('utf-8')
+                decoded = chunk.decode("utf-8")
                 # Try to parse as JSON to extract content
                 data = json.loads(decoded)
                 if isinstance(data, dict):
@@ -526,16 +526,16 @@ class BackendRequestManager(IBackendRequestManager):
                                 if isinstance(content, str):
                                     return content
                                 if isinstance(content, list):
-                                    fragments: list[str] = []
+                                    fragments_bytes: list[str] = []
                                     for part in content:
                                         if isinstance(part, str):
-                                            fragments.append(part)
+                                            fragments_bytes.append(part)
                                         elif isinstance(part, dict):
                                             text_part = part.get("text")
                                             if isinstance(text_part, str):
-                                                fragments.append(text_part)
-                                    if fragments:
-                                        return "".join(fragments)
+                                                fragments_bytes.append(text_part)
+                                    if fragments_bytes:
+                                        return "".join(fragments_bytes)
                             message = choice.get("message")
                             if isinstance(message, dict):
                                 msg_content = message.get("content")
@@ -545,35 +545,36 @@ class BackendRequestManager(IBackendRequestManager):
                 # If decoding or parsing fails, return empty string
                 return ""
             return ""
-        
+
         # Handle case where chunk is a ProcessedResponse object
-        data = chunk.content
-        if isinstance(data, str):
-            return data
-        if isinstance(data, dict):
-            choices = data.get("choices")
-            if isinstance(choices, list) and choices:
-                choice = choices[0]
-                if isinstance(choice, dict):
-                    delta = choice.get("delta")
-                    if isinstance(delta, dict):
-                        content = delta.get("content")
-                        if isinstance(content, str):
-                            return content
-                        if isinstance(content, list):
-                            fragments: list[str] = []
-                            for part in content:
-                                if isinstance(part, str):
-                                    fragments.append(part)
-                                elif isinstance(part, dict):
-                                    text_part = part.get("text")
-                                    if isinstance(text_part, str):
-                                        fragments.append(text_part)
-                            if fragments:
-                                return "".join(fragments)
-                    message = choice.get("message")
-                    if isinstance(message, dict):
-                        msg_content = message.get("content")
-                        if isinstance(msg_content, str):
-                            return msg_content
+        if isinstance(chunk, ProcessedResponse):
+            data = chunk.content
+            if isinstance(data, str):
+                return data
+            if isinstance(data, dict):
+                choices = data.get("choices")
+                if isinstance(choices, list) and choices:
+                    choice = choices[0]
+                    if isinstance(choice, dict):
+                        delta = choice.get("delta")
+                        if isinstance(delta, dict):
+                            content = delta.get("content")
+                            if isinstance(content, str):
+                                return content
+                            if isinstance(content, list):
+                                fragments_processed: list[str] = []
+                                for part in content:
+                                    if isinstance(part, str):
+                                        fragments_processed.append(part)
+                                    elif isinstance(part, dict):
+                                        text_part = part.get("text")
+                                        if isinstance(text_part, str):
+                                            fragments_processed.append(text_part)
+                                if fragments_processed:
+                                    return "".join(fragments_processed)
+                        message = choice.get("message")
+                        if isinstance(message, dict):
+                            msg_content = message.get("content")
+                            if isinstance(msg_content, str):
+                                return msg_content
         return ""

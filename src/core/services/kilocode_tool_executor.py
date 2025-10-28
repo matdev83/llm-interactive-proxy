@@ -17,19 +17,21 @@ class KiloCodeToolExecutor:
 
     def __init__(self, working_directory: str | None = None) -> None:
         """Initialize the tool executor.
-        
+
         Args:
             working_directory: Base working directory for file operations
         """
         self.working_directory = Path(working_directory or os.getcwd())
 
-    async def execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def execute_tool(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute a KiloCode tool and return the result.
-        
+
         Args:
             tool_name: Name of the tool to execute
             arguments: Tool arguments
-            
+
         Returns:
             Dictionary containing the tool execution result
         """
@@ -50,14 +52,16 @@ class KiloCodeToolExecutor:
                 return {
                     "output": f"Unknown KiloCode tool: {tool_name}",
                     "exit_code": 1,
-                    "error": f"Tool '{tool_name}' is not supported"
+                    "error": f"Tool '{tool_name}' is not supported",
                 }
         except Exception as e:
-            logger.error(f"Error executing KiloCode tool {tool_name}: {e}", exc_info=True)
+            logger.error(
+                f"Error executing KiloCode tool {tool_name}: {e}", exc_info=True
+            )
             return {
                 "output": f"Error executing {tool_name}: {e!s}",
                 "exit_code": 1,
-                "error": str(e)
+                "error": str(e),
             }
 
     async def _execute_read_file(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -67,14 +71,14 @@ class KiloCodeToolExecutor:
             return {
                 "output": "Error: file_path is required",
                 "exit_code": 1,
-                "error": "Missing file_path parameter"
+                "error": "Missing file_path parameter",
             }
 
         try:
             # Resolve path relative to working directory
             resolved_path = self.working_directory / file_path
             resolved_path = resolved_path.resolve()
-            
+
             # Security check: ensure path is within working directory or its subdirectories
             with contextlib.suppress(ValueError):
                 resolved_path.relative_to(self.working_directory.resolve())
@@ -85,32 +89,32 @@ class KiloCodeToolExecutor:
                 return {
                     "output": f"Error: File not found: {file_path}",
                     "exit_code": 1,
-                    "error": f"File does not exist: {file_path}"
+                    "error": f"File does not exist: {file_path}",
                 }
 
             if not resolved_path.is_file():
                 return {
                     "output": f"Error: Path is not a file: {file_path}",
                     "exit_code": 1,
-                    "error": f"Path is not a file: {file_path}"
+                    "error": f"Path is not a file: {file_path}",
                 }
 
             # Read file content
             content = resolved_path.read_text(encoding="utf-8", errors="replace")
-            
+
             # Handle line range if specified
             start_line = arguments.get("start_line")
             end_line = arguments.get("end_line")
-            
+
             if start_line is not None or end_line is not None:
                 lines = content.splitlines()
                 start_idx = (start_line - 1) if start_line is not None else 0
                 end_idx = end_line if end_line is not None else len(lines)
-                
+
                 # Clamp indices
                 start_idx = max(0, start_idx)
                 end_idx = min(len(lines), end_idx)
-                
+
                 if start_idx < end_idx:
                     selected_lines = lines[start_idx:end_idx]
                     content = "\n".join(selected_lines)
@@ -121,26 +125,26 @@ class KiloCodeToolExecutor:
                 "output": content,
                 "exit_code": 0,
                 "file_path": str(resolved_path),
-                "size": len(content)
+                "size": len(content),
             }
 
         except UnicodeDecodeError:
             return {
                 "output": f"Error: Cannot read file as text (binary file?): {file_path}",
                 "exit_code": 1,
-                "error": "File appears to be binary or has encoding issues"
+                "error": "File appears to be binary or has encoding issues",
             }
         except PermissionError:
             return {
                 "output": f"Error: Permission denied reading file: {file_path}",
                 "exit_code": 1,
-                "error": "Permission denied"
+                "error": "Permission denied",
             }
         except Exception as e:
             return {
                 "output": f"Error reading file {file_path}: {e!s}",
                 "exit_code": 1,
-                "error": str(e)
+                "error": str(e),
             }
 
     async def _execute_list_dir(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -158,24 +162,24 @@ class KiloCodeToolExecutor:
                 return {
                     "output": f"Error: Directory not found: {dir_path}",
                     "exit_code": 1,
-                    "error": f"Directory does not exist: {dir_path}"
+                    "error": f"Directory does not exist: {dir_path}",
                 }
 
             if not resolved_path.is_dir():
                 return {
                     "output": f"Error: Path is not a directory: {dir_path}",
                     "exit_code": 1,
-                    "error": f"Path is not a directory: {dir_path}"
+                    "error": f"Path is not a directory: {dir_path}",
                 }
 
             entries = []
-            
+
             if recursive:
                 # Recursive listing
                 for item in resolved_path.rglob("*"):
                     if not include_hidden and item.name.startswith("."):
                         continue
-                    
+
                     relative_path = item.relative_to(resolved_path)
                     entry_type = "directory" if item.is_dir() else "file"
                     entries.append(f"{entry_type}: {relative_path}")
@@ -184,33 +188,33 @@ class KiloCodeToolExecutor:
                 for item in resolved_path.iterdir():
                     if not include_hidden and item.name.startswith("."):
                         continue
-                    
+
                     entry_type = "directory" if item.is_dir() else "file"
                     entries.append(f"{entry_type}: {item.name}")
 
             # Sort entries for consistent output
             entries.sort()
-            
+
             output = "\n".join(entries) if entries else "Directory is empty"
-            
+
             return {
                 "output": output,
                 "exit_code": 0,
                 "directory": str(resolved_path),
-                "count": len(entries)
+                "count": len(entries),
             }
 
         except PermissionError:
             return {
                 "output": f"Error: Permission denied accessing directory: {dir_path}",
                 "exit_code": 1,
-                "error": "Permission denied"
+                "error": "Permission denied",
             }
         except Exception as e:
             return {
                 "output": f"Error listing directory {dir_path}: {e!s}",
                 "exit_code": 1,
-                "error": str(e)
+                "error": str(e),
             }
 
     async def _execute_grep_files(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -220,7 +224,7 @@ class KiloCodeToolExecutor:
             return {
                 "output": "Error: pattern is required",
                 "exit_code": 1,
-                "error": "Missing pattern parameter"
+                "error": "Missing pattern parameter",
             }
 
         search_path = arguments.get("path", ".")
@@ -236,7 +240,7 @@ class KiloCodeToolExecutor:
                 return {
                     "output": f"Error: Path not found: {search_path}",
                     "exit_code": 1,
-                    "error": f"Path does not exist: {search_path}"
+                    "error": f"Path does not exist: {search_path}",
                 }
 
             # Compile regex pattern
@@ -247,11 +251,11 @@ class KiloCodeToolExecutor:
                 return {
                     "output": f"Error: Invalid regex pattern: {e}",
                     "exit_code": 1,
-                    "error": f"Invalid regex: {e}"
+                    "error": f"Invalid regex: {e}",
                 }
 
             matches = []
-            
+
             if resolved_path.is_file():
                 # Search in single file
                 matches.extend(self._search_file(resolved_path, regex))
@@ -261,7 +265,7 @@ class KiloCodeToolExecutor:
                     pattern_glob = "**/*"
                 else:
                     pattern_glob = "*"
-                
+
                 for file_path in resolved_path.glob(pattern_glob):
                     if file_path.is_file() and not file_path.name.startswith("."):
                         try:
@@ -279,14 +283,14 @@ class KiloCodeToolExecutor:
                 "output": output,
                 "exit_code": 0,
                 "pattern": pattern,
-                "matches_count": len(matches)
+                "matches_count": len(matches),
             }
 
         except Exception as e:
             return {
                 "output": f"Error searching for pattern {pattern}: {e!s}",
                 "exit_code": 1,
-                "error": str(e)
+                "error": str(e),
             }
 
     def _search_file(self, file_path: Path, regex: re.Pattern[str]) -> list[str]:
@@ -295,7 +299,7 @@ class KiloCodeToolExecutor:
         try:
             content = file_path.read_text(encoding="utf-8", errors="replace")
             lines = content.splitlines()
-            
+
             for line_num, line in enumerate(lines, 1):
                 if regex.search(line):
                     # Format: filename:line_number:line_content
@@ -304,7 +308,7 @@ class KiloCodeToolExecutor:
         except (UnicodeDecodeError, PermissionError):
             # Skip files we can't read
             pass
-        
+
         return matches
 
     async def _execute_use_mcp_tool(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -318,27 +322,31 @@ class KiloCodeToolExecutor:
             "output": f"MCP tool '{tool_name}' executed with arguments: {tool_arguments}",
             "exit_code": 0,
             "tool_name": tool_name,
-            "note": "MCP integration not yet implemented - this is a placeholder response"
+            "note": "MCP integration not yet implemented - this is a placeholder response",
         }
 
-    async def _execute_completion_marker(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_completion_marker(
+        self, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute completion_marker tool."""
         result = arguments.get("result", "Task completed")
-        
+
         return {
             "output": f"[COMPLETION] {result}",
             "exit_code": 0,
             "completion_result": result,
-            "marker_type": "completion"
+            "marker_type": "completion",
         }
 
-    async def _execute_followup_marker(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_followup_marker(
+        self, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute followup_marker tool."""
         question = arguments.get("question", "Do you have any questions?")
-        
+
         return {
             "output": f"[FOLLOWUP] {question}",
             "exit_code": 0,
             "followup_question": question,
-            "marker_type": "followup"
+            "marker_type": "followup",
         }

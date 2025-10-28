@@ -18,14 +18,8 @@ from src.core.config.app_config import AppConfig, ToolCallReactorConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.services import register_core_services
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ProcessedResponse
-from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
-from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.tool_access_policy_service import ToolAccessPolicyService
-from src.core.services.tool_call_handlers.tool_access_control_handler import (
-    ToolAccessControlHandler,
-)
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
@@ -267,9 +261,7 @@ class TestToolAccessControlEndToEnd:
         assert is_allowed is True
 
         # Test disallowed tools (not in whitelist)
-        is_allowed, _ = policy_service.is_tool_allowed(
-            "write_file", "test-model", None
-        )
+        is_allowed, _ = policy_service.is_tool_allowed("write_file", "test-model", None)
         assert is_allowed is False
 
         is_allowed, _ = policy_service.is_tool_allowed(
@@ -307,9 +299,7 @@ class TestToolAccessControlEndToEnd:
         is_allowed, _ = policy_service.is_tool_allowed("read_file", "test-model", None)
         assert is_allowed is True
 
-        is_allowed, _ = policy_service.is_tool_allowed(
-            "write_file", "test-model", None
-        )
+        is_allowed, _ = policy_service.is_tool_allowed("write_file", "test-model", None)
         assert is_allowed is True
 
         is_allowed, _ = policy_service.is_tool_allowed(
@@ -714,8 +704,7 @@ class TestToolAccessControlEndToEnd:
 
         # Create many tools
         tools = [
-            {"type": "function", "function": {"name": f"tool_{i}"}}
-            for i in range(100)
+            {"type": "function", "function": {"name": f"tool_{i}"}} for i in range(100)
         ]
         tools.extend(
             [
@@ -919,4 +908,3 @@ class TestToolAccessControlEndToEnd:
 
         # The blocked tool should be swallowed
         assert result.metadata["tool_call_swallowed"] is True
-

@@ -696,10 +696,12 @@ class RequestProcessor(IRequestProcessor):
 
                         # Handle tool_choice if it references a filtered tool
                         tool_choice = getattr(backend_request, "tool_choice", None)
-                        if tool_choice and isinstance(tool_choice, dict) and "function" in tool_choice:
-                            choice_name = tool_choice.get("function", {}).get(
-                                "name"
-                            )
+                        if (
+                            tool_choice
+                            and isinstance(tool_choice, dict)
+                            and "function" in tool_choice
+                        ):
+                            choice_name = tool_choice.get("function", {}).get("name")
                             if choice_name:
                                 # Check if the referenced tool is still in filtered_tools
                                 tool_names = [
@@ -762,10 +764,14 @@ class RequestProcessor(IRequestProcessor):
 
         # Add session_id to extra_body if not present
         final_extra_body_attr = getattr(backend_request, "extra_body", None)
-        final_extra_body: dict[str, Any] = final_extra_body_attr.copy() if final_extra_body_attr else {}
+        final_extra_body: dict[str, Any] = (
+            final_extra_body_attr.copy() if final_extra_body_attr else {}
+        )
         if "session_id" not in final_extra_body:
             final_extra_body["session_id"] = session_id
-        backend_request = backend_request.model_copy(update={"extra_body": final_extra_body})
+        backend_request = backend_request.model_copy(
+            update={"extra_body": final_extra_body}
+        )
 
         # Process backend request with retry handling
         logger.info(

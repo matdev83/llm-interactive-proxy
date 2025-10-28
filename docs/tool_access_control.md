@@ -73,7 +73,9 @@ session:
 | `block_message` | No | string | Message returned when blocking a tool |
 | `priority` | No | integer | Policy priority (default: 0) |
 
-### CLI Arguments (Coming Soon)
+### CLI Arguments
+
+Global tool access policies can be set via command-line arguments, which override configuration file policies:
 
 ```bash
 python -m src.core.cli \
@@ -82,13 +84,33 @@ python -m src.core.cli \
   --default-policy allow
 ```
 
-### Environment Variables (Coming Soon)
+**Available CLI Arguments:**
+
+- `--allowed-tools PATTERNS`: Comma-separated regex patterns for globally allowed tools
+- `--blocked-tools PATTERNS`: Comma-separated regex patterns for globally blocked tools
+- `--default-policy {allow,deny}`: Global default policy when no patterns match
+
+**Examples:**
 
 ```bash
-export TOOL_ACCESS_ALLOWED_TOOLS="read_.*,list_.*"
-export TOOL_ACCESS_BLOCKED_TOOLS="delete_.*,rm_.*"
-export TOOL_ACCESS_DEFAULT_POLICY="allow"
+# Allow only read operations globally
+python -m src.core.cli \
+  --default-policy deny \
+  --allowed-tools "read_.*,list_.*,get_.*,search_.*"
+
+# Block dangerous operations globally
+python -m src.core.cli \
+  --default-policy allow \
+  --blocked-tools "delete_.*,rm_.*,drop_.*,truncate_.*"
+
+# Combine allowed and blocked patterns
+python -m src.core.cli \
+  --allowed-tools "read_.*,write_file" \
+  --blocked-tools "delete_.*" \
+  --default-policy allow
 ```
+
+**Precedence:** CLI arguments create a global policy with priority 1000, which overrides all configuration file policies.
 
 ## Policy Evaluation
 

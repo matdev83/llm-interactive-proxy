@@ -52,7 +52,6 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
-from src.core.services.kilocode_tool_executor import KiloCodeToolExecutor
 from src.core.services.tool_text_renderer import (
     OverrideRenderer,
     configure_renderer_registry,
@@ -744,29 +743,31 @@ class OpenAICodexConnector(OpenAIConnector):
 
     def _default_codex_tools(self) -> list[dict[str, Any]]:
         """Return the tool definitions expected by the Codex Responses API.
-        
+
         This method dynamically discovers tools from the actual Codex backend
         and includes tools from the universal executor.
         """
         if self._default_tool_schema_override is not None:
             return deepcopy(self._default_tool_schema_override)
-        
+
         # Get base tools (these would come from actual Codex API discovery in production)
         base_tools = self._get_minimal_base_tools()
-        
+
         # Add tools from universal executor (MCP tools, etc.)
         executor = self._get_universal_executor()
         universal_tool_schemas = executor.get_tool_schemas()
-        
+
         # Combine base tools with universal tools
         all_tools = base_tools + universal_tool_schemas
-        
-        logger.debug(f"Providing {len(all_tools)} tools to Codex: {[t['name'] for t in all_tools]}")
+
+        logger.debug(
+            f"Providing {len(all_tools)} tools to Codex: {[t['name'] for t in all_tools]}"
+        )
         return all_tools
 
     def _get_minimal_base_tools(self) -> list[dict[str, Any]]:
         """Return minimal base tools that are universally available.
-        
+
         This is a fallback when dynamic tool discovery is not available.
         In a full implementation, this should be replaced with actual tool discovery.
         """
@@ -797,7 +798,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     async def _discover_available_tools(self) -> list[dict[str, Any]]:
         """Dynamically discover available tools from the Codex backend.
-        
+
         This method should query the actual Codex API to get the current tool schema
         rather than hardcoding tool definitions.
         """
@@ -809,7 +810,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     async def _discover_mcp_tools(self) -> list[dict[str, Any]]:
         """Dynamically discover available MCP tools.
-        
+
         This method should connect to MCP servers and discover their available tools
         rather than hardcoding MCP tool definitions.
         """
@@ -823,18 +824,22 @@ class OpenAICodexConnector(OpenAIConnector):
         if self._universal_executor is None:
             # Initialize with current working directory
             working_dir = os.getcwd()
-            self._universal_executor = UniversalToolExecutor(working_directory=working_dir)
+            self._universal_executor = UniversalToolExecutor(
+                working_directory=working_dir
+            )
         return self._universal_executor
 
-    async def _execute_universal_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_universal_tool(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute any tool universally and return formatted result."""
         executor = self._get_universal_executor()
         result = await executor.execute_tool(tool_name, arguments)
-        
+
         # Format result for Codex compatibility
         output = result.get("output", "")
         exit_code = result.get("exit_code", 0)
-        
+
         # Add additional metadata if available
         metadata_parts = []
         if "file_path" in result:
@@ -847,26 +852,28 @@ class OpenAICodexConnector(OpenAIConnector):
             metadata_parts.append(f"Items: {result['count']}")
         if "tool_name" in result:
             metadata_parts.append(f"Tool: {result['tool_name']}")
-        
+
         formatted_output = output
         if metadata_parts:
             metadata_line = " | ".join(metadata_parts)
             formatted_output = f"{output}\n\n[{metadata_line}]"
-        
+
         return {
             "output": formatted_output,
             "exit_code": exit_code,
             "workdir": os.getcwd(),
-            **{k: v for k, v in result.items() if k not in ["output", "exit_code"]}
+            **{k: v for k, v in result.items() if k not in ["output", "exit_code"]},
         }
 
-    async def connect_mcp_server(self, server_name: str, server_config: dict[str, Any]) -> bool:
+    async def connect_mcp_server(
+        self, server_name: str, server_config: dict[str, Any]
+    ) -> bool:
         """Connect to an MCP server to make its tools available.
-        
+
         Args:
             server_name: Unique name for the server
             server_config: Server configuration
-            
+
         Returns:
             True if connection successful, False otherwise
         """
@@ -875,7 +882,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     def get_available_tools(self) -> list[str]:
         """Get list of all available tools from the universal executor.
-        
+
         Returns:
             List of available tool names
         """

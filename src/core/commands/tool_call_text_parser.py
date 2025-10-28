@@ -16,15 +16,14 @@ __all__ = [
 _TOOL_NAME_ALIASES: dict[str, str] = {
     # Legacy Cline/Codex mappings
     "execute_command": "shell",
-    "run_command": "shell", 
+    "run_command": "shell",
     "apply_diff": "apply_patch",
     "apply_patch": "apply_patch",
     "view_image": "view_image",
-    
     # Dynamic tool mappings - these preserve the original tool name
     # allowing the universal executor to handle them appropriately
     "read_file": "read_file",
-    "list_files": "list_files", 
+    "list_files": "list_files",
     "list_dir": "list_dir",
     "codebase_search": "codebase_search",
     "search_files": "search_files",
@@ -344,18 +343,18 @@ def _parse_use_mcp_tool_invocation(text: str) -> TextToolInvocation | None:
     # Extract content and other attributes
     content_match = _USE_MCP_TOOL_PATTERN.search(text)
     arguments = {"tool_name": tool_name}
-    
+
     # Add content if present
     if content_match:
         content = content_match.group(1).strip()
         if content:
             arguments["arguments"] = content
-    
+
     # Extract any other attributes (path, etc.)
     path_match = _FILE_PATH_ATTR_PATTERN.search(text)
     if path_match:
         arguments["path"] = path_match.group(1).strip()
-    
+
     # For patch_file operations, include special handling but let universal executor decide
     if tool_name == "patch_file" and "arguments" in arguments:
         arguments["patch_content"] = arguments["arguments"]

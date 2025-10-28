@@ -1236,8 +1236,13 @@ def register_core_services(
         app_config: AppConfig = provider.get_required_service(AppConfig)
         reactor_config = app_config.session.tool_call_reactor
 
-        # TODO: Add support for global_overrides from CLI parameters
-        return ToolAccessPolicyService(reactor_config, global_overrides=None)
+        # Get global overrides from session config (set by CLI parameters)
+        global_overrides = getattr(
+            app_config.session, "tool_access_global_overrides", None
+        )
+        return ToolAccessPolicyService(
+            reactor_config, global_overrides=global_overrides
+        )
 
     _add_singleton(
         ToolAccessPolicyService,

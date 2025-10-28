@@ -10,7 +10,10 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.response_processor_interface import IResponseProcessor, ProcessedResponse
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,
+    ProcessedResponse,
+)
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 

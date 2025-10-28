@@ -465,6 +465,7 @@ class SessionConfig(DomainModel):
     session_continuity: SessionContinuityConfig = Field(
         default_factory=SessionContinuityConfig
     )
+    tool_access_global_overrides: dict[str, Any] | None = None
 
     @model_validator(mode="before")
     @classmethod

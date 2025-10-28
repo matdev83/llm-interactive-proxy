@@ -226,18 +226,19 @@ The proxy provides comprehensive tool access control, allowing you to define whi
 
 Tool access policies are configured in the `tool_call_reactor_config.yaml` file under the `access_policies` section:
 
-**CLI Arguments** (Coming Soon):
+**CLI Arguments**:
 ```bash
 --allowed-tools "read_.*,list_.*"      # Global allowed tool patterns
 --blocked-tools "delete_.*,rm_.*"      # Global blocked tool patterns
 --default-policy allow                 # Global default policy (allow or deny)
 ```
 
-**Environment Variables** (Coming Soon):
+Example usage:
 ```bash
-export TOOL_ACCESS_ALLOWED_TOOLS="read_.*,list_.*"
-export TOOL_ACCESS_BLOCKED_TOOLS="delete_.*,rm_.*"
-export TOOL_ACCESS_DEFAULT_POLICY="allow"
+python -m src.core.cli \
+  --allowed-tools "read_.*,list_.*,search_.*" \
+  --blocked-tools "delete_.*,rm_.*" \
+  --default-policy allow
 ```
 
 **YAML Configuration**:

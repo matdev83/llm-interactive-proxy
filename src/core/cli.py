@@ -516,6 +516,32 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Enable correction of improperly formatted <think> tags in model responses",
     )
 
+    # Tool Access Control arguments
+    tool_access_group = parser.add_argument_group(
+        "Tool Access Control",
+        "Options for controlling which tools LLMs can access and execute",
+    )
+    tool_access_group.add_argument(
+        "--allowed-tools",
+        dest="tool_access_allowed_tools",
+        type=str,
+        metavar="PATTERNS",
+        help="Comma-separated regex patterns for globally allowed tools (overrides config)",
+    )
+    tool_access_group.add_argument(
+        "--blocked-tools",
+        dest="tool_access_blocked_tools",
+        type=str,
+        metavar="PATTERNS",
+        help="Comma-separated regex patterns for globally blocked tools (overrides config)",
+    )
+    tool_access_group.add_argument(
+        "--default-policy",
+        dest="tool_access_default_policy",
+        choices=["allow", "deny"],
+        help="Global default policy when no patterns match: 'allow' or 'deny' (overrides config)",
+    )
+
     # LLM Assessment arguments
     assessment_group = parser.add_argument_group(
         "LLM Assessment", "Options for LLM-based conversation assessment"
@@ -1092,6 +1118,46 @@ def apply_cli_args(
             args.fix_think_tags_enabled,
             "--fix-think-tags",
         )
+
+    # Tool Access Control global overrides
+    tool_access_overrides: dict[str, Any] = {}
+
+    if getattr(args, "tool_access_allowed_tools", None) is not None:
+        # Parse comma-separated patterns
+        patterns = [
+            p.strip() for p in args.tool_access_allowed_tools.split(",") if p.strip()
+        ]
+        tool_access_overrides["allowed_patterns"] = patterns
+        record_cli(
+            "tool_access.allowed_patterns",
+            patterns,
+            "--allowed-tools",
+        )
+
+    if getattr(args, "tool_access_blocked_tools", None) is not None:
+        # Parse comma-separated patterns
+        patterns = [
+            p.strip() for p in args.tool_access_blocked_tools.split(",") if p.strip()
+        ]
+        tool_access_overrides["blocked_patterns"] = patterns
+        record_cli(
+            "tool_access.blocked_patterns",
+            patterns,
+            "--blocked-tools",
+        )
+
+    if getattr(args, "tool_access_default_policy", None) is not None:
+        tool_access_overrides["default_policy"] = args.tool_access_default_policy
+        record_cli(
+            "tool_access.default_policy",
+            args.tool_access_default_policy,
+            "--default-policy",
+        )
+
+    # Add tool access overrides to session if any
+    if tool_access_overrides:
+        session = cli_overrides.setdefault("session", {})
+        session["tool_access_global_overrides"] = tool_access_overrides
 
     # LLM Assessment configuration
     assessment_overrides: dict[str, Any] = {}
