@@ -72,6 +72,30 @@ class TestProjectDirectoryResolutionService:
         mock_backend_service.call_completion.assert_not_called()
         mock_session_service.update_session.assert_called_once_with(session)
 
+    async def test_deterministic_finds_longest_common_directory(
+        self, mock_backend_service, mock_session_service, session
+    ):
+        prompt = (
+            '"C:\\\\TopDir\\\\MiddleDir\\\\ProjectRoot\\\\src\\\\module1\\\\abc.py", '
+            "'C:\\\\TopDir\\\\MiddleDir\\\\ProjectRoot\\\\src\\\\module2\\\\utils.py', "
+            "`C:\\\\TopDir\\\\MiddleDir\\\\ProjectRoot\\\\docs\\\\README.md`, "
+            "and C:\\\\TopDir\\\\MiddleDir\\\\ProjectRoot\\\\tests\\\\unit\\\\test_sample.py."
+        )
+        request = ChatRequest(
+            model="test-model", messages=[ChatMessage(role="user", content=prompt)]
+        )
+        config = create_app_config("deterministic")
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == "C:\\TopDir\\MiddleDir\\ProjectRoot"
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
     async def test_deterministic_no_path(
         self, mock_backend_service, mock_session_service, session, caplog
     ):

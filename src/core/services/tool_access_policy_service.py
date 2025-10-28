@@ -134,6 +134,11 @@ class ToolAccessPolicyService:
         self._evaluation_count = 0
         self._total_evaluation_time_ms = 0.0
 
+        # Policy lookup cache: (model_name, agent) -> AccessPolicy | None
+        self._policy_cache: dict[tuple[str, str | None], AccessPolicy | None] = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
+
         # Load policies from configuration
         self._load_policies(config)
 
@@ -227,17 +232,30 @@ class ToolAccessPolicyService:
         """Select the most specific matching policy for the given context.
 
         Returns the highest priority policy that matches, or None if no match.
+        Uses caching for improved performance.
         """
-        # Global policy always takes precedence
+        # Global policy always takes precedence (no caching needed)
         if self._global_policy:
             return self._global_policy
 
-        # Find matching policies
+        # Check cache
+        cache_key = (model_name, agent)
+        if cache_key in self._policy_cache:
+            self._cache_hits += 1
+            return self._policy_cache[cache_key]
+
+        # Cache miss - find matching policy
+        self._cache_misses += 1
+        selected_policy: AccessPolicy | None = None
+
         for policy in self._policies:
             if policy.matches_context(model_name, agent):
-                return policy
+                selected_policy = policy
+                break
 
-        return None
+        # Cache the result
+        self._policy_cache[cache_key] = selected_policy
+        return selected_policy
 
     def filter_tool_definitions(
         self,
@@ -389,7 +407,7 @@ class ToolAccessPolicyService:
         """Get performance metrics for policy evaluation.
 
         Returns:
-            Dictionary containing performance metrics.
+            Dictionary containing performance metrics including cache statistics.
         """
         avg_time_ms = (
             self._total_evaluation_time_ms / self._evaluation_count
@@ -397,10 +415,21 @@ class ToolAccessPolicyService:
             else 0.0
         )
 
+        total_cache_lookups = self._cache_hits + self._cache_misses
+        cache_hit_rate = (
+            (self._cache_hits / total_cache_lookups * 100)
+            if total_cache_lookups > 0
+            else 0.0
+        )
+
         return {
             "evaluation_count": self._evaluation_count,
             "total_evaluation_time_ms": self._total_evaluation_time_ms,
             "average_evaluation_time_ms": avg_time_ms,
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._cache_misses,
+            "cache_hit_rate_percent": cache_hit_rate,
+            "cache_size": len(self._policy_cache),
         }
 
     @staticmethod

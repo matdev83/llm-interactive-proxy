@@ -794,6 +794,49 @@ class OpenAICodexConnector(OpenAIConnector):
                     "additionalProperties": False,
                 },
             },
+            {
+                "type": "custom",
+                "name": "apply_patch",
+                "description": "Use the apply_patch tool to edit files using unified diff syntax.",
+                "format": {
+                    "type": "grammar",
+                    "syntax": "lark",
+                    "definition": (
+                        "start: begin_patch hunk+ end_patch\n"
+                        'begin_patch: "*** Begin Patch" LF\n'
+                        'end_patch: "*** End Patch" LF?\n\n'
+                        "hunk: add_hunk | delete_hunk | update_hunk\n"
+                        'add_hunk: "*** Add File: " filename LF add_line+\n'
+                        'delete_hunk: "*** Delete File: " filename LF\n'
+                        'update_hunk: "*** Update File: " filename LF change_move? change?\n\n'
+                        "filename: /(.+)/\n"
+                        'add_line: "+" /(.*)/ LF -> line\n\n'
+                        'change_move: "*** Move to: " filename LF\n'
+                        "change: (change_context | change_line)+ eof_line?\n"
+                        'change_context: ("@@" | "@@ " /(.+)/) LF\n'
+                        'change_line: ("+" | "-" | " ") /(.*)/ LF\n'
+                        'eof_line: "*** End of File" LF\n\n'
+                        "%import common.LF\n"
+                    ),
+                },
+            },
+            {
+                "type": "function",
+                "name": "view_image",
+                "description": "Attach a local image (by filesystem path) to the conversation context for this turn.",
+                "strict": False,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Local filesystem path to an image file",
+                        }
+                    },
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+            },
         ]
 
     async def _discover_available_tools(self) -> list[dict[str, Any]]:

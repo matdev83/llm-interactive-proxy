@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import Any, Literal
 from xml.etree import ElementTree
 from xml.etree.ElementTree import ParseError
 
@@ -19,17 +20,35 @@ from src.core.interfaces.session_service_interface import ISessionService
 
 logger = logging.getLogger(__name__)
 
+# Type alias for recognized absolute path categories
+_PathType = Literal["windows", "unc", "unix"]
+
 # Pre-compiled regex patterns for performance optimization
 _WINDOWS_PATH_PATTERN = re.compile(
-    r'\b([a-zA-Z]:\\(?:[^:"*?<>|\r\n\\\s.]*(?:\\[^:"*?<>|\r\n\\\s.]*)*))(?=\s|$|[,.;!?])'
+    r"\b([a-zA-Z]:\\(?:[^:*?<>|\r\n\\\s]*(?:\\[^:*?<>|\r\n\\\s]*)*))(?=\s|$|[,;!?])"
 )
 _UNC_PATH_PATTERN = re.compile(
-    r"(\\{2}[^\\:\r\n\s.]*(?:\\[^\\:\r\n\s.]*)*)(?=\s|$|[,.;!?])"
+    r"(\\{2}[^\\:\r\n\s]*(?:\\[^\\:\r\n\s]*)*)(?=\s|$|[,;!?])"
 )
 _UNIX_PATH_PATTERN = re.compile(
-    r"(?:^|\s)(/[^/\\\s:\r\n.]*(?:/[^/\\\s:\r\n.]*)*)(?=\s|$|[,.;!?])"
+    r"(?:^|\s)(/[^/\\\s:\r\n]*(?:/[^/\\\s:\r\n]*)*)(?=\s|$|[,;!?])"
 )
 _UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
+
+_COMMON_PROJECT_SUBDIRS = {
+    "src",
+    "lib",
+    "bin",
+    "include",
+    "static",
+    "assets",
+    "public",
+    "docs",
+    "tests",
+    "test",
+}
+_LEADING_STRIP_CHARS = "\"'`([{<"
+_TRAILING_STRIP_CHARS = ",.;:!?)]}`>\"'`"
 
 
 class ProjectDirectoryResolutionService:
@@ -114,219 +133,170 @@ class ProjectDirectoryResolutionService:
 
         return path
 
+    def _strip_outer_tokens(self, value: str) -> str:
+        """Strip wrapping punctuation, quotes, and whitespace commonly surrounding paths."""
+        trimmed = value.strip()
+        if not trimmed:
+            return ""
+
+        changed = True
+        while trimmed and changed:
+            changed = False
+            if trimmed[0] in _LEADING_STRIP_CHARS:
+                trimmed = trimmed[1:].lstrip()
+                changed = True
+                continue
+            if trimmed and trimmed[-1] in _TRAILING_STRIP_CHARS:
+                trimmed = trimmed[:-1].rstrip()
+                changed = True
+        return trimmed
+
+    def _detect_path_type(self, path: str) -> _PathType | None:
+        if not path:
+            return None
+        if path.startswith("\\\\"):
+            return "unc"
+        if re.match(r"^[a-zA-Z]:\\", path):
+            return "windows"
+        if path.startswith("/"):
+            return "unix"
+        return None
+
+    def _normalize_directory_candidate(
+        self, path: str, path_type: _PathType
+    ) -> str | None:
+        try:
+            pure_path = (
+                PureWindowsPath(path)
+                if path_type in ("windows", "unc")
+                else PurePosixPath(path)
+            )
+        except Exception:
+            return None
+
+        # Drop filename component if present
+        if pure_path.suffix:
+            pure_path = pure_path.parent
+
+        # Remove common leaf directories such as src/tests when we have higher-level context
+        while pure_path.name and pure_path.name.lower() in _COMMON_PROJECT_SUBDIRS:
+            if len(pure_path.parts) <= 2:
+                break
+            parent = pure_path.parent
+            if parent == pure_path:
+                break
+            pure_path = parent
+
+        normalized = str(pure_path)
+        if path_type == "unc":
+            normalized = self._normalize_unc_path(normalized)
+        return normalized
+
+    def _longest_common_directory(
+        self, directories: list[str], path_type: _PathType
+    ) -> tuple[str, int] | None:
+        if not directories:
+            return None
+
+        path_class = (
+            PureWindowsPath if path_type in ("windows", "unc") else PurePosixPath
+        )
+        try:
+            parts_lists = [path_class(directory).parts for directory in directories]
+        except Exception:
+            return None
+
+        min_length = min(len(parts) for parts in parts_lists)
+        if min_length == 0:
+            return None
+
+        common_parts: list[str] = []
+        for index in range(min_length):
+            candidate = parts_lists[0][index]
+            if path_type in ("windows", "unc"):
+                if all(
+                    part[index].lower() == candidate.lower() for part in parts_lists
+                ):
+                    common_parts.append(candidate)
+                else:
+                    break
+            else:
+                if all(part[index] == candidate for part in parts_lists):
+                    common_parts.append(candidate)
+                else:
+                    break
+
+        if not common_parts:
+            return None
+
+        common_path = str(path_class(*common_parts))
+        if path_type == "unc":
+            common_path = self._normalize_unc_path(common_path)
+        return common_path, len(common_parts)
+
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
         """
         Try to find the common base project directory from all absolute paths
         found in the prompt.
         """
+        path_buckets: dict[_PathType, list[tuple[str, int]]] = {}
         patterns = [
             _WINDOWS_PATH_PATTERN,
             _UNC_PATH_PATTERN,
             _UNIX_PATH_PATTERN,
         ]
 
-        all_paths = []
-        # Use finditer to get all non-overlapping matches in the entire prompt text
         for pattern in patterns:
             for match in pattern.finditer(prompt_text):
-                found_path = match.group(1) if match.lastindex else match.group(0)
-                # Strip quotes and whitespace
-                found_path = found_path.strip().strip('"').strip("'")
-                if self._looks_like_absolute_path(found_path):
-                    all_paths.append(found_path)
+                raw_value = match.group(1) if match.lastindex else match.group(0)
+                cleaned = self._strip_outer_tokens(raw_value)
+                if not cleaned:
+                    continue
 
-        if not all_paths:
+                path_type = self._detect_path_type(cleaned)
+                if path_type is None:
+                    continue
+
+                if path_type == "unc":
+                    cleaned = self._normalize_unc_path(cleaned)
+
+                if not self._looks_like_absolute_path(cleaned):
+                    continue
+
+                directory = self._normalize_directory_candidate(cleaned, path_type)
+                if not directory:
+                    continue
+
+                path_buckets.setdefault(path_type, []).append(
+                    (directory, match.start())
+                )
+
+        if not path_buckets:
             return None
 
-        if not all_paths:
-            return None
+        best_path: str | None = None
+        best_score = (-1, 0, 0, 0)
+        for path_type, entries in path_buckets.items():
+            directories = [directory for directory, _ in entries]
+            lcp_result = self._longest_common_directory(directories, path_type)
+            if not lcp_result:
+                continue
+            common_path, depth = lcp_result
+            earliest_index = min(index for _, index in entries)
+            score = (len(directories), -earliest_index, depth, len(common_path))
+            if score > best_score:
+                best_score = score
+                best_path = common_path
 
-        # If multiple paths are found, return the first one.
-        return self._extract_directory_from_path(all_paths[0])
+        return best_path
 
     def _extract_directory_from_path(self, path: str) -> str:
         """Extract directory portion from a path that may include a filename."""
-        # For Windows paths, check if the last component is a file (has extension)
-        if path.endswith(
-            (
-                ".js",
-                ".py",
-                ".jsx",
-                ".ts",
-                ".tsx",
-                ".java",
-                ".cpp",
-                ".c",
-                ".h",
-                ".hpp",
-                ".cs",
-                ".php",
-                ".rb",
-                ".go",
-                ".rs",
-                ".swift",
-                ".kt",
-                ".scala",
-                ".sh",
-                ".bat",
-                ".cmd",
-                ".ps1",
-                ".html",
-                ".htm",
-                ".css",
-                ".scss",
-                ".less",
-                ".json",
-                ".xml",
-                ".yaml",
-                ".yml",
-                ".md",
-                ".txt",
-                ".log",
-                ".sql",
-                ".db",
-                ".sqlite",
-                ".env",
-                ".config",
-                ".ini",
-                ".conf",
-            )
-        ):
-            # Extract directory portion manually for cross-platform compatibility
-            last_backslash = path.rfind("\\")
-            if last_backslash != -1:
-                dir_path = path[:last_backslash]
-                # After extracting directory, check if it ends with common directory names
-                # and should extract one more level up
-                dir_path_lower = dir_path.lower()
-                if any(
-                    dir_path_lower.endswith((("\\" + dir_name), ("/" + dir_name)))
-                    for dir_name in [
-                        "src",
-                        "lib",
-                        "bin",
-                        "include",
-                        "static",
-                        "assets",
-                        "public",
-                        "docs",
-                        "tests",
-                        "test",
-                    ]
-                ):
-                    # Find the parent directory
-                    parent_last_backslash = dir_path.rfind("\\")
-                    if parent_last_backslash != -1:
-                        return dir_path[:parent_last_backslash]
-                    # For Unix paths
-                    parent_last_slash = dir_path.rfind("/")
-                    if parent_last_slash != -1:
-                        return dir_path[:parent_last_slash]
-                return dir_path
-            # For Unix paths
-            last_slash = path.rfind("/")
-            if last_slash != -1:
-                dir_path = path[:last_slash]
-                # After extracting directory, check if it ends with common directory names
-                dir_path_lower = dir_path.lower()
-                if any(
-                    dir_path_lower.endswith((("\\" + dir_name), ("/" + dir_name)))
-                    for dir_name in [
-                        "src",
-                        "lib",
-                        "bin",
-                        "include",
-                        "static",
-                        "assets",
-                        "public",
-                        "docs",
-                        "tests",
-                        "test",
-                    ]
-                ):
-                    # Find the parent directory
-                    parent_last_slash = dir_path.rfind("/")
-                    if parent_last_slash != -1:
-                        return dir_path[:parent_last_slash]
-                    # For Windows paths
-                    parent_last_backslash = dir_path.rfind("\\")
-                    if parent_last_backslash != -1:
-                        return dir_path[:parent_last_backslash]
-                return dir_path
-
-        # For paths ending with common directory names without files, extract parent directory
-        # This handles cases like "project/src" where we want "project"
-        path_lower = path.lower()
-        if any(
-            path_lower.endswith((("\\" + dir_name), ("/" + dir_name)))
-            for dir_name in [
-                "src",
-                "lib",
-                "bin",
-                "include",
-                "static",
-                "assets",
-                "public",
-                "docs",
-                "tests",
-                "test",
-            ]
-        ):
-            # Extract just one level up (parent directory)
-            last_backslash = path.rfind("\\")
-            if last_backslash != -1:
-                return path[:last_backslash]
-            # For Unix paths
-            last_slash = path.rfind("/")
-            if last_slash != -1:
-                return path[:last_slash]
-
-        # For UNC paths or if no extension found, check if path contains common file indicators
-        if any(
-            indicator in path
-            for indicator in [
-                "\\src\\",
-                "\\lib\\",
-                "\\bin\\",
-                "\\include\\",
-                "\\static\\",
-                "\\assets\\",
-                "\\public\\",
-                "\\docs\\",
-                "\\tests\\",
-                "\\test\\",
-            ]
-        ):
-            # Path likely ends with a directory structure, check if we should extract parent
-            # For paths ending with common directory names, extract one more level up
-            path_lower = path.lower()
-            if any(
-                path_lower.endswith((("\\" + dir_name), ("/" + dir_name)))
-                for dir_name in [
-                    "src",
-                    "lib",
-                    "bin",
-                    "include",
-                    "static",
-                    "assets",
-                    "public",
-                    "docs",
-                    "tests",
-                    "test",
-                ]
-            ):
-                # Find the parent directory
-                last_backslash = path.rfind("\\")
-                if last_backslash != -1:
-                    return path[:last_backslash]
-                # For Unix paths
-                last_slash = path.rfind("/")
-                if last_slash != -1:
-                    return path[:last_slash]
-            else:
-                return path.rstrip("\\")  # Remove trailing backslash
-
-        return path
+        path_type = self._detect_path_type(path)
+        if not path_type:
+            return path
+        normalized = self._normalize_directory_candidate(path, path_type)
+        return normalized or path
 
     async def maybe_resolve_project_directory(
         self, session: Session, request: ChatRequest

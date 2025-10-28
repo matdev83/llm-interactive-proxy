@@ -120,15 +120,8 @@ def main():
         for file_path, content in staged_files_content.items():
             # Skip pattern scan for files in the 'dev/' directory and specific files with false positives
             excluded_files = {
-                "KILOCODE_COMPATIBILITY_SUMMARY.md",
-                "UNIVERSAL_TOOL_EXECUTION_SUMMARY.md",
                 "src/core/commands/tool_call_text_parser.py",
-                "src/core/commands/handlers/universal_tool_handler.py",
                 "src/core/services/universal_tool_executor.py",
-                "tests/integration/test_kilocode_codex_integration.py",
-                "tests/integration/test_universal_tool_integration.py",
-                "tests/unit/test_kilocode_compatibility.py",
-                "tests/unit/test_universal_tool_execution.py",
             }
             if file_path.startswith("dev/") or file_path in excluded_files:
                 print(f"Skipping pattern scan for excluded file: {file_path}")

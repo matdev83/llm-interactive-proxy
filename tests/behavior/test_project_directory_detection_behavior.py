@@ -6,6 +6,7 @@ in realistic conversation scenarios that would be encountered in production use,
 ensuring the system behaves appropriately in common edge cases and typical usage patterns.
 """
 
+from pathlib import PureWindowsPath
 from unittest.mock import AsyncMock
 
 import pytest
@@ -729,5 +730,6 @@ class TestEdgeCaseScenarios:
         await service.maybe_resolve_project_directory(session, request)
 
         # Then
-        assert session.state.project_dir == long_path
+        expected_path = str(PureWindowsPath(long_path))
+        assert session.state.project_dir == expected_path
         assert session.state.project_dir_resolution_attempted is True

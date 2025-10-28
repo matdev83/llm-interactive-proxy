@@ -6,7 +6,8 @@ import json
 import logging
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,9 @@ class UniversalToolExecutor:
         """
         self.working_directory = Path(working_directory or os.getcwd())
         self.mcp_client = UniversalMCPClient()
-        self._custom_tool_handlers: dict[str, Callable] = {}
+        self._custom_tool_handlers: dict[
+            str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+        ] = {}
         self._register_built_in_handlers()
 
     def _register_built_in_handlers(self) -> None:
@@ -101,7 +104,11 @@ class UniversalToolExecutor:
                 "error": str(e),
             }
 
-    def register_tool_handler(self, tool_name: str, handler: Callable) -> None:
+    def register_tool_handler(
+        self,
+        tool_name: str,
+        handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
+    ) -> None:
         """Register a custom tool handler.
 
         Args:
@@ -185,12 +192,10 @@ class UniversalToolExecutor:
             resolved_path = resolved_path.resolve()
 
             # Security check: ensure path is within working directory or its subdirectories
-            try:
-                resolved_path.relative_to(self.working_directory.resolve())
-            except ValueError:
+            with suppress(ValueError):
                 # Allow reading files outside working directory for now (Codex behavior)
                 # In production, you might want to restrict this
-                pass
+                resolved_path.relative_to(self.working_directory.resolve())
 
             if not resolved_path.exists():
                 return {

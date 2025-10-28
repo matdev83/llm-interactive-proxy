@@ -23,6 +23,12 @@ If any check fails, the translation layer stays dormant, preserving default Code
   - The proxy ships Codex’s default tools (`shell`, custom `apply_patch`, `view_image`).
   - Wire-captured scenarios confirm Codex responds successfully once the canonical prompt is respected.
 
+- **Recent Observations**
+  - The Codex service hard-rejects any alteration to its canonical system prompt and returns `HTTP 400` with no body. The rejection occurs even if we only prepend persona text before the canonical block.
+  - Sanitising instructions to ASCII is necessary but insufficient; the canonical prompt must remain byte-for-byte identical to the one issued by `codex-cli`.
+  - Client-provided system prompts can be appended only as user-level instructions. Attempts to mix personas (e.g., merging Codex and KiloCode personas) trigger the same 400 rejection.
+  - Universal “execute any tool” passthroughs proved fragile and caused broad regressions because they bypassed Codex-specific invariants.
+
 - **Not Working / Gaps**
   - Codex rejects any modification of its system prompt or appended instructions. Even trimming only persona lines triggers `Instructions are not valid`.
   - KiloCode emits XML tags (`<read_file>`, `<use_mcp_tool>`, `<attempt_completion>`, etc.) that Codex cannot parse; current translation layer only understands a subset (`execute_command`, `apply_diff`, `view_image`).
@@ -97,3 +103,17 @@ Kilo Tool Inventory (from `src/shared/tools.ts`):
 - Performance: introducing translation/execution layers will add latency; caching or streaming optimizations may be necessary.
 - Error reporting: mismatched schemas should raise explicit errors with actionable guidance so users understand why a tool failed.
 
+## Acceptance Criteria
+- Canonical Codex system instructions remain untouched for all translated requests; client personas appear only in user-level blocks.
+- Compatibility layer activates exclusively when `backend=openai-codex` **and** session metadata positively identifies KiloCode (or documented aliases).
+- High-frequency Kilo tools (`execute_command`, `read_file`, `list_files`, `codebase_search`, `attempt_completion`, `ask_followup_question`) are either translated into Codex-compatible tool calls or handled proxy-side with round-trip tests demonstrating fidelity.
+- Translation failures surface actionable error messages (no silent fallbacks to Codex with unsupported XML left in place).
+- Automated tests cover detection (positive/negative), prompt translation, and tool round-trips without requiring access to the live Codex service.
+- Documentation (this spec + plan) is updated whenever new tools are mapped or limitations identified.
+
+## Anti-Patterns to Avoid
+- **Universal Tool Passthroughs** – Avoid injecting blanket handlers that attempt to execute arbitrary Kilo tools via a generic executor; this bypass leads to missing context, violates Codex invariants, and reintroduces the regressions we observed.
+- **Unauthenticated Activation** – Do not trigger the translation layer solely on heuristic XML detection without session caching; ensure the backend+agent pair is verified to prevent affecting unrelated clients.
+- **Prompt Mutation** – Never mutate or reconstruct Codex’s canonical instructions; even well-intentioned whitespace changes cause hard failures.
+- **Tool Flooding** – Avoid advertising unsupported Kilo tools to Codex clients before translation logic exists; premature exposure leads to confusing 400/422 errors.
+- **Silent Error Suppression** – Do not swallow translation errors and continue; always raise a specific compatibility exception so operators can diagnose issues quickly.
