@@ -121,10 +121,12 @@ def main():
             # Skip pattern scan for files in the 'dev/' directory and specific files with false positives
             excluded_files = {
                 "KILOCODE_COMPATIBILITY_SUMMARY.md",
+                "UNIVERSAL_TOOL_EXECUTION_SUMMARY.md",
                 "src/core/commands/tool_call_text_parser.py",
                 "src/core/services/universal_tool_executor.py",
                 "tests/integration/test_kilocode_codex_integration.py",
                 "tests/unit/test_kilocode_compatibility.py",
+                "tests/unit/test_universal_tool_execution.py",
             }
             if file_path.startswith("dev/") or file_path in excluded_files:
                 print(f"Skipping pattern scan for excluded file: {file_path}")

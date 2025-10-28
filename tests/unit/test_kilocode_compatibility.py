@@ -137,10 +137,11 @@ class TestKiloCodeXMLParsing:
         result = parse_textual_tool_invocation(xml)
         
         assert result is not None
-        assert result.canonical_name == "apply_patch"
-        assert "patch" in result.arguments
+        assert result.canonical_name == "use_mcp_tool"
+        assert result.arguments["tool_name"] == "patch_file"
         assert result.arguments["path"] == "src/main.py"
-        assert "# New comment" in result.arguments["patch"]
+        assert "# New comment" in result.arguments["arguments"]
+        assert "patch_content" in result.arguments  # Special handling for patch_file
 
     def test_use_mcp_tool_generic(self):
         """Test parsing <use_mcp_tool> for generic MCP tools."""

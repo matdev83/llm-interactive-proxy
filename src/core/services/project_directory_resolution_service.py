@@ -21,11 +21,13 @@ logger = logging.getLogger(__name__)
 
 # Pre-compiled regex patterns for performance optimization
 _WINDOWS_PATH_PATTERN = re.compile(
-    r'\b([a-zA-Z]:\\(?:[^:"*?<>|\r\n\\]*(?:\\[^:"*?<>|\r\n\\]*)*))(?=\s|$|[,.;!?])'
+    r'\b([a-zA-Z]:\\(?:[^:"*?<>|\r\n\\\s.]*(?:\\[^:"*?<>|\r\n\\\s.]*)*))(?=\s|$|[,.;!?])'
 )
-_UNC_PATH_PATTERN = re.compile(r"(\\{2}[^\\:\r\n]*(?:\\[^\\:\r\n]*)*)(?=\s|$|[,.;!?])")
+_UNC_PATH_PATTERN = re.compile(
+    r"(\\{2}[^\\:\r\n\s.]*(?:\\[^\\:\r\n\s.]*)*)(?=\s|$|[,.;!?])"
+)
 _UNIX_PATH_PATTERN = re.compile(
-    r"(?:^|\s)(/[^/\s:\r\n]*(?:/[^/\s:\r\n]*)*)(?=\s|$|[,.;!?])"
+    r"(?:^|\s)(/[^/\\\s:\r\n]*(?:/[^/\\\s:\r\n]*)*)(?=\s|$|[,.;!?])"
 )
 _UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
 

@@ -341,31 +341,24 @@ def _parse_use_mcp_tool_invocation(text: str) -> TextToolInvocation | None:
 
     tool_name = tool_name_match.group(1).strip()
 
-    # For patch_file operations, map to apply_patch
-    if tool_name == "patch_file":
-        # Extract content which should contain the patch
-        content_match = _USE_MCP_TOOL_PATTERN.search(text)
-        if content_match:
-            patch_content = content_match.group(1).strip()
-            arguments = {"patch": patch_content}
-
-            # Try to extract file path if present
-            path_match = _FILE_PATH_ATTR_PATTERN.search(text)
-            if path_match:
-                arguments["path"] = path_match.group(1).strip()
-
-            return TextToolInvocation(
-                canonical_name="apply_patch",
-                arguments=arguments,
-                raw_text=text,
-                command_text=None,
-            )
-
-    # For other MCP tools, return generic MCP invocation
+    # Extract content and other attributes
     content_match = _USE_MCP_TOOL_PATTERN.search(text)
     arguments = {"tool_name": tool_name}
+    
+    # Add content if present
     if content_match:
-        arguments["arguments"] = content_match.group(1).strip()
+        content = content_match.group(1).strip()
+        if content:
+            arguments["arguments"] = content
+    
+    # Extract any other attributes (path, etc.)
+    path_match = _FILE_PATH_ATTR_PATTERN.search(text)
+    if path_match:
+        arguments["path"] = path_match.group(1).strip()
+    
+    # For patch_file operations, include special handling but let universal executor decide
+    if tool_name == "patch_file" and "arguments" in arguments:
+        arguments["patch_content"] = arguments["arguments"]
 
     return TextToolInvocation(
         canonical_name="use_mcp_tool",

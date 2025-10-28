@@ -81,10 +81,11 @@ class UniversalToolExecutor:
                 return await self._execute_generic_mcp_tool(arguments)
             
             # 4. Unknown tool - return error
+            available_tools = self.get_available_tools()
             return {
-                "output": f"Unknown tool: {tool_name}",
+                "output": f"Unknown tool: {tool_name}. Available tools: {available_tools}",
                 "exit_code": 1,
-                "error": f"Tool '{tool_name}' is not available. Available tools: {self.get_available_tools()}"
+                "error": f"Tool '{tool_name}' is not available"
             }
             
         except Exception as e:
