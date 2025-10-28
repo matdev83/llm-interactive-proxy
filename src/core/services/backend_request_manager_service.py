@@ -505,8 +505,48 @@ class BackendRequestManager(IBackendRequestManager):
         return fallback
 
     @staticmethod
-    def _extract_text_from_chunk(chunk: ProcessedResponse) -> str:
+    def _extract_text_from_chunk(chunk: ProcessedResponse | bytes) -> str:
         """Extract textual content from a streaming chunk for loop analysis."""
+        import json
+        
+        # Handle case where chunk is raw bytes (from streaming)
+        if isinstance(chunk, bytes):
+            try:
+                decoded = chunk.decode('utf-8')
+                # Try to parse as JSON to extract content
+                data = json.loads(decoded)
+                if isinstance(data, dict):
+                    choices = data.get("choices")
+                    if isinstance(choices, list) and choices:
+                        choice = choices[0]
+                        if isinstance(choice, dict):
+                            delta = choice.get("delta")
+                            if isinstance(delta, dict):
+                                content = delta.get("content")
+                                if isinstance(content, str):
+                                    return content
+                                if isinstance(content, list):
+                                    fragments: list[str] = []
+                                    for part in content:
+                                        if isinstance(part, str):
+                                            fragments.append(part)
+                                        elif isinstance(part, dict):
+                                            text_part = part.get("text")
+                                            if isinstance(text_part, str):
+                                                fragments.append(text_part)
+                                    if fragments:
+                                        return "".join(fragments)
+                            message = choice.get("message")
+                            if isinstance(message, dict):
+                                msg_content = message.get("content")
+                                if isinstance(msg_content, str):
+                                    return msg_content
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                # If decoding or parsing fails, return empty string
+                return ""
+            return ""
+        
+        # Handle case where chunk is a ProcessedResponse object
         data = chunk.content
         if isinstance(data, str):
             return data
