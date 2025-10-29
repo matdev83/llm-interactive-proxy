@@ -38,16 +38,28 @@ except ImportError:
 class KiloToolTranslator:
     """Translates KiloCode XML tool invocations to Codex format."""
 
-    def __init__(self, connector: OpenAICodexConnector):
+    def __init__(
+        self, connector: OpenAICodexConnector, session_service: Any | None = None
+    ):
         """Initialize the translator.
 
         Args:
             connector: The OpenAI Codex connector instance
+            session_service: Optional session service for state management.
+                If None, session state updates will be skipped with a warning.
         """
         self._connector = connector
+        self._session_service = session_service
         self._xml_parser: XMLToolParser | None = (
             None  # Lazy initialization for performance
         )
+
+        # Log warning if session service not provided
+        if session_service is None:
+            logger.warning(
+                "KiloToolTranslator initialized without session_service. "
+                "Session state updates will be skipped."
+            )
 
     async def translate_tool_invocation(
         self, xml_text: str, session_id: str | None = None
@@ -113,11 +125,17 @@ class KiloToolTranslator:
                 result = self._translate_editing_tool(parsed)
                 execution_mode = "proxy"
             else:
-                # Unsupported tool for now
-                logger.debug(
-                    "Tool '%s' not yet supported for translation", parsed.canonical_name
+                # Unsupported tool - raise error as per Requirement 11.1
+                from src.connectors._openai_codex_compatibility_errors import (
+                    create_unsupported_tool_error,
                 )
-                return None
+                
+                raise create_unsupported_tool_error(
+                    tool_name=parsed.canonical_name,
+                    original_xml=xml_text,
+                    session_id=session_id,
+                    supported_tools=list(self._xml_parser.SUPPORTED_TAGS) if self._xml_parser else [],
+                )
 
             # Log successful translation telemetry
             if result and telemetry:
@@ -438,9 +456,8 @@ class KiloToolTranslator:
                 },
             )
 
-            # Update session state if session_id is provided
-            # For now, just log the completion attempt
-            # In a full implementation, this would update session state
+            # Update session state
+            await self._update_session_completion(session_id, arguments)
 
             # Return acknowledgment
             return f"[attempt_completion] Task completion acknowledged: {result_msg}"
@@ -455,9 +472,8 @@ class KiloToolTranslator:
                 },
             )
 
-            # Update session state if session_id is provided
-            # For now, just log the question
-            # In a full implementation, this would update session state
+            # Update session state
+            await self._update_session_followup(session_id, arguments)
 
             # Return acknowledgment
             return f"[ask_followup_question] Question received: {question}"
@@ -673,6 +689,102 @@ class KiloToolTranslator:
         # Return marker for proxy-side execution
         return (f"__proxy_{tool_name}", arguments)
 
+    def _translate_mcp_parameters(
+        self, kilo_params: dict[str, Any], mcp_schema: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Translate KiloCode parameters to MCP parameter format.
+
+        Args:
+            kilo_params: Parameters from KiloCode tool invocation
+            mcp_schema: MCP tool schema with parameter definitions
+
+        Returns:
+            Translated parameters for MCP tool
+
+        Raises:
+            TranslationError: If parameter validation fails
+        """
+        translated = {}
+
+        # Get parameter definitions from schema
+        schema_params = mcp_schema.get("parameters", {})
+        if isinstance(schema_params, dict):
+            properties = schema_params.get("properties", {})
+            required = schema_params.get("required", [])
+        else:
+            properties = {}
+            required = []
+
+        # Validate required parameters are present
+        missing_params = []
+        for param_name in required:
+            if param_name not in kilo_params:
+                missing_params.append(param_name)
+
+        if missing_params:
+            raise create_parameter_validation_error(
+                tool_name="mcp_tool",
+                message=f"Missing required parameters: {', '.join(missing_params)}",
+                missing_parameters=missing_params,
+            )
+
+        # Translate each parameter
+        for param_name, param_value in kilo_params.items():
+            # Get parameter schema
+            param_schema = properties.get(param_name, {})
+            param_type = param_schema.get("type")
+
+            # Convert parameter types based on schema
+            if param_type == "integer" or param_type == "number":
+                # Convert string to int/float
+                if isinstance(param_value, str):
+                    try:
+                        if param_type == "integer":
+                            translated[param_name] = int(param_value)
+                        else:
+                            translated[param_name] = float(param_value)
+                    except ValueError:
+                        raise create_parameter_validation_error(
+                            tool_name="mcp_tool",
+                            message=f"Invalid {param_type} value for parameter '{param_name}': {param_value}",
+                            invalid_parameters={param_name: f"Expected {param_type}, got string"},
+                        )
+                else:
+                    translated[param_name] = param_value
+
+            elif param_type == "boolean":
+                # Convert string to bool
+                if isinstance(param_value, str):
+                    if param_value.lower() in ("true", "1", "yes"):
+                        translated[param_name] = True
+                    elif param_value.lower() in ("false", "0", "no"):
+                        translated[param_name] = False
+                    else:
+                        raise create_parameter_validation_error(
+                            tool_name="mcp_tool",
+                            message=f"Invalid boolean value for parameter '{param_name}': {param_value}",
+                            invalid_parameters={param_name: "Expected boolean, got invalid string"},
+                        )
+                else:
+                    translated[param_name] = bool(param_value)
+
+            else:
+                # Keep as-is for string, array, object types
+                translated[param_name] = param_value
+
+        # Handle optional parameters with default values
+        for param_name, param_schema in properties.items():
+            if param_name not in translated and "default" in param_schema:
+                translated[param_name] = param_schema["default"]
+
+        logger.debug(
+            "Translated MCP parameters: %d input params -> %d output params",
+            len(kilo_params),
+            len(translated),
+        )
+
+        return translated
+
     def format_tool_result(self, tool_name: str, result: dict[str, Any]) -> str:
         """Format execution result in KiloCode's expected format.
 
@@ -683,9 +795,38 @@ class KiloToolTranslator:
         Returns:
             Formatted result string in KiloCode format
         """
-        # KiloCode expects results in the format: [tool_name] Result: <content>
-        output = result.get("output", "")
-        exit_code = result.get("exit_code")
+        # Handle MCP results specially (check for MCP-specific fields first)
+        if isinstance(result, dict):
+            # Check for MCP response structure with content field
+            if "content" in result and "output" not in result:
+                # MCP result with content field
+                content = result["content"]
+                if isinstance(content, list):
+                    # Multiple content items
+                    content_str = "\n".join(str(item) for item in content)
+                else:
+                    content_str = str(content)
+                
+                # Check for errors
+                if result.get("isError"):
+                    error_msg = result.get("error", content_str)
+                    return f"[{tool_name}] Error: {error_msg}"
+                
+                return f"[{tool_name}] Result:\n{content_str}"
+            
+            # Check for MCP response structure with result field (but not output)
+            elif "result" in result and "output" not in result and "exit_code" not in result:
+                # MCP result with result field
+                result_content = result["result"]
+                if result.get("isError"):
+                    error_msg = result.get("error", str(result_content))
+                    return f"[{tool_name}] Error: {error_msg}"
+                
+                return f"[{tool_name}] Result:\n{str(result_content)}"
+
+        # Standard KiloCode format: [tool_name] Result: <content>
+        output = result.get("output", "") if isinstance(result, dict) else str(result)
+        exit_code = result.get("exit_code") if isinstance(result, dict) else None
 
         # Build the formatted result
         formatted_parts = [f"[{tool_name}] Result:"]
@@ -699,12 +840,12 @@ class KiloToolTranslator:
 
         # Add match count for search results
         if tool_name in ("grep_files", "codebase_search", "search_files"):
-            matches_count = result.get("matches_count")
+            matches_count = result.get("matches_count") if isinstance(result, dict) else None
             if matches_count is not None:
                 formatted_parts.append(f"\nMatches found: {matches_count}")
 
         # Add error information if present
-        if result.get("error"):
+        if isinstance(result, dict) and result.get("error"):
             formatted_parts.append(f"\nError: {result['error']}")
 
         formatted_result = "\n".join(formatted_parts)

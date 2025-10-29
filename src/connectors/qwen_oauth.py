@@ -936,7 +936,8 @@ class QwenOAuthConnector(OpenAIConnector):
             from src.connectors.openai import OpenAIConnector
 
             # DEBUG: Log what we're about to do
-            logger.info(f"QwenOAuth DEBUG: Calling parent with effective_model='{model_name}', original request_data model='{request_data.get('model', 'unknown')}'")
+            original_model = getattr(request_data, 'model', 'unknown') if hasattr(request_data, 'model') else 'unknown'
+            logger.info(f"QwenOAuth DEBUG: Calling parent with effective_model='{model_name}', original request_data model='{original_model}'")
 
             response_envelope = await OpenAIConnector.chat_completions(
                 self,

@@ -194,10 +194,8 @@ class TestQwenOAuthCredentials:
             # Mock the actual credential loading that happens after CLI refresh
             def mock_load_side_effect():
                 connector._oauth_credentials = new_credentials
-                # Also update the API base URL as the real implementation would
-                resource_url = new_credentials.get("resource_url")
-                if resource_url:
-                    connector.api_base_url = f"https://{resource_url}/v1"
+                # The real implementation no longer updates API base URL from resource_url
+                # It always uses the fixed DashScope endpoint
                 return True
 
             connector._load_oauth_credentials.side_effect = mock_load_side_effect

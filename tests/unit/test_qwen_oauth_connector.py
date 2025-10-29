@@ -55,10 +55,7 @@ class TestQwenOAuthConnectorUnit:
     async def test_connector_initialization(self, connector, mock_client):
         """Test basic connector initialization."""
         assert connector.name == "qwen-oauth"
-        assert (
-            connector.api_base_url
-            == "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        )
+        assert connector.api_base_url == "https://portal.qwen.ai/v1"
         assert not connector.is_functional
         assert connector._oauth_credentials is None
         assert connector._credentials_path is None

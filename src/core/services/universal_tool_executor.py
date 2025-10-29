@@ -151,6 +151,67 @@ class UniversalToolExecutor:
         )
         return sorted(available_tools)
 
+    def format_result_for_kilocode(
+        self, tool_name: str, result: dict[str, Any]
+    ) -> str:
+        """Format tool execution result in KiloCode format.
+
+        This is a public method for external callers (like KiloToolTranslator)
+        to format tool results consistently with KiloCode client expectations.
+
+        Args:
+            tool_name: Name of the tool that was executed
+            result: Tool execution result dictionary containing:
+                - output or content: The result content
+                - error: Error message if execution failed
+                - exit_code: Exit code (0 for success, non-zero for error)
+                - success: Boolean success flag (optional)
+
+        Returns:
+            Formatted result string in KiloCode format:
+            - Success: "[tool_name] Result:\\n<content>"
+            - Error: "[tool_name] Error: <error_message>"
+            - Timeout: "[tool_name] Error: Execution timed out"
+
+        Examples:
+            >>> executor.format_result_for_kilocode("read_file", {
+            ...     "output": "file content",
+            ...     "exit_code": 0
+            ... })
+            "[read_file] Result:\\nfile content"
+
+            >>> executor.format_result_for_kilocode("shell", {
+            ...     "error": "Command not found",
+            ...     "exit_code": 1
+            ... })
+            "[shell] Error: Command not found"
+        """
+        # Check for explicit success flag
+        if "success" in result:
+            is_success = result["success"]
+        else:
+            # Infer success from exit_code
+            is_success = result.get("exit_code", 0) == 0
+
+        if is_success:
+            # Extract content from various possible fields
+            content = (
+                result.get("output")
+                or result.get("content")
+                or result.get("result")
+                or ""
+            )
+            return f"[{tool_name}] Result:\n{content}"
+        else:
+            # Extract error message
+            error = result.get("error") or result.get("output") or "Unknown error"
+
+            # Check for timeout-specific error
+            if "timed out" in str(error).lower() or "timeout" in str(error).lower():
+                return f"[{tool_name}] Error: Execution timed out"
+
+            return f"[{tool_name}] Error: {error}"
+
     async def connect_mcp_server(
         self, server_name: str, server_config: dict[str, Any]
     ) -> bool:

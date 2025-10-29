@@ -432,7 +432,7 @@ class TestQwenOAuthAuthentication:
                 == mock_credentials["resource_url"]
             )
 
-            # Verify API URL is set from resource_url
+            # Verify API URL is set to the fixed DashScope endpoint
             assert connector.api_base_url == "https://portal.qwen.ai/v1"
 
     @pytest.mark.asyncio
