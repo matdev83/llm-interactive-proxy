@@ -75,6 +75,9 @@ class SessionDetector:
         self._cache_lock = asyncio.Lock()
         self._cache_ttl = cache_ttl_seconds
         self._heuristic_threshold = heuristic_threshold
+        # Cache statistics tracking
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     async def detect(
         self,
@@ -82,6 +85,7 @@ class SessionDetector:
         metadata: Mapping[str, Any] | None,
         session_id: str,
         backend: str,
+        agent: str | None = None,
     ) -> DetectionResult:
         """Detect if request is from KiloCode client.
 
@@ -90,17 +94,25 @@ class SessionDetector:
             metadata: Optional metadata dictionary
             session_id: Session identifier for caching
             backend: Backend name for cache invalidation
+            agent: Optional agent identifier for cache invalidation
 
         Returns:
             DetectionResult with detection outcome and metadata
         """
+        # Use default agent if not provided
+        if agent is None:
+            agent = "default"
+
         # Check cache first
-        cache_key = self._build_cache_key(session_id, backend)
+        cache_key = self._build_cache_key(session_id, backend, agent)
         async with self._cache_lock:
             if cache_key in self._cache:
                 cached = self._cache[cache_key]
                 # Check if cache entry is still valid
                 if time.time() - cached.timestamp < self._cache_ttl:
+                    # Increment cache hit counter
+                    self._cache_hits += 1
+
                     logger.debug(
                         "Using cached KiloCode detection result for session %s: %s",
                         session_id,
@@ -129,6 +141,11 @@ class SessionDetector:
                 else:
                     # Cache expired, remove it
                     del self._cache[cache_key]
+                    # Increment cache miss counter (expired entry)
+                    self._cache_misses += 1
+            else:
+                # Increment cache miss counter (entry not found)
+                self._cache_misses += 1
 
         # Perform detection
         start_time = time.time()
@@ -430,14 +447,79 @@ class SessionDetector:
             self._cache[cache_key] = result
 
     @staticmethod
-    def _build_cache_key(session_id: str, backend: str) -> str:
-        """Build cache key from session and backend.
+    def _build_cache_key(session_id: str, backend: str, agent: str = "default") -> str:
+        """Build cache key from session, backend, and agent.
 
         Args:
             session_id: Session identifier
             backend: Backend name
+            agent: Agent identifier (defaults to "default")
 
         Returns:
-            Cache key string
+            Cache key string (SHA256 hash for consistency)
         """
-        return f"{session_id}:{backend}"
+        import hashlib
+
+        # Use SHA256 hash for consistent key generation
+        key_string = f"{session_id}:{backend}:{agent}"
+        return hashlib.sha256(key_string.encode()).hexdigest()
+
+    def invalidate_cache_for_backend_change(
+        self, old_backend: str, new_backend: str
+    ) -> None:
+        """Invalidate cache entries when backend configuration changes.
+
+        Args:
+            old_backend: Previous backend name
+            new_backend: New backend name
+        """
+        size_before = len(self._cache)
+        self._cache.clear()
+        size_after = len(self._cache)
+
+        logger.info(
+            "Cache invalidated for backend change: %s → %s (%d entries cleared)",
+            old_backend,
+            new_backend,
+            size_before,
+        )
+
+    def invalidate_cache_for_agent_change(
+        self, old_agent: str, new_agent: str
+    ) -> None:
+        """Invalidate cache entries when agent configuration changes.
+
+        Args:
+            old_agent: Previous agent identifier
+            new_agent: New agent identifier
+        """
+        size_before = len(self._cache)
+        self._cache.clear()
+        size_after = len(self._cache)
+
+        logger.info(
+            "Cache invalidated for agent change: %s → %s (%d entries cleared)",
+            old_agent,
+            new_agent,
+            size_before,
+        )
+
+    def get_cache_stats(self) -> dict[str, Any]:
+        """Get cache statistics.
+
+        Returns:
+            Dictionary containing:
+            - total_entries: Number of entries in cache
+            - hits: Number of cache hits
+            - misses: Number of cache misses
+            - hit_rate: Cache hit rate (0.0 to 1.0)
+        """
+        total = self._cache_hits + self._cache_misses
+        hit_rate = self._cache_hits / total if total > 0 else 0.0
+
+        return {
+            "total_entries": len(self._cache),
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
+            "hit_rate": hit_rate,
+        }

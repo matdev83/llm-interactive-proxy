@@ -161,6 +161,54 @@ class TestStaticRoute:
         assert backend_type == "gemini-oauth-plan"
         assert effective_model == "gemini-2.5-pro"
 
+    def test_synchronize_request_with_target_updates_extra_body(
+        self,
+        mock_config_with_static_route,
+        mock_session_service,
+        mock_backend_factory,
+        mock_wire_capture,
+        mock_rate_limiter,
+        mock_app_state,
+    ):
+        """Ensure request and extra_body reflect the resolved backend/model."""
+        service = BackendService(
+            factory=mock_backend_factory,
+            rate_limiter=mock_rate_limiter,
+            config=mock_config_with_static_route,
+            session_service=mock_session_service,
+            app_state=mock_app_state,
+            wire_capture=mock_wire_capture,
+            failover_routes={},
+        )
+
+        original_model = "gemini-cli-oauth-personal:models/gemini-2.5-pro"
+        request = ChatRequest(
+            model=original_model,
+            messages=[{"role": "user", "content": "test"}],
+            extra_body={
+                "model": original_model,
+                "backend_type": "gemini-cli-oauth-personal",
+                "other": "value",
+            },
+        )
+
+        updated_request = service._synchronize_request_with_target(
+            request, backend_type="qwen-oauth", effective_model="qwen3-coder-plus"
+        )
+
+        assert updated_request is not request
+        assert updated_request.model == "qwen3-coder-plus"
+        assert updated_request.extra_body is not None
+        assert updated_request.extra_body["model"] == "qwen3-coder-plus"
+        assert updated_request.extra_body["backend_type"] == "qwen-oauth"
+        assert updated_request.extra_body["other"] == "value"
+
+        # Original request remains unchanged
+        assert request.model == original_model
+        assert request.extra_body is not None
+        assert request.extra_body["model"] == original_model
+        assert request.extra_body["backend_type"] == "gemini-cli-oauth-personal"
+
 
 class TestStaticRouteCLI:
     """Test suite for static_route CLI argument parsing."""

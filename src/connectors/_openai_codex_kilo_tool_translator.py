@@ -857,3 +857,129 @@ class KiloToolTranslator:
         )
 
         return formatted_result
+
+    async def _update_session_completion(
+        self, session_id: str | None, arguments: dict[str, Any]
+    ) -> None:
+        """Update session state for attempt_completion.
+
+        Args:
+            session_id: Session identifier
+            arguments: Tool arguments containing completion result
+        """
+        if not session_id:
+            logger.debug("No session_id provided, skipping session state update")
+            return
+
+        if not self._session_service:
+            logger.debug(
+                "Session service not available, skipping session state update for session %s",
+                session_id,
+            )
+            return
+
+        try:
+            # Extract completion result
+            completion_result = arguments.get("result", "")
+
+            # Update session with completion status
+            await self._session_service.update_session(
+                session_id,
+                status="completed",
+                completion_result=completion_result,
+                completed_at=time.time(),
+            )
+
+            logger.info(
+                "Session %s marked as completed (result length: %d)",
+                session_id,
+                len(completion_result),
+            )
+
+        except Exception as e:
+            # Log error but don't fail the request
+            logger.error(
+                "Failed to update session state for completion (session: %s): %s",
+                session_id,
+                str(e),
+                exc_info=True,
+            )
+
+            # Record telemetry event for session update failure
+            telemetry = get_telemetry()
+            if telemetry:
+                telemetry.log_error_event(
+                    session_id=session_id,
+                    error_code="SessionUpdateFailed",
+                    tool_name="attempt_completion",
+                    error_message=str(e),
+                    original_xml="",
+                    stack_trace=traceback.format_exc(),
+                )
+
+    async def _update_session_followup(
+        self, session_id: str | None, arguments: dict[str, Any]
+    ) -> None:
+        """Update session state for ask_followup_question.
+
+        Args:
+            session_id: Session identifier
+            arguments: Tool arguments containing follow-up question
+        """
+        if not session_id:
+            logger.debug("No session_id provided, skipping session state update")
+            return
+
+        if not self._session_service:
+            logger.debug(
+                "Session service not available, skipping session state update for session %s",
+                session_id,
+            )
+            return
+
+        try:
+            # Extract question
+            question = arguments.get("question", "")
+
+            # Get current session to preserve existing followup_questions list
+            session = await self._session_service.get_session(session_id)
+            existing_questions = session.get("followup_questions", []) if session else []
+
+            # Append new question to list
+            updated_questions = existing_questions + [
+                {"question": question, "timestamp": time.time()}
+            ]
+
+            # Update session with new followup question
+            await self._session_service.update_session(
+                session_id,
+                followup_questions=updated_questions,
+                last_followup_at=time.time(),
+            )
+
+            logger.info(
+                "Session %s updated with follow-up question (total questions: %d)",
+                session_id,
+                len(updated_questions),
+            )
+
+        except Exception as e:
+            # Log error but don't fail the request
+            logger.error(
+                "Failed to update session state for follow-up question (session: %s): %s",
+                session_id,
+                str(e),
+                exc_info=True,
+            )
+
+            # Record telemetry event for session update failure
+            telemetry = get_telemetry()
+            if telemetry:
+                telemetry.log_error_event(
+                    session_id=session_id,
+                    error_code="SessionUpdateFailed",
+                    tool_name="ask_followup_question",
+                    error_message=str(e),
+                    original_xml="",
+                    stack_trace=traceback.format_exc(),
+                )

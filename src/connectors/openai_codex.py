@@ -1054,6 +1054,65 @@ class OpenAICodexConnector(OpenAIConnector):
         executor = self._get_universal_executor()
         return executor.get_available_tools()
 
+    def invalidate_detection_cache_for_backend_change(
+        self, old_backend: str, new_backend: str
+    ) -> None:
+        """Invalidate detection cache when backend configuration changes.
+
+        Args:
+            old_backend: Previous backend name
+            new_backend: New backend name
+        """
+        if self._session_detector:
+            self._session_detector.invalidate_cache_for_backend_change(
+                old_backend, new_backend
+            )
+        else:
+            logger.warning(
+                "Session detector not available, cannot invalidate cache for backend change"
+            )
+
+    def invalidate_detection_cache_for_agent_change(
+        self, old_agent: str, new_agent: str
+    ) -> None:
+        """Invalidate detection cache when agent configuration changes.
+
+        Args:
+            old_agent: Previous agent identifier
+            new_agent: New agent identifier
+        """
+        if self._session_detector:
+            self._session_detector.invalidate_cache_for_agent_change(
+                old_agent, new_agent
+            )
+        else:
+            logger.warning(
+                "Session detector not available, cannot invalidate cache for agent change"
+            )
+
+    def get_detection_cache_stats(self) -> dict[str, Any]:
+        """Get detection cache statistics.
+
+        Returns:
+            Dictionary containing cache statistics:
+            - total_entries: Number of entries in cache
+            - hits: Number of cache hits
+            - misses: Number of cache misses
+            - hit_rate: Cache hit rate (0.0 to 1.0)
+        """
+        if self._session_detector:
+            return self._session_detector.get_cache_stats()
+        else:
+            logger.warning(
+                "Session detector not available, returning empty cache stats"
+            )
+            return {
+                "total_entries": 0,
+                "hits": 0,
+                "misses": 0,
+                "hit_rate": 0.0,
+            }
+
     def _resolve_tool_schema(
         self, request_data: Any, capabilities: CodexClientCapabilities
     ) -> list[dict[str, Any]]:

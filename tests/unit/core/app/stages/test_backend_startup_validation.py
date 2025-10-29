@@ -58,6 +58,57 @@ class TestBackendStartupValidation:
         config = AppConfig(backends=BackendSettings(default_backend=""))
         return config
 
+    @pytest.mark.asyncio
+    async def test_validate_registers_http_client_when_missing(
+        self,
+        backend_stage: BackendStage,
+        app_config_with_multiple_backends: AppConfig,
+    ):
+        """Ensure validation registers a temporary HTTP client when none exists."""
+        from src.core.di.container import ServiceCollection
+
+        services = ServiceCollection()
+        services.add_instance(AppConfig, app_config_with_multiple_backends)
+
+        import httpx
+
+        class _DummyBackend:
+            def is_backend_functional(self) -> bool:
+                return True
+
+        class _DummyBackendFactory:
+            async def ensure_backend(
+                self,
+                backend_type: str,
+                app_config: AppConfig,
+                backend_config: BackendConfig | None,
+            ) -> _DummyBackend:
+                return _DummyBackend()
+
+        with patch.object(
+            backend_stage,
+            "_register_validation_http_client",
+            wraps=backend_stage._register_validation_http_client,
+        ) as mock_register, patch(
+            "src.core.app.stages.backend.backend_registry"
+        ) as mock_registry, patch(
+            "src.core.app.controllers.models_controller._resolve_backend_factory_from_provider",
+            return_value=_DummyBackendFactory(),
+        ):
+            mock_registry.get_registered_backends.return_value = ["openai"]
+            mock_registry.get_backend_factory.return_value = (
+                lambda *args, **kwargs: _DummyBackend()
+            )
+
+            result = await backend_stage.validate(
+                services, app_config_with_multiple_backends
+            )
+
+        assert result is True
+        provider = services.build_service_provider()
+        assert provider.get_service(httpx.AsyncClient) is not None
+        mock_register.assert_called_once()
+
     @pytest.fixture
     def mock_backend_registry(self) -> Mock:
         """Create a mock backend registry."""

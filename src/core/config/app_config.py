@@ -747,7 +747,7 @@ class AppConfig(DomainModel, IConfig):
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     anthropic_port: int | None = None  # Will be set to port + 1 if not provided
     proxy_timeout: int = 120
@@ -912,7 +912,7 @@ class AppConfig(DomainModel, IConfig):
             "host": _get_env_value(
                 env,
                 "APP_HOST",
-                "0.0.0.0",
+                "127.0.0.1",
                 path="host",
                 resolution=resolution,
             ),

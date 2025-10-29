@@ -572,3 +572,164 @@ class TestSessionDetectorPerformance:
 
         # Cached should be faster (or at least not slower)
         assert cached_elapsed <= first_elapsed * 1.5  # Allow some variance
+
+
+
+class TestSessionDetectorCacheInvalidation:
+    """Test cache invalidation behavior."""
+
+    @pytest.mark.asyncio
+    async def test_cache_invalidated_on_backend_change(self):
+        """Verify cache is cleared when backend changes."""
+        from unittest.mock import MagicMock
+
+        detector = SessionDetector(cache_ttl_seconds=3600)
+
+        # Create some cache entries
+        metadata1 = {"agent": "kilocode"}
+        metadata2 = {"agent": "kilocode"}
+
+        request1 = MagicMock()
+        request2 = MagicMock()
+
+        # Perform detections to populate cache
+        await detector.detect(request1, metadata1, "session1", "backend1")
+        await detector.detect(request2, metadata2, "session2", "backend1")
+
+        # Verify cache has entries
+        stats_before = detector.get_cache_stats()
+        assert stats_before["total_entries"] == 2
+
+        # Invalidate cache for backend change
+        detector.invalidate_cache_for_backend_change("backend1", "backend2")
+
+        # Verify cache is cleared
+        stats_after = detector.get_cache_stats()
+        assert stats_after["total_entries"] == 0
+
+    @pytest.mark.asyncio
+    async def test_cache_invalidated_on_agent_change(self):
+        """Verify cache is cleared when agent changes."""
+        from unittest.mock import MagicMock
+
+        detector = SessionDetector(cache_ttl_seconds=3600)
+
+        # Create some cache entries
+        metadata1 = {"agent": "kilocode"}
+        metadata2 = {"agent": "kilocode"}
+
+        request1 = MagicMock()
+        request2 = MagicMock()
+
+        # Perform detections to populate cache
+        await detector.detect(request1, metadata1, "session1", "backend1", "agent1")
+        await detector.detect(request2, metadata2, "session2", "backend1", "agent1")
+
+        # Verify cache has entries
+        stats_before = detector.get_cache_stats()
+        assert stats_before["total_entries"] == 2
+
+        # Invalidate cache for agent change
+        detector.invalidate_cache_for_agent_change("agent1", "agent2")
+
+        # Verify cache is cleared
+        stats_after = detector.get_cache_stats()
+        assert stats_after["total_entries"] == 0
+
+    @pytest.mark.asyncio
+    async def test_cache_stats_accurate(self):
+        """Verify hit/miss counts are correct."""
+        from unittest.mock import MagicMock
+
+        detector = SessionDetector(cache_ttl_seconds=3600)
+
+        metadata = {"agent": "kilocode"}
+        request = MagicMock()
+
+        # First detection - cache miss
+        await detector.detect(request, metadata, "session1", "backend1")
+        stats1 = detector.get_cache_stats()
+        assert stats1["hits"] == 0
+        assert stats1["misses"] == 1
+        assert stats1["total_entries"] == 1
+
+        # Second detection with same session - cache hit
+        await detector.detect(request, metadata, "session1", "backend1")
+        stats2 = detector.get_cache_stats()
+        assert stats2["hits"] == 1
+        assert stats2["misses"] == 1
+        assert stats2["total_entries"] == 1
+
+        # Third detection with different session - cache miss
+        await detector.detect(request, metadata, "session2", "backend1")
+        stats3 = detector.get_cache_stats()
+        assert stats3["hits"] == 1
+        assert stats3["misses"] == 2
+        assert stats3["total_entries"] == 2
+
+        # Fourth detection with session1 again - cache hit
+        await detector.detect(request, metadata, "session1", "backend1")
+        stats4 = detector.get_cache_stats()
+        assert stats4["hits"] == 2
+        assert stats4["misses"] == 2
+        assert stats4["total_entries"] == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_rate_calculation(self):
+        """Verify hit rate formula is correct."""
+        from unittest.mock import MagicMock
+
+        detector = SessionDetector(cache_ttl_seconds=3600)
+
+        metadata = {"agent": "kilocode"}
+        request = MagicMock()
+
+        # Initial state - no hits or misses
+        stats0 = detector.get_cache_stats()
+        assert stats0["hit_rate"] == 0.0
+
+        # 1 miss, 0 hits - hit rate should be 0.0
+        await detector.detect(request, metadata, "session1", "backend1")
+        stats1 = detector.get_cache_stats()
+        assert stats1["hit_rate"] == 0.0
+
+        # 1 miss, 1 hit - hit rate should be 0.5
+        await detector.detect(request, metadata, "session1", "backend1")
+        stats2 = detector.get_cache_stats()
+        assert stats2["hit_rate"] == 0.5
+
+        # 1 miss, 2 hits - hit rate should be 0.666...
+        await detector.detect(request, metadata, "session1", "backend1")
+        stats3 = detector.get_cache_stats()
+        assert abs(stats3["hit_rate"] - 0.6666666666666666) < 0.0001
+
+        # 2 misses, 2 hits - hit rate should be 0.5
+        await detector.detect(request, metadata, "session2", "backend1")
+        stats4 = detector.get_cache_stats()
+        assert stats4["hit_rate"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_cache_key_includes_backend_and_agent(self):
+        """Verify cache keys are unique for different backend/agent combinations."""
+        from unittest.mock import MagicMock
+
+        detector = SessionDetector(cache_ttl_seconds=3600)
+
+        metadata = {"agent": "kilocode"}
+        request = MagicMock()
+
+        # Same session, different backends - should create separate cache entries
+        await detector.detect(request, metadata, "session1", "backend1")
+        await detector.detect(request, metadata, "session1", "backend2")
+
+        stats1 = detector.get_cache_stats()
+        assert stats1["total_entries"] == 2
+        assert stats1["misses"] == 2  # Both should be cache misses
+
+        # Same session and backend, different agents - should create separate cache entries
+        await detector.detect(request, metadata, "session2", "backend1", "agent1")
+        await detector.detect(request, metadata, "session2", "backend1", "agent2")
+
+        stats2 = detector.get_cache_stats()
+        assert stats2["total_entries"] == 4
+        assert stats2["misses"] == 4  # All should be cache misses

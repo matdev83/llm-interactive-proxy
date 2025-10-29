@@ -736,3 +736,102 @@ class TestEndToEndWithMockCodexAPI:
         search_output = await executor.execute_tool(*search_result)
         # Search should succeed even with no results
         assert search_output["exit_code"] == 0
+
+
+
+class TestConversationControlTools:
+    """Test that conversation control tools are not forwarded to Codex."""
+
+    @pytest.mark.asyncio
+    async def test_attempt_completion_not_sent_to_codex(
+        self, codex_connector: OpenAICodexConnector, mock_file_system: Path
+    ):
+        """Verify attempt_completion tool is executed proxy-side and not sent to Codex."""
+        from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
+
+        # Create translator
+        translator = KiloToolTranslator(codex_connector)
+
+        # Translate attempt_completion tool
+        completion_xml = '<attempt_completion>Task completed successfully</attempt_completion>'
+        result = await translator.translate_tool_invocation(
+            completion_xml, session_id="test_session"
+        )
+
+        assert result is not None
+        tool_name, arguments = result
+
+        # Verify tool has __proxy_ prefix (indicating proxy-side execution)
+        assert tool_name == "__proxy_attempt_completion"
+        assert arguments["result"] == "Task completed successfully"
+
+        # Execute the tool proxy-side
+        exec_result = await codex_connector._execute_proxy_tool(
+            tool_name, arguments, "test_session"
+        )
+
+        # Verify execution succeeded
+        assert exec_result["success"] is True
+        assert "Task completion acknowledged" in exec_result["result"]
+
+    @pytest.mark.asyncio
+    async def test_ask_followup_question_not_sent_to_codex(
+        self, codex_connector: OpenAICodexConnector, mock_file_system: Path
+    ):
+        """Verify ask_followup_question tool is executed proxy-side and not sent to Codex."""
+        from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
+
+        # Create translator
+        translator = KiloToolTranslator(codex_connector)
+
+        # Translate ask_followup_question tool
+        followup_xml = '<ask_followup_question>Do you need any clarification?</ask_followup_question>'
+        result = await translator.translate_tool_invocation(
+            followup_xml, session_id="test_session"
+        )
+
+        assert result is not None
+        tool_name, arguments = result
+
+        # Verify tool has __proxy_ prefix (indicating proxy-side execution)
+        assert tool_name == "__proxy_ask_followup_question"
+        assert arguments["question"] == "Do you need any clarification?"
+
+        # Execute the tool proxy-side
+        exec_result = await codex_connector._execute_proxy_tool(
+            tool_name, arguments, "test_session"
+        )
+
+        # Verify execution succeeded
+        assert exec_result["success"] is True
+        assert "Question received" in exec_result["result"]
+
+    @pytest.mark.asyncio
+    async def test_conversation_control_tools_filtered_from_codex_payload(
+        self, codex_connector: OpenAICodexConnector, mock_file_system: Path
+    ):
+        """Verify conversation control tools are filtered out of Codex API payload."""
+        # Create a message with both regular tools and conversation control tools
+        message_content = """
+        <read_file path="test.py" />
+        <attempt_completion>Done</attempt_completion>
+        <ask_followup_question>Any questions?</ask_followup_question>
+        """
+
+        # Translate all tools
+        translated_tools = await codex_connector._translate_kilo_tools(
+            message_content, "test_session"
+        )
+
+        # Verify read_file is in codex_tools
+        assert len(translated_tools["codex_tools"]) == 1
+        assert translated_tools["codex_tools"][0]["name"] == "read_file"
+
+        # Verify conversation control tools are in proxy_tools
+        assert len(translated_tools["proxy_tools"]) == 2
+        proxy_tool_names = [t["name"] for t in translated_tools["proxy_tools"]]
+        assert "__proxy_attempt_completion" in proxy_tool_names
+        assert "__proxy_ask_followup_question" in proxy_tool_names
+
+        # Verify no MCP tools
+        assert len(translated_tools["mcp_tools"]) == 0

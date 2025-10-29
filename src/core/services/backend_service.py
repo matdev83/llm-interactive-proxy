@@ -579,6 +579,11 @@ class BackendService(IBackendService):
         # Resolve backend type and effective model
         backend_type, effective_model = await self._resolve_backend_and_model(request)
 
+        # Ensure the request payload reflects the resolved backend and model.
+        request = self._synchronize_request_with_target(
+            request, backend_type, effective_model
+        )
+
         request_failover_routes: dict[str, Any] | None = (
             request.extra_body.get("failover_routes") if request.extra_body else None
         )
@@ -1347,6 +1352,52 @@ class BackendService(IBackendService):
                 effective_model = static_route
 
         return backend_type, effective_model
+
+    def _synchronize_request_with_target(
+        self, request: ChatRequest, backend_type: str, effective_model: str
+    ) -> ChatRequest:
+        """
+        Ensure the request (and nested extra_body) reflect the backend/model chosen.
+
+        Args:
+            request: Original chat request from the client.
+            backend_type: Resolved backend name.
+            effective_model: Resolved model name.
+
+        Returns:
+            A request object updated with the resolved backend/model information.
+        """
+        updates: dict[str, Any] = {}
+
+        # Update the primary model when it does not match the effective model.
+        if request.model != effective_model:
+            updates["model"] = effective_model
+
+        extra_body = getattr(request, "extra_body", None)
+        if isinstance(extra_body, dict):
+            updated_extra_body = dict(extra_body)
+            extra_changed = False
+
+            if updated_extra_body.get("model") != effective_model:
+                updated_extra_body["model"] = effective_model
+                extra_changed = True
+
+            if backend_type:
+                if updated_extra_body.get("backend_type") != backend_type:
+                    updated_extra_body["backend_type"] = backend_type
+                    extra_changed = True
+            elif "backend_type" in updated_extra_body:
+                # Remove stale backend_type when backend resolution is empty.
+                updated_extra_body.pop("backend_type")
+                extra_changed = True
+
+            if extra_changed:
+                updates["extra_body"] = updated_extra_body
+
+        if not updates:
+            return request
+
+        return request.model_copy(update=updates)
 
     def _detect_key_name(self, backend_type: str) -> str | None:
         """Derive API key name (env var) for the backend when possible.
