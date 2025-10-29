@@ -74,13 +74,11 @@ class InternalLoopDetectionConfig(InternalDTO):
 
     # Hash-chunk algorithm parameters (ported from gemini-cli)
     # Size of the fixed window used to hash and compare content chunks.
-    # Reduced from 100 to 80 to better detect medium-length patterns (50-100 chars)
-    # that were falling through detection gaps. 80 is a good compromise that
-    # aligns with common repetitive patterns while maintaining performance.
+    # 80 chars provides a good balance between detecting loops and avoiding false positives.
     content_chunk_size: int = 80
     # Number of repeated identical chunks required (within close proximity)
-    # before flagging a loop. Lowered from 10 to 6 to detect loops faster
-    # with fewer repetitions needed.
+    # before flagging a loop. Kept at 6 to avoid false positives while still
+    # detecting genuine loops reasonably quickly.
     content_loop_threshold: int = 6
     # Maximum characters of recent history to keep when scanning
     # Maintain enough history to keep multiple repetitions of ~300 char patterns.

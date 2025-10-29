@@ -225,7 +225,7 @@ async def test_loop_detection_integration_with_middleware_chain():
     # Create a stream normalizer with the loop detection processor
     stream_normalizer = StreamNormalizer(
         processors=[
-            LoopDetectionProcessor(loop_detector=loop_detector),
+            LoopDetectionProcessor(loop_detector_factory=lambda: loop_detector),
         ]
     )
 

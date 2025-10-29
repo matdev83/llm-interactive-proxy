@@ -1673,19 +1673,29 @@ class OpenAICodexConnector(OpenAIConnector):
         # Remove XML tool tags using regex
         # Pattern matches <tag_name>...</tag_name> or <tag_name ... />
         import re
-        
+
         # Get supported tags from XML parser
         supported_tags = []
         if self._kilo_tool_translator and self._kilo_tool_translator._xml_parser:
             from src.connectors._openai_codex_xml_tool_parser import XMLToolParser
+
             supported_tags = list(XMLToolParser.SUPPORTED_TAGS)
         else:
             # Fallback to common tags
             supported_tags = [
-                "read_file", "list_files", "execute_command", "codebase_search",
-                "search_files", "use_mcp_tool", "access_mcp_resource",
-                "attempt_completion", "ask_followup_question", "search_and_replace",
-                "write_to_file", "insert_content", "edit_file"
+                "read_file",
+                "list_files",
+                "execute_command",
+                "codebase_search",
+                "search_files",
+                "use_mcp_tool",
+                "access_mcp_resource",
+                "attempt_completion",
+                "ask_followup_question",
+                "search_and_replace",
+                "write_to_file",
+                "insert_content",
+                "edit_file",
             ]
 
         cleaned = content
@@ -1693,7 +1703,7 @@ class OpenAICodexConnector(OpenAIConnector):
             # Remove opening and closing tags with content
             pattern = rf"<{tag}(?:\s[^>]*)?>.*?</{tag}>"
             cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
-            
+
             # Remove self-closing tags
             pattern = rf"<{tag}(?:\s[^>]*)?/>"
             cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
@@ -1729,6 +1739,7 @@ class OpenAICodexConnector(OpenAIConnector):
         try:
             if self._kilo_tool_translator._xml_parser is None:
                 from src.connectors._openai_codex_xml_tool_parser import XMLToolParser
+
                 self._kilo_tool_translator._xml_parser = XMLToolParser()
 
             parsed = self._kilo_tool_translator._xml_parser.parse(message_content)
@@ -1738,8 +1749,10 @@ class OpenAICodexConnector(OpenAIConnector):
             # Translate the tool invocation
             start_time = time.time()
             try:
-                translation_result = await self._kilo_tool_translator.translate_tool_invocation(
-                    parsed.raw_xml, session_id
+                translation_result = (
+                    await self._kilo_tool_translator.translate_tool_invocation(
+                        parsed.raw_xml, session_id
+                    )
                 )
 
                 if translation_result:
@@ -1747,30 +1760,41 @@ class OpenAICodexConnector(OpenAIConnector):
                     duration_ms = (time.time() - start_time) * 1000
 
                     # Determine execution mode based on tool name prefix
-                    if tool_name.startswith("__proxy_use_mcp_tool") or tool_name.startswith("__proxy_access_mcp_resource"):
+                    if tool_name.startswith(
+                        (
+                            "__proxy_use_mcp_tool",
+                            "__proxy_access_mcp_resource",
+                        )
+                    ):
                         execution_mode = "mcp"
-                        result["mcp_tools"].append({
-                            "name": tool_name,
-                            "arguments": arguments,
-                            "original_xml": parsed.raw_xml,
-                            "canonical_name": parsed.canonical_name,
-                        })
+                        result["mcp_tools"].append(
+                            {
+                                "name": tool_name,
+                                "arguments": arguments,
+                                "original_xml": parsed.raw_xml,
+                                "canonical_name": parsed.canonical_name,
+                            }
+                        )
                     elif tool_name.startswith("__proxy_"):
                         execution_mode = "proxy"
-                        result["proxy_tools"].append({
-                            "name": tool_name,
-                            "arguments": arguments,
-                            "original_xml": parsed.raw_xml,
-                            "canonical_name": parsed.canonical_name,
-                        })
+                        result["proxy_tools"].append(
+                            {
+                                "name": tool_name,
+                                "arguments": arguments,
+                                "original_xml": parsed.raw_xml,
+                                "canonical_name": parsed.canonical_name,
+                            }
+                        )
                     else:
                         execution_mode = "codex"
-                        result["codex_tools"].append({
-                            "name": tool_name,
-                            "arguments": arguments,
-                            "original_xml": parsed.raw_xml,
-                            "canonical_name": parsed.canonical_name,
-                        })
+                        result["codex_tools"].append(
+                            {
+                                "name": tool_name,
+                                "arguments": arguments,
+                                "original_xml": parsed.raw_xml,
+                                "canonical_name": parsed.canonical_name,
+                            }
+                        )
 
                     logger.debug(
                         "Translated tool %s to %s (mode: %s, duration: %.2fms)",
@@ -1782,7 +1806,9 @@ class OpenAICodexConnector(OpenAIConnector):
 
             except Exception as e:
                 # Import TranslationError for type checking
-                from src.connectors._openai_codex_compatibility_errors import TranslationError
+                from src.connectors._openai_codex_compatibility_errors import (
+                    TranslationError,
+                )
 
                 # Log translation errors with telemetry
                 logger.warning(
@@ -1795,10 +1821,15 @@ class OpenAICodexConnector(OpenAIConnector):
                 # Track error in telemetry if available
                 try:
                     from src.connectors._openai_codex_telemetry import get_telemetry
+
                     telemetry = get_telemetry()
                     if telemetry:
                         duration_ms = (time.time() - start_time) * 1000
-                        error_code = e.error_code if isinstance(e, TranslationError) else "UNKNOWN"
+                        error_code = (
+                            e.error_code
+                            if isinstance(e, TranslationError)
+                            else "UNKNOWN"
+                        )
                         telemetry.log_error_event(
                             session_id=session_id,
                             error_code=str(error_code),
@@ -1836,7 +1867,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
         # Extract content from response
         content = ""
-        if "choices" in response and response["choices"]:
+        if response.get("choices"):
             choice = response["choices"][0]
             if "message" in choice:
                 content = choice["message"].get("content", "")
@@ -1855,7 +1886,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 merged_content = tool_results_text
 
             # Update response with merged content
-            if "choices" in response and response["choices"]:
+            if response.get("choices"):
                 choice = response["choices"][0]
                 if "message" in choice:
                     choice["message"]["content"] = merged_content
@@ -1926,21 +1957,28 @@ class OpenAICodexConnector(OpenAIConnector):
 
         try:
             # Handle conversation control tools specially
-            if tool_name in ("__proxy_attempt_completion", "__proxy_ask_followup_question"):
+            if tool_name in (
+                "__proxy_attempt_completion",
+                "__proxy_ask_followup_question",
+            ):
                 if self._kilo_tool_translator:
-                    formatted_result = await self._kilo_tool_translator.handle_conversation_control(
-                        tool_name, arguments, session_id
+                    formatted_result = (
+                        await self._kilo_tool_translator.handle_conversation_control(
+                            tool_name, arguments, session_id
+                        )
                     )
                     result["success"] = True
                     result["result"] = formatted_result
                 else:
                     result["error"] = "KiloToolTranslator not available"
-                    logger.error("Cannot handle conversation control: translator not available")
+                    logger.error(
+                        "Cannot handle conversation control: translator not available"
+                    )
             else:
                 # Execute using UniversalToolExecutor
                 if not self._universal_executor:
                     # Lazy initialize executor
-                    self._universal_executor = await self._get_universal_executor()
+                    self._universal_executor = self._get_universal_executor()
 
                 if not self._universal_executor:
                     result["error"] = "UniversalToolExecutor not available"
@@ -1948,7 +1986,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 else:
                     # Remove __proxy_ prefix for execution
                     actual_tool_name = tool_name.replace("__proxy_", "")
-                    
+
                     # Execute the tool
                     exec_result = await self._universal_executor.execute_tool(
                         actual_tool_name, arguments
@@ -1956,8 +1994,10 @@ class OpenAICodexConnector(OpenAIConnector):
 
                     # Format result using KiloToolTranslator
                     if self._kilo_tool_translator:
-                        formatted_result = self._kilo_tool_translator.format_tool_result(
-                            actual_tool_name, exec_result
+                        formatted_result = (
+                            self._kilo_tool_translator.format_tool_result(
+                                actual_tool_name, exec_result
+                            )
                         )
                         result["success"] = True
                         result["result"] = formatted_result
@@ -2057,7 +2097,10 @@ class OpenAICodexConnector(OpenAIConnector):
 
             # Connect to MCP server if not already connected
             try:
-                if hasattr(mcp_client, "is_connected") and not mcp_client.is_connected():
+                if (
+                    hasattr(mcp_client, "is_connected")
+                    and not mcp_client.is_connected()
+                ):
                     logger.info("MCP client not connected, attempting to connect...")
                     if hasattr(mcp_client, "connect"):
                         await mcp_client.connect()
@@ -2069,7 +2112,7 @@ class OpenAICodexConnector(OpenAIConnector):
                     exc_info=True,
                 )
                 raise TranslationError(
-                    message=f"Failed to connect to MCP server: {str(conn_error)}",
+                    message=f"Failed to connect to MCP server: {conn_error!s}",
                     tool_name=mcp_tool_name,
                     error_code=CompatibilityErrorCode.MCP_UNAVAILABLE,
                     session_id=session_id,
@@ -2077,7 +2120,9 @@ class OpenAICodexConnector(OpenAIConnector):
                 )
 
             # Translate parameters if needed (schema translation)
-            if self._kilo_tool_translator and hasattr(self._kilo_tool_translator, "_translate_mcp_parameters"):
+            if self._kilo_tool_translator and hasattr(
+                self._kilo_tool_translator, "_translate_mcp_parameters"
+            ):
                 # Get MCP tool schema if available
                 mcp_schema = None
                 if hasattr(mcp_client, "get_tool_schema"):
@@ -2089,11 +2134,16 @@ class OpenAICodexConnector(OpenAIConnector):
                 # Translate parameters
                 if mcp_schema:
                     try:
-                        mcp_parameters = self._kilo_tool_translator._translate_mcp_parameters(
-                            mcp_parameters, mcp_schema
+                        mcp_parameters = (
+                            self._kilo_tool_translator._translate_mcp_parameters(
+                                mcp_parameters, mcp_schema
+                            )
                         )
                     except Exception as e:
-                        logger.warning("Parameter translation failed, using original parameters: %s", str(e))
+                        logger.warning(
+                            "Parameter translation failed, using original parameters: %s",
+                            str(e),
+                        )
 
             # Log MCP communication event
             logger.debug(
@@ -2110,7 +2160,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 )
             except asyncio.TimeoutError:
                 raise TranslationError(
-                    message=f"Execution timed out after 30s",
+                    message="Execution timed out after 30s",
                     tool_name=mcp_tool_name,
                     error_code=CompatibilityErrorCode.MCP_TIMEOUT,
                     session_id=session_id,
@@ -2127,7 +2177,7 @@ class OpenAICodexConnector(OpenAIConnector):
             except Exception as e:
                 # MCP execution error
                 raise TranslationError(
-                    message=f"MCP execution failed: {str(e)}",
+                    message=f"MCP execution failed: {e!s}",
                     tool_name=mcp_tool_name,
                     error_code=CompatibilityErrorCode.MCP_EXECUTION_FAILED,
                     session_id=session_id,
@@ -2167,6 +2217,7 @@ class OpenAICodexConnector(OpenAIConnector):
             # Track error in telemetry
             try:
                 from src.connectors._openai_codex_telemetry import get_telemetry
+
                 telemetry = get_telemetry()
                 if telemetry:
                     duration_ms = (time.time() - start_time) * 1000
@@ -2204,6 +2255,7 @@ class OpenAICodexConnector(OpenAIConnector):
         # Log MCP tool execution end event
         try:
             from src.connectors._openai_codex_telemetry import get_telemetry
+
             telemetry = get_telemetry()
             if telemetry and result["success"]:
                 telemetry.log_translation_event(
@@ -2308,69 +2360,73 @@ class OpenAICodexConnector(OpenAIConnector):
                         logger.warning(
                             "Failed to translate XML tools in message: %s",
                             str(e),
-                            exc_info=True
+                            exc_info=True,
                         )
 
             # Execute proxy-side tools
             for tool in translated_tools["proxy_tools"]:
                 try:
                     result = await self._execute_proxy_tool(
-                        tool["name"],
-                        tool["arguments"],
-                        session_id
+                        tool["name"], tool["arguments"], session_id
                     )
                     tool_results.append(result)
                     logger.debug(
                         "Executed proxy tool %s: success=%s",
                         tool["name"],
-                        result["success"]
+                        result["success"],
                     )
                 except Exception as e:
                     logger.error(
                         "Failed to execute proxy tool %s: %s",
                         tool["name"],
                         str(e),
-                        exc_info=True
+                        exc_info=True,
                     )
                     # Add error result
                     actual_tool_name = tool["name"].replace("__proxy_", "")
-                    tool_results.append({
-                        "success": False,
-                        "result": f"[{actual_tool_name}] Error: {str(e)}",
-                        "error": str(e)
-                    })
+                    tool_results.append(
+                        {
+                            "success": False,
+                            "result": f"[{actual_tool_name}] Error: {e!s}",
+                            "error": str(e),
+                        }
+                    )
 
             # Execute MCP tools
             for tool in translated_tools["mcp_tools"]:
                 try:
                     result = await self._execute_mcp_tool(
-                        tool["name"],
-                        tool["arguments"],
-                        session_id
+                        tool["name"], tool["arguments"], session_id
                     )
                     tool_results.append(result)
                     logger.debug(
                         "Executed MCP tool %s: success=%s",
                         tool["name"],
-                        result["success"]
+                        result["success"],
                     )
                 except Exception as e:
                     logger.error(
                         "Failed to execute MCP tool %s: %s",
                         tool["name"],
                         str(e),
-                        exc_info=True
+                        exc_info=True,
                     )
                     # Add error result
                     mcp_tool_name = tool["arguments"].get("tool_name", "unknown")
-                    tool_results.append({
-                        "success": False,
-                        "result": f"[{mcp_tool_name}] Error: {str(e)}",
-                        "error": str(e)
-                    })
+                    tool_results.append(
+                        {
+                            "success": False,
+                            "result": f"[{mcp_tool_name}] Error: {e!s}",
+                            "error": str(e),
+                        }
+                    )
 
             # Clean XML tags from messages before sending to Codex
-            if translated_tools["codex_tools"] or translated_tools["proxy_tools"] or translated_tools["mcp_tools"]:
+            if (
+                translated_tools["codex_tools"]
+                or translated_tools["proxy_tools"]
+                or translated_tools["mcp_tools"]
+            ):
                 for message in processed_messages:
                     content = message.get("content", "")
                     if isinstance(content, str) and "<" in content and ">" in content:
@@ -2380,7 +2436,7 @@ class OpenAICodexConnector(OpenAIConnector):
                             logger.debug(
                                 "Cleaned XML from message (original: %d bytes, cleaned: %d bytes)",
                                 len(content),
-                                len(cleaned_content)
+                                len(cleaned_content),
                             )
 
         payload, conversation_id = self._build_codex_payload(
@@ -2395,33 +2451,34 @@ class OpenAICodexConnector(OpenAIConnector):
             # Ensure tools array exists in payload
             if "tools" not in payload:
                 payload["tools"] = []
-            
+
             # Add each translated tool to the payload
             for tool in translated_tools["codex_tools"]:
                 tool_name = tool["name"]
                 tool_args = tool["arguments"]
-                
+
                 # Create tool schema for Codex
                 tool_schema = {
                     "type": "function",
                     "function": {
                         "name": tool_name,
                         "parameters": tool_args,
-                    }
+                    },
                 }
-                
+
                 # Check if tool already exists in payload
                 existing_tool = next(
-                    (t for t in payload["tools"] if t.get("function", {}).get("name") == tool_name),
-                    None
+                    (
+                        t
+                        for t in payload["tools"]
+                        if t.get("function", {}).get("name") == tool_name
+                    ),
+                    None,
                 )
-                
+
                 if not existing_tool:
                     payload["tools"].append(tool_schema)
-                    logger.debug(
-                        "Added Codex-side tool %s to payload",
-                        tool_name
-                    )
+                    logger.debug("Added Codex-side tool %s to payload", tool_name)
         if logger.isEnabledFor(logging.DEBUG):
             try:
                 logger.debug(
@@ -2611,28 +2668,46 @@ class OpenAICodexConnector(OpenAIConnector):
 
         for attempt in range(2):
             try:
-                response = await _perform_request(payload, headers, session_id, stream_val)
-                
+                response = await _perform_request(
+                    payload, headers, session_id, stream_val
+                )
+
                 # Format response for KiloCode clients if needed
                 if is_kilocode and tool_results:
                     if stream_val:
                         # For streaming responses, wrap the iterator
-                        if hasattr(response, "content") and hasattr(response.content, "__aiter__"):
+                        if hasattr(response, "content") and hasattr(
+                            response.content, "__aiter__"
+                        ):
                             formatted_stream = self._format_kilo_stream_response(
                                 response.content, tool_results
                             )
                             # Create new envelope with formatted stream
                             return StreamingResponseEnvelope(
                                 content=formatted_stream,
-                                media_type=response.media_type if hasattr(response, "media_type") else "text/event-stream",
-                                headers=response.headers if hasattr(response, "headers") else {},
-                                cancel_callback=response.cancel_callback if hasattr(response, "cancel_callback") else None,
+                                media_type=(
+                                    response.media_type
+                                    if hasattr(response, "media_type")
+                                    else "text/event-stream"
+                                ),
+                                headers=(
+                                    response.headers
+                                    if hasattr(response, "headers")
+                                    else {}
+                                ),
+                                cancel_callback=(
+                                    response.cancel_callback
+                                    if hasattr(response, "cancel_callback")
+                                    else None
+                                ),
                             )
                     else:
                         # For non-streaming responses, format the response dict
                         if isinstance(response, dict):
-                            response = self._format_kilo_response(response, tool_results)
-                
+                            response = self._format_kilo_response(
+                                response, tool_results
+                            )
+
                 return response
             except httpx.HTTPStatusError as exc:
                 try:

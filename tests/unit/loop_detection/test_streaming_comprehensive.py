@@ -44,7 +44,7 @@ class TestLoopDetectionStreaming:
             # Yield a done marker to trigger the buffered content to be returned
             yield StreamingContent(is_done=True)
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -85,7 +85,7 @@ class TestLoopDetectionStreaming:
             # Yield a done marker to trigger the buffered content to be returned
             yield StreamingContent(is_done=True)
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -130,7 +130,7 @@ class TestLoopDetectionStreaming:
             # Yield a done marker to trigger the buffered content to be returned
             yield StreamingContent(is_done=True)
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -166,7 +166,7 @@ class TestLoopDetectionStreaming:
             yield "chunk1"
             raise RuntimeError("Stream error")
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -214,7 +214,7 @@ class TestLoopDetectionStreaming:
             yield "chunk2"
             yield "chunk3"
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -241,7 +241,7 @@ class TestLoopDetectionStreaming:
             # Yield a done marker to trigger the buffered content to be returned
             yield StreamingContent(is_done=True)
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -279,7 +279,7 @@ class TestLoopDetectionStreaming:
             # Yield a done marker to trigger the buffered content to be returned
             yield StreamingContent(is_done=True)
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -315,7 +315,7 @@ class TestLoopDetectionStreaming:
             # Yield a done marker to trigger the buffered content to be returned
             yield StreamingContent(is_done=True)
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -346,7 +346,7 @@ class TestLoopDetectionStreaming:
             yield "chunk1"
             raise asyncio.CancelledError("Cancelled")
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []
@@ -379,7 +379,7 @@ class TestLoopDetectionStreaming:
             # Yield a done marker to trigger the buffered content to be returned
             yield StreamingContent(is_done=True)
 
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
         normalizer = StreamNormalizer(processors=[processor])
 
         collected = []

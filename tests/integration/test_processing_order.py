@@ -72,7 +72,9 @@ async def test_loop_detection_runs_before_tool_call_repair() -> None:
         buffer_cap_bytes=4096,
         strict_mode=False,
     )
-    loop_proc = LoopDetectionProcessor(loop_detector=SimpleLoopDetector("LOOP!"))
+    loop_proc = LoopDetectionProcessor(
+        loop_detector_factory=lambda: SimpleLoopDetector("LOOP!")
+    )
     tool_proc = ToolCallRepairProcessor(ToolCallRepairService())
     normalizer = StreamNormalizer([json_proc, loop_proc, tool_proc])
 

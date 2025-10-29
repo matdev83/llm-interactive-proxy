@@ -19,7 +19,6 @@ from fastapi import HTTPException
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
-from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -648,7 +647,9 @@ class QwenOAuthConnector(OpenAIConnector):
             self._oauth_credentials = credentials
 
             # Use the DashScope API endpoint for all requests
-            logger.info(f"Qwen OAuth credentials loaded. Using fixed API base URL: {self._default_endpoint}")
+            logger.info(
+                f"Qwen OAuth credentials loaded. Using fixed API base URL: {self._default_endpoint}"
+            )
 
             logger.info("Successfully loaded Qwen OAuth credentials.")
             return True
@@ -848,6 +849,84 @@ class QwenOAuthConnector(OpenAIConnector):
                 _reload(), target_loop
             )
 
+    async def _handle_streaming_response(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+        stream_format: str,
+    ) -> Any:
+        """Override parent to add chunk deduplication for Qwen API bug.
+
+        The Qwen API sometimes sends duplicate SSE chunks with identical content,
+        causing text repetition in the client (e.g., "NowNowNow" instead of "Now").
+        This method wraps the parent's streaming response to deduplicate chunks.
+        """
+        import hashlib
+        from collections import deque
+
+        # Get the parent's streaming handle
+        stream_handle = await super()._handle_streaming_response(
+            url, payload, headers, session_id, stream_format
+        )
+
+        # Wrap the iterator with deduplication logic
+        original_iterator = stream_handle.iterator
+
+        async def deduplicated_iterator():
+            """Deduplicate streaming chunks based on content hash."""
+            # Track recent chunk hashes to detect duplicates
+            # Use a sliding window of last N hashes to avoid memory growth
+            recent_hashes: deque[str] = deque(maxlen=10)
+
+            async for chunk in original_iterator:
+                # Extract content for hashing
+                content = chunk.content if hasattr(chunk, "content") else chunk
+
+                # Compute hash of the chunk content
+                if isinstance(content, dict):
+                    # For dict chunks, hash the JSON representation
+                    # Sort keys to ensure consistent hashing regardless of key order
+                    import json
+
+                    content_str = json.dumps(content, sort_keys=True)
+                    chunk_hash = hashlib.md5(
+                        content_str.encode(), usedforsecurity=False
+                    ).hexdigest()
+                elif isinstance(content, str):
+                    chunk_hash = hashlib.md5(
+                        content.encode(), usedforsecurity=False
+                    ).hexdigest()
+                elif isinstance(content, bytes):
+                    chunk_hash = hashlib.md5(content, usedforsecurity=False).hexdigest()
+                else:
+                    chunk_hash = hashlib.md5(
+                        str(content).encode(), usedforsecurity=False
+                    ).hexdigest()
+
+                # Check if this chunk is a duplicate of a recent chunk
+                if chunk_hash in recent_hashes:
+                    logger.debug(
+                        f"Qwen OAuth: Skipping duplicate chunk (hash: {chunk_hash[:8]}...)"
+                    )
+                    continue
+
+                # Add to recent hashes and yield the chunk
+                recent_hashes.append(chunk_hash)
+                yield chunk
+
+        # Return a new handle with the deduplicated iterator
+        from src.core.domain.responses import StreamingResponseHandle
+
+        return StreamingResponseHandle(
+            iterator=deduplicated_iterator(),
+            cancel_callback=stream_handle.cancel_callback,
+            headers=(
+                stream_handle.headers if hasattr(stream_handle, "headers") else None
+            ),
+        )
+
     async def chat_completions(
         self,
         request_data: (
@@ -936,8 +1015,14 @@ class QwenOAuthConnector(OpenAIConnector):
             from src.connectors.openai import OpenAIConnector
 
             # DEBUG: Log what we're about to do
-            original_model = getattr(request_data, 'model', 'unknown') if hasattr(request_data, 'model') else 'unknown'
-            logger.info(f"QwenOAuth DEBUG: Calling parent with effective_model='{model_name}', original request_data model='{original_model}'")
+            original_model = (
+                getattr(request_data, "model", "unknown")
+                if hasattr(request_data, "model")
+                else "unknown"
+            )
+            logger.info(
+                f"QwenOAuth DEBUG: Calling parent with effective_model='{model_name}', original request_data model='{original_model}'"
+            )
 
             response_envelope = await OpenAIConnector.chat_completions(
                 self,

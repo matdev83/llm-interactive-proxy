@@ -475,7 +475,6 @@ class SessionDetector:
         """
         size_before = len(self._cache)
         self._cache.clear()
-        size_after = len(self._cache)
 
         logger.info(
             "Cache invalidated for backend change: %s → %s (%d entries cleared)",
@@ -484,9 +483,7 @@ class SessionDetector:
             size_before,
         )
 
-    def invalidate_cache_for_agent_change(
-        self, old_agent: str, new_agent: str
-    ) -> None:
+    def invalidate_cache_for_agent_change(self, old_agent: str, new_agent: str) -> None:
         """Invalidate cache entries when agent configuration changes.
 
         Args:
@@ -495,7 +492,6 @@ class SessionDetector:
         """
         size_before = len(self._cache)
         self._cache.clear()
-        size_after = len(self._cache)
 
         logger.info(
             "Cache invalidated for agent change: %s → %s (%d entries cleared)",

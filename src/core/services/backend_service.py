@@ -1369,8 +1369,23 @@ class BackendService(IBackendService):
         """
         updates: dict[str, Any] = {}
 
-        # Update the primary model when it does not match the effective model.
+        # Preserve the original model format if it contains a backend prefix that matches
+        # the resolved backend. This allows connectors to see the original client request.
+        # However, if the backend was overridden (e.g., via static_route), update the model.
+        should_update_model = False
         if request.model != effective_model:
+            if ":" in request.model:
+                # Model has backend prefix - check if it matches the resolved backend
+                request_backend, _ = request.model.split(":", 1)
+                if request_backend != backend_type:
+                    # Backend was overridden, update the model
+                    should_update_model = True
+                # else: Backend matches, preserve original format
+            else:
+                # No backend prefix, update to effective model
+                should_update_model = True
+
+        if should_update_model:
             updates["model"] = effective_model
 
         extra_body = getattr(request, "extra_body", None)

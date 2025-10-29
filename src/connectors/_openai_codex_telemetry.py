@@ -206,8 +206,8 @@ class CompatibilityTelemetry:
             detection_method, duration_ms, is_cached
         )
 
-        # Structured logging
-        logger.info(
+        # Structured logging (DEBUG level to avoid spam in performance tests)
+        logger.debug(
             "Codex-Kilo compatibility layer detection",
             extra={
                 "event_type": "detection",

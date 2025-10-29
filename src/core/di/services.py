@@ -990,10 +990,12 @@ def register_core_services(
     ) -> LoopDetectionProcessor:
         from src.core.interfaces.loop_detector_interface import ILoopDetector
 
-        loop_detector: ILoopDetector = provider.get_required_service(
-            cast(type, ILoopDetector)
-        )
-        return LoopDetectionProcessor(loop_detector)
+        # Create a factory function that creates new detector instances
+        # This ensures each session gets its own isolated detector
+        def create_detector() -> ILoopDetector:
+            return provider.get_required_service(cast(type, ILoopDetector))
+
+        return LoopDetectionProcessor(loop_detector_factory=create_detector)
 
     _add_singleton(
         LoopDetectionProcessor, implementation_factory=_loop_detection_processor_factory

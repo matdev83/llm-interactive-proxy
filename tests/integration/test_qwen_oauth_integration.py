@@ -3,11 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
-
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
 
@@ -40,23 +39,25 @@ async def test_qwen_oauth_connector_api_endpoint():
         "refresh_token": "test_refresh_token",
         "token_type": "Bearer",
         "resource_url": "portal.qwen.ai",  # This should NOT be used for API calls
-        "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000)
+        "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000),
     }
 
     # Mock the credentials file loading
-    with patch('src.connectors.qwen_oauth.Path.home') as mock_home:
+    with patch("src.connectors.qwen_oauth.Path.home") as mock_home:
         mock_qwen_dir = Path("/mock/home/.qwen")
-        mock_creds_path = mock_qwen_dir / "oauth_creds.json"
+        mock_creds_path = mock_qwen_dir / "oauth_creds.json"  # noqa: F841
 
         # Create the mock path structure
         mock_home.return_value = Path("/mock/home")
 
         # Mock file operations
-        with patch.object(Path, 'exists', return_value=True), \
-             patch.object(Path, 'stat') as mock_stat, \
-             patch.object(Path, 'mkdir'), \
-             patch('builtins.open', create=True) as mock_open, \
-             patch('json.load', return_value=test_creds):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "stat") as mock_stat,
+            patch.object(Path, "mkdir"),
+            patch("builtins.open", create=True) as mock_open,  # noqa: F841
+            patch("json.load", return_value=test_creds),
+        ):
 
             mock_stat.return_value.st_mtime = 1234567890
 
@@ -68,16 +69,20 @@ async def test_qwen_oauth_connector_api_endpoint():
             connector._oauth_credentials = test_creds
 
             # Test that the API base URL is correctly set to use resource_url from credentials
-            expected_url = "https://portal.qwen.ai/v1"  # Should use resource_url from credentials
+            expected_url = (
+                "https://portal.qwen.ai/v1"  # Should use resource_url from credentials
+            )
             actual_url = connector.api_base_url
 
-            assert actual_url == expected_url, \
-                f"Expected API base URL to be {expected_url}, but got {actual_url}"
+            assert (
+                actual_url == expected_url
+            ), f"Expected API base URL to be {expected_url}, but got {actual_url}"
 
             # Ensure it's NOT using the wrong DashScope endpoint
             wrong_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-            assert actual_url != wrong_url, \
-                f"API base URL should NOT be {wrong_url}, but got {actual_url}"
+            assert (
+                actual_url != wrong_url
+            ), f"API base URL should NOT be {wrong_url}, but got {actual_url}"
 
             await async_client.aclose()
 
@@ -96,7 +101,7 @@ async def test_qwen_oauth_connector_headers():
             "access_token": "test_access_token_12345",
             "refresh_token": "test_refresh_token",
             "token_type": "Bearer",
-            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000)
+            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000),
         }
 
         connector._oauth_credentials = test_creds
@@ -119,7 +124,7 @@ async def test_qwen_oauth_model_name_processing():
     async_client = httpx.AsyncClient()
 
     try:
-        connector = QwenOAuthConnector(async_client, config)
+        connector = QwenOAuthConnector(async_client, config)  # noqa: F841
 
         # Test model name processing that would happen with static routing
         test_cases = [
@@ -137,14 +142,17 @@ async def test_qwen_oauth_model_name_processing():
             if model_name.startswith("models/"):
                 model_name = model_name[7:]  # Remove "models/" prefix
 
-            assert model_name == expected_output, \
-                f"Model name processing failed: {input_model} -> {model_name} (expected: {expected_output})"
+            assert (
+                model_name == expected_output
+            ), f"Model name processing failed: {input_model} -> {model_name} (expected: {expected_output})"
 
     finally:
         await async_client.aclose()
 
 
-@pytest.mark.skipif(not _qwen_oauth_available(), reason="Qwen OAuth credentials not available")
+@pytest.mark.skipif(
+    not _qwen_oauth_available(), reason="Qwen OAuth credentials not available"
+)
 @pytest.mark.asyncio
 async def test_qwen_oauth_real_credentials_loading():
     """Test with real Qwen OAuth credentials (only runs if credentials are available)."""
@@ -158,21 +166,29 @@ async def test_qwen_oauth_real_credentials_loading():
         creds_loaded = await connector._load_oauth_credentials()
 
         assert creds_loaded, "Failed to load real Qwen OAuth credentials"
-        assert connector._oauth_credentials is not None, "OAuth credentials should be set"
-        assert "access_token" in connector._oauth_credentials, "Access token should be present"
-        assert "refresh_token" in connector._oauth_credentials, "Refresh token should be present"
+        assert (
+            connector._oauth_credentials is not None
+        ), "OAuth credentials should be set"
+        assert (
+            "access_token" in connector._oauth_credentials
+        ), "Access token should be present"
+        assert (
+            "refresh_token" in connector._oauth_credentials
+        ), "Refresh token should be present"
 
         # Test that the correct API endpoint is used
         expected_url = "https://portal.qwen.ai/v1"
         actual_url = connector.api_base_url
-        assert actual_url == expected_url, \
-            f"Expected API base URL to be {expected_url}, but got {actual_url}"
+        assert (
+            actual_url == expected_url
+        ), f"Expected API base URL to be {expected_url}, but got {actual_url}"
 
         # Test header generation with real token
         headers = connector.get_headers()
         assert "Authorization" in headers, "Authorization header should be present"
-        assert headers["Authorization"].startswith("Bearer "), \
-            "Authorization header should start with 'Bearer '"
+        assert headers["Authorization"].startswith(
+            "Bearer "
+        ), "Authorization header should start with 'Bearer '"
 
     finally:
         await async_client.aclose()

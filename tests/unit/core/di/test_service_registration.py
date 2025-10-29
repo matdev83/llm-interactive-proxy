@@ -183,7 +183,9 @@ class TestServiceRegistration:
                 processors.append(ToolCallRepairProcessor(tool_call_repair_service))
 
                 processors.append(
-                    LoopDetectionProcessor(loop_detector=HybridLoopDetector())
+                    LoopDetectionProcessor(
+                        loop_detector_factory=lambda: HybridLoopDetector()
+                    )
                 )
 
                 stream_normalizer_instance = StreamNormalizer(processors=processors)

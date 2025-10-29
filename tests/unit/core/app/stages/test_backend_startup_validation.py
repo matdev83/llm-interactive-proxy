@@ -85,15 +85,17 @@ class TestBackendStartupValidation:
             ) -> _DummyBackend:
                 return _DummyBackend()
 
-        with patch.object(
-            backend_stage,
-            "_register_validation_http_client",
-            wraps=backend_stage._register_validation_http_client,
-        ) as mock_register, patch(
-            "src.core.app.stages.backend.backend_registry"
-        ) as mock_registry, patch(
-            "src.core.app.controllers.models_controller._resolve_backend_factory_from_provider",
-            return_value=_DummyBackendFactory(),
+        with (
+            patch.object(
+                backend_stage,
+                "_register_validation_http_client",
+                wraps=backend_stage._register_validation_http_client,
+            ) as mock_register,
+            patch("src.core.app.stages.backend.backend_registry") as mock_registry,
+            patch(
+                "src.core.app.controllers.models_controller._resolve_backend_factory_from_provider",
+                return_value=_DummyBackendFactory(),
+            ),
         ):
             mock_registry.get_registered_backends.return_value = ["openai"]
             mock_registry.get_backend_factory.return_value = (

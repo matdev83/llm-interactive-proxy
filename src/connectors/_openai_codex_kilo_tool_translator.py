@@ -129,12 +129,16 @@ class KiloToolTranslator:
                 from src.connectors._openai_codex_compatibility_errors import (
                     create_unsupported_tool_error,
                 )
-                
+
                 raise create_unsupported_tool_error(
                     tool_name=parsed.canonical_name,
                     original_xml=xml_text,
                     session_id=session_id,
-                    supported_tools=list(self._xml_parser.SUPPORTED_TAGS) if self._xml_parser else [],
+                    supported_tools=(
+                        list(self._xml_parser.SUPPORTED_TAGS)
+                        if self._xml_parser
+                        else []
+                    ),
                 )
 
             # Log successful translation telemetry
@@ -735,19 +739,33 @@ class KiloToolTranslator:
             param_type = param_schema.get("type")
 
             # Convert parameter types based on schema
-            if param_type == "integer" or param_type == "number":
-                # Convert string to int/float
+            if param_type == "integer":
+                # Convert string to int
                 if isinstance(param_value, str):
                     try:
-                        if param_type == "integer":
-                            translated[param_name] = int(param_value)
-                        else:
-                            translated[param_name] = float(param_value)
+                        translated[param_name] = int(param_value)
                     except ValueError:
                         raise create_parameter_validation_error(
                             tool_name="mcp_tool",
                             message=f"Invalid {param_type} value for parameter '{param_name}': {param_value}",
-                            invalid_parameters={param_name: f"Expected {param_type}, got string"},
+                            invalid_parameters={
+                                param_name: f"Expected {param_type}, got string"
+                            },
+                        )
+                else:
+                    translated[param_name] = param_value
+            elif param_type == "number":
+                # Convert string to float
+                if isinstance(param_value, str):
+                    try:
+                        translated[param_name] = float(param_value)  # type: ignore[assignment]
+                    except ValueError:
+                        raise create_parameter_validation_error(
+                            tool_name="mcp_tool",
+                            message=f"Invalid {param_type} value for parameter '{param_name}': {param_value}",
+                            invalid_parameters={
+                                param_name: f"Expected {param_type}, got string"
+                            },
                         )
                 else:
                     translated[param_name] = param_value
@@ -763,7 +781,9 @@ class KiloToolTranslator:
                         raise create_parameter_validation_error(
                             tool_name="mcp_tool",
                             message=f"Invalid boolean value for parameter '{param_name}': {param_value}",
-                            invalid_parameters={param_name: "Expected boolean, got invalid string"},
+                            invalid_parameters={
+                                param_name: "Expected boolean, got invalid string"
+                            },
                         )
                 else:
                     translated[param_name] = bool(param_value)
@@ -806,23 +826,27 @@ class KiloToolTranslator:
                     content_str = "\n".join(str(item) for item in content)
                 else:
                     content_str = str(content)
-                
+
                 # Check for errors
                 if result.get("isError"):
                     error_msg = result.get("error", content_str)
                     return f"[{tool_name}] Error: {error_msg}"
-                
+
                 return f"[{tool_name}] Result:\n{content_str}"
-            
+
             # Check for MCP response structure with result field (but not output)
-            elif "result" in result and "output" not in result and "exit_code" not in result:
+            elif (
+                "result" in result
+                and "output" not in result
+                and "exit_code" not in result
+            ):
                 # MCP result with result field
                 result_content = result["result"]
                 if result.get("isError"):
                     error_msg = result.get("error", str(result_content))
                     return f"[{tool_name}] Error: {error_msg}"
-                
-                return f"[{tool_name}] Result:\n{str(result_content)}"
+
+                return f"[{tool_name}] Result:\n{result_content!s}"
 
         # Standard KiloCode format: [tool_name] Result: <content>
         output = result.get("output", "") if isinstance(result, dict) else str(result)
@@ -840,7 +864,9 @@ class KiloToolTranslator:
 
         # Add match count for search results
         if tool_name in ("grep_files", "codebase_search", "search_files"):
-            matches_count = result.get("matches_count") if isinstance(result, dict) else None
+            matches_count = (
+                result.get("matches_count") if isinstance(result, dict) else None
+            )
             if matches_count is not None:
                 formatted_parts.append(f"\nMatches found: {matches_count}")
 
@@ -943,11 +969,14 @@ class KiloToolTranslator:
 
             # Get current session to preserve existing followup_questions list
             session = await self._session_service.get_session(session_id)
-            existing_questions = session.get("followup_questions", []) if session else []
+            existing_questions = (
+                session.get("followup_questions", []) if session else []
+            )
 
             # Append new question to list
-            updated_questions = existing_questions + [
-                {"question": question, "timestamp": time.time()}
+            updated_questions = [
+                *existing_questions,
+                {"question": question, "timestamp": time.time()},
             ]
 
             # Update session with new followup question

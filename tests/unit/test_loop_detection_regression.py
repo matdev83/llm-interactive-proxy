@@ -43,11 +43,12 @@ def test_loop_detection_processor_can_be_created():
     """Test that LoopDetectionProcessor can be created with proper dependencies."""
     from src.core.domain.streaming_response_processor import LoopDetectionProcessor
 
-    # Create a loop detector
-    loop_detector = HybridLoopDetector()
+    # Create a loop detector factory
+    def loop_detector_factory():
+        return HybridLoopDetector()
 
     # Create the processor
-    processor = LoopDetectionProcessor(loop_detector)
+    processor = LoopDetectionProcessor(loop_detector_factory=loop_detector_factory)
 
     assert processor is not None
-    assert processor.loop_detector is loop_detector
+    assert processor.loop_detector_factory is loop_detector_factory

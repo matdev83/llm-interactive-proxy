@@ -9,6 +9,40 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 
+
+@pytest.fixture(autouse=True)
+async def setup_di_container():
+    """Set up DI container with required services for streaming tests."""
+    from src.core.app.stages.core_services import CoreServicesStage
+    from src.core.app.stages.infrastructure import InfrastructureStage
+    from src.core.app.stages.processor import ProcessorStage
+    from src.core.config.app_config import AppConfig
+    from src.core.di.container import ServiceCollection
+    from src.core.di.services import set_service_provider
+
+    services = ServiceCollection()
+    config = AppConfig()
+
+    # Initialize required stages in order
+    infrastructure = InfrastructureStage()
+    await infrastructure.execute(services, config)
+
+    core_services = CoreServicesStage()
+    await core_services.execute(services, config)
+
+    processor = ProcessorStage()
+    await processor.execute(services, config)
+
+    # Build and set the service provider globally
+    provider = services.build_service_provider()
+    set_service_provider(provider)
+
+    yield
+
+    # Cleanup - just set provider to None
+    set_service_provider(None)
+
+
 from collections.abc import AsyncIterator
 from typing import Any, cast
 

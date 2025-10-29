@@ -258,10 +258,11 @@ class GeminiCliLoopDetector(ILoopDetector):
         Determines if a content chunk indicates a loop pattern.
 
         Loop detection logic:
-        1. Check if we've seen this hash before (new chunks are stored for future comparison)
-        2. Verify actual content matches to prevent hash collisions
-        3. Track all positions where this chunk appears
-        4. A loop is detected when the same chunk appears content_loop_threshold times
+        1. Filter out chunks that are primarily formatting characters (to avoid false positives)
+        2. Check if we've seen this hash before (new chunks are stored for future comparison)
+        3. Verify actual content matches to prevent hash collisions
+        4. Track all positions where this chunk appears
+        5. A loop is detected when the same chunk appears content_loop_threshold times
            within a small average distance (<=1.5 * chunk size)
 
         Args:
@@ -271,6 +272,12 @@ class GeminiCliLoopDetector(ILoopDetector):
         Returns:
             True if a loop is detected for this chunk, False otherwise
         """
+        # Filter out chunks that are primarily non-letter characters to avoid false positives
+        # with common formatting patterns like "===", "---", "###", etc.
+        letter_count = sum(1 for c in chunk if c.isalpha())
+        if letter_count < len(chunk) * 0.5:  # Less than 50% letters
+            return False
+
         existing_indices = self.content_stats.get(hash_val)
 
         if existing_indices is None:

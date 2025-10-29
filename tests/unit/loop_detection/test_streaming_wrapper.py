@@ -52,7 +52,7 @@ async def test_stream_cancellation_on_loop() -> None:
         )
 
     # Create the processor
-    processor = LoopDetectionProcessor(loop_detector=detector)
+    processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
 
     # Mock the upstream stream that builds up content and then loops
     async def mock_upstream_stream() -> AsyncIterator[StreamingContent]:

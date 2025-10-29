@@ -151,7 +151,7 @@ class TestRealWorldLoopDetection:
                 await asyncio.sleep(0.0001)  # Minimal delay for faster testing
 
         # Create the processor
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
 
         # Use StreamNormalizer with the processor
         normalizer = StreamNormalizer(processors=[processor])
@@ -197,7 +197,7 @@ class TestRealWorldLoopDetection:
                 await asyncio.sleep(0.001)  # Reduced delay for faster testing
 
         # Create the processor
-        processor = LoopDetectionProcessor(loop_detector=detector)
+        processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
 
         # Use StreamNormalizer with the processor
         normalizer = StreamNormalizer(processors=[processor])

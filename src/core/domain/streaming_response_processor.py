@@ -43,21 +43,51 @@ class LoopDetectionProcessor(IStreamProcessor):
 
     This implementation uses a hash-based loop detection mechanism and integrates
     with the backend's cancellation system to properly break loops with token waste prevention.
+
+    IMPORTANT: This processor maintains per-session detector instances to ensure that
+    loop detection state is never shared between different sessions.
     """
 
     def __init__(
         self,
-        loop_detector: ILoopDetector,
+        loop_detector_factory: Callable[[], ILoopDetector],
         cancel_callback: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Initialize loop detection processor.
 
         Args:
-            loop_detector: The loop detector instance to use.
+            loop_detector_factory: Factory function to create new loop detector instances per session.
             cancel_callback: Optional callback to trigger API cancellation when loop is detected.
         """
-        self.loop_detector = loop_detector
+        self.loop_detector_factory = loop_detector_factory
         self.cancel_callback = cancel_callback
+        # Per-session detector instances to ensure isolation
+        self._session_detectors: dict[str, ILoopDetector] = {}
+
+    def _get_detector_for_session(self, session_id: str) -> ILoopDetector:
+        """Get or create a loop detector for the given session.
+
+        Args:
+            session_id: The session identifier
+
+        Returns:
+            A loop detector instance dedicated to this session
+        """
+        if session_id not in self._session_detectors:
+            detector = self.loop_detector_factory()
+            self._session_detectors[session_id] = detector
+            logger.debug(f"Created new loop detector for session {session_id}")
+        return self._session_detectors[session_id]
+
+    def cleanup_session(self, session_id: str) -> None:
+        """Clean up detector instance for a completed session.
+
+        Args:
+            session_id: The session identifier to clean up
+        """
+        if session_id in self._session_detectors:
+            del self._session_detectors[session_id]
+            logger.debug(f"Cleaned up loop detector for session {session_id}")
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process a streaming content chunk and check for loops.
@@ -71,14 +101,32 @@ class LoopDetectionProcessor(IStreamProcessor):
         if content.is_empty and not content.is_done:
             return content
 
+        # Get session_id from metadata to ensure per-session detector isolation
+        session_id = (
+            content.metadata.get("session_id")
+            or content.metadata.get("stream_id")
+            or "default"
+        )
+
+        # Get the detector instance for this specific session
+        loop_detector = self._get_detector_for_session(session_id)
+
         # Process the content for loop detection
         # Ensure content is a string for loop detector
         content_str = content.content
-        detection_event = self.loop_detector.process_chunk(content_str)
+        logger.debug(
+            f"LoopDetectionProcessor processing chunk for session {session_id}: '{content_str[:50]}...' (length: {len(content_str)})"
+        )
+        detection_event = loop_detector.process_chunk(content_str)
+
+        # Clean up detector when stream is done
+        if content.is_done:
+            self.cleanup_session(session_id)
 
         if detection_event:
             logger.warning(
-                f"Loop detected in streaming response by LoopDetectionProcessor: {detection_event.pattern[:50]}..."
+                f"Loop detected in streaming response by LoopDetectionProcessor: pattern='{detection_event.pattern[:50]}...', "
+                f"repetitions={detection_event.repetition_count}, total_length={detection_event.total_length}"
             )
 
             # Trigger API cancellation if callback is available

@@ -151,9 +151,7 @@ class UniversalToolExecutor:
         )
         return sorted(available_tools)
 
-    def format_result_for_kilocode(
-        self, tool_name: str, result: dict[str, Any]
-    ) -> str:
+    def format_result_for_kilocode(self, tool_name: str, result: dict[str, Any]) -> str:
         """Format tool execution result in KiloCode format.
 
         This is a public method for external callers (like KiloToolTranslator)

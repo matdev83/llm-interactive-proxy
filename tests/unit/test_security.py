@@ -62,7 +62,7 @@ def test_auth_enabled_allows_custom_host():
 
     with (
         patch.dict(
-            os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True
+            os.environ, {"DISABLE_AUTH": "false", "APP_HOST": "0.0.0.0"}, clear=True
         ),
         patch("uvicorn.run") as mock_uvicorn,
         patch("src.core.cli.logging.basicConfig"),

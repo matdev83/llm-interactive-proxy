@@ -40,7 +40,21 @@ async def test_e2e_di_streaming_pipeline_sets_pending_and_next_call_tuned() -> N
     # Build DI container with the configured AppConfig
     services = ServiceCollection()
     services.add_instance(AppConfig, prov_cfg)
+
+    # Register infrastructure services (includes ILoopDetector)
+    from src.core.app.stages.infrastructure import InfrastructureStage
+
+    infrastructure = InfrastructureStage()
+    await infrastructure.execute(services, prov_cfg)
+
     register_core_services(services, prov_cfg)
+
+    # Register processor services (includes StreamNormalizer with LoopDetectionProcessor)
+    from src.core.app.stages.processor import ProcessorStage
+
+    processor_stage = ProcessorStage()
+    await processor_stage.execute(services, prov_cfg)
+
     provider = services.build_service_provider()
 
     # Resolve the DI-wired normalizer (which will use the config with edit precision enabled)

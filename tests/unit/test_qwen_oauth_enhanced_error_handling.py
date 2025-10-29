@@ -183,21 +183,16 @@ class TestQwenOAuthEnhancedErrorHandling:
                 effective_model="qwen-oauth:qwen3-coder-plus",
             )
 
-            # Verify that the model name was properly modified in the payload sent to parent
+            # Verify that the effective_model parameter was properly stripped
             mock_parent.assert_awaited_once()
             await_call = mock_parent.await_args
-            sent_payload = await_call.kwargs.get("request_data")
-            if sent_payload is None and len(await_call.args) > 1:
-                sent_payload = await_call.args[1]
 
-            assert sent_payload is not None
+            # Check the effective_model parameter passed to parent
+            sent_effective_model = await_call.kwargs.get("effective_model")
+            if sent_effective_model is None and len(await_call.args) > 2:
+                sent_effective_model = await_call.args[2]
 
-            if isinstance(sent_payload, ChatRequest):
-                sent_model = sent_payload.model
-            else:
-                sent_model = sent_payload["model"]
-
-            assert sent_model == "qwen3-coder-plus"
+            assert sent_effective_model == "qwen3-coder-plus"
 
     @pytest.mark.asyncio
     async def test_http_exception_passthrough(self, connector):

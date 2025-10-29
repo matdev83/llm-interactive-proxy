@@ -17,7 +17,7 @@ def test_app_config_defaults() -> None:
     config = AppConfig()
 
     # Assert
-    assert config.host == "0.0.0.0"
+    assert config.host == "127.0.0.1"  # Default to localhost for security
     assert config.port == 8000
     assert config.proxy_timeout == 120
     assert config.command_prefix == "!/"

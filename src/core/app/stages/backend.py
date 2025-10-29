@@ -528,10 +528,10 @@ class BackendStage(InitializationStage):
                                     TranslationService
                                 ),
                             )
-                        translation_service: ITranslationService = (
-                            services.build_service_provider().get_required_service(
-                                cast(type, ITranslationService)
-                            )
+                        translation_service: (
+                            ITranslationService
+                        ) = services.build_service_provider().get_required_service(
+                            cast(type, ITranslationService)
                         )
                     except Exception as e:
                         logger.warning(
@@ -590,9 +590,9 @@ class BackendStage(InitializationStage):
 
                         await backend.initialize(**init_config)
                     except TypeError as e:
-                        if "required positional argument" in str(
+                        if "required positional argument" in str(e) or "missing" in str(
                             e
-                        ) or "missing" in str(e):
+                        ):
                             logger.warning(
                                 f"Skipping validation for backend '{backend_name}' due to missing dependency: {e}"
                             )

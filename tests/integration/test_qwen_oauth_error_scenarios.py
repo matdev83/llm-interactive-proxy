@@ -6,15 +6,11 @@ These tests ensure that real error conditions are properly handled and don't giv
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
-from unittest.mock import MagicMock
 
 import httpx
 import pytest
-
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
-
 
 pytestmark = [
     pytest.mark.integration,
@@ -58,7 +54,7 @@ async def test_qwen_oauth_health_check_with_expired_credentials():
             "refresh_token": "refresh_token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": past_time
+            "expiry_date": past_time,
         }
 
         connector._oauth_credentials = expired_creds
@@ -87,21 +83,26 @@ async def test_qwen_oauth_headers_raises_exception_without_credentials():
         with pytest.raises(Exception) as exc_info:
             connector.get_headers()
 
-        assert "401" in str(exc_info.value) or "access token" in str(exc_info.value).lower()
+        assert (
+            "401" in str(exc_info.value)
+            or "access token" in str(exc_info.value).lower()
+        )
 
     finally:
         await async_client.aclose()
 
 
-@pytest.mark.skipif(not (Path.home() / ".qwen" / "oauth_creds.json").exists(),
-                      reason="Qwen OAuth credentials not available")
+@pytest.mark.skipif(
+    not (Path.home() / ".qwen" / "oauth_creds.json").exists(),
+    reason="Qwen OAuth credentials not available",
+)
 @pytest.mark.asyncio
 async def test_qwen_oauth_real_api_connectivity():
     """Test real API connectivity to ensure the fix actually works with real endpoints."""
     creds_path = Path.home() / ".qwen" / "oauth_creds.json"
 
     try:
-        with open(creds_path, 'r') as f:
+        with open(creds_path) as f:
             creds = json.load(f)
 
         if not creds.get("access_token"):
@@ -128,22 +129,26 @@ async def test_qwen_oauth_real_api_connectivity():
             test_request = {
                 "model": "qwen3-coder-plus",
                 "messages": [{"role": "user", "content": "test"}],
-                "max_tokens": 1
+                "max_tokens": 1,
             }
 
             response = await async_client.post(
                 f"{connector.api_base_url}/chat/completions",
                 headers=headers,
                 json=test_request,
-                timeout=10.0
+                timeout=10.0,
             )
 
             # The response should not be a 401 (which would indicate auth issues)
-            assert response.status_code != 401, f"API should not return 401, got {response.status_code}"
+            assert (
+                response.status_code != 401
+            ), f"API should not return 401, got {response.status_code}"
 
             # It could be 200 (success) or other errors (rate limits, etc), but not auth errors
             if response.status_code == 200:
-                assert "choices" in response.json() or "content" in str(response.text), "Valid response should contain content"
+                assert "choices" in response.json() or "content" in str(
+                    response.text
+                ), "Valid response should contain content"
 
         finally:
             await async_client.aclose()
@@ -170,7 +175,7 @@ async def test_qwen_oauth_static_routing_compatibility():
             "refresh_token": "refresh_token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000)
+            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000),
         }
 
         connector._oauth_credentials = test_creds
@@ -210,7 +215,7 @@ async def test_qwen_oauth_no_false_positives_from_mocking():
             "refresh_token": "invalid_refresh",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000)
+            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000),
         }
 
         connector._oauth_credentials = invalid_creds
