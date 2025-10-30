@@ -54,7 +54,7 @@ class TestDangerousCommandProtectionCLI:
 
             # Apply arguments to configuration
             result = apply_cli_args(args, return_resolution=False)
-            
+
             # Handle both possible return types (AppConfig or tuple[AppConfig, ParameterResolution])
             if isinstance(result, tuple):
                 config = result[0]  # Extract AppConfig from tuple if needed
@@ -190,13 +190,15 @@ class TestDangerousCommandProtectionCLI:
 
         # Apply arguments with resolution tracking
         result = apply_cli_args(args, return_resolution=True)
-        
+
         # Handle the case where result might be a nested tuple
         if isinstance(result, tuple) and len(result) == 2:
             config, resolution = result
         else:
             # In case of unexpected return format
-            raise ValueError(f"Expected tuple of (config, resolution), got {type(result)}")
+            raise ValueError(
+                f"Expected tuple of (config, resolution), got {type(result)}"
+            )
 
         # Verify that the CLI source is recorded
         resolved_params = resolution.build_report(config)
