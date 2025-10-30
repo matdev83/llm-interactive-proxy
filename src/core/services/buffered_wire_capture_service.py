@@ -731,28 +731,34 @@ class BufferedWireCapture(IWireCapture):
 
     def _perform_rotation(self) -> None:
         """Perform file rotation."""
-        if not self._file_path:
+        if not self._file_path or self._max_files <= 0:
             return
 
         try:
-            # Simple rotation: move current to .1, .1 to .2, etc.
-            if self._max_files > 0:
-                for i in range(self._max_files, 0, -1):
-                    src = f"{self._file_path}.{i}"
-                    dst = f"{self._file_path}.{i+1}"
-                    if os.path.exists(src):
-                        if i == self._max_files:
-                            os.remove(src)  # Remove oldest
-                        else:
-                            os.replace(src, dst)
+            # Correct rotation: remove oldest, then shift files up.
+            # e.g., for max_files=3: remove .3, .2->.3, .1->.2, .log->.1
 
-                # Move current to .1
-                if os.path.exists(self._file_path):
-                    os.replace(self._file_path, f"{self._file_path}.1")
-            # Ensure a fresh file exists for subsequent writes
+            # 1. Remove the oldest log file if it exists
+            oldest_log = f"{self._file_path}.{self._max_files}"
+            if os.path.exists(oldest_log):
+                os.remove(oldest_log)
+
+            # 2. Shift intermediate logs up
+            for i in range(self._max_files - 1, 0, -1):
+                src = f"{self._file_path}.{i}"
+                dst = f"{self._file_path}.{i + 1}"
+                if os.path.exists(src):
+                    os.replace(src, dst)
+
+            # 3. Rotate the current log to .1
+            if os.path.exists(self._file_path):
+                os.replace(self._file_path, f"{self._file_path}.1")
+
+            # 4. Ensure a fresh file exists for subsequent writes
             with open(self._file_path, "a", encoding="utf-8"):
                 pass
         except Exception:
+            # Suppress errors during rotation to avoid crashing the service
             pass
 
     async def _background_flush_loop(self) -> None:

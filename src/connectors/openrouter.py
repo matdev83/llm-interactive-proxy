@@ -140,15 +140,22 @@ class OpenRouterBackend(OpenAIConnector):
             code="missing_credentials",
         )
 
-    def get_headers(self) -> dict[str, str]:
+    def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:
         if not self.headers_provider or not self.api_key:
             raise AuthenticationError(
                 message="OpenRouter headers provider or API key not set.",
                 code="missing_credentials",
             )
         headers = self._resolve_headers_from_provider()
-        if self.identity:
-            headers.update(self.identity.get_resolved_headers(None))
+        if identity is not None:
+            try:
+                identity_headers = identity.get_resolved_headers(None)
+            except Exception:
+                identity_headers = {}
+            else:
+                identity_headers = dict(identity_headers)
+            if identity_headers:
+                headers.update(identity_headers)
         logger.info(
             f"OpenRouter headers: Authorization: Bearer {self.api_key[:20]}..., HTTP-Referer: {headers.get('HTTP-Referer', 'NOT_SET')}, X-Title: {headers.get('X-Title', 'NOT_SET')}"
         )
@@ -204,8 +211,6 @@ class OpenRouterBackend(OpenAIConnector):
         project: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        self.identity = identity
-
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
         # (the frontend controller converts from frontend-specific format to domain format)
         # Backends should ONLY convert FROM domain TO backend-specific format

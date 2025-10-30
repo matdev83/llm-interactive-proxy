@@ -103,7 +103,7 @@ class ZAIConnector(OpenAIConnector):
         if not self.available_models:
             self.available_models = self._default_models.copy()
 
-    def get_headers(self) -> dict[str, str]:
+    def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:
         """Get headers with ZAI API key."""
         if not self.api_key:
             raise AuthenticationError(

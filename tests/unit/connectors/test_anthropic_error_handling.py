@@ -100,21 +100,23 @@ async def test_anthropic_streaming_handles_generic_error():
     mock_response.aiter_text = mock_aiter_text
     mock_response.aclose = AsyncMock()
 
-    with patch.object(backend.client, "build_request", return_value=MagicMock()):
-        with patch.object(backend.client, "send", return_value=mock_response):
-            stream_handle = await backend._handle_streaming_response(
-                url="https://api.anthropic.com/v1/messages",
-                payload={"model": "claude-3-opus-20240229", "messages": []},
-                headers={"x-api-key": "test-api-key-123"},
-                model="claude-3-opus-20240229",
-            )
+    with (
+        patch.object(backend.client, "build_request", return_value=MagicMock()),
+        patch.object(backend.client, "send", return_value=mock_response),
+    ):
+        stream_handle = await backend._handle_streaming_response(
+            url="https://api.anthropic.com/v1/messages",
+            payload={"model": "claude-3-opus-20240229", "messages": []},
+            headers={"x-api-key": "test-api-key-123"},
+            model="claude-3-opus-20240229",
+        )
 
-            with pytest.raises(BackendError) as exc_info:
-                async for chunk in stream_handle.iterator:
-                    pass
+        with pytest.raises(BackendError) as exc_info:
+            async for _ in stream_handle.iterator:
+                pass
 
-            assert "Rate limit exceeded" in str(exc_info.value)
-            assert exc_info.value.code == "anthropic_error_rate_limit"
+        assert "Rate limit exceeded" in str(exc_info.value)
+        assert exc_info.value.code == "anthropic_error_rate_limit"
 
 
 @pytest.mark.asyncio

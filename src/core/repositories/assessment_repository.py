@@ -91,9 +91,7 @@ class InMemoryAssessmentRepository(IAssessmentRepository):
             max_age_seconds: Maximum age in seconds before cleanup
         """
         with self._lock:
-            removed = self._cleanup_locked(max_age_seconds)
-
-        pass
+            self._cleanup_locked(max_age_seconds)
 
     def get_all_session_ids(self) -> list[str]:
         """

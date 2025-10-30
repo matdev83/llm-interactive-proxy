@@ -158,14 +158,13 @@ class TestStartupValidation(TestQwenOAuthCredentialValidation):
     def test_validate_credentials_structure_expired_token(
         self, connector: QwenOAuthConnector, expired_credentials: dict
     ):
-        """Test validation fails when token is expired."""
+        """Test structural validation allows expired tokens (refresh handled elsewhere)."""
         is_valid, errors = connector._validate_credentials_structure(
             expired_credentials
         )
 
-        assert not is_valid
-        assert len(errors) == 1
-        assert "Token expired at" in errors[0]
+        assert is_valid
+        assert len(errors) == 0
 
     def test_validate_credentials_structure_valid_credentials(
         self, connector: QwenOAuthConnector, valid_credentials: dict
@@ -270,16 +269,19 @@ class TestInitializationValidation(TestQwenOAuthCredentialValidation):
         temp_credentials_dir: Path,
         expired_credentials: dict,
     ):
-        """Test initialization fails when credentials are expired."""
+        """Test initialization succeeds when expired credentials can be refreshed."""
         self.create_credentials_file(temp_credentials_dir, expired_credentials)
 
-        with patch.object(Path, "home", return_value=temp_credentials_dir.parent):
+        with (
+            patch.object(Path, "home", return_value=temp_credentials_dir.parent),
+            patch.object(connector, "_refresh_token_if_needed", return_value=True),
+            patch.object(connector, "_start_file_watching"),
+        ):
             await connector.initialize()
 
-            assert not connector.is_functional
-            assert connector._initialization_failed
-            assert len(connector._credential_validation_errors) > 0
-            assert "Token expired" in connector._credential_validation_errors[0]
+            assert connector.is_functional
+            assert not connector._initialization_failed
+            assert len(connector._credential_validation_errors) == 0
 
     @pytest.mark.asyncio
     async def test_initialize_valid_credentials(
@@ -598,15 +600,14 @@ class TestFileWatchingFunctionality(TestQwenOAuthCredentialValidation):
         temp_credentials_dir: Path,
         expired_credentials: dict,
     ):
-        """Test handling of invalid credentials file change."""
+        """Test handling of expired credentials file change triggers refresh path."""
         self.create_credentials_file(temp_credentials_dir, expired_credentials)
 
         with patch.object(Path, "home", return_value=temp_credentials_dir.parent):
             await connector._handle_credentials_file_change()
 
-            assert not connector.is_functional
-            assert len(connector._credential_validation_errors) > 0
-            assert "Token expired" in connector._credential_validation_errors[0]
+            assert connector.is_functional
+            assert len(connector._credential_validation_errors) == 0
 
 
 class TestCleanupFunctionality(TestQwenOAuthCredentialValidation):
@@ -641,21 +642,25 @@ class TestIntegrationScenarios(TestQwenOAuthCredentialValidation):
         temp_credentials_dir: Path,
         expired_credentials: dict,
     ):
-        """Test complete scenario: startup with expired token -> initialization fails."""
+        """Test complete scenario: startup with expired token -> refresh attempt triggered."""
         self.create_credentials_file(temp_credentials_dir, expired_credentials)
 
-        with patch.object(Path, "home", return_value=temp_credentials_dir.parent):
+        with (
+            patch.object(Path, "home", return_value=temp_credentials_dir.parent),
+            patch.object(connector, "_refresh_token_if_needed", return_value=False),
+            patch.object(connector, "_start_file_watching"),
+        ):
             await connector.initialize()
 
-            # Should fail initialization
+            # Should degrade functionality but keep initialization marked successful
             assert not connector.is_functional
-            assert connector._initialization_failed
+            assert not connector._initialization_failed
             assert not connector.is_backend_functional()
 
             # Should have descriptive error
             errors = connector.get_validation_errors()
             assert len(errors) > 0
-            assert "Token expired" in errors[0]
+            assert "OAuth token refresh pending" in errors[0]
 
     @pytest.mark.asyncio
     async def test_complete_valid_token_scenario(

@@ -299,8 +299,11 @@ class QwenOAuthConnector(OpenAIConnector):
                 expiry_date_s = float(expiry_date) / 1000.0
                 current_time = time.time()
                 if current_time >= expiry_date_s:
-                    errors.append(
-                        f"Token expired at {time.ctime(expiry_date_s)} (current time: {time.ctime(current_time)})"
+                    logger.warning(
+                        "OAuth credential expiry indicates access token is stale; "
+                        "continuing with refresh flow (expired at %s, current %s)",
+                        time.ctime(expiry_date_s),
+                        time.ctime(current_time),
                     )
 
         return len(errors) == 0, errors
@@ -662,7 +665,7 @@ class QwenOAuthConnector(OpenAIConnector):
             logger.error(f"Error loading Qwen OAuth credentials: {e}")
             return False
 
-    def get_headers(self) -> dict[str, str]:
+    def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:
         """Override to use access_token from loaded credentials."""
         if not self._oauth_credentials or not self._oauth_credentials.get(
             "access_token"
@@ -1036,6 +1039,37 @@ class QwenOAuthConnector(OpenAIConnector):
 
             # If streaming, leave content as-is; central pipeline will handle repairs
 
+            # Calculate and augment token usage if missing or has zero values
+            should_calculate_usage = False
+
+            if isinstance(response_envelope, ResponseEnvelope):
+                if not response_envelope.usage:
+                    should_calculate_usage = True
+                    logger.debug("No usage information in response, calculating...")
+                else:
+                    # Check if any of the usage values are zero (indicating missing data)
+                    prompt_tokens = response_envelope.usage.get("prompt_tokens", 0)
+                    completion_tokens = response_envelope.usage.get(
+                        "completion_tokens", 0
+                    )
+                    total_tokens = response_envelope.usage.get("total_tokens", 0)
+
+                    if (
+                        prompt_tokens == 0
+                        or completion_tokens == 0
+                        or total_tokens == 0
+                    ):
+                        should_calculate_usage = True
+                        logger.debug(
+                            f"Zero usage values detected: prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}, calculating..."
+                        )
+
+                if should_calculate_usage:
+                    calculated_usage = self._calculate_token_usage(
+                        response_envelope, processed_messages, model_name
+                    )
+                    response_envelope.usage = calculated_usage
+
             return response_envelope
 
         except HTTPException:
@@ -1050,6 +1084,86 @@ class QwenOAuthConnector(OpenAIConnector):
             raise BackendError(
                 message=f"Qwen OAuth chat completion failed: {e!s}"
             ) from e
+
+    def _calculate_token_usage(
+        self,
+        response_envelope: ResponseEnvelope,
+        processed_messages: list[Any],
+        model_name: str,
+    ) -> dict[str, int]:
+        """Calculate token usage when missing from backend response.
+
+        Args:
+            response_envelope: The response envelope containing the content
+            processed_messages: The messages sent to the backend
+            model_name: The model name used for the request
+
+        Returns:
+            Dictionary with prompt_tokens, completion_tokens, and total_tokens
+        """
+        try:
+            from src.core.utils.token_count import count_tokens, extract_prompt_text
+
+            # Calculate prompt tokens from the input messages
+            prompt_text = extract_prompt_text(processed_messages)
+            prompt_tokens = count_tokens(prompt_text, model_name)
+
+            # Calculate completion tokens from the response content
+            completion_tokens = 0
+            if response_envelope.content and isinstance(
+                response_envelope.content, dict
+            ):
+                # Extract content from OpenAI-style response
+                choices = response_envelope.content.get("choices", [])
+                if choices and len(choices) > 0:
+                    choice = choices[0]
+                    message = choice.get("message", {})
+                    content = message.get("content", "")
+
+                    # Count tokens in completion content
+                    if content:
+                        completion_tokens = count_tokens(content, model_name)
+
+                    # Also count tokens in tool calls if present
+                    tool_calls = message.get("tool_calls", [])
+                    if tool_calls:
+                        for tool_call in tool_calls:
+                            if isinstance(tool_call, dict):
+                                # Count tokens in function name and arguments
+                                function = tool_call.get("function", {})
+                                func_name = function.get("name", "")
+                                func_args = function.get("arguments", "")
+
+                                if func_name:
+                                    completion_tokens += count_tokens(
+                                        func_name, model_name
+                                    )
+                                if func_args:
+                                    completion_tokens += count_tokens(
+                                        func_args, model_name
+                                    )
+
+            # Calculate total tokens
+            total_tokens = prompt_tokens + completion_tokens
+
+            calculated_usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            }
+
+            logger.info(f"Calculated token usage for {model_name}: {calculated_usage}")
+
+            return calculated_usage
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate token usage: {e}")
+            # Return zero usage as fallback
+            return {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }
 
     def __del__(self) -> None:
         """Cleanup method to stop file watching when connector is destroyed."""

@@ -70,7 +70,6 @@ class OpenAIConnector(LLMBackend):
         self.available_models: list[str] = []
         self.api_key: str | None = None
         self._api_base_url: str = "https://api.openai.com/v1"
-        self.identity: Any | None = None
 
         # Health check attributes
         self._health_checked: bool = False
@@ -114,19 +113,21 @@ class OpenAIConnector(LLMBackend):
             )
         return service
 
-    def get_headers(self) -> dict[str, str]:
-        """Return request headers including API key and per-request identity."""
+    def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:
+        """Return request headers including API key and optional request identity."""
 
         headers: dict[str, str] = {}
 
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        if self.identity:
+        if identity is not None:
             try:
-                identity_headers = self.identity.get_resolved_headers(None)
+                identity_headers = identity.get_resolved_headers(None)
             except Exception:
                 identity_headers = {}
+            else:
+                identity_headers = dict(identity_headers)
             if identity_headers:
                 headers.update(identity_headers)
 
@@ -260,9 +261,6 @@ class OpenAIConnector(LLMBackend):
         # Cast to CanonicalChatRequest for mypy compatibility with _prepare_payload signature
         domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
 
-        # Ensure identity headers are scoped to the current request only.
-        self.identity = identity
-
         # Prepare the payload using a helper so subclasses and tests can
         # override or patch payload construction logic easily.
         payload = await self._prepare_payload(
@@ -271,30 +269,22 @@ class OpenAIConnector(LLMBackend):
         headers_override = kwargs.pop("headers_override", None)
         headers: dict[str, str] | None = None
 
+        base_headers: dict[str, str] | None
+        try:
+            base_headers = self.get_headers(identity=identity)
+        except Exception:
+            base_headers = None
+
         if headers_override is not None:
             # Avoid mutating the caller-provided mapping while preserving any
             # Authorization header we compute from the configured API key.
             headers = dict(headers_override)
-
-            try:
-                base_headers = self.get_headers()
-            except Exception:
-                base_headers = None
-
             if base_headers:
                 merged_headers = dict(base_headers)
                 merged_headers.update(headers)
                 headers = merged_headers
         else:
-            try:
-                # Always update the cached identity so that per-request
-                # identity headers do not leak between calls. Downstream
-                # callers rely on identity-specific headers being scoped to
-                # a single request.
-                self.identity = identity
-                headers = self.get_headers()
-            except Exception:
-                headers = None
+            headers = base_headers
 
         api_base = kwargs.get("openai_url") or self.api_base_url
         url = f"{api_base.rstrip('/')}/chat/completions"
@@ -741,9 +731,6 @@ class OpenAIConnector(LLMBackend):
         if effective_model:
             payload["model"] = effective_model
 
-        # Ensure identity headers are scoped per request before computing headers.
-        self.identity = identity
-
         # Update messages with processed_messages if available
         if processed_messages:
             try:
@@ -784,22 +771,20 @@ class OpenAIConnector(LLMBackend):
         if headers_override is not None:
             resolved_headers = dict(headers_override)
 
-        if identity:
-            self.identity = identity
-
         base_headers: dict[str, str] | None
         try:
-            base_headers = self.get_headers()
+            base_headers = self.get_headers(identity=identity)
         except Exception:
             base_headers = None
 
+        headers: dict[str, str] | None = None
         if base_headers is not None:
             merged_headers = dict(base_headers)
             if resolved_headers:
                 merged_headers.update(resolved_headers)
-            resolved_headers = merged_headers
-
-        headers = resolved_headers
+            headers = merged_headers
+        else:
+            headers = resolved_headers
 
         api_base = kwargs.get("openai_url") or self.api_base_url
         url = f"{api_base.rstrip('/')}/responses"

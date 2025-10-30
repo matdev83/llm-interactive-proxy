@@ -14,7 +14,9 @@ def turn_counter() -> TurnCounterService:
 
 
 @pytest.mark.asyncio
-async def test_increment_turn_requires_session_id(turn_counter: TurnCounterService) -> None:
+async def test_increment_turn_requires_session_id(
+    turn_counter: TurnCounterService,
+) -> None:
     with pytest.raises(ValueError):
         turn_counter.increment_turn("")
 

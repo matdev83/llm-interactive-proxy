@@ -35,6 +35,7 @@ class IStreamProcessor(ABC):
 
 
 from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.services.streaming.stream_utils import get_stream_id as _get_stream_id
 from src.loop_detection.event import LoopDetectionEvent
 
 
@@ -101,20 +102,12 @@ class LoopDetectionProcessor(IStreamProcessor):
         if content.is_empty and not content.is_done:
             return content
 
-        # Get session_id from metadata to ensure per-session detector isolation
-        session_id = (
-            content.metadata.get("session_id")
-            or content.metadata.get("stream_id")
-            or content.metadata.get("id")
-        )
-        if not session_id:
-            from src.core.services.streaming.stream_utils import (
-                get_stream_id as _get_stream_id,
-            )
+        # Ensure a stable stream identifier so metadata stays consistent across processors.
+        stream_id = _get_stream_id(content)
 
-            session_id = _get_stream_id(content)
-        else:
-            session_id = str(session_id)
+        # Prefer an explicit session identifier when provided; otherwise fall back to stream.
+        raw_session = content.metadata.get("session_id") or content.metadata.get("id")
+        session_id = str(raw_session) if raw_session else str(stream_id)
 
         # Get the detector instance for this specific session
         loop_detector = self._get_detector_for_session(session_id)

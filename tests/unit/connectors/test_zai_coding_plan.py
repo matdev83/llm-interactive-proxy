@@ -56,8 +56,9 @@ async def test_get_available_models(backend: ZaiCodingPlanBackend):
 
 async def test_list_models(backend: ZaiCodingPlanBackend):
     models = await backend.list_models()
-    assert len(models) == 1
-    assert models[0]["id"] == "claude-sonnet-4-20250514"
+    assert "data" in models
+    assert len(models["data"]) == 1
+    assert models["data"][0]["id"] == "claude-sonnet-4-20250514"
 
 
 async def test_chat_completions_model_rewrite(

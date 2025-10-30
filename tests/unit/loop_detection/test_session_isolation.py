@@ -195,14 +195,17 @@ class TestLoopDetectionSessionIsolation:
         assert "second chunk" in history
 
     @pytest.mark.asyncio
-    async def test_session_without_id_uses_default(self, processor):
-        """Test that content without session_id uses 'default' session."""
+    async def test_session_without_id_uses_generated_stream_id(self, processor):
+        """Test that content without session_id generates a unique stream_id."""
         # Send content without session_id
         content = StreamingContent(content="test content", metadata={})
         await processor.process(content)
 
-        # Should create detector for 'default' session
-        assert "default" in processor._session_detectors
+        # Should create detector with a generated stream_id
+        assert len(processor._session_detectors) == 1
+        # The generated stream_id should be a UUID hex string (32 characters)
+        session_key = next(iter(processor._session_detectors.keys()))
+        assert len(session_key) == 32  # UUID hex without dashes
 
     @pytest.mark.asyncio
     async def test_stream_id_fallback_when_no_session_id(self, processor):

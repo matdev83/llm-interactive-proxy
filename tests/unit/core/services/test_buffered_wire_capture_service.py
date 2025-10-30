@@ -8,7 +8,9 @@ from src.core.services.buffered_wire_capture_service import BufferedWireCapture
 
 def test_create_entry_generates_session_id_when_missing() -> None:
     service = BufferedWireCapture(AppConfig())
-    context = SimpleNamespace(client_host="localhost", agent="test-agent", request_id="req-123")
+    context = SimpleNamespace(
+        client_host="localhost", agent="test-agent", request_id="req-123"
+    )
     entry = service._create_entry(  # type: ignore[attr-defined]
         direction="test",
         source="src",

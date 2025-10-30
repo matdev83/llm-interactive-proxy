@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -138,6 +139,7 @@ class ToolAccessPolicyService:
         self._policy_cache: dict[tuple[str, str | None], AccessPolicy | None] = {}
         self._cache_hits = 0
         self._cache_misses = 0
+        self._cache_lock = threading.Lock()
 
         # Load policies from configuration
         self._load_policies(config)
@@ -240,12 +242,14 @@ class ToolAccessPolicyService:
 
         # Check cache
         cache_key = (model_name, agent)
-        if cache_key in self._policy_cache:
-            self._cache_hits += 1
-            return self._policy_cache[cache_key]
+        with self._cache_lock:
+            if cache_key in self._policy_cache:
+                self._cache_hits += 1
+                return self._policy_cache[cache_key]
+            self._cache_misses += 1
 
-        # Cache miss - find matching policy
-        self._cache_misses += 1
+        # Cache miss - find matching policy outside the lock so evaluation
+        # of regex patterns does not block other callers.
         selected_policy: AccessPolicy | None = None
 
         for policy in self._policies:
@@ -254,7 +258,8 @@ class ToolAccessPolicyService:
                 break
 
         # Cache the result
-        self._policy_cache[cache_key] = selected_policy
+        with self._cache_lock:
+            self._policy_cache[cache_key] = selected_policy
         return selected_policy
 
     def filter_tool_definitions(
@@ -421,6 +426,8 @@ class ToolAccessPolicyService:
             if total_cache_lookups > 0
             else 0.0
         )
+        with self._cache_lock:
+            cache_size = len(self._policy_cache)
 
         return {
             "evaluation_count": self._evaluation_count,
@@ -429,7 +436,7 @@ class ToolAccessPolicyService:
             "cache_hits": self._cache_hits,
             "cache_misses": self._cache_misses,
             "cache_hit_rate_percent": cache_hit_rate,
-            "cache_size": len(self._policy_cache),
+            "cache_size": cache_size,
         }
 
     @staticmethod

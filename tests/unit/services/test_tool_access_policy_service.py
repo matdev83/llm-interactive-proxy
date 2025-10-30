@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+
 import pytest
 from src.core.config.app_config import ToolCallReactorConfig
 from src.core.services.tool_access_policy_service import (
@@ -679,3 +682,49 @@ class TestToolAccessPolicyService:
         # read_secret matches both allowed and blocked, allowed should win
         is_allowed, _ = service.is_tool_allowed("read_secret", "gpt-4")
         assert is_allowed is True
+
+    def test_policy_cache_is_thread_safe(self) -> None:
+        """Ensure caching logic remains correct under concurrent access."""
+        config = ToolCallReactorConfig(
+            access_policies=[
+                {
+                    "name": "cache_test_policy",
+                    "model_pattern": "gpt-.*",
+                    "default_policy": "deny",
+                    "allowed_patterns": ["safe_tool"],
+                }
+            ]
+        )
+        service = ToolAccessPolicyService(config)
+        tools: list[dict[str, Any]] = [
+            {"type": "function", "function": {"name": "safe_tool"}},
+            {"type": "function", "function": {"name": "danger_tool"}},
+        ]
+
+        models = ["gpt-4"] * 16 + ["claude-3"] * 16
+        agents = [f"agent-{i % 4}" for i in range(len(models))]
+
+        def evaluate(model: str, agent: str) -> tuple[int, str | None]:
+            filtered, metadata = service.filter_tool_definitions(
+                tools=tools,
+                model_name=model,
+                agent=agent,
+            )
+            return len(filtered), metadata.get("policy_applied")
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(evaluate, models, agents))
+
+        permitted_counts = [length for length, _ in results[:16]]
+        fallback_counts = [length for length, _ in results[16:]]
+        applied_policies = [policy for _, policy in results[:16]]
+
+        # gpt-4 requests should filter out the blocked tool
+        assert all(count == 1 for count in permitted_counts)
+        assert all(policy == "cache_test_policy" for policy in applied_policies)
+        # claude-3 requests should bypass policies entirely
+        assert all(count == 2 for count in fallback_counts)
+
+        metrics = service.get_performance_metrics()
+        expected_cache_size = len(set(zip(models, agents, strict=False)))
+        assert metrics["cache_size"] == expected_cache_size
