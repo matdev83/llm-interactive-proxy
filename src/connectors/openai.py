@@ -514,13 +514,13 @@ class OpenAIConnector(LLMBackend):
                 body_bytes = await response.aread()
             except Exception:
                 fallback = getattr(response, "text", "")
-                body = fallback() if callable(fallback) else fallback
+                body = fallback() if callable(fallback) else str(fallback) if fallback is not None else ""
             else:
                 try:
                     body = body_bytes.decode("utf-8")
                 except Exception:
                     fallback = getattr(response, "text", "")
-                    body = fallback() if callable(fallback) else fallback
+                    body = fallback() if callable(fallback) else str(fallback) if fallback is not None else ""
             finally:
                 with contextlib.suppress(Exception):
                     await response.aclose()

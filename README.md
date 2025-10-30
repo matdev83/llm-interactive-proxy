@@ -657,6 +657,7 @@ Useful flags
 - `--config config/config.example.yaml` to load a saved config
 - `--capture-file wire.log` to record requests/replies (see Debugging)
 - `--disable-auth` for local only (forces host=127.0.0.1)
+- `--disable-dangerous-git-commands-protection` to disable protection against dangerous git commands (overwrites config file and environment variable)
 - `--force-model MODEL_NAME` to override all client-requested models (e.g., `--force-model gemini-2.5-pro`)
 - `--force-context-window TOKENS` to override context window size for all models (e.g., `--force-context-window 8000`)
 - `--strict-command-detection` to enable strict command detection (only process commands on last non-blank line)

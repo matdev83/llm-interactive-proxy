@@ -782,7 +782,8 @@ def apply_cli_args(
         default_log_file = Path("logs/proxy.log")
         # Ensure logs directory exists
         default_log_file.parent.mkdir(parents=True, exist_ok=True)
-        logging_overrides["log_file"] = str(default_log_file)
+        # Don't add to logging_overrides since this is just a default and shouldn't trigger re-validation
+        # The default will be applied in the config model itself
     if args.log_level is not None:
         logging_overrides["level"] = LogLevel[args.log_level]
         record_cli("logging.level", LogLevel[args.log_level].value, "--log-level")
@@ -1132,7 +1133,9 @@ def apply_cli_args(
     if getattr(args, "disable_dangerous_git_commands_protection", None) is not None:
         session = cli_overrides.setdefault("session", {})
         # CLI flag should override the default (which is True) and environment variable
-        session["dangerous_command_prevention_enabled"] = not args.disable_dangerous_git_commands_protection
+        session["dangerous_command_prevention_enabled"] = (
+            not args.disable_dangerous_git_commands_protection
+        )
         record_cli(
             "session.dangerous_command_prevention_enabled",
             not args.disable_dangerous_git_commands_protection,
@@ -1237,8 +1240,26 @@ def apply_cli_args(
         cli_overrides["assessment"] = assessment_overrides
 
     # Planning phase configuration
-    session = cli_overrides.setdefault("session", {})
-    planning_phase_overrides = session.setdefault("planning_phase", {})
+    # Only create session dict if planning phase args are present
+    planning_phase_args_present = any(
+        [
+            getattr(args, "enable_planning_phase", None) is not None,
+            getattr(args, "planning_phase_strong_model", None) is not None,
+            getattr(args, "planning_phase_max_turns", None) is not None,
+            getattr(args, "planning_phase_max_file_writes", None) is not None,
+            getattr(args, "planning_phase_temperature", None) is not None,
+            getattr(args, "planning_phase_top_p", None) is not None,
+            getattr(args, "planning_phase_reasoning_effort", None) is not None,
+            getattr(args, "planning_phase_thinking_budget", None) is not None,
+        ]
+    )
+    if planning_phase_args_present:
+        session = cli_overrides.setdefault("session", {})
+        planning_phase_overrides = session.setdefault("planning_phase", {})
+    else:
+        # Create temporary references without modifying cli_overrides
+        session = {}
+        planning_phase_overrides = {}
     if getattr(args, "enable_planning_phase", None) is not None:
         planning_phase_overrides["enabled"] = args.enable_planning_phase
         record_cli(
@@ -1366,13 +1387,16 @@ def apply_cli_args(
 
     # Create new config with CLI overrides if any
     if cli_overrides:
-        # Get current config as dict
-        config_dict = cfg.model_dump()
+        # Get current config as dict, ensuring full serialization to preserve nested objects
+        config_dict = cfg.model_dump(mode="json")
+
         # Apply CLI overrides
         _merge_dicts(config_dict, cli_overrides)
+
         # Ensure command_prefix is never None to satisfy Pydantic validation
         if config_dict.get("command_prefix") is None:
             config_dict["command_prefix"] = DEFAULT_COMMAND_PREFIX
+
         # Create new config
         cfg = AppConfig.model_validate(config_dict)
 

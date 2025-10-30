@@ -22,6 +22,7 @@
 --disable-accounting
 --disable-auth
 --disable-brute-force-protection
+--disable-dangerous-git-commands-protection
 --disable-edit-precision
 --disable-gemini-oauth-fallback
 --disable-interactive-commands

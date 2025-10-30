@@ -50,10 +50,12 @@ class TestGeminiSystemRoleConversion:
         # Prepend system instruction as first user message
         final_contents = []
         if system_instruction_parts:
-            final_contents.append({
-                "role": "user",
-                "parts": system_instruction_parts,
-            })
+            final_contents.append(
+                {
+                    "role": "user",
+                    "parts": system_instruction_parts,
+                }
+            )
         final_contents.extend(filtered_contents)
 
         # Build Code Assist request
