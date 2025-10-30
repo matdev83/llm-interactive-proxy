@@ -40,6 +40,13 @@ session:
   # Fix improperly formatted <think> tags in model responses
   fix_think_tags_enabled: false  # Set to true to enable think tags correction
 
+  # Planning phase: Route initial requests to a strong model for better planning
+  planning_phase:
+    enabled: false  # Set to true to enable planning phase
+    strong_model: "openai:gpt-4"  # Strong model for planning (backend:model format)
+    max_turns: 10  # Maximum turns before switching back to default model
+    max_file_writes: 1  # Maximum file writes before switching back to default model
+
 # Logging
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -126,12 +133,3 @@ failover_routes:
 #   # Catch-all for any other model
 #   - pattern: "^(.*)$"
 #     replacement: "gemini-oauth-plan:gemini-1.5-pro"
-
-# Session configuration
-session:
-  # Planning phase: Route initial requests to a strong model for better planning
-  planning_phase:
-    enabled: false  # Set to true to enable planning phase
-    strong_model: "openai:gpt-4"  # Strong model for planning (backend:model format)
-    max_turns: 10  # Maximum turns before switching back to default model
-    max_file_writes: 1  # Maximum file writes before switching back to default model
