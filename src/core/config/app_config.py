@@ -92,6 +92,7 @@ from src.core.domain.configuration.header_config import (
 from src.core.domain.configuration.reasoning_aliases_config import (
     ReasoningAliasesConfig,
 )
+from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_bases import DomainModel
 
@@ -799,6 +800,9 @@ class AppConfig(DomainModel, IConfig):
     # Model name rewrite rules
     model_aliases: list[ModelAliasRule] = Field(default_factory=list)
 
+    # Sandboxing settings
+    sandboxing: SandboxingConfiguration = Field(default_factory=SandboxingConfiguration)
+
     # FastAPI app instance
     app: Any = None
 
@@ -841,6 +845,7 @@ class AppConfig(DomainModel, IConfig):
             "default_backend",
             "reasoning_aliases",
             "model_aliases",
+            "sandboxing",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
         # Ensure nested sections only include serializable primitives
@@ -1479,6 +1484,31 @@ class AppConfig(DomainModel, IConfig):
                 20,
                 env,
                 path="assessment.history_window",
+                resolution=resolution,
+            ),
+        }
+
+        # Sandboxing configuration from environment
+        config["sandboxing"] = {
+            "enabled": _env_to_bool(
+                "ENABLE_SANDBOXING",
+                False,
+                env,
+                path="sandboxing.enabled",
+                resolution=resolution,
+            ),
+            "strict_mode": _env_to_bool(
+                "SANDBOXING_STRICT_MODE",
+                False,
+                env,
+                path="sandboxing.strict_mode",
+                resolution=resolution,
+            ),
+            "allow_parent_access": _env_to_bool(
+                "SANDBOXING_ALLOW_PARENT_ACCESS",
+                False,
+                env,
+                path="sandboxing.allow_parent_access",
                 resolution=resolution,
             ),
         }

@@ -19,9 +19,10 @@ class TestGeminiSystemRoleConversion:
         return TranslationService()
 
     def test_system_role_filtering_logic(self) -> None:
-        """Test the fix: filtering system role from contents and creating systemInstruction.
+        """Test the fix: filtering system role and prepending as first user message.
 
         This test verifies the core logic we implemented in the connectors.
+        Following KiloCode's approach to avoid 64K systemInstruction limit.
         """
         # Simulate the Gemini request structure
         gemini_request = {
@@ -33,28 +34,33 @@ class TestGeminiSystemRoleConversion:
             "generationConfig": {"temperature": 0.7},
         }
 
-        # Apply the fix logic
-        system_instruction = None
+        # Apply the fix logic (KiloCode approach)
+        system_instruction_parts = []
         filtered_contents = []
 
         for content in gemini_request.get("contents", []):
             if content.get("role") == "system":
-                # Convert to systemInstruction with 'user' role
-                system_instruction = {
-                    "role": "user",  # CRITICAL: Must be 'user', not 'system'
-                    "parts": content.get("parts", []),
-                }
+                # Collect system message parts
+                parts = content.get("parts", [])
+                if isinstance(parts, list):
+                    system_instruction_parts.extend(parts)
             else:
                 filtered_contents.append(content)
 
+        # Prepend system instruction as first user message
+        final_contents = []
+        if system_instruction_parts:
+            final_contents.append({
+                "role": "user",
+                "parts": system_instruction_parts,
+            })
+        final_contents.extend(filtered_contents)
+
         # Build Code Assist request
         code_assist_request = {
-            "contents": filtered_contents,
+            "contents": final_contents,
             "generationConfig": gemini_request.get("generationConfig", {}),
         }
-
-        if system_instruction:
-            code_assist_request["systemInstruction"] = system_instruction
 
         # CRITICAL ASSERTIONS: Verify the fix
         # 1. No system role in contents
@@ -65,35 +71,38 @@ class TestGeminiSystemRoleConversion:
             "system" not in contents_roles
         ), f"System role found in contents: {contents_roles}"
 
-        # 2. systemInstruction exists
-        assert "systemInstruction" in code_assist_request, "Missing systemInstruction"
+        # 2. System instruction is first message with user role
+        assert len(code_assist_request["contents"]) == 3  # system as user, user, model
+        assert code_assist_request["contents"][0]["role"] == "user"
 
-        # 3. systemInstruction has role='user'
-        assert (
-            code_assist_request["systemInstruction"]["role"] == "user"
-        ), "systemInstruction role must be 'user'"
+        # 3. System message content is preserved in first message
+        assert len(code_assist_request["contents"][0]["parts"]) > 0
+        assert "helpful" in str(code_assist_request["contents"][0]["parts"])
 
-        # 4. System message content is preserved
-        assert len(code_assist_request["systemInstruction"]["parts"]) > 0
-        assert "helpful" in str(code_assist_request["systemInstruction"]["parts"])
-
-        # 5. Other messages preserved
-        assert len(code_assist_request["contents"]) == 2  # user and model only
+        # 4. Other messages preserved after first message
+        assert code_assist_request["contents"][1]["role"] == "user"
+        assert code_assist_request["contents"][2]["role"] == "model"
 
     def test_code_assist_request_structure(self) -> None:
         """Document the expected Code Assist API request structure.
 
-        According to gemini-cli reference implementation, Code Assist API expects:
+        Following KiloCode's approach to avoid 64K systemInstruction limit:
         {
             "model": "gemini-2.5-pro",
             "project": "project-id",
             "user_prompt_id": "proxy-request",
             "request": {
-                "contents": [...],  # NO system role here
-                "systemInstruction": {"role": "user", "parts": [...]},
+                "contents": [
+                    {"role": "user", "parts": [{"text": "System instruction"}]},  # System as first user message
+                    {"role": "user", "parts": [{"text": "Hello"}]},
+                    {"role": "model", "parts": [{"text": "Hi"}]},
+                ],
                 "generationConfig": {...}
             }
         }
+
+        Note: We put system instruction as FIRST user message instead of using
+        the separate systemInstruction field to avoid the 64K token limit on that field.
         """
         expected_structure = {
             "model": "gemini-2.5-pro",
@@ -101,13 +110,13 @@ class TestGeminiSystemRoleConversion:
             "user_prompt_id": "proxy-request",
             "request": {
                 "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": "You are helpful"}],
+                    },  # System instruction as first message
                     {"role": "user", "parts": [{"text": "Hello"}]},
                     {"role": "model", "parts": [{"text": "Hi"}]},
                 ],
-                "systemInstruction": {
-                    "role": "user",  # MUST be 'user'
-                    "parts": [{"text": "You are helpful"}],
-                },
                 "generationConfig": {},
             },
         }
@@ -120,8 +129,8 @@ class TestGeminiSystemRoleConversion:
         roles = [c["role"] for c in request["contents"]]
         assert "system" not in roles
 
-        # systemInstruction with user role
-        assert request["systemInstruction"]["role"] == "user"
+        # System instruction is first user message
+        assert request["contents"][0]["role"] == "user"
 
     def test_request_without_system_message(self) -> None:
         """Test that requests without system messages work normally."""

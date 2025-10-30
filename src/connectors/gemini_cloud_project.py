@@ -1113,30 +1113,39 @@ class GeminiCloudProjectConnector(GeminiBackend):
             )
 
             # Code Assist API doesn't support 'system' role in contents array
-            # Extract system messages and convert to systemInstruction with 'user' role
-            system_instruction = None
+            # KiloCode's approach: Put system messages as FIRST user message in contents
+            # This avoids the 64K token limit on the separate systemInstruction field
+            system_instruction_parts: list[dict[str, Any]] = []
             filtered_contents = []
 
             for content in gemini_request.get("contents", []):
                 if content.get("role") == "system":
-                    # Convert system message to systemInstruction with 'user' role
-                    # (Code Assist API doesn't support 'system' role)
-                    system_instruction = {
-                        "role": "user",
-                        "parts": content.get("parts", []),
-                    }
+                    # Collect all system message parts
+                    parts = content.get("parts", [])
+                    if isinstance(parts, list):
+                        system_instruction_parts.extend(parts)
+                    elif parts:
+                        system_instruction_parts.append(parts)
                 else:
                     filtered_contents.append(content)
 
+            # Prepend system messages as first user message (KiloCode's approach)
+            # This avoids hitting the 64K limit on systemInstruction field
+            final_contents = []
+            if system_instruction_parts:
+                final_contents.append(
+                    {
+                        "role": "user",
+                        "parts": system_instruction_parts,
+                    }
+                )
+            final_contents.extend(filtered_contents)
+
             # Build the request for Code Assist API
             code_assist_request = {
-                "contents": filtered_contents,
+                "contents": final_contents,
                 "generationConfig": gemini_request.get("generationConfig", {}),
             }
-
-            # Add systemInstruction if we found system messages
-            if system_instruction:
-                code_assist_request["systemInstruction"] = system_instruction
 
             # Add other fields if present
             if "tools" in gemini_request:
@@ -1226,30 +1235,39 @@ class GeminiCloudProjectConnector(GeminiBackend):
             )
 
             # Code Assist API doesn't support 'system' role in contents array
-            # Extract system messages and convert to systemInstruction with 'user' role
-            system_instruction = None
+            # KiloCode's approach: Put system messages as FIRST user message in contents
+            # This avoids the 64K token limit on the separate systemInstruction field
+            system_instruction_parts: list[dict[str, Any]] = []
             filtered_contents = []
 
             for content in gemini_request.get("contents", []):
                 if content.get("role") == "system":
-                    # Convert system message to systemInstruction with 'user' role
-                    # (Code Assist API doesn't support 'system' role)
-                    system_instruction = {
-                        "role": "user",
-                        "parts": content.get("parts", []),
-                    }
+                    # Collect all system message parts
+                    parts = content.get("parts", [])
+                    if isinstance(parts, list):
+                        system_instruction_parts.extend(parts)
+                    elif parts:
+                        system_instruction_parts.append(parts)
                 else:
                     filtered_contents.append(content)
 
+            # Prepend system messages as first user message (KiloCode's approach)
+            # This avoids hitting the 64K limit on systemInstruction field
+            final_contents = []
+            if system_instruction_parts:
+                final_contents.append(
+                    {
+                        "role": "user",
+                        "parts": system_instruction_parts,
+                    }
+                )
+            final_contents.extend(filtered_contents)
+
             # Build the request for Code Assist API
             code_assist_request = {
-                "contents": filtered_contents,
+                "contents": final_contents,
                 "generationConfig": gemini_request.get("generationConfig", {}),
             }
-
-            # Add systemInstruction if we found system messages
-            if system_instruction:
-                code_assist_request["systemInstruction"] = system_instruction
 
             # Add other fields if present
             if "tools" in gemini_request:

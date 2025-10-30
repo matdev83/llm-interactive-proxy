@@ -516,6 +516,15 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Enable correction of improperly formatted <think> tags in model responses",
     )
 
+    # Dangerous command protection
+    parser.add_argument(
+        "--disable-dangerous-git-commands-protection",
+        action="store_true",
+        dest="disable_dangerous_git_commands_protection",
+        default=None,
+        help="Disable protection against dangerous git commands (overwrites config file and environment variable)",
+    )
+
     # Tool Access Control arguments
     tool_access_group = parser.add_argument_group(
         "Tool Access Control",
@@ -1117,6 +1126,17 @@ def apply_cli_args(
             "session.fix_think_tags_enabled",
             args.fix_think_tags_enabled,
             "--fix-think-tags",
+        )
+
+    # Dangerous command protection
+    if getattr(args, "disable_dangerous_git_commands_protection", None) is not None:
+        session = cli_overrides.setdefault("session", {})
+        # CLI flag should override the default (which is True) and environment variable
+        session["dangerous_command_prevention_enabled"] = not args.disable_dangerous_git_commands_protection
+        record_cli(
+            "session.dangerous_command_prevention_enabled",
+            not args.disable_dangerous_git_commands_protection,
+            "--disable-dangerous-git-commands-protection",
         )
 
     # Tool Access Control global overrides

@@ -147,3 +147,22 @@ properties:
           type: string
       required: [pattern, replacement]
     default: []
+  sandboxing:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      strict_mode: { type: boolean }
+      allow_parent_access: { type: boolean }
+      custom_tool_patterns:
+        type: array
+        items: { type: string }
+      excluded_tools:
+        type: array
+        items: { type: string }
+      default_tool_patterns:
+        type: array
+        items: { type: string }
+      path_parameter_names:
+        type: array
+        items: { type: string }

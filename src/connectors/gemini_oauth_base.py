@@ -1798,37 +1798,39 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             )
 
             # Code Assist API doesn't support 'system' role in contents array
-            # Extract system messages and convert to systemInstruction with 'user' role
-            system_instruction = None
+            # KiloCode's approach: Put system messages as FIRST user message in contents
+            # This avoids the 64K token limit on the separate systemInstruction field
+            system_instruction_parts: list[dict[str, Any]] = []
             filtered_contents = []
 
             for content in gemini_request.get("contents", []):
                 if content.get("role") == "system":
-                    # Convert system message to systemInstruction with 'user' role
-                    # (Code Assist API doesn't support 'system' role)
-                    system_instruction = {
-                        "role": "user",
-                        "parts": content.get("parts", []),
-                    }
+                    # Collect all system message parts
+                    parts = content.get("parts", [])
+                    if isinstance(parts, list):
+                        system_instruction_parts.extend(parts)
+                    elif parts:
+                        system_instruction_parts.append(parts)
                 else:
                     filtered_contents.append(content)
 
+            # Prepend system messages as first user message (KiloCode's approach)
+            # This avoids hitting the 64K limit on systemInstruction field
+            final_contents = []
+            if system_instruction_parts:
+                final_contents.append(
+                    {
+                        "role": "user",
+                        "parts": system_instruction_parts,
+                    }
+                )
+            final_contents.extend(filtered_contents)
+
             # Build the request for Code Assist API
             code_assist_request = {
-                "contents": filtered_contents,
+                "contents": final_contents,
                 "generationConfig": gemini_request.get("generationConfig", {}),
             }
-
-            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
-            self._enforce_prompt_limit(
-                prompt_tokens_estimate,
-                effective_model,
-                request_id=getattr(request_data, "id", None),
-            )
-
-            # Add systemInstruction if we found system messages
-            if system_instruction:
-                code_assist_request["systemInstruction"] = system_instruction
 
             # Add other fields if present
             if "tools" in gemini_request:
@@ -1838,6 +1840,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             if "safetySettings" in gemini_request:
                 code_assist_request["safetySettings"] = gemini_request["safetySettings"]
 
+            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
+            self._enforce_prompt_limit(
+                prompt_tokens_estimate,
+                effective_model,
+                request_id=getattr(request_data, "id", None),
+            )
+
             # Prepare request body for Code Assist API
             request_body = {
                 "model": effective_model,
@@ -1845,6 +1854,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 "user_prompt_id": self._generate_user_prompt_id(request_data),
                 "request": code_assist_request,
             }
+
+            # Log request details for debugging token issues
+            if logger.isEnabledFor(logging.DEBUG):
+                first_msg_size = 0
+                contents_list = code_assist_request.get("contents", [])
+                if contents_list and len(contents_list) > 0:
+                    first_msg_parts = contents_list[0].get("parts", [])
+                    for part in first_msg_parts:
+                        if "text" in part:
+                            first_msg_size += len(part["text"])
+                logger.debug(
+                    f"Code Assist request: first message size={first_msg_size} chars, "
+                    f"contents count={len(contents_list)}, "
+                    f"estimated tokens={prompt_tokens_estimate}"
+                )
 
             # Use the Code Assist API exactly like KiloCode does
             # IMPORTANT: KiloCode uses :streamGenerateContent, not :generateContent
@@ -1981,37 +2005,39 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             )
 
             # Code Assist API doesn't support 'system' role in contents array
-            # Extract system messages and convert to systemInstruction with 'user' role
-            system_instruction = None
+            # KiloCode's approach: Put system messages as FIRST user message in contents
+            # This avoids the 64K token limit on the separate systemInstruction field
+            system_instruction_parts: list[dict[str, Any]] = []
             filtered_contents = []
 
             for content in gemini_request.get("contents", []):
                 if content.get("role") == "system":
-                    # Convert system message to systemInstruction with 'user' role
-                    # (Code Assist API doesn't support 'system' role)
-                    system_instruction = {
-                        "role": "user",
-                        "parts": content.get("parts", []),
-                    }
+                    # Collect all system message parts
+                    parts = content.get("parts", [])
+                    if isinstance(parts, list):
+                        system_instruction_parts.extend(parts)
+                    elif parts:
+                        system_instruction_parts.append(parts)
                 else:
                     filtered_contents.append(content)
 
+            # Prepend system messages as first user message (KiloCode's approach)
+            # This avoids hitting the 64K limit on systemInstruction field
+            final_contents = []
+            if system_instruction_parts:
+                final_contents.append(
+                    {
+                        "role": "user",
+                        "parts": system_instruction_parts,
+                    }
+                )
+            final_contents.extend(filtered_contents)
+
             # Build the request for Code Assist API
             code_assist_request = {
-                "contents": filtered_contents,
+                "contents": final_contents,
                 "generationConfig": gemini_request.get("generationConfig", {}),
             }
-
-            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
-            self._enforce_prompt_limit(
-                prompt_tokens_estimate,
-                effective_model,
-                request_id=getattr(request_data, "id", None),
-            )
-
-            # Add systemInstruction if we found system messages
-            if system_instruction:
-                code_assist_request["systemInstruction"] = system_instruction
 
             # Add other fields if present
             if "tools" in gemini_request:
@@ -2021,6 +2047,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
             if "safetySettings" in gemini_request:
                 code_assist_request["safetySettings"] = gemini_request["safetySettings"]
 
+            prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
+            self._enforce_prompt_limit(
+                prompt_tokens_estimate,
+                effective_model,
+                request_id=getattr(request_data, "id", None),
+            )
+
             # Prepare request body for Code Assist API
             request_body = {
                 "model": effective_model,
@@ -2028,6 +2061,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, abc.ABC):
                 "user_prompt_id": self._generate_user_prompt_id(request_data),
                 "request": code_assist_request,
             }
+
+            # Log request details for debugging token issues
+            if logger.isEnabledFor(logging.DEBUG):
+                first_msg_size = 0
+                contents_list = code_assist_request.get("contents", [])
+                if contents_list and len(contents_list) > 0:
+                    first_msg_parts = contents_list[0].get("parts", [])
+                    for part in first_msg_parts:
+                        if "text" in part:
+                            first_msg_size += len(part["text"])
+                logger.debug(
+                    f"Code Assist request: first message size={first_msg_size} chars, "
+                    f"contents count={len(contents_list)}, "
+                    f"estimated tokens={prompt_tokens_estimate}"
+                )
 
             prompt_tokens = prompt_tokens_estimate
 

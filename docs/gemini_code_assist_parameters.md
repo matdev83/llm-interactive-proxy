@@ -168,8 +168,11 @@ response = client.messages.create(
   "project": "project-id-here",
   "user_prompt_id": "proxy-request",
   "request": {
-    "contents": [...],
-    "systemInstruction": {"role": "user", "parts": [...]},
+    "contents": [
+      {"role": "user", "parts": [{"text": "System instruction here..."}]},
+      {"role": "user", "parts": [{"text": "User message"}]},
+      ...
+    ],
     "generationConfig": {
       "temperature": 0.8,
       "topP": 0.9,
@@ -211,10 +214,17 @@ response = client.messages.create(
 
 The Code Assist API (`/v1internal:streamGenerateContent`) differs from the standard Gemini API (`/v1beta:streamGenerateContent`):
 
-1. **System Role**: Must use `systemInstruction` with `role: 'user'` (not 'system')
+1. **System Role**: System messages must be sent as the FIRST user message in `contents` array (not 'system' role)
+   - **Important**: The separate `systemInstruction` field has a 64K token limit
+   - Following KiloCode's approach: prepend system instruction as first user message to avoid this limit
 2. **Request Wrapping**: Requires `project`, `user_prompt_id`, and nested `request` object
 3. **Authentication**: Uses OAuth or ADC (not API keys)
 4. **Endpoint**: Different URL path (`v1internal` vs `v1beta`)
+
+### System Instruction Token Limit
+
+The `systemInstruction` field has a separate **64K (65536) token limit**, independent of the model's 1M context window.
+To avoid this limit, system instructions should be sent as the first user message in the `contents` array instead.
 
 ## Testing Parameters
 

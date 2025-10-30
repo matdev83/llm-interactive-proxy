@@ -20,7 +20,7 @@ _COMBINED_DANGEROUS_PATTERN = re.compile(
     r"git\s+reset\s+--hard(?:\s+\S+)?|"
     r"git\s+submodule\s+foreach\s+.*git\s+clean\s+.*-f.*|"
     r"^(?=.*\bgit\s+clean\b)(?=.*\s-[^\s]*f[^\s]*)(?!.*(?:\s-n|--dry-run)).*|"
-    r"git\s+restore\s+--worktree(?:\s+--staged)?\s+(?:--source=\S+\s+)?(?:\.\.|:/$|--pathspec-from-file|\.)|"
+    r"git\s+restore\s+(?:--worktree(?:\s+--staged)?\s+(?:--source=\S+\s+)?(?:\.\.|:/$|--pathspec-from-file|\.)|\.|/?:$)|"
     r"git\s+checkout\s+--\s*(?:\.|:/$)|"
     r"git\s+(?:switch|checkout)\s+-f(?:\s|$)|"
     r"git\s+checkout\s+--orphan\s+\S+|"
@@ -81,6 +81,11 @@ def _create_legacy_rules() -> list[DangerousCommandRule]:
             r"git\s+restore\s+--worktree(?:\s+--staged)?\s+(?:--source=\S+\s+)?(?:\.\.|:/$|--pathspec-from-file|\.)",
             "git-restore-worktree",
             "Overwrites the working tree with HEAD or a specified source.",
+        ),
+        (
+            r"git\s+restore\s+(?:\.|/?:$)",
+            "git-restore-dot",
+            "Discards unstaged changes by restoring from HEAD; dangerous when no staged changes exist.",
         ),
         (
             r"git\s+checkout\s+--\s*(?:\.|:/$)",

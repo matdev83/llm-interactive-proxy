@@ -39,6 +39,7 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.middleware_application_manager_interface import (
     IMiddlewareApplicationManager,
 )
+from src.core.interfaces.path_validator_interface import IPathValidator
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.repositories_interface import ISessionRepository
 from src.core.interfaces.request_processor_interface import IRequestProcessor
@@ -72,10 +73,12 @@ from src.core.services.backend_service import BackendService
 from src.core.services.command_processor import CommandProcessor
 from src.core.services.dangerous_command_service import DangerousCommandService
 from src.core.services.failover_service import FailoverService
+from src.core.services.file_sandboxing_handler import FileSandboxingHandler
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
+from src.core.services.path_validation_service import PathValidationService
 from src.core.services.pytest_compression_service import PytestCompressionService
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.response_handlers import (
@@ -1503,6 +1506,38 @@ def register_core_services(
     _add_singleton(
         ToolCallReactorMiddleware,
         implementation_factory=_tool_call_reactor_middleware_factory,
+    )
+
+    # Register PathValidationService
+    def _path_validation_service_factory(
+        provider: IServiceProvider,
+    ) -> PathValidationService:
+        return PathValidationService()
+
+    _add_singleton(
+        PathValidationService, implementation_factory=_path_validation_service_factory
+    )
+    _add_singleton(
+        IPathValidator,  # type: ignore[type-abstract]
+        implementation_factory=lambda p: p.get_required_service(PathValidationService),
+    )
+
+    # Register FileSandboxingHandler
+    def _file_sandboxing_handler_factory(
+        provider: IServiceProvider,
+    ) -> FileSandboxingHandler:
+        config = provider.get_required_service(AppConfig)
+        path_validator = provider.get_required_service(IPathValidator)  # type: ignore[type-abstract]
+        session_service = provider.get_required_service(ISessionService)  # type: ignore[type-abstract]
+
+        return FileSandboxingHandler(
+            config=config.sandboxing,
+            path_validator=path_validator,
+            session_service=session_service,
+        )
+
+    _add_singleton(
+        FileSandboxingHandler, implementation_factory=_file_sandboxing_handler_factory
     )
 
     # Register backend service

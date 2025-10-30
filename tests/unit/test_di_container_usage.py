@@ -484,6 +484,8 @@ class TestDIContainerUsage:
         # which is a special case for backward compatibility
         # Also exclude ConversationFingerprintService fallback instantiation
         # for backward compatibility with tests
+        # Also exclude ConversationFingerprintService fallback instantiation
+        # for backward compatibility with tests
         real_violations = [
             v
             for v in violations

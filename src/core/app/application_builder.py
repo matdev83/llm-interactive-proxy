@@ -24,6 +24,59 @@ from .stages.base import InitializationStage
 logger = logging.getLogger(__name__)
 
 
+def _register_sandboxing_handler(
+    config: AppConfig, service_provider: IServiceProvider
+) -> None:
+    """Register file sandboxing handler if enabled.
+
+    Args:
+        config: Application configuration
+        service_provider: Service provider for resolving dependencies
+    """
+    # Skip if sandboxing is disabled
+    if not config.sandboxing.enabled:
+        logger.info("File access sandboxing: DISABLED")
+        return
+
+    # Validate configuration
+    validation_errors = config.sandboxing.validate_configuration()
+    if validation_errors:
+        logger.error(
+            f"File sandboxing configuration is invalid: {'; '.join(validation_errors)}"
+        )
+        logger.error("Sandboxing will be disabled due to invalid configuration")
+        return
+
+    # Check if project directory resolution is enabled
+    if config.session.project_dir_resolution_mode == "disabled":
+        logger.info(
+            "File sandboxing requires project directory resolution but "
+            "project directory resolution is DISABLED"
+        )
+        logger.info("File access sandboxing status: DISABLED (dependency not met)")
+        return
+
+    logger.info("File access sandboxing: ENABLED")
+
+    try:
+        from src.core.services.file_sandboxing_handler import FileSandboxingHandler
+        from src.core.services.tool_call_reactor_service import ToolCallReactorService
+
+        # Get required services
+        reactor_service = service_provider.get_required_service(ToolCallReactorService)
+
+        # Get the FileSandboxingHandler from DI container
+        handler = service_provider.get_required_service(FileSandboxingHandler)
+
+        # Register the handler with the reactor service
+        reactor_service.register_handler_sync(handler)
+        logger.info("File sandboxing handler registered successfully")
+        logger.info("File access sandboxing status: ACTIVE")
+
+    except Exception as e:
+        logger.error(f"Failed to register file sandboxing handler: {e}", exc_info=True)
+
+
 class ApplicationBuilder:
     """
     Builder for creating FastAPI applications using staged initialization.
@@ -355,6 +408,9 @@ class ApplicationBuilder:
 
         # Register routes
         self._register_routes(app)
+
+        # Register file sandboxing handler
+        _register_sandboxing_handler(config, service_provider)
 
         # Register exception handlers
         self._register_exception_handlers(app)
