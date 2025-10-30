@@ -27,8 +27,8 @@ _current_dir = Path(__file__).parent
 for module_info in pkgutil.iter_modules([str(_current_dir)]):
     module_name = module_info.name
 
-    # Skip __init__, base, private modules, and utility modules
-    skip_modules = ("__init__", "base", "streaming_utils")
+    # Skip __init__, base, private modules, utility modules, and the mixins package
+    skip_modules = ("__init__", "base", "streaming_utils", "mixins", "utils")
     if module_name in skip_modules or module_name.startswith("_"):
         continue
 
