@@ -218,7 +218,7 @@ class AnthropicBackend(LLMBackend):
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": effective_model.replace("anthropic:", ""),
-            "max_tokens": request_data.max_tokens or 1024,
+            "max_tokens": request_data.max_tokens or 8192,
             "stream": bool(request_data.stream),
         }
 
@@ -333,7 +333,13 @@ class AnthropicBackend(LLMBackend):
             payload["tools"] = request_data.tools
 
         # Include extra params from domain extra_body directly (allows reasoning, etc.)
-        payload.update(extra_body)
+        # Filter out None values to prevent overriding defaults
+        filtered_extra_body = {k: v for k, v in extra_body.items() if v is not None}
+        payload.update(filtered_extra_body)
+
+        # Ensure max_tokens is always a valid positive integer (never None)
+        if payload.get("max_tokens") is None:
+            payload["max_tokens"] = 8192
 
         # Include reasoning_effort when provided
         if getattr(request_data, "reasoning_effort", None) is not None:
@@ -408,6 +414,7 @@ class AnthropicBackend(LLMBackend):
 
             try:
                 body_text = (await response.aread()).decode("utf-8")
+                logger.error(f"Anthropic API error {response.status_code}: {body_text}")
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 logger.warning(f"Failed to read Anthropic error response body: {e}")
                 body_text = ""
@@ -519,12 +526,47 @@ class AnthropicBackend(LLMBackend):
             try:
                 async for chunk in response.aiter_text():
                     _capture_message_id(chunk)
-                    if chunk.startswith(("data: ", "id: ", ":")):
-                        yield ProcessedResponse(content=chunk)
-                    else:
-                        yield ProcessedResponse(content=f"data: {chunk}\n\n")
+                    
+                    # Log raw chunk for debugging
+                    logger.debug(f"Raw Anthropic chunk: {chunk[:200]}")
+                    
+                    # Check for error events from backend
+                    if "event: error" in chunk or '"type": "error"' in chunk or '"type":"error"' in chunk:
+                        # Extract error message
+                        import json
+                        try:
+                            # Parse the data line
+                            for line in chunk.split('\n'):
+                                if line.startswith('data:'):
+                                    error_data = json.loads(line[5:].strip())
+                                    if error_data.get('type') == 'error':
+                                        error_info = error_data.get('error', {})
+                                        error_msg = error_info.get('message', 'Unknown error')
+                                        error_type = error_info.get('type', 'unknown')
+                                        from src.core.common.exceptions import BackendError
+                                        raise BackendError(
+                                            message=f"Anthropic API error: {error_msg}",
+                                            code=f"anthropic_error_{error_type}",
+                                            status_code=400,
+                                            details={"error_data": error_data}
+                                        )
+                        except (json.JSONDecodeError, KeyError) as e:
+                            logger.warning(f"Failed to parse error event: {e}")
+                    
+                    # Translate Anthropic SSE chunk to domain format
+                    # The translation function handles both SSE format (with event:/data: lines)
+                    # and plain JSON chunks
+                    domain_chunk = self.translation_service.to_domain_stream_chunk(
+                        chunk, "anthropic"
+                    )
+                    logger.debug(f"Translated chunk delta: {domain_chunk.get('choices', [{}])[0].get('delta', {})}")
+                    yield ProcessedResponse(content=domain_chunk)
 
-                yield ProcessedResponse(content="data: [DONE]\n\n")
+                # Translate final [DONE] marker to domain format
+                done_chunk = self.translation_service.to_domain_stream_chunk(
+                    "data: [DONE]\n\n", "anthropic"
+                )
+                yield ProcessedResponse(content=done_chunk)
             except httpx.HTTPError as exc:
                 raise ServiceUnavailableError(
                     message=f"Streaming connection interrupted ({exc})"

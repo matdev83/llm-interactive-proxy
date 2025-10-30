@@ -105,8 +105,16 @@ class LoopDetectionProcessor(IStreamProcessor):
         session_id = (
             content.metadata.get("session_id")
             or content.metadata.get("stream_id")
-            or "default"
+            or content.metadata.get("id")
         )
+        if not session_id:
+            from src.core.services.streaming.stream_utils import (
+                get_stream_id as _get_stream_id,
+            )
+
+            session_id = _get_stream_id(content)
+        else:
+            session_id = str(session_id)
 
         # Get the detector instance for this specific session
         loop_detector = self._get_detector_for_session(session_id)

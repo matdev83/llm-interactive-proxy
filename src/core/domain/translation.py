@@ -2350,13 +2350,68 @@ class Translation(BaseTranslator):
         Translate an Anthropic streaming chunk to a canonical dictionary format.
 
         Args:
-            chunk: The Anthropic streaming chunk.
+            chunk: The Anthropic streaming chunk (can be SSE string or dict).
 
         Returns:
             A dictionary representing the canonical chunk format.
         """
+        import json
         import time
         import uuid
+
+        # Handle SSE-formatted strings
+        if isinstance(chunk, str):
+            # Parse SSE format - handle multi-line SSE events
+            chunk = chunk.strip()
+            
+            # Handle [DONE] marker
+            if "data: [DONE]" in chunk or chunk == "[DONE]":
+                return {
+                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "claude-3-opus-20240229",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            
+            # Extract data line from multi-line SSE chunk
+            data_line = None
+            for line in chunk.split('\n'):
+                line = line.strip()
+                if line.startswith("data:"):
+                    data_line = line[5:].strip()
+                    break
+            
+            # If no data line found, check if entire chunk is just event/id lines
+            if data_line is None:
+                if chunk.startswith("event:") or chunk.startswith("id:") or not chunk:
+                    return {
+                        "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": "claude-3-opus-20240229",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                # Try to use the whole chunk as JSON
+                data_line = chunk
+            
+            # Try to parse as JSON
+            try:
+                chunk = json.loads(data_line)
+            except json.JSONDecodeError:
+                return {"error": "Invalid chunk format: expected a dictionary"}
 
         if not isinstance(chunk, dict):
             return {"error": "Invalid chunk format: expected a dictionary"}
@@ -2367,11 +2422,45 @@ class Translation(BaseTranslator):
 
         content = ""
         finish_reason = None
+        role = None
 
-        if chunk.get("type") == "content_block_delta":
+        # Handle different Anthropic event types
+        event_type = chunk.get("type")
+        
+        if event_type == "message_start":
+            # Message start event - set role
+            role = "assistant"
+        elif event_type == "content_block_start":
+            # Content block start - no content yet
+            pass
+        elif event_type == "content_block_delta":
+            # Content delta - extract text
             delta = chunk.get("delta", {})
             if delta.get("type") == "text_delta":
                 content = delta.get("text", "")
+        elif event_type == "content_block_stop":
+            # Content block stop - no action needed
+            pass
+        elif event_type == "message_delta":
+            # Message delta - check for finish reason
+            delta = chunk.get("delta", {})
+            stop_reason = delta.get("stop_reason")
+            if stop_reason == "end_turn":
+                finish_reason = "stop"
+            elif stop_reason == "max_tokens":
+                finish_reason = "length"
+            elif stop_reason == "tool_use":
+                finish_reason = "tool_calls"
+        elif event_type == "message_stop":
+            # Message stop - mark as complete
+            finish_reason = "stop"
+
+        # Build delta
+        delta: dict[str, Any] = {}
+        if role:
+            delta["role"] = role
+        if content:
+            delta["content"] = content
 
         return {
             "id": response_id,
@@ -2381,7 +2470,7 @@ class Translation(BaseTranslator):
             "choices": [
                 {
                     "index": 0,
-                    "delta": {"role": "assistant", "content": content},
+                    "delta": delta,
                     "finish_reason": finish_reason,
                 }
             ],

@@ -12,6 +12,7 @@ import json
 import logging
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from src.core.common.exceptions import ToolCallLoopError
 from src.core.domain.configuration.loop_detection_config import (
@@ -82,13 +83,22 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
         tracker_config = self._build_tracker_config(config)
 
-        tracker = self._session_trackers.get(session_id)
+        resolved_session_id = session_id or context.get("stream_id")
+        if not resolved_session_id:
+            resolved_session_id = context.setdefault(
+                "_tool_call_loop_session_id", uuid4().hex
+            )
+        else:
+            resolved_session_id = str(resolved_session_id)
+            context.setdefault("_tool_call_loop_session_id", resolved_session_id)
+
+        tracker = self._session_trackers.get(resolved_session_id)
         if tracker is None:
             tracker = ToolCallTracker(config=tracker_config)
-            self._session_trackers[session_id] = tracker
+            self._session_trackers[resolved_session_id] = tracker
             self._enforce_cache_limit()
         else:
-            self._session_trackers.move_to_end(session_id)
+            self._session_trackers.move_to_end(resolved_session_id)
             if tracker.config != tracker_config:
                 tracker.config = tracker_config
 
@@ -104,7 +114,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
             if should_block:
                 logger.warning(
-                    f"Tool call loop detected in session {session_id}: "
+                    f"Tool call loop detected in session {resolved_session_id}: "
                     f"tool={tool_name}, repeats={repeat_count}/{tracker.config.max_repeats}, "
                     f"window={tracker.config.ttl_seconds}s, "
                     f"mode={tracker.config.mode.value}"

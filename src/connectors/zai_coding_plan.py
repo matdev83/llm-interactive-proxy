@@ -1,88 +1,46 @@
 from __future__ import annotations
 
 import os
-from typing import Any, cast
+from typing import Any
 
-from src.connectors.anthropic import AnthropicBackend
+from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import AuthenticationError
-from src.core.domain.chat import ChatRequest
 from src.core.services.backend_registry import backend_registry
 
 
-class ZaiCodingPlanBackend(AnthropicBackend):
+class ZaiCodingPlanBackend(OpenAIConnector):
     """
-    LLMBackend implementation for ZAI's coding plan API (Anthropic compatible).
+    LLMBackend implementation for ZAI's coding plan API (OpenAI compatible).
+    Uses the OpenAI-style API at https://api.z.ai/api/coding/paas/v4
     """
 
     backend_type: str = "zai-coding-plan"
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        # The base URL is set in the `initialize` method.
-        self.auth_header_name = "Authorization"
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the ZAI coding plan backend."""
         # Get API key from environment or kwargs
         self.api_key = kwargs.get("api_key") or os.environ.get("ZAI_API_KEY")
-        self.key_name = (
-            "zai_api_key"  # Dummy key name for AnthropicBackend compatibility
-        )
-        self.anthropic_api_base_url = kwargs.get(
-            "anthropic_api_base_url", "https://api.z.ai/api/anthropic/v1"
-        )
-        ts = kwargs.get("translation_service")
-        if ts is not None:
-            from src.core.services.translation_service import TranslationService
-
-            self.translation_service = cast(TranslationService, ts)
-        self.auth_header_name = kwargs.get("auth_header_name", "Authorization")
-
+        
         if not self.api_key:
             raise AuthenticationError(
                 message="ZAI_API_KEY environment variable not set",
                 code="missing_api_key",
             )
-
-        # Don't call super().initialize() as it has different requirements
-
-    def _prepare_anthropic_payload(
-        self,
-        request_data: ChatRequest,
-        processed_messages: list[Any],
-        effective_model: str,
-        project: str | None,
-    ) -> dict[str, Any]:
-        payload = super()._prepare_anthropic_payload(
-            request_data,
-            processed_messages,
-            effective_model,
-            project,
+        
+        # Set the OpenAI-compatible API base URL for ZAI
+        self.api_base_url = kwargs.get(
+            "api_base_url", "https://api.z.ai/api/coding/paas/v4"
         )
-        payload["model"] = "claude-sonnet-4-20250514"
-        # Remove non-Anthropic fields that may be injected via extra_body
-        allowed_keys = {
-            "model",
-            "messages",
-            "system",
-            "max_tokens",
-            "stream",
-            "temperature",
-            "top_p",
-            "top_k",
-            "metadata",
-            "stop_sequences",
-            "tools",
-            "tool_choice",
-        }
-        filtered = {k: v for k, v in payload.items() if k in allowed_keys}
-        return filtered
+        
+        # ZAI supports up to 128K output tokens
+        self._max_tokens_limit = 131072  # 128K
 
     async def list_models(self, **kwargs: Any) -> list[dict[str, Any]]:
+        """Return available models for ZAI coding plan."""
         return [
             {
-                "id": "claude-sonnet-4-20250514",
-                "name": "claude-sonnet-4-20250514",
+                "id": "glm-4.6",
+                "name": "glm-4.6",
                 "object": "model",
                 "created": 1,
                 "owned_by": "zai",
@@ -90,87 +48,68 @@ class ZaiCodingPlanBackend(AnthropicBackend):
         ]
 
     async def get_available_models_async(self) -> list[str]:
-        return ["claude-sonnet-4-20250514"]
+        """Return list of available model IDs."""
+        return ["glm-4.6"]
 
     def get_available_models(self) -> list[str]:
-        return ["claude-sonnet-4-20250514"]
+        """Return list of available model IDs."""
+        return ["glm-4.6"]
 
-    async def chat_completions(self, *args: Any, **kwargs: Any) -> Any:
-        if not self.api_key:
-            raise AuthenticationError(
-                message="ZAI_API_KEY environment variable not set",
-                code="missing_api_key",
-            )
-
-        # Use exact KiloCode headers for ZAI server identification
+    def _prepare_headers(self, **kwargs: Any) -> dict[str, str]:
+        """Prepare headers for ZAI API requests."""
         headers = {
-            self.auth_header_name: f"Bearer {self.api_key}",
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
             "User-Agent": "Kilo-Code/4.84.0",
             "HTTP-Referer": "https://kilocode.ai",
             "X-Title": "Kilo Code",
             "X-KiloCode-Version": "4.84.0",
         }
+        
+        # Allow override from kwargs
+        if "headers" in kwargs:
+            headers.update(kwargs["headers"])
+        
+        return headers
 
-        kwargs["headers"] = headers
-
-        return await super().chat_completions(*args, **kwargs)
-
-    async def _handle_non_streaming_response(
-        self, url: str, payload: dict, headers: dict, original_model: str
-    ) -> Any:
-        """Override to handle ZAI-specific error responses."""
-        from src.core.common.exceptions import BackendError
-        from src.core.domain.responses import ResponseEnvelope
-
-        try:
-            response = await self.client.post(url, json=payload, headers=headers)
-        except Exception as e:
-            from src.core.common.exceptions import ServiceUnavailableError
-
-            raise ServiceUnavailableError(message=f"Could not connect to ZAI API: {e}")
-
-        # ZAI returns 200 status even for errors, so we need to check the response content
-        try:
-            import logging as _logging
-
-            logger = _logging.getLogger(__name__)
-            if logger.isEnabledFor(_logging.INFO):
-                _logging.getLogger(__name__).info(
-                    "ZAI POST %s headers=%s payload=%s", url, headers, payload
-                )
-            data = response.json()
-        except Exception:
-            # If we can't parse JSON, let the parent class handle it
-            return await super()._handle_non_streaming_response(
-                url, payload, headers, original_model
-            )
-
-        # Check if this is a ZAI error response
-        if isinstance(data, dict) and data.get("success") is False:
-            error_code = data.get("code", 500)
-            error_msg = data.get("msg", "Unknown error from ZAI API")
-            raise BackendError(
-                message=f"ZAI API error: {error_msg}",
-                code="zai_api_error",
-                status_code=error_code,
-                details={"zai_response": data},
-            )
-
-        response_envelope = ResponseEnvelope(
-            content=data,
-            headers=dict(response.headers),
-            status_code=response.status_code,
-        )
-
-        # Rewrite the model in the response to include the zai-coding-plan prefix
-        if (
-            isinstance(response_envelope.content, dict)
-            and "model" in response_envelope.content
-        ):
-            response_envelope.content["model"] = original_model
-        return response_envelope
+    def _prepare_payload(self, request_data: Any) -> dict[str, Any]:
+        """Prepare request payload for ZAI API."""
+        # Use OpenAI-style payload preparation from parent
+        payload = {
+            "model": request_data.model or "glm-4.6",
+            "messages": request_data.messages if hasattr(request_data, "messages") else [],
+            "stream": request_data.stream if hasattr(request_data, "stream") else False,
+        }
+        
+        # Handle max_tokens with ZAI's limits
+        if hasattr(request_data, "max_tokens") and request_data.max_tokens:
+            requested_max_tokens = request_data.max_tokens
+            if requested_max_tokens > 0:
+                # Clamp to valid range (1K minimum, 128K maximum)
+                if requested_max_tokens < 1024:
+                    payload["max_tokens"] = 1024
+                elif requested_max_tokens > self._max_tokens_limit:
+                    payload["max_tokens"] = self._max_tokens_limit
+                else:
+                    payload["max_tokens"] = requested_max_tokens
+            else:
+                # Use ZAI's maximum
+                payload["max_tokens"] = self._max_tokens_limit
+        else:
+            # Default to ZAI's maximum
+            payload["max_tokens"] = self._max_tokens_limit
+        
+        # Copy other optional parameters
+        if hasattr(request_data, "temperature") and request_data.temperature is not None:
+            payload["temperature"] = request_data.temperature
+        if hasattr(request_data, "top_p") and request_data.top_p is not None:
+            payload["top_p"] = request_data.top_p
+        if hasattr(request_data, "tools") and request_data.tools:
+            payload["tools"] = request_data.tools
+        if hasattr(request_data, "tool_choice") and request_data.tool_choice:
+            payload["tool_choice"] = request_data.tool_choice
+        
+        return payload
 
 
 backend_registry.register_backend("zai-coding-plan", ZaiCodingPlanBackend)

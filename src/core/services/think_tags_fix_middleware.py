@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
+from uuid import uuid4
 
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
@@ -59,6 +60,7 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             {}
         )  # Track extracted reasoning per session
         self._stream_states: dict[str, str] = {}  # Track streaming state per session
+        self._session_aliases: dict[str, str] = {}
 
     def _should_process_for_model(self, backend: str | None, model: str | None) -> bool:
         """Determine if think tags fix should be enabled for a specific backend/model.
@@ -559,12 +561,34 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         if not processed_response.content:
             return response
 
+        # Derive a stable session identifier for buffering
+        fallback_context = context or {}
+        resolved_session_id = session_id or fallback_context.get("stream_id")
+        if not resolved_session_id and hasattr(processed_response, "metadata"):
+            metadata = getattr(processed_response, "metadata", {})
+            if isinstance(metadata, dict):
+                resolved_session_id = metadata.get("stream_id") or metadata.get("session_id")
+        if not resolved_session_id:
+            resolved_session_id = fallback_context.setdefault(
+                "_think_tags_session_id", uuid4().hex
+            )
+        else:
+            resolved_session_id = str(resolved_session_id)
+            fallback_context.setdefault("_think_tags_session_id", resolved_session_id)
+
+        if session_id and session_id != resolved_session_id:
+            self._session_aliases[session_id] = resolved_session_id
+        elif not session_id:
+            self._session_aliases.setdefault(session_id, resolved_session_id)
+
+        session_id = resolved_session_id
+
         # Handle streaming vs non-streaming processing
         if is_streaming:
             # Use streaming-aware processing
             fixed_content, reasoning_metadata = self._process_streaming_chunk(
                 processed_response.content,
-                session_id,
+                resolved_session_id,
                 is_streaming=True,
                 context=context,
             )
@@ -605,6 +629,9 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
 
     def reset_session(self, session_id: str) -> None:
         """Reset any session-specific state."""
+        alias = self._session_aliases.pop(session_id, None)
+        if alias:
+            session_id = alias
         self._cleanup_session_state(session_id)
         # Also clean up reasoning extracted data
         self._reasoning_extracted.pop(session_id, None)

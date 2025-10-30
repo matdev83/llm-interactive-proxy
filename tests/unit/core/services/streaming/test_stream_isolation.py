@@ -5,9 +5,14 @@ import json
 from collections.abc import AsyncGenerator
 
 import pytest
+from src.core.domain.streaming_response_processor import LoopDetectionProcessor
+from src.core.domain.streaming_content import StreamingContent
+from src.core.interfaces.loop_detector_interface import ILoopDetector, LoopDetectionResult
+from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
+from src.core.services.streaming.json_repair_processor import JsonRepairProcessor
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
@@ -71,3 +76,108 @@ async def test_tool_call_repair_isolates_parallel_streams() -> None:
 
     assert first["function"]["name"] == "first"
     assert second["function"]["name"] == "second"
+
+
+@pytest.mark.asyncio
+async def test_json_repair_isolates_parallel_streams() -> None:
+    json_processor = JsonRepairProcessor(
+        JsonRepairService(), buffer_cap_bytes=4096, strict_mode=False
+    )
+    normalizer = StreamNormalizer([json_processor])
+
+    async def run_stream(prefix: str, value: int) -> list[dict[str, object]]:
+        async def stream() -> AsyncGenerator[object, None]:
+            await asyncio.sleep(0)
+            yield prefix
+            await asyncio.sleep(0)
+            yield f"{{'value': {value},}}"
+            await asyncio.sleep(0)
+            yield b"data: [DONE]\n\n"
+
+        parsed_chunks: list[dict[str, object]] = []
+        async for item in normalizer.process_stream(stream(), output_format="objects"):
+            content = item.content or ""
+            brace_idx = content.find("{")
+            if brace_idx != -1:
+                try:
+                    parsed = json.loads(content[brace_idx:])
+                except json.JSONDecodeError:
+                    continue
+                parsed_chunks.append(parsed)
+        return parsed_chunks
+
+    first_results, second_results = await asyncio.gather(
+        run_stream("first stream ", 1), run_stream("second stream ", 2)
+    )
+
+    assert any(chunk.get("value") == 1 for chunk in first_results)
+    assert any(chunk.get("value") == 2 for chunk in second_results)
+    assert all(chunk.get("value") != 2 for chunk in first_results)
+    assert all(chunk.get("value") != 1 for chunk in second_results)
+
+
+class _DummyLoopDetector(ILoopDetector):
+    def __init__(self) -> None:
+        self.chunks: list[str] = []
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def process_chunk(self, chunk: str):
+        self.chunks.append(chunk)
+        return None
+
+    def reset(self) -> None:
+        self.chunks.clear()
+
+    def get_loop_history(self):
+        return []
+
+    def get_current_state(self):
+        return {"chunks": list(self.chunks)}
+
+    async def check_for_loops(self, content: str) -> LoopDetectionResult:
+        self.chunks.append(content)
+        return LoopDetectionResult(has_loop=False)
+
+
+@pytest.mark.asyncio
+async def test_loop_detection_isolates_sessions() -> None:
+    processor = LoopDetectionProcessor(loop_detector_factory=_DummyLoopDetector)
+
+    async def run_session(session_id: str, finish: bool = False) -> None:
+        for chunk in ("alpha", "beta"):
+            content = StreamingContent(
+                content=f"{session_id}:{chunk}", metadata={"session_id": session_id}
+            )
+            await processor.process(content)
+        if finish:
+            await processor.process(
+                StreamingContent(
+                    content="", is_done=True, metadata={"session_id": session_id}
+                )
+            )
+
+    await asyncio.gather(
+        run_session("session-1"),
+        run_session("session-2"),
+    )
+
+    assert set(processor._session_detectors.keys()) == {"session-1", "session-2"}
+    for session_id, detector in processor._session_detectors.items():
+        assert all(chunk.startswith(f"{session_id}:") for chunk in detector.chunks)
+
+    await asyncio.gather(
+        run_session("session-1", finish=True),
+        run_session("session-2", finish=True),
+    )
+    assert processor._session_detectors == {}
+
+
+@pytest.mark.asyncio
+async def test_loop_detection_assigns_stream_id_when_missing() -> None:
+    processor = LoopDetectionProcessor(loop_detector_factory=_DummyLoopDetector)
+    content = StreamingContent(content="hello")
+    assert "stream_id" not in content.metadata
+    await processor.process(content)
+    assert "stream_id" in content.metadata

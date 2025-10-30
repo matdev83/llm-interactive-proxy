@@ -127,6 +127,39 @@ class ZAIConnector(OpenAIConnector):
             return self.available_models
         return self._default_models.copy()
 
+    async def _prepare_payload(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+    ) -> dict[str, Any]:
+        """
+        Prepare payload for ZAI backend with 128K max_tokens support.
+
+        ZAI backend supports up to 128K output tokens. This method ensures
+        max_tokens is set appropriately based on client request.
+        """
+        payload = await super()._prepare_payload(
+            request_data, processed_messages, effective_model
+        )
+
+        # ZAI backend supports up to 128K output tokens
+        # Override max_tokens only if client explicitly set a valid positive value
+        requested_max_tokens = getattr(request_data, "max_tokens", None)
+
+        if requested_max_tokens is not None and requested_max_tokens > 0:
+            # Client explicitly requested a value - validate and clamp to valid range
+            # Only enforce maximum limit, allow any positive value as minimum
+            if requested_max_tokens > 131072:  # 128K
+                payload["max_tokens"] = 131072
+            else:
+                payload["max_tokens"] = requested_max_tokens
+        else:
+            # No explicit request or invalid value (None, 0, negative) - use ZAI's max
+            payload["max_tokens"] = 131072  # 128K default for ZAI
+
+        return payload
+
     async def chat_completions(
         self,
         request_data: Any,

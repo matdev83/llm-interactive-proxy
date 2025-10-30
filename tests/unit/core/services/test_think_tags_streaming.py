@@ -199,6 +199,27 @@ class TestThinkTagsStreamingSupport:
         assert reasoning["streaming_extraction"] is True
 
     @pytest.mark.asyncio
+    async def test_streaming_without_session_id_uses_fallback(self):
+        """Ensure fallback session identifiers prevent cross-stream contamination."""
+        middleware = ThinkTagsFixMiddleware(enabled=True)
+
+        first_chunk = ProcessedResponse(content="<think>Reasoning</think>Reply")
+        result = await middleware.process(first_chunk, "", {}, is_streaming=True)
+        assert result.metadata["reasoning"] == "Reasoning"
+
+        keys = list(middleware._streaming_buffers.keys())
+        assert "" not in keys
+        assert len(keys) == 1
+        fallback_id = keys[0]
+
+        second_chunk = ProcessedResponse(content="<think>Other</think>Second")
+        await middleware.process(second_chunk, "", {}, is_streaming=True)
+        assert fallback_id in middleware._streaming_buffers
+        middleware.reset_session("")
+        assert "" not in middleware._streaming_buffers
+        assert fallback_id not in middleware._streaming_buffers
+
+    @pytest.mark.asyncio
     async def test_mixed_streaming_and_non_streaming(self):
         """Test that the same middleware handles both streaming and non-streaming."""
         middleware = ThinkTagsFixMiddleware(enabled=True)

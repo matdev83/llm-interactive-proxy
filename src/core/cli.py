@@ -782,8 +782,9 @@ def apply_cli_args(
         default_log_file = Path("logs/proxy.log")
         # Ensure logs directory exists
         default_log_file.parent.mkdir(parents=True, exist_ok=True)
-        # Don't add to logging_overrides since this is just a default and shouldn't trigger re-validation
-        # The default will be applied in the config model itself
+        # Apply the default to logging_overrides so it gets used
+        logging_overrides["log_file"] = str(default_log_file)
+        record_cli("logging.log_file", str(default_log_file), "default")
     if args.log_level is not None:
         logging_overrides["level"] = LogLevel[args.log_level]
         record_cli("logging.level", LogLevel[args.log_level].value, "--log-level")

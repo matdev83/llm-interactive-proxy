@@ -19,12 +19,17 @@ def processor() -> JsonRepairProcessor:
 
 async def _run_processor_chunks(processor: JsonRepairProcessor, *chunks: str) -> str:
     out: list[str] = []
+    stream_metadata = {"stream_id": "test-stream"}
     for ch in chunks:
-        res = await processor.process(StreamingContent(content=ch))
+        res = await processor.process(
+            StreamingContent(content=ch, metadata=dict(stream_metadata))
+        )
         if res.content:
             out.append(res.content)
     # flush end
-    res = await processor.process(StreamingContent(content="", is_done=True))
+    res = await processor.process(
+        StreamingContent(content="", is_done=True, metadata=dict(stream_metadata))
+    )
     if res.content:
         out.append(res.content)
     return "".join(out)
