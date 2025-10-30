@@ -202,7 +202,7 @@ class BackendRequestManager(IBackendRequestManager):
             # Process the response through middleware (including empty response detection)
             # Only process non-streaming responses that have content
             if (
-                hasattr(backend_response, "content")
+                isinstance(backend_response, ResponseEnvelope)
                 and not backend_request.stream
                 and backend_response.content is not None
             ):
@@ -290,12 +290,8 @@ class BackendRequestManager(IBackendRequestManager):
                         if (
                             hasattr(processed_response, "metadata")
                             and processed_response.metadata
-                            and hasattr(backend_response, "metadata")
                         ):
-                            if (
-                                not hasattr(backend_response, "metadata")
-                                or backend_response.metadata is None
-                            ):
+                            if backend_response.metadata is None:
                                 backend_response.metadata = {}
                             backend_response.metadata.update(
                                 processed_response.metadata
@@ -357,6 +353,9 @@ class BackendRequestManager(IBackendRequestManager):
 
         async def new_stream_generator():
             nonlocal is_empty, first_chunk
+            if original_stream is None:
+                return
+
             try:
                 first_chunk = await original_stream.__anext__()
                 is_empty = False
@@ -411,8 +410,9 @@ class BackendRequestManager(IBackendRequestManager):
             if first_chunk is not None:
                 yield first_chunk
             # Yield the rest of the items from the original stream
-            async for chunk in original_stream:
-                yield chunk
+            if original_stream:
+                async for chunk in original_stream:
+                    yield chunk
 
         cancel_callback = stream_envelope.cancel_callback
         loop_detector = self._create_loop_detector()

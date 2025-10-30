@@ -15,7 +15,13 @@ class TestDangerousCommandProtectionCLI:
         args = parse_cli_args(["--disable-dangerous-git-commands-protection"])
 
         # Apply arguments to configuration
-        config = apply_cli_args(args)
+        result = apply_cli_args(args, return_resolution=False)
+
+        # Handle both possible return types (AppConfig or tuple[AppConfig, ParameterResolution])
+        if isinstance(result, tuple):
+            config = result[0]  # Extract AppConfig from tuple if needed
+        else:
+            config = result  # It's already an AppConfig
 
         # Verify that dangerous command prevention is disabled
         assert config.session.dangerous_command_prevention_enabled is False
@@ -26,7 +32,13 @@ class TestDangerousCommandProtectionCLI:
         args = parse_cli_args([])
 
         # Apply arguments to configuration
-        config = apply_cli_args(args)
+        result = apply_cli_args(args, return_resolution=False)
+
+        # Handle both possible return types (AppConfig or tuple[Config, ParameterResolution])
+        if isinstance(result, tuple):
+            config = result[0]  # Extract AppConfig from tuple if needed
+        else:
+            config = result  # It's already an AppConfig
 
         # Verify that dangerous command prevention is enabled (default)
         assert config.session.dangerous_command_prevention_enabled is True
@@ -41,7 +53,13 @@ class TestDangerousCommandProtectionCLI:
             args = parse_cli_args(["--disable-dangerous-git-commands-protection"])
 
             # Apply arguments to configuration
-            config = apply_cli_args(args)
+            result = apply_cli_args(args, return_resolution=False)
+            
+            # Handle both possible return types (AppConfig or tuple[AppConfig, ParameterResolution])
+            if isinstance(result, tuple):
+                config = result[0]  # Extract AppConfig from tuple if needed
+            else:
+                config = result  # It's already an AppConfig
 
             # CLI flag should override environment variable
             assert config.session.dangerous_command_prevention_enabled is False
@@ -60,7 +78,13 @@ class TestDangerousCommandProtectionCLI:
             args = parse_cli_args([])
 
             # Apply arguments to configuration
-            config = apply_cli_args(args)
+            result = apply_cli_args(args, return_resolution=False)
+
+            # Handle both possible return types (AppConfig or tuple[Config, ParameterResolution])
+            if isinstance(result, tuple):
+                config = result[0]  # Extract AppConfig from tuple if needed
+            else:
+                config = result  # It's already an AppConfig
 
             # Environment variable should be respected when no CLI flag
             assert config.session.dangerous_command_prevention_enabled is False
@@ -70,7 +94,13 @@ class TestDangerousCommandProtectionCLI:
             # Note: Since there's no enable flag, we test the absence of disable flag with env var set to true
             os.environ["DANGEROUS_COMMAND_PREVENTION_ENABLED"] = "true"
             args = parse_cli_args([])
-            config = apply_cli_args(args)
+            result = apply_cli_args(args, return_resolution=False)
+
+            # Handle both possible return types (AppConfig or tuple[Config, ParameterResolution])
+            if isinstance(result, tuple):
+                config = result[0]  # Extract AppConfig from tuple if needed
+            else:
+                config = result  # It's already an AppConfig
             assert config.session.dangerous_command_prevention_enabled is True
 
         finally:
@@ -85,18 +115,26 @@ class TestDangerousCommandProtectionCLI:
 
         # Test 1: No CLI flag, should use default (True) since we can't easily mock config files
         args = parse_cli_args([])
-        config = apply_cli_args(args, return_resolution=False)
-        if isinstance(config, tuple):
-            config = config[0]
+        result = apply_cli_args(args, return_resolution=False)
+
+        # Handle both possible return types (AppConfig or tuple[Config, ParameterResolution])
+        if isinstance(result, tuple):
+            config = result[0]  # Extract AppConfig from tuple if needed
+        else:
+            config = result  # It's already an AppConfig
 
         # Should use default when no CLI flag and no env var
         assert config.session.dangerous_command_prevention_enabled is True
 
         # Test 2: CLI flag to disable (should override default)
         args = parse_cli_args(["--disable-dangerous-git-commands-protection"])
-        config = apply_cli_args(args, return_resolution=False)
-        if isinstance(config, tuple):
-            config = config[0]
+        result = apply_cli_args(args, return_resolution=False)
+
+        # Handle both possible return types (AppConfig or tuple[Config, ParameterResolution])
+        if isinstance(result, tuple):
+            config = result[0]  # Extract AppConfig from tuple if needed
+        else:
+            config = result  # It's already an AppConfig
 
         # CLI flag should override default setting
         assert config.session.dangerous_command_prevention_enabled is False
@@ -111,26 +149,38 @@ class TestDangerousCommandProtectionCLI:
         # Test 1: Environment variable set to False (no CLI flag)
         monkeypatch.setenv("DANGEROUS_COMMAND_PREVENTION_ENABLED", "false")
         args = parse_cli_args([])
-        config = apply_cli_args(args, return_resolution=False)
-        if isinstance(config, tuple):
-            config = config[0]
+        result = apply_cli_args(args, return_resolution=False)
+
+        # Handle both possible return types (AppConfig or tuple[Config, ParameterResolution])
+        if isinstance(result, tuple):
+            config = result[0]  # Extract AppConfig from tuple if needed
+        else:
+            config = result  # It's already an AppConfig
         assert (
             config.session.dangerous_command_prevention_enabled is False
         )  # env var wins
 
         # Test 2: CLI flag should override environment variable
         args = parse_cli_args(["--disable-dangerous-git-commands-protection"])
-        config = apply_cli_args(args, return_resolution=False)
-        if isinstance(config, tuple):
-            config = config[0]
+        result = apply_cli_args(args, return_resolution=False)
+
+        # Handle both possible return types (AppConfig or tuple[Config, ParameterResolution])
+        if isinstance(result, tuple):
+            config = result[0]  # Extract AppConfig from tuple if needed
+        else:
+            config = result  # It's already an AppConfig
         assert config.session.dangerous_command_prevention_enabled is False  # CLI wins
 
         # Test 3: No CLI flag, no env var, should use default
         monkeypatch.delenv("DANGEROUS_COMMAND_PREVENTION_ENABLED", raising=False)
         args = parse_cli_args([])
-        config = apply_cli_args(args, return_resolution=False)
-        if isinstance(config, tuple):
-            config = config[0]
+        result = apply_cli_args(args, return_resolution=False)
+
+        # Handle both possible return types (AppConfig or tuple[Config, ParameterResolution])
+        if isinstance(result, tuple):
+            config = result[0]  # Extract AppConfig from tuple if needed
+        else:
+            config = result  # It's already an AppConfig
         assert config.session.dangerous_command_prevention_enabled is True  # default
 
     def test_parameter_resolution_records_cli_source(self):
@@ -139,7 +189,14 @@ class TestDangerousCommandProtectionCLI:
         args = parse_cli_args(["--disable-dangerous-git-commands-protection"])
 
         # Apply arguments with resolution tracking
-        config, resolution = apply_cli_args(args, return_resolution=True)
+        result = apply_cli_args(args, return_resolution=True)
+        
+        # Handle the case where result might be a nested tuple
+        if isinstance(result, tuple) and len(result) == 2:
+            config, resolution = result
+        else:
+            # In case of unexpected return format
+            raise ValueError(f"Expected tuple of (config, resolution), got {type(result)}")
 
         # Verify that the CLI source is recorded
         resolved_params = resolution.build_report(config)

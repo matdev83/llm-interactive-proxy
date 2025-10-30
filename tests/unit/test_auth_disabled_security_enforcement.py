@@ -6,13 +6,13 @@ This test will fail if the security enforcement is ever removed or bypassed.
 import os
 from unittest.mock import patch
 
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, AuthConfig
 
 
 def test_auth_disabled_forces_localhost_binding():
     """Test that disabling authentication forces the host to 127.0.0.1 for security."""
     # Test with auth disabled and host set to 0.0.0.0
-    config = AppConfig(host="0.0.0.0", auth={"disable_auth": True})
+    config = AppConfig(host="0.0.0.0", auth=AuthConfig(disable_auth=True))
 
     # The security enforcement should force host to 127.0.0.1
     from src.core.cli import _enforce_localhost_if_auth_disabled
@@ -28,7 +28,7 @@ def test_auth_disabled_forces_localhost_binding():
 def test_auth_disabled_forces_localhost_binding_any_non_localhost():
     """Test that disabling authentication forces the host to 127.0.0.1 even with any non-localhost address."""
     # Test with auth disabled and host set to a public IP
-    config = AppConfig(host="192.168.1.100", auth={"disable_auth": True})
+    config = AppConfig(host="192.168.1.100", auth=AuthConfig(disable_auth=True))
 
     # The security enforcement should force host to 127.0.0.1
     from src.core.cli import _enforce_localhost_if_auth_disabled
@@ -44,7 +44,7 @@ def test_auth_disabled_forces_localhost_binding_any_non_localhost():
 def test_auth_enabled_allows_any_host():
     """Test that when authentication is enabled, any host address is allowed."""
     # Test with auth enabled and host set to 0.0.0.0
-    config = AppConfig(host="0.0.0.0", auth={"disable_auth": False})
+    config = AppConfig(host="0.0.0.0", auth=AuthConfig(disable_auth=False))
 
     # The security enforcement should not change the host
     from src.core.cli import _enforce_localhost_if_auth_disabled
@@ -60,7 +60,7 @@ def test_auth_enabled_allows_any_host():
 def test_auth_disabled_localhost_remains_unchanged():
     """Test that when authentication is disabled but host is already localhost, it remains unchanged."""
     # Test with auth disabled and host already set to localhost
-    config = AppConfig(host="127.0.0.1", auth={"disable_auth": True})
+    config = AppConfig(host="127.0.0.1", auth=AuthConfig(disable_auth=True))
 
     # The security enforcement should not change the host since it's already localhost
     from src.core.cli import _enforce_localhost_if_auth_disabled

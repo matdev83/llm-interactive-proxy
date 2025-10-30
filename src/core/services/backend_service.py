@@ -720,11 +720,8 @@ class BackendService(IBackendService):
                 try:
                     if self._wire_capture and self._wire_capture.enabled():
                         key_name = self._detect_key_name(backend_type)
-                        session_id = (
-                            request.extra_body.get("session_id")
-                            if request.extra_body
-                            else None
-                        )
+                        # Get session_id from context, not from request.extra_body
+                        session_id = getattr(context, "session_id", None)
                         await self._wire_capture.capture_outbound_request(
                             context=context,
                             session_id=session_id,
@@ -806,11 +803,8 @@ class BackendService(IBackendService):
                 try:
                     if self._wire_capture and self._wire_capture.enabled():
                         key_name = self._detect_key_name(backend_type)
-                        session_id = (
-                            request.extra_body.get("session_id")
-                            if request.extra_body
-                            else None
-                        )
+                        # Get session_id from context, not from request.extra_body
+                        session_id = getattr(context, "session_id", None)
                         from src.core.domain.responses import StreamingResponseEnvelope
 
                         if isinstance(result, StreamingResponseEnvelope):

@@ -69,7 +69,7 @@ class OpenAIConnector(LLMBackend):
         self.config = config  # Stored config
         self.available_models: list[str] = []
         self.api_key: str | None = None
-        self.api_base_url: str = "https://api.openai.com/v1"
+        self._api_base_url: str = "https://api.openai.com/v1"
         self.identity: Any | None = None
 
         # Health check attributes
@@ -88,6 +88,16 @@ class OpenAIConnector(LLMBackend):
         self._health_check_enabled = not (
             disable_health_checks_env or disable_health_checks_config
         )
+
+    @property
+    def api_base_url(self) -> str:
+        """Return the API base URL."""
+        return self._api_base_url
+
+    @api_base_url.setter
+    def api_base_url(self, value: str) -> None:
+        """Set the API base URL."""
+        self._api_base_url = value
 
     @staticmethod
     def _resolve_translation_service() -> TranslationService:
@@ -513,14 +523,14 @@ class OpenAIConnector(LLMBackend):
             try:
                 body_bytes = await response.aread()
             except Exception:
-                fallback = getattr(response, "text", "")
-                body = fallback() if callable(fallback) else str(fallback) if fallback is not None else ""
+                fallback: str = str(getattr(response, "text", ""))
+                body = fallback() if callable(fallback) else fallback
             else:
                 try:
                     body = body_bytes.decode("utf-8")
                 except Exception:
-                    fallback = getattr(response, "text", "")
-                    body = fallback() if callable(fallback) else str(fallback) if fallback is not None else ""
+                    fallback_text: str = str(getattr(response, "text", ""))
+                    body = fallback_text() if callable(fallback_text) else fallback_text
             finally:
                 with contextlib.suppress(Exception):
                     await response.aclose()

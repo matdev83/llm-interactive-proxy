@@ -127,8 +127,10 @@ class QwenOAuthConnector(OpenAIConnector):
 
     @api_base_url.setter
     def api_base_url(self, value: str) -> None:
-        """Set the API base URL."""
-        self._api_base_url = value
+        """Setting the base URL is not supported for QwenOAuthConnector; it is derived dynamically."""
+        logger.warning(
+            "Attempt to set api_base_url on QwenOAuthConnector ignored. URL is derived from credentials."
+        )
 
     def _is_token_expired(
         self, buffer_seconds: float = TOKEN_EXPIRY_BUFFER_SECONDS

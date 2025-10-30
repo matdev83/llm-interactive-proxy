@@ -81,6 +81,7 @@ graph TD
 - [Gemini Backends Overview](#gemini-backends-overview)
 - [Quick Start](#quick-start)
 - [Using It Day-To-Day](#using-it-day-to-day)
+- [Dangerous Command Protection](#dangerous-command-protection)
 - [Security](#security)
 - [Debugging (Wire Capture)](#debugging-wire-capture)
 - [Optional Capabilities (Short List)](#optional-capabilities-short-list)
@@ -486,6 +487,78 @@ if response.metadata.get("reasoning"):
     show_thinking_if_requested(response.metadata["reasoning"])
 display_clean_response(response.content)
 ```
+
+## Dangerous Command Protection
+
+The proxy includes built-in protection against dangerous git commands that could potentially destroy your work or repository history. This safety feature detects and blocks destructive git operations before they can cause damage.
+
+### Key Features
+
+- **Pattern-Based Detection**: Uses regex patterns to identify dangerous git commands
+- **Real-Time Blocking**: Intercepts dangerous commands at the tool call level
+- **Comprehensive Coverage**: Blocks 30+ dangerous git operations including:
+  - `git reset --hard` (discards all local changes)
+  - `git clean -f` (deletes untracked files)
+  - `git push --force` (overwrites remote history)
+  - `git branch -D` (force deletes branches)
+  - `git restore .` (discards unstaged changes)
+  - And many more destructive operations
+
+### Configuration
+
+**Configuration (precedence: CLI > Environment > Config File)**:
+
+**CLI Flags**:
+- `--disable-dangerous-git-commands-protection` to disable protection (overwrites config file and environment variable)
+
+**Environment Variables**:
+- `DANGEROUS_COMMAND_PREVENTION_ENABLED=true|false` (default: true)
+
+**Config File** (`config.yaml`):
+```yaml
+session:
+  dangerous_command_prevention_enabled: true
+```
+
+### Usage Examples
+
+```bash
+# Default: protection enabled
+python -m src.core.cli --default-backend openai
+
+# Explicitly disable protection
+python -m src.core.cli --disable-dangerous-git-commands-protection
+
+# Enable via environment variable
+export DANGEROUS_COMMAND_PREVENTION_ENABLED=true
+python -m src.core.cli
+
+# Disable via environment variable
+export DANGEROUS_COMMAND_PREVENTION_ENABLED=false
+python -m src.core.cli
+```
+
+### Behavior
+
+When a dangerous git command is detected, the proxy:
+1. Blocks the tool call execution
+2. Returns a descriptive steering message explaining why the command was blocked
+3. Logs the blocked attempt for debugging and security auditing
+4. Suggests safer alternatives when appropriate
+
+### Example Blocked Commands
+
+```bash
+# These commands will be blocked:
+git reset --hard HEAD
+git clean -f
+git push --force origin main
+git restore .
+git branch -D feature-branch
+git filter-branch --prune-empty
+```
+
+**Note**: This protection is enabled by default for security. Only disable it if you understand the risks and need to execute these specific commands for legitimate reasons.
 
 ## Killer Features
 

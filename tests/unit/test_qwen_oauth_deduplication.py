@@ -5,13 +5,13 @@ This module tests the fix for the Qwen API bug where duplicate SSE chunks
 are sent, causing text repetition in the client.
 """
 
-from collections import namedtuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.openai import OpenAIConnector
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
 @pytest.fixture
@@ -50,8 +50,6 @@ async def test_deduplication_removes_duplicate_chunks(qwen_connector):
     """Test that duplicate chunks are removed from the stream."""
 
     # Create mock chunks with duplicates (simulating Qwen API bug)
-    ProcessedResponse = namedtuple("ProcessedResponse", ["content"])
-
     duplicate_chunks = [
         ProcessedResponse(content={"delta": {"content": "Now"}, "id": "1"}),
         ProcessedResponse(
@@ -110,8 +108,6 @@ async def test_deduplication_removes_duplicate_chunks(qwen_connector):
 async def test_deduplication_preserves_unique_chunks(qwen_connector):
     """Test that unique chunks are preserved."""
 
-    ProcessedResponse = namedtuple("ProcessedResponse", ["content"])
-
     unique_chunks = [
         ProcessedResponse(content={"delta": {"content": "Hello"}, "id": "1"}),
         ProcessedResponse(content={"delta": {"content": " world"}, "id": "1"}),
@@ -155,8 +151,6 @@ async def test_deduplication_preserves_unique_chunks(qwen_connector):
 @pytest.mark.asyncio
 async def test_deduplication_handles_json_key_ordering(qwen_connector):
     """Test that chunks with different JSON key ordering are detected as duplicates."""
-
-    ProcessedResponse = namedtuple("ProcessedResponse", ["content"])
 
     # Same content, different key ordering (simulating Qwen API behavior)
     chunks_with_different_ordering = [
@@ -207,8 +201,6 @@ async def test_deduplication_handles_json_key_ordering(qwen_connector):
 async def test_deduplication_sliding_window(qwen_connector):
     """Test that the sliding window allows same content after window expires."""
 
-    ProcessedResponse = namedtuple("ProcessedResponse", ["content"])
-
     # Create chunks where "A" appears, then 10 other chunks, then "A" again
     chunks = [
         ProcessedResponse(content={"delta": {"content": "A"}, "id": "1"}),
@@ -257,8 +249,6 @@ async def test_deduplication_sliding_window(qwen_connector):
 @pytest.mark.asyncio
 async def test_deduplication_with_string_chunks(qwen_connector):
     """Test deduplication works with string chunks."""
-
-    ProcessedResponse = namedtuple("ProcessedResponse", ["content"])
 
     string_chunks = [
         ProcessedResponse(content="data: test\n\n"),
