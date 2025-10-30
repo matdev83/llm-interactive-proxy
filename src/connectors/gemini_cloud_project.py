@@ -83,6 +83,7 @@ from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
 from .gemini import GeminiBackend
+from .mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 
 
 # Gemini CLI OAuth configuration loader (reads from ~/.gemini or env)
@@ -204,7 +205,7 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
             self.connector._schedule_credentials_reload()
 
 
-class GeminiCloudProjectConnector(GeminiBackend):
+class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
     """Connector that uses OAuth authentication with user-specified GCP project.
 
     This connector requires a valid Google Cloud Project ID and uses OAuth2
@@ -1112,48 +1113,16 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 canonical_request
             )
 
-            # Code Assist API doesn't support 'system' role in contents array
-            # KiloCode's approach: Put system messages as FIRST user message in contents
+            # Use mixin method to convert system messages (KiloCode's approach)
             # This avoids the 64K token limit on the separate systemInstruction field
-            system_instruction_parts: list[dict[str, Any]] = []
-            filtered_contents = []
+            final_contents = self._convert_system_messages_for_code_assist(
+                gemini_request
+            )
 
-            for content in gemini_request.get("contents", []):
-                if content.get("role") == "system":
-                    # Collect all system message parts
-                    parts = content.get("parts", [])
-                    if isinstance(parts, list):
-                        system_instruction_parts.extend(parts)
-                    elif parts:
-                        system_instruction_parts.append(parts)
-                else:
-                    filtered_contents.append(content)
-
-            # Prepend system messages as first user message (KiloCode's approach)
-            # This avoids hitting the 64K limit on systemInstruction field
-            final_contents = []
-            if system_instruction_parts:
-                final_contents.append(
-                    {
-                        "role": "user",
-                        "parts": system_instruction_parts,
-                    }
-                )
-            final_contents.extend(filtered_contents)
-
-            # Build the request for Code Assist API
-            code_assist_request = {
-                "contents": final_contents,
-                "generationConfig": gemini_request.get("generationConfig", {}),
-            }
-
-            # Add other fields if present
-            if "tools" in gemini_request:
-                code_assist_request["tools"] = gemini_request["tools"]
-            if "toolConfig" in gemini_request:
-                code_assist_request["toolConfig"] = gemini_request["toolConfig"]
-            if "safetySettings" in gemini_request:
-                code_assist_request["safetySettings"] = gemini_request["safetySettings"]
+            # Use mixin method to build Code Assist API request
+            code_assist_request = self._build_code_assist_request(
+                gemini_request, final_contents
+            )
 
             logger.info(f"Making Code Assist API call with project {project_id}")
 
@@ -1234,48 +1203,16 @@ class GeminiCloudProjectConnector(GeminiBackend):
                 canonical_request
             )
 
-            # Code Assist API doesn't support 'system' role in contents array
-            # KiloCode's approach: Put system messages as FIRST user message in contents
+            # Use mixin method to convert system messages (KiloCode's approach)
             # This avoids the 64K token limit on the separate systemInstruction field
-            system_instruction_parts: list[dict[str, Any]] = []
-            filtered_contents = []
+            final_contents = self._convert_system_messages_for_code_assist(
+                gemini_request
+            )
 
-            for content in gemini_request.get("contents", []):
-                if content.get("role") == "system":
-                    # Collect all system message parts
-                    parts = content.get("parts", [])
-                    if isinstance(parts, list):
-                        system_instruction_parts.extend(parts)
-                    elif parts:
-                        system_instruction_parts.append(parts)
-                else:
-                    filtered_contents.append(content)
-
-            # Prepend system messages as first user message (KiloCode's approach)
-            # This avoids hitting the 64K limit on systemInstruction field
-            final_contents = []
-            if system_instruction_parts:
-                final_contents.append(
-                    {
-                        "role": "user",
-                        "parts": system_instruction_parts,
-                    }
-                )
-            final_contents.extend(filtered_contents)
-
-            # Build the request for Code Assist API
-            code_assist_request = {
-                "contents": final_contents,
-                "generationConfig": gemini_request.get("generationConfig", {}),
-            }
-
-            # Add other fields if present
-            if "tools" in gemini_request:
-                code_assist_request["tools"] = gemini_request["tools"]
-            if "toolConfig" in gemini_request:
-                code_assist_request["toolConfig"] = gemini_request["toolConfig"]
-            if "safetySettings" in gemini_request:
-                code_assist_request["safetySettings"] = gemini_request["safetySettings"]
+            # Use mixin method to build Code Assist API request
+            code_assist_request = self._build_code_assist_request(
+                gemini_request, final_contents
+            )
 
             # Prepare request body with USER'S project ID
             request_body = {
