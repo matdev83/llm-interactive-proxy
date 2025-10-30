@@ -567,7 +567,9 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         if not resolved_session_id and hasattr(processed_response, "metadata"):
             metadata = getattr(processed_response, "metadata", {})
             if isinstance(metadata, dict):
-                resolved_session_id = metadata.get("stream_id") or metadata.get("session_id")
+                resolved_session_id = metadata.get("stream_id") or metadata.get(
+                    "session_id"
+                )
         if not resolved_session_id:
             resolved_session_id = fallback_context.setdefault(
                 "_think_tags_session_id", uuid4().hex

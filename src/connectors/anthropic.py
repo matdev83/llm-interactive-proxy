@@ -526,40 +526,52 @@ class AnthropicBackend(LLMBackend):
             try:
                 async for chunk in response.aiter_text():
                     _capture_message_id(chunk)
-                    
+
                     # Log raw chunk for debugging
                     logger.debug(f"Raw Anthropic chunk: {chunk[:200]}")
-                    
+
                     # Check for error events from backend
-                    if "event: error" in chunk or '"type": "error"' in chunk or '"type":"error"' in chunk:
+                    if (
+                        "event: error" in chunk
+                        or '"type": "error"' in chunk
+                        or '"type":"error"' in chunk
+                    ):
                         # Extract error message
                         import json
+
                         try:
                             # Parse the data line
-                            for line in chunk.split('\n'):
-                                if line.startswith('data:'):
+                            for line in chunk.split("\n"):
+                                if line.startswith("data:"):
                                     error_data = json.loads(line[5:].strip())
-                                    if error_data.get('type') == 'error':
-                                        error_info = error_data.get('error', {})
-                                        error_msg = error_info.get('message', 'Unknown error')
-                                        error_type = error_info.get('type', 'unknown')
-                                        from src.core.common.exceptions import BackendError
+                                    if error_data.get("type") == "error":
+                                        error_info = error_data.get("error", {})
+                                        error_msg = error_info.get(
+                                            "message", "Unknown error"
+                                        )
+                                        error_type = error_info.get("type", "unknown")
+                                        from src.core.common.exceptions import (
+                                            BackendError,
+                                        )
+
                                         raise BackendError(
                                             message=f"Anthropic API error: {error_msg}",
                                             code=f"anthropic_error_{error_type}",
                                             status_code=400,
-                                            details={"error_data": error_data}
+                                            details={"error_data": error_data},
                                         )
                         except (json.JSONDecodeError, KeyError) as e:
                             logger.warning(f"Failed to parse error event: {e}")
-                    
+
                     # Translate Anthropic SSE chunk to domain format
                     # The translation function handles both SSE format (with event:/data: lines)
                     # and plain JSON chunks
                     domain_chunk = self.translation_service.to_domain_stream_chunk(
                         chunk, "anthropic"
                     )
-                    logger.debug(f"Translated chunk delta: {domain_chunk.get('choices', [{}])[0].get('delta', {})}")
+                    logger.debug(
+                        f"Translated chunk delta: {domain_chunk.get('choices', [{}])[0].get('delta', {})}"
+                    )
                     yield ProcessedResponse(content=domain_chunk)
 
                 # Translate final [DONE] marker to domain format

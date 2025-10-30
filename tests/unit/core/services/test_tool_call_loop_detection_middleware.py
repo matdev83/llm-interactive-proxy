@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from src.core.domain.configuration.loop_detection_config import LoopDetectionConfiguration
+from src.core.domain.configuration.loop_detection_config import (
+    LoopDetectionConfiguration,
+)
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.tool_call_loop_middleware import ToolCallLoopDetectionMiddleware
 from src.tool_call_loop.config import ToolLoopMode

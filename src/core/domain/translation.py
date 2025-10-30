@@ -2363,7 +2363,7 @@ class Translation(BaseTranslator):
         if isinstance(chunk, str):
             # Parse SSE format - handle multi-line SSE events
             chunk = chunk.strip()
-            
+
             # Handle [DONE] marker
             if "data: [DONE]" in chunk or chunk == "[DONE]":
                 return {
@@ -2379,18 +2379,18 @@ class Translation(BaseTranslator):
                         }
                     ],
                 }
-            
+
             # Extract data line from multi-line SSE chunk
             data_line = None
-            for line in chunk.split('\n'):
+            for line in chunk.split("\n"):
                 line = line.strip()
                 if line.startswith("data:"):
                     data_line = line[5:].strip()
                     break
-            
+
             # If no data line found, check if entire chunk is just event/id lines
             if data_line is None:
-                if chunk.startswith("event:") or chunk.startswith("id:") or not chunk:
+                if chunk.startswith(("event:", "id:")) or not chunk:
                     return {
                         "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
                         "object": "chat.completion.chunk",
@@ -2406,7 +2406,7 @@ class Translation(BaseTranslator):
                     }
                 # Try to use the whole chunk as JSON
                 data_line = chunk
-            
+
             # Try to parse as JSON
             try:
                 chunk = json.loads(data_line)
@@ -2426,7 +2426,7 @@ class Translation(BaseTranslator):
 
         # Handle different Anthropic event types
         event_type = chunk.get("type")
-        
+
         if event_type == "message_start":
             # Message start event - set role
             role = "assistant"
@@ -2456,11 +2456,11 @@ class Translation(BaseTranslator):
             finish_reason = "stop"
 
         # Build delta
-        delta: dict[str, Any] = {}
+        output_delta: dict[str, Any] = {}
         if role:
-            delta["role"] = role
+            output_delta["role"] = role
         if content:
-            delta["content"] = content
+            output_delta["content"] = content
 
         return {
             "id": response_id,
@@ -2470,7 +2470,7 @@ class Translation(BaseTranslator):
             "choices": [
                 {
                     "index": 0,
-                    "delta": delta,
+                    "delta": output_delta,
                     "finish_reason": finish_reason,
                 }
             ],

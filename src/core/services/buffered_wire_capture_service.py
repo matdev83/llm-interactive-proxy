@@ -22,6 +22,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple, cast
+from uuid import uuid4
 
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.config.app_config import AppConfig
@@ -585,13 +586,23 @@ class BufferedWireCapture(IWireCapture):
             for key, value in metadata.items():
                 entry_metadata[key] = _sanitize_metadata_value(value)
 
+        resolved_session_id = session_id
+        if not resolved_session_id or not str(resolved_session_id).strip():
+            resolved_session_id = None
+            request_id = None
+            if context is not None:
+                request_id = getattr(context, "request_id", None)
+                if _is_mock(request_id):
+                    request_id = None
+            resolved_session_id = request_id or uuid4().hex
+
         return WireCaptureEntry(
             timestamp_iso=now.isoformat(),
             timestamp_unix=now.timestamp(),
             direction=direction,
             source=source,
             destination=destination,
-            session_id=session_id,
+            session_id=str(resolved_session_id),
             backend=backend,
             model=model,
             key_name=key_name,

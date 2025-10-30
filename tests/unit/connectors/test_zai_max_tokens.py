@@ -37,36 +37,36 @@ class TestZaiCodingPlanMaxTokens:
     async def test_default_max_tokens_is_128k(self, zai_coding_plan_backend):
         """When no max_tokens is specified, should default to 128K."""
         request = ChatRequest(
-            model="glm-4.6",
+            model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=None,  # No explicit value
         )
 
-        payload = zai_coding_plan_backend._prepare_payload(request)
+        payload = await zai_coding_plan_backend._prepare_payload(request)
 
         assert payload["max_tokens"] == 131072  # 128K
 
     async def test_zero_max_tokens_uses_default(self, zai_coding_plan_backend):
         """When max_tokens is 0, should use default 128K."""
         request = ChatRequest(
-            model="glm-4.6",
+            model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=0,
         )
 
-        payload = zai_coding_plan_backend._prepare_payload(request)
+        payload = await zai_coding_plan_backend._prepare_payload(request)
 
         assert payload["max_tokens"] == 131072  # 128K
 
     async def test_negative_max_tokens_uses_default(self, zai_coding_plan_backend):
         """When max_tokens is negative, should use default 128K."""
         request = ChatRequest(
-            model="glm-4.6",
+            model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=-100,
         )
 
-        payload = zai_coding_plan_backend._prepare_payload(request)
+        payload = await zai_coding_plan_backend._prepare_payload(request)
 
         assert payload["max_tokens"] == 131072  # 128K
 
@@ -75,36 +75,36 @@ class TestZaiCodingPlanMaxTokens:
     ):
         """When max_tokens is explicitly set to a valid value, it should be preserved."""
         request = ChatRequest(
-            model="glm-4.6",
+            model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=4096,
         )
 
-        payload = zai_coding_plan_backend._prepare_payload(request)
+        payload = await zai_coding_plan_backend._prepare_payload(request)
 
         assert payload["max_tokens"] == 4096
 
     async def test_max_tokens_below_minimum_is_clamped(self, zai_coding_plan_backend):
         """When max_tokens is below 1K, should be clamped to 1K."""
         request = ChatRequest(
-            model="glm-4.6",
+            model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=512,
         )
 
-        payload = zai_coding_plan_backend._prepare_payload(request)
+        payload = await zai_coding_plan_backend._prepare_payload(request)
 
         assert payload["max_tokens"] == 1024  # Minimum 1K
 
     async def test_max_tokens_above_maximum_is_clamped(self, zai_coding_plan_backend):
         """When max_tokens exceeds 128K, should be clamped to 128K."""
         request = ChatRequest(
-            model="glm-4.6",
+            model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=200000,
         )
 
-        payload = zai_coding_plan_backend._prepare_payload(request)
+        payload = await zai_coding_plan_backend._prepare_payload(request)
 
         assert payload["max_tokens"] == 131072  # Maximum 128K
 
@@ -112,18 +112,18 @@ class TestZaiCodingPlanMaxTokens:
         """Test max_tokens at exact boundary values."""
         # Test at minimum boundary
         request = ChatRequest(
-            model="glm-4.6",
+            model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=1024,
         )
-        payload = zai_coding_plan_backend._prepare_payload(request)
+        payload = await zai_coding_plan_backend._prepare_payload(request)
         assert payload["max_tokens"] == 1024
 
         # Test at maximum boundary
         request = ChatRequest(
-            model="glm-4.6",
+            model="claude-sonnet-4-20250514",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=131072,
         )
-        payload = zai_coding_plan_backend._prepare_payload(request)
+        payload = await zai_coding_plan_backend._prepare_payload(request)
         assert payload["max_tokens"] == 131072

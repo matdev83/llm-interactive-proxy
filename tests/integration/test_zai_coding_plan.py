@@ -58,19 +58,48 @@ def test_zai_coding_plan_backend_integration(
     client: TestClient, respx_mock: MockRouter
 ):
     """Given a successful mock API response, the backend should process it correctly."""
-    # Mock the ZAI API endpoint
-    respx_mock.post("https://api.z.ai/api/anthropic/v1/messages").mock(
+    # Mock the health check endpoint
+    respx_mock.get("https://api.z.ai/api/coding/paas/v4/models").mock(
         return_value=Response(
             200,
             json={
-                "id": "msg_01A2c3B4d5E6f7G8h9J0k1L2",
-                "type": "message",
-                "role": "assistant",
+                "object": "list",
+                "data": [
+                    {
+                        "id": "claude-sonnet-4-20250514",
+                        "object": "model",
+                        "created": 1677652288,
+                        "owned_by": "zai",
+                    }
+                ],
+            },
+        )
+    )
+    
+    # Mock the ZAI API endpoint (now using OpenAI-compatible endpoint)
+    respx_mock.post("https://api.z.ai/api/coding/paas/v4/chat/completions").mock(
+        return_value=Response(
+            200,
+            json={
+                "id": "chatcmpl-123",
+                "object": "chat.completion",
+                "created": 1677652288,
                 "model": "claude-sonnet-4-20250514",
-                "content": [{"type": "text", "text": "Hello from ZAI!"}],
-                "stop_reason": "end_turn",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 8, "output_tokens": 9},
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "Hello from ZAI!",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 8,
+                    "completion_tokens": 9,
+                    "total_tokens": 17,
+                },
             },
         )
     )
@@ -88,10 +117,7 @@ def test_zai_coding_plan_backend_integration(
     assert response.status_code == 200
     data = response.json()
 
-    # The content should contain the actual message, not the object representation
+    # The content should contain the actual message
     content = data["choices"][0]["message"]["content"]
-
-    # For now, let's check if the content contains our expected text
-    # This is a temporary fix until we resolve the response processing issue
     assert "Hello from ZAI!" in content
     assert data["model"] == "zai-coding-plan:claude-sonnet-4-20250514"

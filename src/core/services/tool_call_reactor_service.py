@@ -13,6 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 from src.core.common.exceptions import ToolCallReactorError
 from src.core.interfaces.tool_call_reactor_interface import (
@@ -49,6 +50,7 @@ class ToolCallReactorService(IToolCallReactor):
         self._handlers: dict[str, IToolCallHandler] = {}
         self._history_tracker = history_tracker
         self._lock = asyncio.Lock()
+        self._session_aliases: dict[str, str] = {}
 
         # Telemetry counters for tool access control
         self._tool_definitions_filtered_count = 0
@@ -124,6 +126,14 @@ class ToolCallReactorService(IToolCallReactor):
             The reaction result from the first handler that swallows the call,
             or None if no handler swallows it.
         """
+        raw_session_id = context.session_id
+        alias_key = raw_session_id if raw_session_id else "__empty__"
+        if alias_key not in self._session_aliases:
+            self._session_aliases[alias_key] = (
+                str(raw_session_id) if raw_session_id else uuid4().hex
+            )
+        resolved_session_id = self._session_aliases[alias_key]
+
         # Record the tool call in history if tracker is available
         if self._history_tracker:
             timestamp_value = context.timestamp
@@ -146,7 +156,7 @@ class ToolCallReactorService(IToolCallReactor):
             }
 
             await self._history_tracker.record_tool_call(
-                context.session_id,
+                resolved_session_id,
                 context.tool_name,
                 history_context,
             )
@@ -171,7 +181,7 @@ class ToolCallReactorService(IToolCallReactor):
                     if result.should_swallow:
                         logger.info(
                             f"Handler '{handler.name}' swallowed tool call '{context.tool_name}' "
-                            f"in session {context.session_id}"
+                            f"in session {resolved_session_id}"
                         )
                         return result
 
@@ -184,7 +194,7 @@ class ToolCallReactorService(IToolCallReactor):
 
         # No handler swallowed the call
         logger.debug(
-            f"No handler swallowed tool call '{context.tool_name}' in session {context.session_id}"
+            f"No handler swallowed tool call '{context.tool_name}' in session {resolved_session_id}"
         )
         return None
 

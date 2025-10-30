@@ -48,6 +48,9 @@ class TurnCounterService(ITurnCounterService):
         Returns:
             New turn count for the session
         """
+        if not session_id or not str(session_id).strip():
+            raise ValueError("session_id must be a non-empty string")
+
         state = self.repository.get_session_state(session_id)
         turn_count = state.increment_turn()
         # State already updated its timestamp during increment_turn; avoid duplicate work.
@@ -70,6 +73,9 @@ class TurnCounterService(ITurnCounterService):
         Returns:
             Current turn count
         """
+        if not session_id or not str(session_id).strip():
+            raise ValueError("session_id must be a non-empty string")
+
         state = self.repository.get_session_state(session_id)
         return state.turn_count
 
@@ -90,6 +96,9 @@ class TurnCounterService(ITurnCounterService):
         Returns:
             True if assessment should be triggered
         """
+        if not session_id or not str(session_id).strip():
+            raise ValueError("session_id must be a non-empty string")
+
         state = self.repository.get_session_state(session_id)
 
         # Check if disabled for this session
@@ -126,6 +135,9 @@ class TurnCounterService(ITurnCounterService):
         Args:
             session_id: Unique identifier for the session
         """
+        if not session_id or not str(session_id).strip():
+            raise ValueError("session_id must be a non-empty string")
+
         state = self.repository.get_session_state(session_id)
         state.mark_assessment_performed()
         self.repository.update_session_state(state)
@@ -150,6 +162,9 @@ class TurnCounterService(ITurnCounterService):
             session_id: Unique identifier for the session
             confidence: Confidence score from last assessment (0.0-1.0)
         """
+        if not session_id or not str(session_id).strip():
+            raise ValueError("session_id must be a non-empty string")
+
         state = self.repository.get_session_state(session_id)
         old_interval = state.current_check_interval
 
