@@ -29,6 +29,17 @@ async def zai_coding_plan_backend(mock_client, mock_translation_service):
             "stream": getattr(request, "stream", False),
         }
     )
+    model_response = MagicMock()
+    model_response.json.return_value = {
+        "data": [
+            {
+                "id": "claude-sonnet-4-20250514",
+                "name": "claude-sonnet-4-20250514",
+            }
+        ]
+    }
+    model_response.raise_for_status = MagicMock()
+    mock_client.get.return_value = model_response
     backend = ZaiCodingPlanBackend(
         client=mock_client,
         config=MagicMock(),
@@ -51,7 +62,7 @@ class TestZaiCodingPlanMaxTokens:
 
         payload = await zai_coding_plan_backend._prepare_payload(request)
 
-        assert payload["max_tokens"] == 131072  # 128K
+        assert "max_tokens" not in payload  # provider default
 
     async def test_zero_max_tokens_uses_default(self, zai_coding_plan_backend):
         """When max_tokens is 0, should use default 128K."""
@@ -63,7 +74,7 @@ class TestZaiCodingPlanMaxTokens:
 
         payload = await zai_coding_plan_backend._prepare_payload(request)
 
-        assert payload["max_tokens"] == 131072  # 128K
+        assert payload["max_tokens"] == 8192  # fallback default
 
     async def test_negative_max_tokens_uses_default(self, zai_coding_plan_backend):
         """When max_tokens is negative, should use default 128K."""
@@ -75,7 +86,7 @@ class TestZaiCodingPlanMaxTokens:
 
         payload = await zai_coding_plan_backend._prepare_payload(request)
 
-        assert payload["max_tokens"] == 131072  # 128K
+        assert payload["max_tokens"] == 8192  # fallback default
 
     async def test_explicit_valid_max_tokens_is_preserved(
         self, zai_coding_plan_backend

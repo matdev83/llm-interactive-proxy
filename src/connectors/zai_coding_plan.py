@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 from typing import Any
 
+from fastapi import HTTPException
+
 from src.connectors.openai import OpenAIConnector
-from src.core.common.exceptions import AuthenticationError
+from src.core.common.exceptions import (
+    AuthenticationError,
+    BackendError,
+    RateLimitExceededError,
+)
 from src.core.domain.model_utils import parse_model_backend
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.services.backend_registry import backend_registry
+
+logger = logging.getLogger(__name__)
 
 
 class ZaiCodingPlanBackend(OpenAIConnector):
@@ -34,35 +44,74 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 code="missing_api_key",
             )
 
+        # Log masked API key for verification (show first 4 and last 4 chars)
+        masked_key = self._mask_api_key(self.api_key)
+        logger.info(f"ZAI Coding Plan backend initialized with API key: {masked_key}")
+
         # Set the OpenAI-compatible API base URL for ZAI
-        self.api_base_url = kwargs.get(
-            "api_base_url", "https://api.z.ai/api/coding/paas/v4"
-        )
+        # Note: ZAI API might have non-standard URL structure
+        # The parent class will append /chat/completions, so we provide the base
+        # Allow override via environment variable for testing
+        default_base_url = "https://api.z.ai/api/coding/paas/v4"
+        env_base_url = os.environ.get("ZAI_API_BASE_URL")
+
+        self.api_base_url = kwargs.get("api_base_url", env_base_url or default_base_url)
+
+        # Log the base URL for debugging
+        logger.info(f"ZAI Coding Plan base URL: {self.api_base_url}")
+        if env_base_url:
+            logger.info(
+                "Using custom base URL from ZAI_API_BASE_URL environment variable"
+            )
 
         # For backward compatibility with tests
         self.anthropic_api_base_url = self.api_base_url
 
-        # ZAI supports up to 128K output tokens
-        self._max_tokens_limit = 131072  # 128K
-        # ZAI coding plan exposes OpenAI-compatible models; seed with supported list
-        self.available_models = list(self._SUPPORTED_MODELS)
+        # ZAI supports up to 128K output tokens (plan-specific defaults may be lower)
+        self._max_tokens_limit = 131072  # 128K hard ceiling
+        self._default_max_tokens = 8192
 
-    def get_headers(
-        self, identity: IAppIdentityConfig | None = None
-    ) -> dict[str, str]:
-        """Return request headers including Kilo-specific metadata."""
+        # Refresh the advertised model list from the provider (falls back to defaults on failure)
+        self.available_models: list[str] = []
+        self._provider_models: set[str] = set()
+        await self._refresh_available_models()
+
+    def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:
+        """Return request headers including Kilo-specific metadata.
+
+        ZAI API requires specific Kilo-Code headers for authorization.
+        These headers MUST override any identity headers.
+        """
         headers = super().get_headers(identity=identity)
-        headers.setdefault("User-Agent", self._KILO_USER_AGENT)
-        headers.setdefault("HTTP-Referer", "https://kilocode.ai")
-        headers.setdefault("X-Title", "Kilo Code")
-        headers.setdefault("X-KiloCode-Version", self._KILO_VERSION)
+
+        # Override (not setdefault) to ensure ZAI-required headers are always present
+        headers["User-Agent"] = self._KILO_USER_AGENT
+        headers["Referer"] = "https://kilocode.ai"
+        headers["Origin"] = "https://kilocode.ai"
+        headers["HTTP-Referer"] = "https://kilocode.ai"
+        headers["X-Title"] = "Kilo Code"
+        headers["X-KiloCode-Version"] = self._KILO_VERSION
+
+        # Remove loop guard header for compatibility
+        if "x-llmproxy-loop-guard" in headers:
+            headers.pop("x-llmproxy-loop-guard", None)
+
+        # Log headers for debugging (mask Authorization header)
+        debug_headers = dict(headers)
+        if "Authorization" in debug_headers:
+            auth_value = debug_headers["Authorization"]
+            if auth_value.startswith("Bearer "):
+                token = auth_value[7:]  # Remove "Bearer " prefix
+                debug_headers["Authorization"] = f"Bearer {self._mask_api_key(token)}"
+        logger.debug("ZAI Coding Plan request headers: %s", debug_headers)
+
         return headers
 
     async def list_models(
         self, api_base_url: str | None = None, **kwargs: Any
     ) -> dict[str, Any]:
         """Return available models for ZAI coding plan."""
-        # Return local model list (API mirrors OpenAI format)
+        models = self.available_models or list(self._SUPPORTED_MODELS)
         return {
             "data": [
                 {
@@ -72,17 +121,307 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                     "created": index,
                     "owned_by": "zai",
                 }
-                for index, model in enumerate(self._SUPPORTED_MODELS, start=1)
+                for index, model in enumerate(models, start=1)
             ]
         }
 
     async def get_available_models_async(self) -> list[str]:
         """Return list of available model IDs."""
-        return list(self._SUPPORTED_MODELS)
+        return list(self.available_models or self._SUPPORTED_MODELS)
 
     def get_available_models(self) -> list[str]:
         """Return list of available model IDs."""
-        return list(self._SUPPORTED_MODELS)
+        return list(self.available_models or self._SUPPORTED_MODELS)
+
+    @staticmethod
+    def _mask_api_key(api_key: str) -> str:
+        """Mask API key for logging, showing only first 4 and last 4 characters.
+
+        Args:
+            api_key: The API key to mask
+
+        Returns:
+            Masked API key string
+        """
+        if not api_key:
+            return "[empty]"
+        if len(api_key) <= 8:
+            return "***" + api_key[-2:] if len(api_key) > 2 else "***"
+        return f"{api_key[:4]}...{api_key[-4:]}"
+
+    async def _refresh_available_models(self) -> None:
+        """Probe provider for accessible models and merge with local defaults."""
+        fallback_models = list(self._SUPPORTED_MODELS)
+        self._provider_models = set()
+        headers: dict[str, str]
+        try:
+            headers = self.get_headers()
+        except Exception as exc:
+            logger.warning(
+                "ZAI Coding Plan unable to build headers for model discovery: %s",
+                exc,
+                exc_info=True,
+            )
+            self.available_models = fallback_models
+            return
+
+        discovered_models: list[str] = []
+        try:
+            response = await self.client.get(
+                f"{self.api_base_url.rstrip('/')}/models", headers=headers
+            )
+            if hasattr(response, "raise_for_status"):
+                response.raise_for_status()
+            data = response.json()
+            if asyncio.iscoroutine(data):
+                data = await data
+            if isinstance(data, dict):
+                for entry in data.get("data", []):
+                    if isinstance(entry, dict):
+                        model_id = entry.get("id")
+                        if isinstance(model_id, str):
+                            discovered_models.append(model_id)
+        except Exception as exc:
+            logger.warning(
+                "Unable to fetch ZAI Coding Plan models from API: %s",
+                exc,
+                exc_info=True,
+            )
+
+        if discovered_models:
+            self._provider_models = {name for name in discovered_models if name}
+            unique_models: list[str] = []
+            for name in discovered_models:
+                if name and name not in unique_models:
+                    unique_models.append(name)
+            self.available_models = unique_models
+            logger.info(
+                "ZAI Coding Plan available models discovered from provider: %s",
+                self.available_models,
+            )
+        else:
+            self.available_models = fallback_models
+            logger.info(
+                "ZAI Coding Plan using fallback model list: %s", self.available_models
+            )
+
+    def _select_model(self, requested_model: str | None) -> str:
+        """Pick an appropriate provider model, honoring availability."""
+        candidate = requested_model or self._DEFAULT_MODEL
+        _, normalized = parse_model_backend(
+            str(candidate), default_backend=self.backend_type
+        )
+        normalized = normalized or self._DEFAULT_MODEL
+        available = self.available_models or list(self._SUPPORTED_MODELS)
+        if normalized in available:
+            return normalized
+        if available:
+            return available[0]
+        return normalized
+
+    @staticmethod
+    def _detail_to_text(detail: Any) -> str:
+        if isinstance(detail, dict):
+            for key in ("message", "detail", "error"):
+                value = detail.get(key)
+                if value:
+                    if isinstance(value, dict):
+                        inner = value.get("message") or value.get("detail")
+                        if inner:
+                            return str(inner)
+                    return str(value)
+            return str(detail)
+        return str(detail)
+
+    def _should_retry_with_legacy(
+        self, exc: HTTPException, attempted_model: str
+    ) -> bool:
+        """Determine if we should retry the request with the legacy Claude model."""
+        if attempted_model == self._LEGACY_MODEL:
+            return False
+        if self._LEGACY_MODEL not in self._provider_models:
+            return False
+        if exc.status_code != 429:
+            return False
+        detail_text = self._detail_to_text(exc.detail)
+        return (
+            "Insufficient balance" in detail_text
+            or "resource package" in detail_text
+            or "1113" in detail_text
+        )
+
+    async def chat_completions(
+        self,
+        request_data: Any,
+        processed_messages: Any,
+        effective_model: str,
+        identity: IAppIdentityConfig | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Route chat completions, retrying with legacy Claude when balance errors occur."""
+        selected_model = self._select_model(
+            effective_model or getattr(request_data, "model", None)
+        )
+        domain_request = request_data
+        if getattr(request_data, "model", None) != selected_model:
+            domain_request = request_data.model_copy(update={"model": selected_model})
+
+        try:
+            return await super().chat_completions(
+                domain_request,
+                processed_messages,
+                selected_model,
+                identity=identity,
+                **kwargs,
+            )
+        except HTTPException as exc:
+            if self._should_retry_with_legacy(exc, selected_model):
+                legacy_model = self._LEGACY_MODEL
+                logger.warning(
+                    "ZAI Coding Plan request with model '%s' failed (%s); retrying with legacy model '%s'",
+                    selected_model,
+                    self._detail_to_text(exc.detail),
+                    legacy_model,
+                )
+                legacy_request = domain_request.model_copy(
+                    update={"model": legacy_model}
+                )
+                return await super().chat_completions(
+                    legacy_request,
+                    processed_messages,
+                    legacy_model,
+                    identity=identity,
+                    **kwargs,
+                )
+
+            detail_text = self._detail_to_text(exc.detail)
+            provider_details = {
+                "provider_error": exc.detail,
+                "attempted_model": selected_model,
+            }
+            if exc.status_code == 429:
+                raise RateLimitExceededError(
+                    message=detail_text
+                    or "ZAI Coding Plan reported insufficient quota",
+                    details=provider_details,
+                ) from exc
+
+            raise BackendError(
+                message=detail_text or "ZAI Coding Plan request failed",
+                backend_name=self.backend_type,
+                details=provider_details,
+                status_code=getattr(exc, "status_code", 502),
+                code=f"zai_error_{getattr(exc, 'status_code', 'unknown')}",
+            ) from exc
+
+    async def _handle_non_streaming_response(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+    ) -> Any:
+        """Override to add detailed logging for debugging."""
+        # Remove loop guard header for ZAI API (might be causing issues)
+        if headers and "x-llmproxy-loop-guard" in headers:
+            headers = dict(headers)
+            del headers["x-llmproxy-loop-guard"]
+            logger.info(
+                "Removed x-llmproxy-loop-guard header for ZAI API compatibility"
+            )
+
+        # Log request details with masked auth
+        debug_headers = dict(headers) if headers else {}
+        if "Authorization" in debug_headers:
+            auth_value = debug_headers["Authorization"]
+            if auth_value.startswith("Bearer "):
+                token = auth_value[7:]
+                debug_headers["Authorization"] = f"Bearer {self._mask_api_key(token)}"
+
+        logger.info(f"ZAI API Request (non-streaming): POST {url}")
+        logger.info(f"ZAI API Headers: {debug_headers}")
+        logger.debug(f"ZAI API Payload model: {payload.get('model', 'N/A')}")
+
+        # Call parent implementation
+        return await super()._handle_non_streaming_response(
+            url, payload, headers, session_id
+        )
+
+    async def _handle_streaming_response(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        session_id: str,
+        stream_format: str,
+    ) -> Any:
+        """Override to add detailed logging for debugging.
+
+        Also handles potential non-standard URL structure for ZAI API.
+        """
+        # Log request details with masked auth
+        debug_headers = dict(headers) if headers else {}
+        if "Authorization" in debug_headers:
+            auth_value = debug_headers["Authorization"]
+            if auth_value.startswith("Bearer "):
+                token = auth_value[7:]
+                debug_headers["Authorization"] = f"Bearer {self._mask_api_key(token)}"
+
+        # Check if URL might be malformed (double path)
+        if "/chat/completions/chat/completions" in url:
+            logger.warning(f"Detected double path in URL: {url}")
+            url = url.replace("/chat/completions/chat/completions", "/chat/completions")
+            logger.info(f"Corrected URL to: {url}")
+
+        # Remove loop guard header for ZAI API (might be causing issues)
+        if headers and "x-llmproxy-loop-guard" in headers:
+            headers = dict(headers)
+            del headers["x-llmproxy-loop-guard"]
+            logger.info(
+                "Removed x-llmproxy-loop-guard header for ZAI API compatibility"
+            )
+
+        logger.info(f"ZAI API Request (streaming): POST {url}")
+        logger.info(f"ZAI API Headers: {debug_headers}")
+        logger.debug(f"ZAI API Payload model: {payload.get('model', 'N/A')}")
+
+        # Log key payload fields for debugging
+        payload_summary = {
+            "model": payload.get("model"),
+            "stream": payload.get("stream"),
+            "max_tokens": payload.get("max_tokens"),
+            "messages_count": len(payload.get("messages", [])),
+            "temperature": payload.get("temperature"),
+            "top_p": payload.get("top_p"),
+        }
+        logger.info(f"ZAI API Payload summary: {payload_summary}")
+
+        # Log first message for debugging (truncated)
+        messages = payload.get("messages", [])
+        if messages:
+            first_msg = messages[0]
+            content_preview = str(first_msg.get("content", ""))[:100]
+            logger.debug(
+                f"First message: role={first_msg.get('role')}, content={content_preview}..."
+            )
+
+        # Log the actual Authorization header format for verification
+        if headers and "Authorization" in headers:
+            auth_header = headers["Authorization"]
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+                logger.info(
+                    f"Authorization format: Bearer {self._mask_api_key(token)} (length: {len(token)})"
+                )
+            else:
+                logger.warning(
+                    f"Authorization header does not start with 'Bearer ': {auth_header[:20]}..."
+                )
+
+        # Call parent implementation with potentially corrected URL
+        return await super()._handle_streaming_response(
+            url, payload, headers, session_id, stream_format
+        )
 
     async def _prepare_payload(
         self,
@@ -98,27 +437,21 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             effective_model: The effective model name (for compatibility)
         """
         # Use OpenAI-style payload preparation while preserving the requested model
+        selected_model = self._select_model(
+            effective_model or getattr(request_data, "model", None)
+        )
         payload = await super()._prepare_payload(
-            request_data, processed_messages, effective_model
+            request_data, processed_messages, selected_model
         )
 
         # Ensure stream flag is preserved for compatibility with Anthropic routing
         if hasattr(request_data, "stream"):
             payload["stream"] = bool(request_data.stream)
 
-        requested_model = (
-            effective_model
-            or getattr(request_data, "model", None)
-            or self._DEFAULT_MODEL
-        )
-        _, model_name = parse_model_backend(
-            str(requested_model), default_backend=self.backend_type
-        )
-        normalized_model = model_name or self._DEFAULT_MODEL
-        payload["model"] = normalized_model
+        payload["model"] = selected_model
 
         # Handle max_tokens with ZAI's limits
-        if hasattr(request_data, "max_tokens") and request_data.max_tokens:
+        if hasattr(request_data, "max_tokens") and request_data.max_tokens is not None:
             requested_max_tokens = request_data.max_tokens
             if requested_max_tokens > 0:
                 # Clamp to valid range (1K minimum, 128K maximum)
@@ -129,26 +462,52 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 else:
                     payload["max_tokens"] = requested_max_tokens
             else:
-                # Use ZAI's maximum
-                payload["max_tokens"] = self._max_tokens_limit
-        else:
-            # Default to ZAI's maximum
-            payload["max_tokens"] = self._max_tokens_limit
+                # Zero or negative -> conservative default
+                payload["max_tokens"] = self._default_max_tokens
+        # If client omitted max_tokens entirely, let provider defaults apply
 
         # Copy other optional parameters
+        # Note: Only include parameters that are explicitly set to avoid issues
         if (
             hasattr(request_data, "temperature")
             and request_data.temperature is not None
         ):
             payload["temperature"] = request_data.temperature
+            logger.debug(f"Including temperature: {request_data.temperature}")
         if hasattr(request_data, "top_p") and request_data.top_p is not None:
             payload["top_p"] = request_data.top_p
+            logger.debug(f"Including top_p: {request_data.top_p}")
         if hasattr(request_data, "tools") and request_data.tools:
             payload["tools"] = request_data.tools
+            logger.debug(f"Including tools: {len(request_data.tools)} tools")
         if hasattr(request_data, "tool_choice") and request_data.tool_choice:
             payload["tool_choice"] = request_data.tool_choice
+            logger.debug(f"Including tool_choice: {request_data.tool_choice}")
 
-        return payload
+        allowed_keys = {
+            "model",
+            "messages",
+            "stream",
+            "max_tokens",
+            "temperature",
+            "top_p",
+            "tools",
+            "tool_choice",
+        }
+        cleaned_payload: dict[str, Any] = {}
+        for key, value in payload.items():
+            if key not in allowed_keys:
+                continue
+            if value is None:
+                continue
+            if key in {"tools", "tool_choice"} and not value:
+                continue
+            cleaned_payload[key] = value
+
+        # Log final payload keys for debugging
+        logger.info(f"Final payload keys: {list(cleaned_payload.keys())}")
+
+        return cleaned_payload
 
 
 backend_registry.register_backend("zai-coding-plan", ZaiCodingPlanBackend)

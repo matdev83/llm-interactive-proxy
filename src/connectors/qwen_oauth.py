@@ -1013,10 +1013,10 @@ class QwenOAuthConnector(OpenAIConnector):
         """Handle chat completions using Qwen OAuth API.
 
         This overrides the parent class method to ensure credentials are valid before API call.
-        
+
         Special handling for reasoning_effort:
-        - When reasoning_effort is set to "medium" or "high", this method appends " /think"
-          to the last client message (user or system role, not tool responses).
+        - By default, this method appends " /think" to the last client message (user or system role).
+        - The suffix is NOT appended only when reasoning_effort is explicitly set to "low".
         - This triggers Qwen's extended reasoning mode for more thoughtful responses.
         - The " /think" suffix is only appended to regular messages, not tool call responses.
         """
@@ -1041,13 +1041,17 @@ class QwenOAuthConnector(OpenAIConnector):
             )
 
         # Handle reasoning_effort by appending " /think" to the last user message
+        # Append by default unless explicitly set to "low"
         reasoning_effort = None
         if hasattr(request_data, "reasoning_effort"):
             reasoning_effort = request_data.reasoning_effort
         elif isinstance(request_data, dict):
             reasoning_effort = request_data.get("reasoning_effort")
 
-        if reasoning_effort in ("medium", "high") and processed_messages:
+        # Append " /think" unless reasoning_effort is explicitly "low"
+        should_append_think = reasoning_effort != "low"
+
+        if should_append_think and processed_messages:
             # Find the last message from the client (user or system role, not tool responses)
             last_client_message_idx = None
             for idx in range(len(processed_messages) - 1, -1, -1):
@@ -1057,24 +1061,24 @@ class QwenOAuthConnector(OpenAIConnector):
                     role = msg.role
                 elif isinstance(msg, dict):
                     role = msg.get("role")
-                
+
                 # Skip tool response messages
                 if role in ("user", "system"):
                     last_client_message_idx = idx
                     break
-            
+
             if last_client_message_idx is not None:
                 # Append " /think" to the content of the last client message
                 msg = processed_messages[last_client_message_idx]
-                
+
                 # Handle different message formats
                 if hasattr(msg, "content"):
                     content = msg.content
                     if isinstance(content, str):
                         # Create a modified copy of the message
                         if hasattr(msg, "model_copy"):
-                            processed_messages[last_client_message_idx] = msg.model_copy(
-                                update={"content": content + " /think"}
+                            processed_messages[last_client_message_idx] = (
+                                msg.model_copy(update={"content": content + " /think"})
                             )
                         elif hasattr(msg, "copy"):
                             modified_msg = msg.copy()
@@ -1084,7 +1088,7 @@ class QwenOAuthConnector(OpenAIConnector):
                             # Fallback: modify in place
                             msg.content = content + " /think"
                         logger.info(
-                            f"Appended ' /think' to last client message due to reasoning_effort={reasoning_effort}"
+                            f"Appended ' /think' to last client message (reasoning_effort={reasoning_effort or 'default'})"
                         )
                 elif isinstance(msg, dict):
                     content = msg.get("content")
@@ -1094,9 +1098,8 @@ class QwenOAuthConnector(OpenAIConnector):
                         modified_msg["content"] = content + " /think"
                         processed_messages[last_client_message_idx] = modified_msg
                         logger.info(
-                            f"Appended ' /think' to last client message due to reasoning_effort={reasoning_effort}"
+                            f"Appended ' /think' to last client message (reasoning_effort={reasoning_effort or 'default'})"
                         )
-
 
         try:
             # Use the effective model and properly extract just the model name part

@@ -55,6 +55,7 @@ class StructuredWireCapture(IWireCapture):
         # Initialize redaction for wire capture data
         api_keys = discover_api_keys_from_config_and_env(config)
         self._redactor = APIKeyRedactor(api_keys)
+        self._raw_preview_limit: int = 4096
 
         # Ensure directory exists if configured
         if self._file_path:
@@ -81,6 +82,7 @@ class StructuredWireCapture(IWireCapture):
         context: RequestContext | None,
         session_id: str | None,
         request_payload: Any,
+        raw_body: bytes | None = None,
     ) -> None:
         """Capture inbound request from client to proxy."""
         if not self.enabled():
@@ -91,6 +93,16 @@ class StructuredWireCapture(IWireCapture):
         if hasattr(request_payload, "model"):
             model = str(request_payload.model)
 
+        normalized_payload = self._normalize_payload(request_payload)
+        payload: Any
+        if raw_body:
+            payload = {
+                "raw": self._summarize_raw_body(raw_body),
+                "parsed": normalized_payload,
+            }
+        else:
+            payload = normalized_payload
+
         # Create structured JSON entry
         entry = self._create_json_entry(
             flow="client_to_proxy",
@@ -100,7 +112,7 @@ class StructuredWireCapture(IWireCapture):
             backend="client",
             model=model,
             key_name=None,
-            payload=request_payload,
+            payload=payload,
         )
 
         # Serialize and write to file
@@ -293,6 +305,33 @@ class StructuredWireCapture(IWireCapture):
             return entry_dict
 
         return entry.model_dump()
+
+    def _summarize_raw_body(self, raw_body: bytes) -> dict[str, Any]:
+        preview_len = min(len(raw_body), self._raw_preview_limit)
+        preview_bytes = raw_body[:preview_len]
+        return {
+            "length": len(raw_body),
+            "preview": preview_bytes.decode("utf-8", errors="replace"),
+            "truncated": len(raw_body) > preview_len,
+        }
+
+    @staticmethod
+    def _normalize_payload(payload: Any) -> Any:
+        if payload is None or isinstance(
+            payload, dict | list | str | int | float | bool
+        ):
+            return payload
+        if isinstance(payload, bytes):
+            return payload
+        if hasattr(payload, "model_dump") and callable(payload.model_dump):
+            with contextlib.suppress(Exception):
+                return payload.model_dump()
+        if hasattr(payload, "__dict__"):
+            with contextlib.suppress(Exception):
+                return dict(payload.__dict__)
+        with contextlib.suppress(Exception):
+            return str(payload)
+        return None
 
     def _redact_payload(self, payload: Any) -> Any:
         """Redact sensitive information while guarding against malicious nesting."""

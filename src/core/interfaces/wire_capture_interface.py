@@ -29,6 +29,7 @@ class IWireCapture(ABC):
         context: RequestContext | None,
         session_id: str | None,
         request_payload: Any,
+        raw_body: bytes | None = None,
     ) -> None:
         """Capture inbound request from client to proxy."""
 

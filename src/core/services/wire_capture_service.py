@@ -73,6 +73,7 @@ class WireCapture(IWireCapture):
         context: RequestContext | None,
         session_id: str | None,
         request_payload: Any,
+        raw_body: bytes | None = None,
     ) -> None:
         """Capture inbound request from client to proxy."""
         if not self.enabled():
@@ -81,6 +82,22 @@ class WireCapture(IWireCapture):
         model = "N/A"
         if hasattr(request_payload, "model"):
             model = str(request_payload.model)
+
+        payload_to_dump: Any
+        if raw_body:
+            preview_len = min(len(raw_body), 4096)
+            preview_bytes = raw_body[:preview_len]
+            payload_to_dump = {
+                "raw": {
+                    "length": len(raw_body),
+                    "preview": preview_bytes.decode("utf-8", errors="replace"),
+                    "truncated": len(raw_body) > preview_len,
+                },
+                "parsed": request_payload,
+            }
+        else:
+            payload_to_dump = request_payload
+
         header = self._format_header(
             direction="INBOUND_REQUEST",
             context=context,
@@ -89,7 +106,7 @@ class WireCapture(IWireCapture):
             model=model,
             key_name=None,
         )
-        body = _safe_json_dump(request_payload)
+        body = _safe_json_dump(payload_to_dump)
         await self._append(f"{header}\n{body}\n")
 
     async def capture_outbound_request(

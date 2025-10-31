@@ -160,6 +160,23 @@ class ChatController:
             # Use already-validated request_data instead of re-parsing
             domain_request = request_data
 
+            try:
+                raw_body_bytes = await request.body()
+            except Exception:
+                raw_body_bytes = b""
+            if raw_body_bytes:
+                preview = raw_body_bytes[:1024]
+                try:
+                    rendered_preview = preview.decode("utf-8", errors="replace")
+                except Exception:
+                    rendered_preview = repr(preview)
+                logger.debug(
+                    "Incoming /chat/completions raw request (len=%d): %s%s",
+                    len(raw_body_bytes),
+                    rendered_preview,
+                    "..." if len(raw_body_bytes) > len(preview) else "",
+                )
+
             logger.info(
                 f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
             )
@@ -203,9 +220,7 @@ class ChatController:
                         str(domain_request.model or ""),
                         default_backend="zai-coding-plan",
                     )
-                    normalized_model = (
-                        parsed_model if parsed_model else "glm-4.6"
-                    )
+                    normalized_model = parsed_model if parsed_model else "glm-4.6"
 
                     anth_req = AnthropicMessagesRequest(
                         model=normalized_model,
@@ -285,6 +300,8 @@ class ChatController:
 
             with contextlib.suppress(Exception):
                 ctx.domain_request = domain_request  # type: ignore[attr-defined]
+                if raw_body_bytes:
+                    ctx.raw_body = raw_body_bytes  # type: ignore[attr-defined]
 
             # Ensure session_id is available in context if provided in request
             if domain_request.session_id:
@@ -297,6 +314,7 @@ class ChatController:
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=domain_request,
+                        raw_body=raw_body_bytes or None,
                     )
                 except Exception:
                     logger.debug("Wire capture (inbound request) failed", exc_info=True)

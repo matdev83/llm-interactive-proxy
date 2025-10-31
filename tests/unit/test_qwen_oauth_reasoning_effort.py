@@ -5,10 +5,8 @@ Tests that when reasoning_effort is set to "medium" or "high", the connector
 appends " /think" to the last client message.
 """
 
-import json
 import time
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, mock_open, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -67,9 +65,9 @@ class TestQwenOAuthReasoningEffort:
         return connector
 
     @pytest.mark.asyncio
-    async def test_reasoning_effort_medium_appends_think(self, connector, mock_client):
-        """Test that reasoning_effort='medium' appends ' /think' to last user message."""
-        # Create request with reasoning_effort
+    async def test_default_appends_think(self, connector, mock_client):
+        """Test that by default (no reasoning_effort) appends ' /think' to last user message."""
+        # Create request without reasoning_effort (should default to appending)
         request = ChatRequest(
             model="qwen-turbo",
             messages=[
@@ -77,7 +75,6 @@ class TestQwenOAuthReasoningEffort:
                 ChatMessage(role="assistant", content="Hi there"),
                 ChatMessage(role="user", content="What is 2+2?"),
             ],
-            reasoning_effort="medium",
         )
 
         processed_messages = [
@@ -98,12 +95,12 @@ class TestQwenOAuthReasoningEffort:
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
-    async def test_reasoning_effort_high_appends_think(self, connector, mock_client):
-        """Test that reasoning_effort='high' appends ' /think' to last user message."""
+    async def test_reasoning_effort_medium_appends_think(self, connector, mock_client):
+        """Test that reasoning_effort='medium' appends ' /think' to last user message."""
         request = ChatRequest(
             model="qwen-turbo",
             messages=[ChatMessage(role="user", content="Solve this puzzle")],
-            reasoning_effort="high",
+            reasoning_effort="medium",
         )
 
         processed_messages = [{"role": "user", "content": "Solve this puzzle"}]
@@ -116,6 +113,27 @@ class TestQwenOAuthReasoningEffort:
 
         # Verify that the message was modified
         assert processed_messages[0]["content"] == "Solve this puzzle /think"
+        assert isinstance(response, ResponseEnvelope)
+
+    @pytest.mark.asyncio
+    async def test_reasoning_effort_high_appends_think(self, connector, mock_client):
+        """Test that reasoning_effort='high' appends ' /think' to last user message."""
+        request = ChatRequest(
+            model="qwen-turbo",
+            messages=[ChatMessage(role="user", content="Complex problem")],
+            reasoning_effort="high",
+        )
+
+        processed_messages = [{"role": "user", "content": "Complex problem"}]
+
+        response = await connector.chat_completions(
+            request_data=request,
+            processed_messages=processed_messages,
+            effective_model="qwen-turbo",
+        )
+
+        # Verify that the message was modified
+        assert processed_messages[0]["content"] == "Complex problem /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -140,11 +158,12 @@ class TestQwenOAuthReasoningEffort:
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
-    async def test_no_reasoning_effort_does_not_append(self, connector, mock_client):
-        """Test that without reasoning_effort, ' /think' is not appended."""
+    async def test_none_reasoning_effort_appends_think(self, connector, mock_client):
+        """Test that None reasoning_effort (default) appends ' /think'."""
         request = ChatRequest(
             model="qwen-turbo",
             messages=[ChatMessage(role="user", content="Normal message")],
+            reasoning_effort=None,
         )
 
         processed_messages = [{"role": "user", "content": "Normal message"}]
@@ -155,8 +174,31 @@ class TestQwenOAuthReasoningEffort:
             effective_model="qwen-turbo",
         )
 
-        # Verify that the message was NOT modified
-        assert processed_messages[0]["content"] == "Normal message"
+        # Verify that the message WAS modified (default behavior)
+        assert processed_messages[0]["content"] == "Normal message /think"
+        assert isinstance(response, ResponseEnvelope)
+
+    @pytest.mark.asyncio
+    async def test_empty_string_reasoning_effort_appends_think(
+        self, connector, mock_client
+    ):
+        """Test that empty string reasoning_effort appends ' /think'."""
+        request = ChatRequest(
+            model="qwen-turbo",
+            messages=[ChatMessage(role="user", content="Another message")],
+            reasoning_effort="",
+        )
+
+        processed_messages = [{"role": "user", "content": "Another message"}]
+
+        response = await connector.chat_completions(
+            request_data=request,
+            processed_messages=processed_messages,
+            effective_model="qwen-turbo",
+        )
+
+        # Verify that the message WAS modified (empty string is not "low")
+        assert processed_messages[0]["content"] == "Another message /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -177,9 +219,7 @@ class TestQwenOAuthReasoningEffort:
                         }
                     ],
                 ),
-                ChatMessage(
-                    role="tool", content="Tool result", tool_call_id="call_1"
-                ),
+                ChatMessage(role="tool", content="Tool result", tool_call_id="call_1"),
             ],
             reasoning_effort="medium",
         )
@@ -233,10 +273,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that the system message was modified
-        assert (
-            processed_messages[0]["content"]
-            == "You are a helpful assistant /think"
-        )
+        assert processed_messages[0]["content"] == "You are a helpful assistant /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -273,9 +310,7 @@ class TestQwenOAuthReasoningEffort:
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
-    async def test_reasoning_effort_with_pydantic_message(
-        self, connector, mock_client
-    ):
+    async def test_reasoning_effort_with_pydantic_message(self, connector, mock_client):
         """Test that reasoning_effort works with Pydantic ChatMessage objects."""
         request = ChatRequest(
             model="qwen-turbo",

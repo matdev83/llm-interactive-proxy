@@ -2,15 +2,19 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 from httpx import AsyncClient
+from src.connectors.openai import OpenAIConnector
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
+from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.responses import ResponseEnvelope
 from src.core.services.translation_service import TranslationService
 
 
@@ -32,6 +36,21 @@ def mock_translation_service():
 @pytest.fixture
 async def backend(mock_client, mock_config, mock_translation_service):
     with patch.dict(os.environ, {"ZAI_API_KEY": "test-key"}):
+        model_response = MagicMock()
+        model_response.json.return_value = {
+            "data": [
+                {
+                    "id": "glm-4.6",
+                    "name": "glm-4.6",
+                },
+                {
+                    "id": "claude-sonnet-4-20250514",
+                    "name": "claude-sonnet-4-20250514",
+                },
+            ]
+        }
+        model_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = model_response
         backend = ZaiCodingPlanBackend(
             client=mock_client,
             config=mock_config,
@@ -51,14 +70,14 @@ async def test_backend_initialization(backend: ZaiCodingPlanBackend):
 
 async def test_get_available_models(backend: ZaiCodingPlanBackend):
     models = await backend.get_available_models_async()
-    assert models == ["glm-4.6", "claude-sonnet-4-20250514"]
+    assert models[0] == "glm-4.6"
+    assert "claude-sonnet-4-20250514" in models
 
 
 async def test_list_models(backend: ZaiCodingPlanBackend):
     models = await backend.list_models()
     assert "data" in models
-    assert len(models["data"]) == 2
-    returned_ids = [m["id"] for m in models["data"]]
+    returned_ids = {m["id"] for m in models["data"]}
     assert "glm-4.6" in returned_ids
     assert "claude-sonnet-4-20250514" in returned_ids
 
@@ -108,5 +127,109 @@ async def test_get_headers_includes_kilo_metadata(backend: ZaiCodingPlanBackend)
     headers = backend.get_headers()
     assert headers["User-Agent"].startswith("Kilo-Code/")
     assert headers["HTTP-Referer"] == "https://kilocode.ai"
+    assert headers["Referer"] == "https://kilocode.ai"
+    assert headers["Origin"] == "https://kilocode.ai"
     assert headers["X-Title"] == "Kilo Code"
     assert "Authorization" in headers
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_retries_with_legacy_on_1113(
+    backend: ZaiCodingPlanBackend,
+    mock_translation_service: MagicMock,
+):
+    error = HTTPException(
+        status_code=429,
+        detail={
+            "message": "Insufficient balance or no resource package. Please recharge."
+        },
+    )
+    success = ResponseEnvelope(content={"id": "ok"}, headers={}, status_code=200)
+
+    with patch.object(
+        OpenAIConnector,
+        "chat_completions",
+        AsyncMock(side_effect=[error, success]),
+    ) as mock_super:
+        processed_messages = [ChatMessage(role="user", content="hello")]
+        request = ChatRequest(
+            model="zai-coding-plan:glm-4.6",
+            messages=processed_messages,
+            stream=False,
+        )
+
+        result = await backend.chat_completions(
+            request,
+            processed_messages,
+            "glm-4.6",
+        )
+
+    assert result == success
+    assert mock_super.call_count == 2
+    first_call_args = mock_super.call_args_list[0][0]
+    second_call_args = mock_super.call_args_list[1][0]
+    assert first_call_args[2] == "glm-4.6"
+    assert second_call_args[2] == backend._LEGACY_MODEL
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_raises_rate_limit_error(
+    backend: ZaiCodingPlanBackend,
+    mock_translation_service: MagicMock,
+):
+    error = HTTPException(
+        status_code=429,
+        detail={"message": "Insufficient balance"},
+    )
+
+    backend.available_models = ["glm-4.6"]
+    backend._provider_models = {"glm-4.6"}
+
+    with patch.object(
+        OpenAIConnector,
+        "chat_completions",
+        AsyncMock(side_effect=[error]),
+    ):
+        processed_messages = [ChatMessage(role="user", content="hello")]
+        request = ChatRequest(
+            model="glm-4.6",
+            messages=processed_messages,
+            stream=False,
+        )
+
+        with pytest.raises(RateLimitExceededError) as exc_info:
+            await backend.chat_completions(request, processed_messages, "glm-4.6")
+
+    assert "Insufficient balance" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_unknown_model_raises_backend_error(
+    backend: ZaiCodingPlanBackend,
+    mock_translation_service: MagicMock,
+):
+    error = HTTPException(
+        status_code=400,
+        detail={"message": "Unknown Model"},
+    )
+
+    backend.available_models = ["glm-4.6"]
+    backend._provider_models = {"glm-4.6"}
+
+    with patch.object(
+        OpenAIConnector,
+        "chat_completions",
+        AsyncMock(side_effect=[error]),
+    ):
+        processed_messages = [ChatMessage(role="user", content="hello")]
+        request = ChatRequest(
+            model="glm-4.6",
+            messages=processed_messages,
+            stream=False,
+        )
+
+        with pytest.raises(BackendError) as exc_info:
+            await backend.chat_completions(request, processed_messages, "glm-4.6")
+
+    assert exc_info.value.status_code == 400
+    assert "Unknown Model" in str(exc_info.value)

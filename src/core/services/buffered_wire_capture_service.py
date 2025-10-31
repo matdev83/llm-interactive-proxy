@@ -223,6 +223,7 @@ class BufferedWireCapture(IWireCapture):
         # Initialize redaction for wire capture data
         api_keys = discover_api_keys_from_config_and_env(config)
         self._redactor = APIKeyRedactor(api_keys)
+        self._raw_preview_limit: int = 4096
 
         # Initialize if configured
         if self._file_path:
@@ -372,6 +373,7 @@ class BufferedWireCapture(IWireCapture):
         context: RequestContext | None,
         session_id: str | None,
         request_payload: Any,
+        raw_body: bytes | None = None,
     ) -> None:
         """Capture inbound request from client to proxy.
 
@@ -379,6 +381,7 @@ class BufferedWireCapture(IWireCapture):
             context: Request context with client information
             session_id: Session ID if available
             request_payload: Request payload (usually ChatRequest)
+            raw_body: Raw HTTP body bytes as received from the client
         """
         if not self.enabled():
             return
@@ -392,6 +395,16 @@ class BufferedWireCapture(IWireCapture):
         elif isinstance(request_payload, dict):
             model = str(request_payload.get("model", "N/A"))
 
+        normalized_payload = self._normalize_payload(request_payload)
+        payload: Any
+        if raw_body:
+            payload = {
+                "raw": self._summarize_raw_body(raw_body),
+                "parsed": normalized_payload,
+            }
+        else:
+            payload = normalized_payload
+
         entry = self._create_entry(
             direction="inbound_request",
             source=self._get_client_info(context),
@@ -401,7 +414,7 @@ class BufferedWireCapture(IWireCapture):
             backend="client",
             model=model,
             key_name=None,
-            payload=request_payload,
+            payload=payload,
         )
 
         await self._buffer_entry(entry)
@@ -633,6 +646,32 @@ class BufferedWireCapture(IWireCapture):
             return f"unknown_host({agent!s})"
         else:
             return "unknown_client"
+
+    def _summarize_raw_body(self, raw_body: bytes) -> dict[str, Any]:
+        preview_len = min(len(raw_body), self._raw_preview_limit)
+        preview_bytes = raw_body[:preview_len]
+        return {
+            "length": len(raw_body),
+            "preview": preview_bytes.decode("utf-8", errors="replace"),
+            "truncated": len(raw_body) > preview_len,
+        }
+
+    def _normalize_payload(self, payload: Any) -> Any:
+        if payload is None or isinstance(
+            payload, dict | list | str | int | float | bool
+        ):
+            return payload
+        if isinstance(payload, bytes):
+            return payload
+        if hasattr(payload, "model_dump") and callable(payload.model_dump):
+            with contextlib.suppress(Exception):
+                return payload.model_dump()
+        if hasattr(payload, "__dict__"):
+            with contextlib.suppress(Exception):
+                return dict(payload.__dict__)
+        with contextlib.suppress(Exception):
+            return str(payload)
+        return None
 
     def _redact_payload(self, payload: Any) -> Any:
         """Recursively redact sensitive information from payload."""

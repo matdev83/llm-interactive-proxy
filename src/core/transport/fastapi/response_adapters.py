@@ -73,7 +73,7 @@ def to_fastapi_response(
     status_code = envelope.status_code
     media_type = getattr(envelope, "media_type", "application/json")
 
-    if media_type == "application/json":
+    if media_type and media_type.startswith("application/json"):
         json_content = _prepare_json_content(content)
 
         # If the envelope has usage data, merge it into the response content.
@@ -84,6 +84,12 @@ def to_fastapi_response(
 
         safe_content = _sanitize_json_content(json_content)
         safe_headers = _sanitize_headers(headers)
+        if "content-encoding" in {k.lower(): v for k, v in safe_headers.items()}:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "Content-Encoding survived sanitation: %s", safe_headers
+            )
         safe_status_code = _sanitize_status_code(status_code)
         final_status_code = _handle_backend_error_status_code(
             safe_content, safe_status_code
@@ -174,7 +180,27 @@ def _sanitize_headers(headers: Any) -> dict[str, Any]:
                 safe_headers = {}
         elif hasattr(headers, "_mock_name") or hasattr(headers, "_execute_mock_call"):
             safe_headers = {}
-    return safe_headers
+    allowed_prefixes = ("x-", "access-control-")
+    hop_by_hop = {
+        "content-encoding",
+        "transfer-encoding",
+        "content-length",
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "upgrade",
+    }
+    filtered: dict[str, Any] = {}
+    for key, value in safe_headers.items():
+        lowercase = key.lower()
+        if lowercase in hop_by_hop:
+            continue
+        if lowercase.startswith(allowed_prefixes):
+            filtered[key] = value
+    return filtered
 
 
 def _sanitize_status_code(status_code: Any) -> int:
@@ -200,7 +226,21 @@ def _handle_backend_error_status_code(content: Any, status_code: int) -> int:
 def _create_json_response(
     content: Any, status_code: int, headers: dict[str, Any]
 ) -> JSONResponse:
-    return JSONResponse(content=content, status_code=status_code, headers=headers)
+    allowed_prefixes = ("x-", "access-control-")
+    filtered_headers = {
+        k: v
+        for k, v in (headers or {}).items()
+        if k.lower().startswith(allowed_prefixes)
+    }
+
+    response = JSONResponse(
+        content=content,
+        status_code=status_code,
+        media_type="application/json",
+    )
+    for key, value in filtered_headers.items():
+        response.headers[key] = value
+    return response
 
 
 def _create_other_response(

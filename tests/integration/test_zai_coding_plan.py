@@ -81,7 +81,7 @@ def test_zai_coding_plan_backend_integration(
                         "object": "model",
                         "created": 2,
                         "owned_by": "zai",
-                    }
+                    },
                 ]
             },
         )

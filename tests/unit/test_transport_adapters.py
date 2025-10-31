@@ -97,6 +97,28 @@ class TestResponseAdapters:
         assert fastapi_response.headers.get("X-Custom-Header") == "test"
         assert json.loads(fastapi_response.body) == {"message": "Hello, world!"}
 
+    def test_to_fastapi_response_json_not_gzipped(self):
+        """Ensure JSON responses are returned without gzip encoding."""
+        domain_response = ResponseEnvelope(
+            content={"message": "Hello, gzip!"},
+            headers={
+                "X-Correlation-Id": "abc123",
+                "Access-Control-Allow-Origin": "*",
+            },
+            status_code=200,
+            media_type="application/json",
+        )
+
+        fastapi_response = to_fastapi_response(domain_response)
+
+        assert isinstance(fastapi_response, JSONResponse)
+        assert json.loads(fastapi_response.body) == {"message": "Hello, gzip!"}
+        present_headers = {key.lower() for key in fastapi_response.headers}
+        assert "content-encoding" not in present_headers
+        assert (
+            fastapi_response.headers.get("Access-Control-Allow-Origin") == "*"
+        ), "CORS header should be preserved."
+
     def test_to_fastapi_response_text(self):
         """Test converting a domain response envelope to a FastAPI text response."""
         # Create a domain response envelope
