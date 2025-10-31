@@ -58,6 +58,43 @@ class TestToolCallRepairService:
         assert repaired["function"]["name"] == "test_func"
         assert json.loads(repaired["function"]["arguments"]) == {"arg1": "val1"}
 
+    def test_repair_tool_calls_xml_direct_tool(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        content = """
+        <patch_file>
+            <path>src/example.py</path>
+            <patch_content>print("hello world")</patch_content>
+        </patch_file>
+        """
+        repaired = repair_service.repair_tool_calls(content)
+        assert repaired is not None
+        assert repaired["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired["function"]["arguments"])
+        assert arguments["path"] == "src/example.py"
+        assert arguments["patch_content"] == 'print("hello world")'
+
+    def test_repair_tool_calls_xml_use_mcp_wrapper(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        content = """
+        <use_mcp_tool>
+            <tool_name>patch_file</tool_name>
+            <tool_arguments>
+                <path>src/example.py</path>
+                <patch_content>
+                    print("updated")
+                </patch_content>
+            </tool_arguments>
+        </use_mcp_tool>
+        """
+        repaired = repair_service.repair_tool_calls(content)
+        assert repaired is not None
+        assert repaired["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired["function"]["arguments"])
+        assert arguments["path"] == "src/example.py"
+        assert "print(\"updated\")" in arguments["patch_content"]
+
     def test_repair_tool_calls_no_match(
         self, repair_service: ToolCallRepairService
     ) -> None:

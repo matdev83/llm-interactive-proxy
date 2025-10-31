@@ -24,6 +24,9 @@ class ToolCallRepairService:
         r"(?:TOOL CALL|Function call|Call)\s*:\s*(\w+)\s*(.*)", re.IGNORECASE
     )
     _CODE_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*\}\s*)\s*```", re.DOTALL)
+    _XML_SNIPPET_PATTERN = re.compile(
+        r"\A\s*<([A-Za-z0-9_\-]+)(?:\s[^>]*)?>(.*)</\1>\s*\Z", re.DOTALL
+    )
 
     def __init__(self, max_buffer_bytes: int | None = None) -> None:
         self._tool_call_buffers: dict[str, str] = {}
@@ -72,6 +75,11 @@ class ToolCallRepairService:
             match = self._JSON_PATTERN.search(content)
             if match:
                 return self._process_json_match(match.group(1))
+
+        # Attempt to detect using XML patterns (Kilo MCP tool format)
+        xml_tool_call = self._extract_xml_tool_call(content)
+        if xml_tool_call:
+            return xml_tool_call
 
         # Attempt to detect using textual patterns only if keywords present
         if (
@@ -207,3 +215,81 @@ class ToolCallRepairService:
                 "arguments": arguments,
             },
         }
+
+    def _extract_xml_tool_call(self, content: str) -> dict[str, Any] | None:
+        """Detect and convert XML-formatted tool calls."""
+        stripped = content.strip()
+        if not stripped.startswith("<") or "</" not in stripped:
+            return None
+
+        match = self._XML_SNIPPET_PATTERN.match(stripped)
+        if not match:
+            return None
+
+        xml_snippet = match.group(0)
+
+        try:
+            import xml.etree.ElementTree as ET
+
+            root = ET.fromstring(xml_snippet)
+        except Exception:
+            return None
+
+        if root.tag == "use_mcp_tool":
+            tool_name_element = root.find("tool_name")
+            if tool_name_element is None or not tool_name_element.text:
+                return None
+            arguments_element = root.find("tool_arguments")
+            arguments = (
+                self._element_children_to_dict(arguments_element)
+                if arguments_element is not None
+                else {}
+            )
+            return self._format_openai_tool_call(
+                tool_name_element.text.strip(), arguments
+            )
+
+        arguments = self._element_children_to_dict(root)
+        return self._format_openai_tool_call(root.tag, arguments)
+
+    def _element_children_to_dict(self, element: Any) -> dict[str, Any] | str:
+        """Convert XML element children into JSON-serializable objects."""
+        if element is None:
+            return {}
+
+        children = list(element)
+        text_content = element.text or ""
+
+        if not children and not element.attrib:
+            return text_content
+
+        result: dict[str, Any] = {}
+
+        if element.attrib:
+            for attr, value in element.attrib.items():
+                result[f"@{attr}"] = value
+
+        if children:
+            for child in children:
+                child_value = self._element_children_to_dict(child)
+                existing = result.get(child.tag)
+                if existing is None:
+                    result[child.tag] = child_value
+                else:
+                    if not isinstance(existing, list):
+                        result[child.tag] = [existing]
+                    result[child.tag].append(child_value)
+        elif text_content:
+            result["_text"] = text_content
+
+        # Preserve meaningful mixed content
+        if children and text_content.strip():
+            result["_text"] = text_content
+
+        if not result:
+            return text_content
+
+        if list(result.keys()) == ["_text"]:
+            return result["_text"]
+
+        return result
