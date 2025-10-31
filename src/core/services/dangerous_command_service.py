@@ -4,6 +4,7 @@ from typing import Any
 
 from src.core.domain.chat import ToolCall
 from src.core.domain.configuration.dangerous_command_config import (
+    _COMBINED_DANGEROUS_PATTERN,
     DangerousCommandConfig,
     DangerousCommandRule,
 )
@@ -85,6 +86,11 @@ class DangerousCommandService:
 
     def _generate_command_candidates(self, command: str) -> list[str]:
         """Produce normalized variants to improve pattern detection."""
+        # For large commands, skip expensive normalization. A fast pre-check should
+        # have already been performed. This step is for finding the specific rule.
+        if len(command) > 10000:
+            return [command, command[:2000]]
+
         candidates: set[str] = set()
         collapsed = re.sub(r"\s+", " ", command).strip()
         candidates.add(command)
@@ -107,15 +113,19 @@ class DangerousCommandService:
         env_stripped = re.sub(r"\s+", " ", env_stripped).strip()
         candidates.add(env_stripped)
 
-        tokens = env_stripped.split()
-        if tokens:
-            normalized_tokens: list[str] = []
-            for token in tokens:
-                cleaned = token
-                if "git" in token.lower():
-                    cleaned = re.split(r"[\\/]", token)[-1]
-                normalized_tokens.append(cleaned)
-            candidates.add(" ".join(normalized_tokens).strip())
+        # Optimize token processing for large strings
+        if (
+            len(env_stripped) < 10000
+        ):  # Only do detailed tokenization for smaller strings
+            tokens = env_stripped.split()
+            if tokens:
+                normalized_tokens: list[str] = []
+                for token in tokens:
+                    cleaned = token
+                    if "git" in token.lower():
+                        cleaned = re.split(r"[\\/]", token)[-1]
+                    normalized_tokens.append(cleaned)
+                candidates.add(" ".join(normalized_tokens).strip())
 
         return [candidate for candidate in candidates if candidate]
 
@@ -134,10 +144,20 @@ class DangerousCommandService:
         if not command_to_check:
             return None
 
+        original_command = command_to_check
+        # Truncate for performance before any processing
+        if len(command_to_check) > self.config.max_command_length:
+            command_to_check = command_to_check[: self.config.max_command_length]
+
+        # Fast pre-check on the (potentially truncated) command
+        if not _COMBINED_DANGEROUS_PATTERN.search(command_to_check):
+            return None
+
+        # If there's a potential match, generate candidates to find the specific rule
         candidates = self._generate_command_candidates(command_to_check)
 
         for rule in self.config.rules:
             for candidate in candidates:
                 if rule.pattern.search(candidate):
-                    return rule, command_to_check
+                    return rule, original_command
         return None

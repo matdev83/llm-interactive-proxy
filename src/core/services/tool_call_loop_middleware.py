@@ -63,8 +63,8 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         Raises:
             ToolCallLoopError: If a tool call loop is detected
         """
-        # Skip processing if no context or no content
-        if not context or not response.content:
+        # Skip processing if no context
+        if not context:
             return response
 
         # Get config from context
@@ -76,8 +76,12 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if not config.tool_loop_detection_enabled:
             return response
 
-        # Extract tool calls from response content
+        metadata = getattr(response, "metadata", {}) or {}
+
+        # Extract tool calls from response content or metadata
         tool_calls = self._extract_tool_calls(response.content)
+        if not tool_calls:
+            tool_calls = self._extract_tool_calls_from_metadata(metadata)
         if not tool_calls:
             return response
 
@@ -193,6 +197,20 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             isinstance(item, dict) and "function" in item for item in data
         ):  # type: ignore[unreachable]
             return data  # type: ignore[unreachable]
+
+        return []
+
+    def _extract_tool_calls_from_metadata(self, metadata: Any) -> list[dict[str, Any]]:
+        if not metadata or not isinstance(metadata, dict):
+            return []
+
+        tool_calls = metadata.get("tool_calls")
+        if (
+            isinstance(tool_calls, list)
+            and tool_calls
+            and all(isinstance(item, dict) for item in tool_calls)
+        ):
+            return list(tool_calls)
 
         return []
 

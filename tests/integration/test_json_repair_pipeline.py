@@ -44,9 +44,23 @@ async def test_json_repair_and_tool_call_repair_together_objects() -> None:
         results.append(item)
 
     # Tool call should be converted to an OpenAI tool_calls JSON object with full metadata
+    # The repaired JSON should be in the content, and the tool call should be in metadata
     non_empty = [r for r in results if r.content or r.is_done]
-    combined = "".join(r.content for r in non_empty if r.content)
-    tool_call = json.loads(combined)
+    combined_content = "".join(r.content for r in non_empty if r.content)
+
+    # The content should contain the repaired JSON and the original tool call text
+    # (text-based tool calls are not removed from content, only XML ones are)
+    assert '{"a": 1}' in combined_content
+    assert "TOOL CALL: myfunc" in combined_content
+
+    # The tool call should be in the metadata
+    tool_calls = []
+    for r in non_empty:
+        if r.metadata and "tool_calls" in r.metadata:
+            tool_calls.extend(r.metadata["tool_calls"])
+
+    assert len(tool_calls) == 1
+    tool_call = tool_calls[0]
     assert tool_call["type"] == "function"
     assert "id" in tool_call and tool_call["id"].startswith("call_")
     assert tool_call["function"]["name"] == "myfunc"

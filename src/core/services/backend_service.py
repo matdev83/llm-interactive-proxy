@@ -1443,6 +1443,7 @@ class BackendService(IBackendService):
                 "gemini": "GEMINI_API_KEY",
                 "anthropic": "ANTHROPIC_API_KEY",
                 "zai": "ZAI_API_KEY",
+                "minimax": "MINIMAX_API_KEY",
             }.get(backend_type)
             if not env_base:
                 return backend_type

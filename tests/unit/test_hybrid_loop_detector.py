@@ -20,10 +20,9 @@ class TestHybridLoopDetector:
         short_pattern = "Loading... "  # 11 chars
 
         detection_event = None
-        for i in range(20):  # More than gemini-cli threshold
+        for _i in range(20):  # More than gemini-cli threshold
             detection_event = detector.process_chunk(short_pattern)
             if detection_event:
-                print(f"Short pattern detected at iteration {i+1}")
                 break
 
         assert (
@@ -42,13 +41,10 @@ class TestHybridLoopDetector:
         # Long pattern that gemini-cli cannot detect (>50 chars, no internal repetition)
         long_pattern = """This is a longer pattern that contains unique content and should be detected by the rolling hash algorithm when repeated multiple times. """
 
-        print(f"\nLong pattern length: {len(long_pattern)} chars")
-
         detection_event = None
-        for i in range(5):  # Fewer repetitions needed for long patterns
+        for _i in range(5):  # Fewer repetitions needed for long patterns
             detection_event = detector.process_chunk(long_pattern)
             if detection_event:
-                print(f"Long pattern detected at iteration {i+1}")
                 break
 
         assert (
@@ -74,21 +70,15 @@ Key Components:
 Fixtures:
 """
 
-        print(f"\nOriginal bug pattern length: {len(original_pattern)} chars")
-
         detection_event = None
-        for i in range(5):  # Should detect within 5 repetitions
+        for _i in range(5):  # Should detect within 5 repetitions
             detection_event = detector.process_chunk(original_pattern)
             if detection_event:
-                print(f"Original pattern detected at iteration {i+1}")
                 break
 
         assert (
             detection_event is not None
         ), "Original bug pattern MUST be detected by hybrid detector!"
-        print(
-            f"Detection details: {detection_event.repetition_count} repetitions, {detection_event.total_length} total chars"
-        )
 
     def test_streaming_behavior(self):
         """Test that the detector works with realistic streaming (small chunks)."""
@@ -315,28 +305,5 @@ class TestRollingHashTracker:
 
 
 if __name__ == "__main__":
-    # Quick manual test
-    detector = HybridLoopDetector()
-
-    print("Testing original bug pattern...")
-    original_pattern = """Analyzing the Test File Structure
-
-The test file follows the standard pytest structure with:
-- Fixtures for setup
-- Test classes for organization
-- Individual test methods
-
-Key Components:
-
-Fixtures:
-"""
-
-    for i in range(5):
-        event = detector.process_chunk(original_pattern)
-        if event:
-            print(
-                f"[OK] Detected at iteration {i+1}: {event.repetition_count} repetitions"
-            )
-            break
-    else:
-        print("[X] Not detected")
+    # Quick manual test - run with pytest instead
+    pytest.main([__file__, "-v"])

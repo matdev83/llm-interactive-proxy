@@ -46,10 +46,11 @@ class _PassthroughStreamNormalizer(IStreamNormalizer):
             from src.core.domain.streaming_content import StreamingContent
 
             async for item in iterator:
-                if isinstance(item, bytes):
-                    yield StreamingContent(content=item.decode(), is_done=True)
-                else:
-                    yield StreamingContent(content=str(item), is_done=True)
+                try:
+                    yield StreamingContent.from_raw(item)
+                except Exception:
+                    content = item.decode() if isinstance(item, bytes) else str(item)
+                    yield StreamingContent(content=content)
 
     def reset(self) -> None:
         return None
@@ -227,10 +228,15 @@ def normalize_streaming_response(
                         exc_info=True,
                     )
             processed_stream = normalizer.process_stream(
-                iterator, output_format="bytes"
+                iterator, output_format="objects"
             )
             async for chunk in processed_stream:
-                if isinstance(chunk, bytes):
+                if hasattr(chunk, "to_bytes"):
+                    try:
+                        yield chunk.to_bytes()
+                    except Exception:
+                        yield str(chunk).encode("utf-8")
+                elif isinstance(chunk, bytes):
                     yield chunk
                 else:
                     yield str(chunk).encode("utf-8")

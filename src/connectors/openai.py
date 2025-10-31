@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -10,6 +11,7 @@ from collections.abc import (
     AsyncGenerator,
     Mapping,
 )
+from json import JSONDecodeError
 from typing import Any
 
 import httpx
@@ -153,10 +155,19 @@ class OpenAIConnector(LLMBackend):
                 response = await self.client.get(
                     f"{self.api_base_url}/models", headers=headers
                 )
-                # For mock responses in tests, status_code might not be accessible
-                # or might not be 200, so we just try to access the data directly
-                data = response.json()
-                self.available_models = [model["id"] for model in data.get("data", [])]
+                data = self._decode_json_payload(response)
+                if isinstance(data, dict):
+                    self.available_models = [
+                        model["id"]
+                        for model in data.get("data", [])
+                        if isinstance(model, Mapping) and "id" in model
+                    ]
+                else:
+                    logger.debug(
+                        "Unexpected models payload type from OpenAI: %s",
+                        type(data).__name__,
+                    )
+                    self.available_models = []
             except Exception as e:
                 logger.warning("Failed to fetch models: %s", e, exc_info=True)
                 # Log the error but don't fail initialization
@@ -233,6 +244,92 @@ class OpenAIConnector(LLMBackend):
         """Disable health check functionality for this connector instance."""
         self._health_check_enabled = False
         logger.info(f"Health check disabled for {self.backend_type} backend")
+
+    _XSSI_PREFIXES = (
+        ")]}',\n",
+        ")]}',",
+        ")]}'",
+        "while(1);",
+        "while (1);",
+    )
+
+    def _decode_json_payload(self, response: httpx.Response) -> Any:
+        """Safely decode JSON payloads that may include XSSI guards or trailing data."""
+        try:
+            return response.json()
+        except JSONDecodeError:
+            text = response.text or ""
+            sanitized = self._strip_xssi_prefix(text)
+            if sanitized != text:
+                try:
+                    return json.loads(sanitized)
+                except JSONDecodeError:
+                    pass
+            candidate = self._extract_first_json_value(sanitized)
+            if candidate:
+                try:
+                    return json.loads(candidate)
+                except JSONDecodeError:
+                    logger.debug(
+                        "Failed to decode sanitized JSON payload; candidate snippet=%s",
+                        candidate[:200],
+                    )
+            logger.warning(
+                "Unable to decode JSON payload from OpenAI response (status=%s, preview=%r)",
+                getattr(response, "status_code", "unknown"),
+                (sanitized or text)[:200],
+            )
+            return None
+
+    def _strip_xssi_prefix(self, payload: str) -> str:
+        stripped = payload.lstrip()
+        for prefix in self._XSSI_PREFIXES:
+            if stripped.startswith(prefix):
+                return stripped[len(prefix) :]
+        return stripped
+
+    def _extract_first_json_value(self, payload: str) -> str | None:
+        candidate = payload.strip()
+        if not candidate:
+            return None
+
+        opening = candidate[0]
+        if opening not in ("{", "["):
+            # Attempt to locate the first JSON object within the payload
+            for idx, ch in enumerate(candidate):
+                if ch in ("{", "["):
+                    candidate = candidate[idx:]
+                    opening = candidate[0]
+                    break
+            else:
+                return None
+
+        stack = []
+        in_string = False
+        escape = False
+        for idx, ch in enumerate(candidate):
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+
+            if ch == '"':
+                in_string = True
+                continue
+
+            if ch in ("{", "["):
+                stack.append("]" if ch == "[" else "}")
+            elif ch in ("}", "]"):
+                if not stack or stack.pop() != ch:
+                    return None
+                if not stack:
+                    return candidate[: idx + 1]
+
+        return None
 
     async def chat_completions(
         self,

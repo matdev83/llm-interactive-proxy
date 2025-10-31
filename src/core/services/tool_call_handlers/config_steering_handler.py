@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -35,6 +35,33 @@ class _CompiledRule:
     priority: int
     trigger_tool_names: list[str]
     trigger_phrases: list[str]
+    _compiled_phrases: list[tuple[str, set[str], set[str]]] = field(
+        init=False, default_factory=list
+    )
+
+    def __post_init__(self):
+        """Pre-compile phrase triggers for faster matching."""
+        for phrase in self.trigger_phrases:
+            if not phrase:
+                continue
+            phrase_lower = phrase.lower()
+            segments = {phrase_lower}
+            tokens = phrase_lower.split()
+            if tokens:
+                non_flag_tokens = [
+                    token for token in tokens if not token.startswith("-")
+                ]
+                if non_flag_tokens:
+                    segments.add(" ".join(non_flag_tokens))
+                    if len(non_flag_tokens) >= 2:
+                        segments.add(" ".join(non_flag_tokens[:2]))
+
+            sanitized_segments = {
+                _NON_ALNUM_PATTERN.sub("", segment) for segment in segments if segment
+            }
+            sanitized_segments.add(_NON_ALNUM_PATTERN.sub("", phrase_lower))
+
+            self._compiled_phrases.append((phrase_lower, segments, sanitized_segments))
 
 
 class ConfigSteeringHandler(IToolCallHandler):
@@ -87,6 +114,21 @@ class ConfigSteeringHandler(IToolCallHandler):
         )
         self._last_hits: dict[tuple[str, str], list[datetime]] = {}
 
+        # Build tool name index for faster lookups
+        self._tool_name_index: dict[str, list[_CompiledRule]] = {}
+        self._phrase_only_rules: list[_CompiledRule] = []
+        for rule in self._rules:
+            if not rule.enabled:
+                continue
+
+            if rule.trigger_tool_names:
+                for tool_name in rule.trigger_tool_names:
+                    if tool_name not in self._tool_name_index:
+                        self._tool_name_index[tool_name] = []
+                    self._tool_name_index[tool_name].append(rule)
+            elif rule.trigger_phrases:
+                self._phrase_only_rules.append(rule)
+
     @property
     def name(self) -> str:
         return "config_steering_handler"
@@ -131,7 +173,25 @@ class ConfigSteeringHandler(IToolCallHandler):
 
     def _match_rule(self, context: ToolCallContext) -> _CompiledRule | None:
         tool_name = context.tool_name or ""
-        # Serialize args safely for phrase matching
+
+        # Get potential candidates from index and phrase-only rules
+        # This is much faster than iterating all rules every time.
+        candidate_rules = self._tool_name_index.get(tool_name, [])
+
+        # Combine and sort by priority to respect rule precedence
+        # The lists are already sorted by priority, so a merge would be ideal,
+        # but for simplicity, we can just combine and re-sort.
+        # Given the small number of candidates, this is fast enough.
+        all_candidates = sorted(
+            candidate_rules + self._phrase_only_rules,
+            key=lambda r: r.priority,
+            reverse=True,
+        )
+
+        if not all_candidates:
+            return None
+
+        # Serialize args safely for phrase matching (only once)
         try:
             args_str = json.dumps(context.tool_arguments, ensure_ascii=False)
         except Exception:
@@ -140,57 +200,21 @@ class ConfigSteeringHandler(IToolCallHandler):
         haystack_lower = haystack.lower()
         compact_haystack = _NON_ALNUM_PATTERN.sub("", haystack_lower)
 
-        for rule in self._rules:
-            if not rule.enabled:
-                continue
-            has_tool_triggers = bool(rule.trigger_tool_names)
-            has_phrase_triggers = bool(rule.trigger_phrases)
-
-            tool_match = False
-            if has_tool_triggers:
-                tool_match = tool_name in rule.trigger_tool_names
+        for rule in all_candidates:
+            # Rule enabled status is already checked when building index
+            tool_match = tool_name in rule.trigger_tool_names
 
             phrase_match = False
-            if has_phrase_triggers:
-                for phrase in rule.trigger_phrases:
-                    if not phrase:
-                        continue
-                    phrase_lower = phrase.lower()
-                    segments = {phrase_lower}
-
-                    tokens = phrase_lower.split()
-                    if tokens:
-                        non_flag_tokens = [
-                            token for token in tokens if not token.startswith("-")
-                        ]
-                        if non_flag_tokens:
-                            segments.add(" ".join(non_flag_tokens))
-                            if len(non_flag_tokens) >= 2:
-                                segments.add(" ".join(non_flag_tokens[:2]))
-
-                    if any(
-                        segment and segment in haystack_lower for segment in segments
-                    ):
+            if rule.trigger_phrases:
+                for _, segments, sanitized_segments in rule._compiled_phrases:
+                    if any(s and s in haystack_lower for s in segments):
+                        phrase_match = True
+                        break
+                    if any(s and s in compact_haystack for s in sanitized_segments):
                         phrase_match = True
                         break
 
-                    sanitized_segments = {
-                        _NON_ALNUM_PATTERN.sub("", segment)
-                        for segment in segments
-                        if segment
-                    }
-                    sanitized_segments.add(_NON_ALNUM_PATTERN.sub("", phrase_lower))
-
-                    if any(
-                        candidate and candidate in compact_haystack
-                        for candidate in sanitized_segments
-                    ):
-                        phrase_match = True
-                        break
-
-            if (has_tool_triggers or has_phrase_triggers) and (
-                tool_match or phrase_match
-            ):
+            if tool_match or phrase_match:
                 return rule
         return None
 

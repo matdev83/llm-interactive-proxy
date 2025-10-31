@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -91,3 +93,69 @@ async def test_streaming_processor_only_increments_once_per_stream(
 
     pending_twice = app_state.get_setting("edit_precision_pending", {})
     assert pending_twice.get(session_id, 0) == 2
+
+
+@pytest.mark.asyncio
+async def test_metadata_patch_file_error_sets_pending(
+    app_state: ApplicationStateService,
+) -> None:
+    mw = EditPrecisionResponseMiddleware(app_state)
+
+    session_id = "sess-patch-metadata"
+    arguments = json.dumps(
+        {
+            "tool_name": "patch_file",
+            "tool_arguments": {"status": "error", "error_type": "diff_error"},
+        }
+    )
+    resp = ProcessedResponse(
+        content="",
+        metadata={
+            "tool_calls": [
+                {
+                    "function": {
+                        "name": "__proxy_use_mcp_tool",
+                        "arguments": arguments,
+                    },
+                    "result": {"success": False, "error": "diff_error"},
+                }
+            ]
+        },
+    )
+
+    await mw.process(resp, session_id, context={"response_type": "non_streaming"})
+
+    pending = app_state.get_setting("edit_precision_pending", {})
+    assert isinstance(pending, dict)
+    assert pending.get(session_id, 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_metadata_turbo_edit_file_error_sets_pending(
+    app_state: ApplicationStateService,
+) -> None:
+    mw = EditPrecisionResponseMiddleware(app_state)
+
+    session_id = "sess-turbo"
+    resp = ProcessedResponse(
+        content="",
+        metadata={
+            "tool_calls": [
+                {
+                    "function": {
+                        "name": "turbo_edit_file",
+                        "arguments": json.dumps(
+                            {"diff": "---", "status": "failed", "error": "hunk failed"}
+                        ),
+                    },
+                    "status": "failed",
+                }
+            ]
+        },
+    )
+
+    await mw.process(resp, session_id, context={"response_type": "non_streaming"})
+
+    pending = app_state.get_setting("edit_precision_pending", {})
+    assert isinstance(pending, dict)
+    assert pending.get(session_id, 0) >= 1

@@ -102,6 +102,28 @@ class BackendFactory:
         # Production code should never detect test environment or auto-configure credentials
         default_backend_env = os.environ.get("LLM_BACKEND")
         current_api_key = init_config.get("api_key")
+
+        if not current_api_key:
+            env_key_mapping: dict[str, dict[str, str]] = {
+                "minimax": {
+                    "api_key_env": "MINIMAX_API_KEY",
+                    "api_base_url_env": "MINIMAX_API_BASE_URL",
+                    "default_api_base_url": "https://api.minimax.io/v1",
+                }
+            }
+            env_spec = env_key_mapping.get(backend_type)
+            if env_spec:
+                collected_keys = self._collect_env_keys(env_spec["api_key_env"])
+                if collected_keys:
+                    current_api_key = collected_keys[0]
+                    init_config["api_key"] = current_api_key
+                    api_base_url = init_config.get("api_base_url")
+                    if not api_base_url:
+                        init_config["api_base_url"] = os.environ.get(
+                            env_spec["api_base_url_env"],
+                            env_spec["default_api_base_url"],
+                        )
+
         logger.debug(
             f"Backend factory for {backend_type}: current_api_key={current_api_key}, default_backend_env={default_backend_env}"
         )
@@ -140,6 +162,25 @@ class BackendFactory:
         await self.initialize_backend(backend, init_config)
 
         return backend
+
+    @staticmethod
+    def _collect_env_keys(base_name: str) -> list[str]:
+        """Collect API keys from environment variables supporting numbered suffixes."""
+
+        keys: list[str] = []
+        single_key = os.environ.get(base_name)
+        numbered_keys: list[str] = []
+        for index in range(1, 21):
+            numbered_value = os.environ.get(f"{base_name}_{index}")
+            if numbered_value:
+                numbered_keys.append(numbered_value)
+
+        if numbered_keys:
+            keys.extend(numbered_keys)
+        elif single_key:
+            keys.append(single_key)
+
+        return keys
 
     @staticmethod
     def create(service_provider: IServiceProvider) -> BackendFactory:

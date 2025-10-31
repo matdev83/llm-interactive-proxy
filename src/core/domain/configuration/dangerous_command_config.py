@@ -12,6 +12,7 @@ class DangerousCommandRule(NamedTuple):
 class DangerousCommandConfig(NamedTuple):
     tool_names: list[str]
     rules: list[DangerousCommandRule]
+    max_command_length: int = 50000
 
 
 # PERFORMANCE OPTIMIZATION: Single compiled regex instead of 30+ separate patterns

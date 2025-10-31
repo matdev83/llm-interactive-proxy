@@ -442,12 +442,10 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
         # Import here to avoid circular dependency
         from src.core.di.services import get_service_provider
-        from src.core.interfaces.tool_call_repair_service_interface import (
-            IToolCallRepairService,
-        )
+        from src.core.services.tool_call_repair_service import ToolCallRepairService
 
         service_provider = get_service_provider()
-        repair_service = service_provider.get_required_service(IToolCallRepairService)
+        repair_service = service_provider.get_required_service(ToolCallRepairService)
         tool_pattern = re.compile(
             r"<(?P<tag>[A-Za-z0-9_\-]+)\b[^>]*>.*?</(?P=tag)>",
             re.DOTALL,

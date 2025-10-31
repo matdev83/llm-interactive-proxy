@@ -256,6 +256,7 @@ class TestRequestResponseCaptureBehavior:
             await service.shutdown()
 
             # Then
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
 
@@ -308,6 +309,7 @@ class TestRequestResponseCaptureBehavior:
             await service.shutdown()
 
             # Then
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
 
@@ -350,6 +352,7 @@ class TestRequestResponseCaptureBehavior:
             await service.shutdown()
 
             # Then
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
 
@@ -398,6 +401,7 @@ class TestRequestResponseCaptureBehavior:
             await service.shutdown()
 
             # Then
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
 
@@ -462,6 +466,7 @@ class TestBufferManagementBehavior:
             await asyncio.sleep(0.1)
 
             # Then - Buffer should have been flushed (file should contain entries)
+            assert service._file_path is not None
             assert os.path.exists(service._file_path)
             with open(service._file_path) as f:
                 lines = f.readlines()
@@ -498,8 +503,10 @@ class TestBufferManagementBehavior:
 
             # Wait longer than flush interval
             await asyncio.sleep(0.3)
+            await service.shutdown()
 
             # Then - Entry should have been flushed
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
 
@@ -543,6 +550,7 @@ class TestBufferManagementBehavior:
             await service.shutdown()
 
             # Then - All entries should be captured
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
 
@@ -581,6 +589,7 @@ class TestBufferManagementBehavior:
             await service.shutdown()
 
             # Then - All entries should be captured (multiple flushes should have occurred)
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
 
@@ -773,6 +782,7 @@ class TestAPICKeyRedactionBehavior:
                 await service.shutdown()
 
                 # Then
+                assert service._file_path is not None
                 with open(service._file_path) as f:
                     lines = f.readlines()
 
@@ -829,6 +839,7 @@ class TestAPICKeyRedactionBehavior:
                 await service.shutdown()
 
                 # Then
+                assert service._file_path is not None
                 with open(service._file_path) as f:
                     lines = f.readlines()
 
@@ -895,6 +906,7 @@ class TestStreamCaptureBehavior:
             await service.shutdown()
 
             # Then
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
 
@@ -1129,6 +1141,7 @@ class TestPerformanceOptimizationBehavior:
             assert capture_time < 1.0  # Should complete quickly
 
             # All data should be captured
+            assert service._file_path is not None
             with open(service._file_path) as f:
                 lines = f.readlines()
             assert len(lines) >= 101  # Header + 100 entries

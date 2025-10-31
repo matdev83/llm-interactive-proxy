@@ -672,7 +672,28 @@ def register_core_services(
         app_state: IApplicationState = provider.get_required_service(
             IApplicationState  # type: ignore[type-abstract]
         )
-        return MiddlewareApplicationProcessor(manager._middleware, app_state=app_state)
+
+        import os
+
+        from src.core.domain.configuration.loop_detection_config import (
+            LoopDetectionConfiguration,
+        )
+        from src.tool_call_loop.config import ToolCallLoopConfig
+
+        env_config = ToolCallLoopConfig.from_env_vars(dict(os.environ))
+        loop_config = (
+            LoopDetectionConfiguration()
+            .with_tool_loop_detection_enabled(env_config.enabled)
+            .with_tool_loop_max_repeats(env_config.max_repeats)
+            .with_tool_loop_ttl_seconds(env_config.ttl_seconds)
+            .with_tool_loop_mode(env_config.mode)
+        )
+
+        return MiddlewareApplicationProcessor(
+            manager._middleware,
+            default_loop_config=loop_config,
+            app_state=app_state,
+        )
 
     _add_singleton(
         MiddlewareApplicationProcessor,

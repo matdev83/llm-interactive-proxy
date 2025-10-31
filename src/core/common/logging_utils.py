@@ -536,6 +536,7 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
         "GEMINI_API_KEY",
         "ANTHROPIC_API_KEY",
         "ZAI_API_KEY",
+        "MINIMAX_API_KEY",
         "LLM_INTERACTIVE_PROXY_API_KEY",
         "OPENAI_API_KEY",
         "AUTH_TOKEN",
@@ -568,6 +569,7 @@ def discover_api_keys_from_config_and_env(
     - GEMINI_API_KEY for Gemini
     - ANTHROPIC_API_KEY for Anthropic
     - ZAI_API_KEY for ZAI
+    - MINIMAX_API_KEY for Minimax
     - LLM_INTERACTIVE_PROXY_API_KEY for proxy authentication
 
     SECURITY WARNING: If API keys are found in the config object, warnings are logged.

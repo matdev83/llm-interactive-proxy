@@ -6,12 +6,16 @@ from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
+from src.core.services.translation_service import TranslationService
 
 
 def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
     client = AsyncMock()
     config = AppConfig()
-    connector = OpenAICodexConnector(client=client, config=config)
+    mock_translation_service = AsyncMock(spec=TranslationService)
+    connector = OpenAICodexConnector(
+        client=client, config=config, translation_service=mock_translation_service
+    )
     connector.is_functional = True
     connector.api_key = "token"
     connector._auth_credentials = {"tokens": {"access_token": "token"}}

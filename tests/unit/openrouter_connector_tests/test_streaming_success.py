@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
 
@@ -10,6 +12,7 @@ from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.services.translation_service import TranslationService
 
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
@@ -37,7 +40,14 @@ async def openrouter_backend_fixture():
         from src.core.config.app_config import AppConfig
 
         config = AppConfig()
-        backend = OpenRouterBackend(client=client, config=config)
+        mock_translation_service = AsyncMock(spec=TranslationService)
+        mock_translation_service.from_domain_request.return_value = {
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+        backend = OpenRouterBackend(
+            client=client, config=config, translation_service=mock_translation_service
+        )
         # Call initialize with required arguments
         await backend.initialize(
             api_key="test_key",  # A dummy API key for initialization

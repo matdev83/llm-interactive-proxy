@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -16,9 +17,25 @@ from src.core.domain.responses import ResponseEnvelope
 
 
 @pytest.fixture()
-def codex_test_client() -> tuple[TestClient, AuthConfig]:
-    """Build a minimal application configured for the openai-codex backend."""
-    with patch("src.core.config.app_config.load_config") as mock_load_config:
+def mocked_codex_test_client() -> (
+    Iterator[tuple[TestClient, AuthConfig, AsyncMock, AsyncMock]]
+):
+    """Build a test client with a fully mocked OpenAI Codex connector."""
+    with (
+        patch("src.core.config.app_config.load_config") as mock_load_config,
+        patch(
+            "src.connectors.openai_codex.OpenAICodexConnector.initialize",
+            new_callable=AsyncMock,
+        ) as mock_init,
+        patch(
+            "src.connectors.openai_codex.OpenAICodexConnector.chat_completions",
+            new_callable=AsyncMock,
+        ) as mock_chat,
+        patch(
+            "src.connectors.openai_codex.OpenAICodexConnector.is_backend_functional",
+            return_value=True,
+        ),
+    ):
         auth = AuthConfig(disable_auth=False, api_keys=["test-proxy-key"])
         config = AppConfig(
             auth=auth,
@@ -31,7 +48,7 @@ def codex_test_client() -> tuple[TestClient, AuthConfig]:
         mock_load_config.return_value = config
         app = build_httpx_mock_test_app(config)
         with TestClient(app) as client:
-            yield client, auth
+            yield client, auth, mock_init, mock_chat
 
 
 def _build_codex_response(content_text: str) -> ResponseEnvelope:
@@ -58,98 +75,65 @@ def _build_codex_response(content_text: str) -> ResponseEnvelope:
 
 
 def test_anthropic_frontend_routes_to_openai_codex(
-    codex_test_client: tuple[TestClient, AuthConfig]
+    mocked_codex_test_client: tuple[TestClient, AuthConfig, AsyncMock, AsyncMock]
 ) -> None:
-    client, auth = codex_test_client
+    client, auth, mock_init, mock_chat = mocked_codex_test_client
 
-    with (
-        patch(
-            "src.connectors.openai_codex.OpenAICodexConnector.initialize",
-            new_callable=AsyncMock,
-        ) as mock_init,
-        patch(
-            "src.connectors.openai_codex.OpenAICodexConnector.chat_completions",
-            new_callable=AsyncMock,
-        ) as mock_chat,
-        patch(
-            "src.connectors.openai_codex.OpenAICodexConnector.is_backend_functional",
-            return_value=True,
-        ),
-    ):
-        mock_init.return_value = None
-        mock_chat.return_value = _build_codex_response("Hello from Codex")
+    mock_init.return_value = None
+    mock_chat.return_value = _build_codex_response("Hello from Codex")
 
-        response = client.post(
-            "/anthropic/v1/messages",
-            headers={"Authorization": f"Bearer {auth.api_keys[0]}"},
-            json={
-                "model": "openai-codex:gpt-5-codex",
-                "max_tokens": 64,
-                "messages": [
-                    {"role": "user", "content": [{"type": "text", "text": "Hi"}]}
-                ],
-            },
-        )
+    response = client.post(
+        "/anthropic/v1/messages",
+        headers={"Authorization": f"Bearer {auth.api_keys[0]}"},
+        json={
+            "model": "openai-codex:gpt-5-codex",
+            "max_tokens": 64,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
+        },
+    )
 
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["type"] == "message"
-        assert payload["content"][0]["text"] == "Hello from Codex"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "message"
+    assert payload["content"][0]["text"] == "Hello from Codex"
 
-        mock_init.assert_awaited()
-        mock_chat.assert_awaited_once()
-        args, kwargs = mock_chat.await_args
-        # args[0] is the connector instance; remaining arguments should preserve codex routing details.
-        assert kwargs["effective_model"] == "gpt-5-codex"
-        assert kwargs["request_data"].model == "openai-codex:gpt-5-codex"
-        assert kwargs["processed_messages"][0].role == "user"
+    mock_init.assert_awaited()
+    mock_chat.assert_awaited_once()
+    args, kwargs = mock_chat.call_args
+    # args[0] is the connector instance; remaining arguments should preserve codex routing details.
+    assert kwargs["effective_model"] == "gpt-5-codex"
+    assert kwargs["request_data"].model == "openai-codex:gpt-5-codex"
+    assert kwargs["processed_messages"][0].role == "user"
 
 
 def test_gemini_frontend_routes_to_openai_codex(
-    codex_test_client: tuple[TestClient, AuthConfig]
+    mocked_codex_test_client: tuple[TestClient, AuthConfig, AsyncMock, AsyncMock]
 ) -> None:
-    client, auth = codex_test_client
+    client, auth, mock_init, mock_chat = mocked_codex_test_client
 
-    with (
-        patch(
-            "src.connectors.openai_codex.OpenAICodexConnector.initialize",
-            new_callable=AsyncMock,
-        ) as mock_init,
-        patch(
-            "src.connectors.openai_codex.OpenAICodexConnector.chat_completions",
-            new_callable=AsyncMock,
-        ) as mock_chat,
-        patch(
-            "src.connectors.openai_codex.OpenAICodexConnector.is_backend_functional",
-            return_value=True,
-        ),
-    ):
-        mock_init.return_value = None
-        mock_chat.return_value = _build_codex_response("Gemini via Codex")
+    mock_init.return_value = None
+    mock_chat.return_value = _build_codex_response("Gemini via Codex")
 
-        response = client.post(
-            "/v1beta/models/openai-codex:gpt-5-codex:generateContent",
-            headers={"Authorization": f"Bearer {auth.api_keys[0]}"},
-            json={
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": "Hello Codex through Gemini"}],
-                    }
-                ],
-            },
-        )
+    response = client.post(
+        "/v1beta/models/openai-codex:gpt-5-codex:generateContent",
+        headers={"Authorization": f"Bearer {auth.api_keys[0]}"},
+        json={
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": "Hello Codex through Gemini"}],
+                }
+            ],
+        },
+    )
 
-        assert response.status_code == 200
-        payload = response.json()
-        assert (
-            payload["candidates"][0]["content"]["parts"][0]["text"]
-            == "Gemini via Codex"
-        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["candidates"][0]["content"]["parts"][0]["text"] == "Gemini via Codex"
 
-        mock_init.assert_awaited()
-        mock_chat.assert_awaited_once()
-        _, kwargs = mock_chat.await_args
-        assert kwargs["effective_model"] == "gpt-5-codex"
-        assert kwargs["request_data"].model == "openai-codex:gpt-5-codex"
-        assert kwargs["processed_messages"][0].role == "user"
+    mock_init.assert_awaited()
+    mock_chat.assert_awaited_once()
+    _, kwargs = mock_chat.call_args
+    assert kwargs["effective_model"] == "gpt-5-codex"
+    assert kwargs["request_data"].model == "openai-codex:gpt-5-codex"
+    assert kwargs["processed_messages"][0].role == "user"
