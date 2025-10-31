@@ -5,6 +5,8 @@ from typing import Any
 
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import AuthenticationError
+from src.core.domain.model_utils import parse_model_backend
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.services.backend_registry import backend_registry
 
 
@@ -15,6 +17,11 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     """
 
     backend_type: str = "zai-coding-plan"
+    _DEFAULT_MODEL: str = "glm-4.6"
+    _LEGACY_MODEL: str = "claude-sonnet-4-20250514"
+    _SUPPORTED_MODELS: tuple[str, ...] = (_DEFAULT_MODEL, _LEGACY_MODEL)
+    _KILO_VERSION: str = "4.111.0"
+    _KILO_USER_AGENT: str = f"Kilo-Code/{_KILO_VERSION}"
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the ZAI coding plan backend."""
@@ -37,50 +44,45 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
         # ZAI supports up to 128K output tokens
         self._max_tokens_limit = 131072  # 128K
+        # ZAI coding plan exposes OpenAI-compatible models; seed with supported list
+        self.available_models = list(self._SUPPORTED_MODELS)
+
+    def get_headers(
+        self, identity: IAppIdentityConfig | None = None
+    ) -> dict[str, str]:
+        """Return request headers including Kilo-specific metadata."""
+        headers = super().get_headers(identity=identity)
+        headers.setdefault("User-Agent", self._KILO_USER_AGENT)
+        headers.setdefault("HTTP-Referer", "https://kilocode.ai")
+        headers.setdefault("X-Title", "Kilo Code")
+        headers.setdefault("X-KiloCode-Version", self._KILO_VERSION)
+        return headers
 
     async def list_models(
         self, api_base_url: str | None = None, **kwargs: Any
     ) -> dict[str, Any]:
         """Return available models for ZAI coding plan."""
-        # Return claude model for backward compatibility
+        # Return local model list (API mirrors OpenAI format)
         return {
             "data": [
                 {
-                    "id": "claude-sonnet-4-20250514",
-                    "name": "claude-sonnet-4-20250514",
+                    "id": model,
+                    "name": model,
                     "object": "model",
-                    "created": 1,
+                    "created": index,
                     "owned_by": "zai",
                 }
+                for index, model in enumerate(self._SUPPORTED_MODELS, start=1)
             ]
         }
 
     async def get_available_models_async(self) -> list[str]:
         """Return list of available model IDs."""
-        # Return claude model for backward compatibility
-        return ["claude-sonnet-4-20250514"]
+        return list(self._SUPPORTED_MODELS)
 
     def get_available_models(self) -> list[str]:
         """Return list of available model IDs."""
-        # Return claude model for backward compatibility
-        return ["claude-sonnet-4-20250514"]
-
-    def _prepare_headers(self, **kwargs: Any) -> dict[str, str]:
-        """Prepare headers for ZAI API requests."""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "Kilo-Code/4.84.0",
-            "HTTP-Referer": "https://kilocode.ai",
-            "X-Title": "Kilo Code",
-            "X-KiloCode-Version": "4.84.0",
-        }
-
-        # Allow override from kwargs
-        if "headers" in kwargs:
-            headers.update(kwargs["headers"])
-
-        return headers
+        return list(self._SUPPORTED_MODELS)
 
     async def _prepare_payload(
         self,
@@ -95,19 +97,25 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             processed_messages: Processed messages (for compatibility)
             effective_model: The effective model name (for compatibility)
         """
-        # Use OpenAI-style payload preparation
-        # Always use claude-sonnet-4-20250514 as the actual model for ZAI
-        payload = {
-            "model": "claude-sonnet-4-20250514",
-            "messages": (
-                processed_messages
-                if processed_messages is not None
-                else (
-                    request_data.messages if hasattr(request_data, "messages") else []
-                )
-            ),
-            "stream": request_data.stream if hasattr(request_data, "stream") else False,
-        }
+        # Use OpenAI-style payload preparation while preserving the requested model
+        payload = await super()._prepare_payload(
+            request_data, processed_messages, effective_model
+        )
+
+        # Ensure stream flag is preserved for compatibility with Anthropic routing
+        if hasattr(request_data, "stream"):
+            payload["stream"] = bool(request_data.stream)
+
+        requested_model = (
+            effective_model
+            or getattr(request_data, "model", None)
+            or self._DEFAULT_MODEL
+        )
+        _, model_name = parse_model_backend(
+            str(requested_model), default_backend=self.backend_type
+        )
+        normalized_model = model_name or self._DEFAULT_MODEL
+        payload["model"] = normalized_model
 
         # Handle max_tokens with ZAI's limits
         if hasattr(request_data, "max_tokens") and request_data.max_tokens:

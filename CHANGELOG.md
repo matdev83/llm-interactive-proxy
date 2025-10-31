@@ -486,6 +486,14 @@ This document outlines significant changes and updates to the LLM Interactive Pr
   - **Structured Error Responses**: Returns detailed 400 Bad Request responses with measured vs. limit token counts and error codes.
   - **Configuration Integration**: CLI override takes precedence over config file settings while maintaining compatibility with existing configurations.
   - **Environment Variable Support**: Sets `FORCE_CONTEXT_WINDOW` environment variable for downstream processes.
+
+## 2025-10-31 - ZAI Coding Plan GLM 4.6 Support
+
+- **Model Updates**: ZAI coding plan now preserves the client-provided model and defaults to `glm-4.6`, keeping `claude-sonnet-4-20250514` available as a legacy option.
+  - **Anthropic Routing**: Chat controller now forwards the resolved model name to the Anthropic compatibility path instead of forcing `claude-sonnet-4-20250514`.
+  - **API Headers**: ZAI connector overrides `get_headers` to include the current KiloCode metadata required by the upstream service.
+  - **Capabilities**: Model capability registry exposes entries for `glm-4.6`, `zai-coding-plan`, and the legacy Claude variant with updated metadata.
+  - **Testing & Docs**: Unit/integration tests and documentation refreshed to reflect GLM 4.6, with new coverage ensuring headers and payload models are preserved.
   - **Schema Validation**: Updated YAML schema to support the new `context_window_override` field.
   - **Comprehensive Testing**: Full test coverage for CLI argument parsing, enforcement logic, and edge cases.
   - **Documentation**: Enhanced README with detailed examples, use cases, and troubleshooting guidance.

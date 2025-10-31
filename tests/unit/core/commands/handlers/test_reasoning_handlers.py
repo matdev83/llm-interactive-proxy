@@ -6,6 +6,7 @@ reasoning effort, thinking budget, and Gemini configuration.
 """
 
 import json
+import os
 from unittest.mock import Mock
 
 import pytest
@@ -18,6 +19,19 @@ from src.core.commands.handlers.reasoning_handlers import (
 from src.core.interfaces.domain_entities_interface import ISessionState
 
 pytestmark = [pytest.mark.xdist_group("reasoning_handlers_serial")]
+
+
+@pytest.fixture(autouse=True)
+def _clear_thinking_budget_env() -> None:
+    """Ensure THINKING_BUDGET does not leak between tests."""
+    original = os.environ.pop("THINKING_BUDGET", None)
+    try:
+        yield
+    finally:
+        if original is not None:
+            os.environ["THINKING_BUDGET"] = original
+        else:
+            os.environ.pop("THINKING_BUDGET", None)
 
 
 class TestReasoningEffortHandler:

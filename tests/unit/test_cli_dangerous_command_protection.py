@@ -3,7 +3,21 @@
 import os
 
 import pytest
+from src.command_prefix import validate_command_prefix
 from src.core.cli import apply_cli_args, parse_cli_args
+
+
+@pytest.fixture(autouse=True)
+def _reset_command_prefix_env() -> None:
+    """Prevent leaked COMMAND_PREFIX values from affecting tests."""
+    original = os.environ.pop("COMMAND_PREFIX", None)
+    try:
+        yield
+    finally:
+        if original is not None and validate_command_prefix(original) is None:
+            os.environ["COMMAND_PREFIX"] = original
+        else:
+            os.environ.pop("COMMAND_PREFIX", None)
 
 
 class TestDangerousCommandProtectionCLI:

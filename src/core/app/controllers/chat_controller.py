@@ -199,8 +199,16 @@ class ChatController:
                             AnthropicMessage(role=m.role, content=content_str)
                         )
 
+                    _, parsed_model = parse_model_backend(
+                        str(domain_request.model or ""),
+                        default_backend="zai-coding-plan",
+                    )
+                    normalized_model = (
+                        parsed_model if parsed_model else "glm-4.6"
+                    )
+
                     anth_req = AnthropicMessagesRequest(
-                        model="claude-sonnet-4-20250514",
+                        model=normalized_model,
                         messages=anth_messages,
                         max_tokens=domain_request.max_tokens or 1024,
                         stream=False,

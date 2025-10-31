@@ -27,8 +27,8 @@ Clients can override the default by explicitly setting `max_tokens` in their req
 
 #### ZaiCodingPlanBackend
 - File: `src/connectors/zai_coding_plan.py`
-- Method: `_prepare_anthropic_payload()`
-- Inherits from: `AnthropicBackend`
+- Method: `_prepare_payload()`
+- Inherits from: `OpenAIConnector`
 
 #### ZAIConnector
 - File: `src/connectors/zai.py`
@@ -40,7 +40,7 @@ Clients can override the default by explicitly setting `max_tokens` in their req
 ### Example 1: No max_tokens specified
 ```python
 request = {
-    "model": "zai-coding-plan:claude-sonnet-4-20250514",
+    "model": "zai-coding-plan:glm-4.6",
     "messages": [{"role": "user", "content": "Hello"}],
     # max_tokens not specified
 }
@@ -50,7 +50,7 @@ request = {
 ### Example 2: Explicit valid value
 ```python
 request = {
-    "model": "zai-coding-plan:claude-sonnet-4-20250514",
+    "model": "zai-coding-plan:glm-4.6",
     "messages": [{"role": "user", "content": "Hello"}],
     "max_tokens": 4096
 }
@@ -60,7 +60,7 @@ request = {
 ### Example 3: Value below minimum
 ```python
 request = {
-    "model": "zai-coding-plan:claude-sonnet-4-20250514",
+    "model": "zai-coding-plan:glm-4.6",
     "messages": [{"role": "user", "content": "Hello"}],
     "max_tokens": 512
 }
@@ -70,7 +70,7 @@ request = {
 ### Example 4: Value above maximum
 ```python
 request = {
-    "model": "zai-coding-plan:claude-sonnet-4-20250514",
+    "model": "zai-coding-plan:glm-4.6",
     "messages": [{"role": "user", "content": "Hello"}],
     "max_tokens": 200000
 }

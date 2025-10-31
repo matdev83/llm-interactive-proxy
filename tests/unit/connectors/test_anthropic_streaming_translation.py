@@ -188,4 +188,4 @@ async def test_zai_coding_plan_uses_openai_format():
 
     # Verify available models
     models = await backend.get_available_models_async()
-    assert "claude-sonnet-4-20250514" in models
+    assert "glm-4.6" in models

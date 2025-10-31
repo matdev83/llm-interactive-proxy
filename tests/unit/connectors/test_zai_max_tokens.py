@@ -22,6 +22,13 @@ def mock_translation_service():
 @pytest.fixture
 async def zai_coding_plan_backend(mock_client, mock_translation_service):
     """Create a ZaiCodingPlanBackend instance."""
+    mock_translation_service.from_domain_request.side_effect = (
+        lambda request, *_args, **_kwargs: {
+            "model": getattr(request, "model", None),
+            "messages": getattr(request, "messages", []),
+            "stream": getattr(request, "stream", False),
+        }
+    )
     backend = ZaiCodingPlanBackend(
         client=mock_client,
         config=MagicMock(),
@@ -37,7 +44,7 @@ class TestZaiCodingPlanMaxTokens:
     async def test_default_max_tokens_is_128k(self, zai_coding_plan_backend):
         """When no max_tokens is specified, should default to 128K."""
         request = ChatRequest(
-            model="claude-sonnet-4-20250514",
+            model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=None,  # No explicit value
         )
@@ -49,7 +56,7 @@ class TestZaiCodingPlanMaxTokens:
     async def test_zero_max_tokens_uses_default(self, zai_coding_plan_backend):
         """When max_tokens is 0, should use default 128K."""
         request = ChatRequest(
-            model="claude-sonnet-4-20250514",
+            model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=0,
         )
@@ -61,7 +68,7 @@ class TestZaiCodingPlanMaxTokens:
     async def test_negative_max_tokens_uses_default(self, zai_coding_plan_backend):
         """When max_tokens is negative, should use default 128K."""
         request = ChatRequest(
-            model="claude-sonnet-4-20250514",
+            model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=-100,
         )
@@ -75,7 +82,7 @@ class TestZaiCodingPlanMaxTokens:
     ):
         """When max_tokens is explicitly set to a valid value, it should be preserved."""
         request = ChatRequest(
-            model="claude-sonnet-4-20250514",
+            model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=4096,
         )
@@ -87,7 +94,7 @@ class TestZaiCodingPlanMaxTokens:
     async def test_max_tokens_below_minimum_is_clamped(self, zai_coding_plan_backend):
         """When max_tokens is below 1K, should be clamped to 1K."""
         request = ChatRequest(
-            model="claude-sonnet-4-20250514",
+            model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=512,
         )
@@ -99,7 +106,7 @@ class TestZaiCodingPlanMaxTokens:
     async def test_max_tokens_above_maximum_is_clamped(self, zai_coding_plan_backend):
         """When max_tokens exceeds 128K, should be clamped to 128K."""
         request = ChatRequest(
-            model="claude-sonnet-4-20250514",
+            model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=200000,
         )
@@ -112,7 +119,7 @@ class TestZaiCodingPlanMaxTokens:
         """Test max_tokens at exact boundary values."""
         # Test at minimum boundary
         request = ChatRequest(
-            model="claude-sonnet-4-20250514",
+            model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=1024,
         )
@@ -121,7 +128,7 @@ class TestZaiCodingPlanMaxTokens:
 
         # Test at maximum boundary
         request = ChatRequest(
-            model="claude-sonnet-4-20250514",
+            model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=131072,
         )

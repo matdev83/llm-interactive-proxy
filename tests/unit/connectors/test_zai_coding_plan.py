@@ -51,17 +51,19 @@ async def test_backend_initialization(backend: ZaiCodingPlanBackend):
 
 async def test_get_available_models(backend: ZaiCodingPlanBackend):
     models = await backend.get_available_models_async()
-    assert models == ["claude-sonnet-4-20250514"]
+    assert models == ["glm-4.6", "claude-sonnet-4-20250514"]
 
 
 async def test_list_models(backend: ZaiCodingPlanBackend):
     models = await backend.list_models()
     assert "data" in models
-    assert len(models["data"]) == 1
-    assert models["data"][0]["id"] == "claude-sonnet-4-20250514"
+    assert len(models["data"]) == 2
+    returned_ids = [m["id"] for m in models["data"]]
+    assert "glm-4.6" in returned_ids
+    assert "claude-sonnet-4-20250514" in returned_ids
 
 
-async def test_chat_completions_model_rewrite(
+async def test_chat_completions_preserves_model(
     backend: ZaiCodingPlanBackend,
     mock_translation_service: MagicMock,
 ):
@@ -76,27 +78,35 @@ async def test_chat_completions_model_rewrite(
 
     backend.client.post = AsyncMock(return_value=mock_response)
 
-    mock_translation_service.to_domain_request.return_value = ChatRequest(
-        model="some-other-model",
-        messages=[{"role": "user", "content": "hello"}],
-        stream=False,
-    )
+    mock_translation_service.from_domain_request.return_value = {
+        "model": "glm-4.6",
+        "messages": [{"role": "user", "content": "hello"}],
+        "stream": False,
+    }
 
     processed_messages = [ChatMessage(role="user", content="hello")]
     result = await backend.chat_completions(
         ChatRequest(
-            model="some-other-model",
+            model="zai-coding-plan:glm-4.6",
             messages=processed_messages,
         ),
         processed_messages,
-        "some-other-model",
+        "glm-4.6",
     )
 
     # Verify the client was called with the correct payload
     backend.client.post.assert_called_once()
     call_args = backend.client.post.call_args
     payload = call_args[1]["json"]
-    assert payload["model"] == "claude-sonnet-4-20250514"
+    assert payload["model"] == "glm-4.6"
 
     # Verify the response is returned (model rewriting is handled by parent OpenAI connector)
     assert result is not None
+
+
+async def test_get_headers_includes_kilo_metadata(backend: ZaiCodingPlanBackend):
+    headers = backend.get_headers()
+    assert headers["User-Agent"].startswith("Kilo-Code/")
+    assert headers["HTTP-Referer"] == "https://kilocode.ai"
+    assert headers["X-Title"] == "Kilo Code"
+    assert "Authorization" in headers

@@ -28,6 +28,7 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 
@@ -862,13 +863,15 @@ class QwenOAuthConnector(OpenAIConnector):
         session_id: str,
         stream_format: str,
     ) -> Any:
-        """Override parent to add chunk deduplication for Qwen API bug.
+        """Override parent to add chunk deduplication and usage tracking for Qwen API.
 
         The Qwen API sometimes sends duplicate SSE chunks with identical content,
         causing text repetition in the client (e.g., "NowNowNow" instead of "Now").
-        This method wraps the parent's streaming response to deduplicate chunks.
+        This method wraps the parent's streaming response to deduplicate chunks and
+        calculate token usage since Qwen OAuth API doesn't provide usage in streaming.
         """
         import hashlib
+        import json
         from collections import deque
 
         # Get the parent's streaming handle
@@ -876,14 +879,25 @@ class QwenOAuthConnector(OpenAIConnector):
             url, payload, headers, session_id, stream_format
         )
 
-        # Wrap the iterator with deduplication logic
+        # Wrap the iterator with deduplication logic and usage tracking
         original_iterator = stream_handle.iterator
 
-        async def deduplicated_iterator():
-            """Deduplicate streaming chunks based on content hash."""
+        # Extract model name from payload for token counting
+        model_name = payload.get("model", "qwen-turbo")
+        if ":" in model_name:
+            model_name = model_name.split(":")[-1]
+
+        # Extract messages for prompt token calculation
+        processed_messages = payload.get("messages", [])
+
+        async def deduplicated_iterator_with_usage():
+            """Deduplicate streaming chunks and add usage information."""
             # Track recent chunk hashes to detect duplicates
             # Use a sliding window of last N hashes to avoid memory growth
             recent_hashes: deque[str] = deque(maxlen=10)
+
+            # Accumulate content for usage calculation
+            accumulated_content = []
 
             async for chunk in original_iterator:
                 # Extract content for hashing
@@ -893,8 +907,6 @@ class QwenOAuthConnector(OpenAIConnector):
                 if isinstance(content, dict):
                     # For dict chunks, hash the JSON representation
                     # Sort keys to ensure consistent hashing regardless of key order
-                    import json
-
                     content_str = json.dumps(content, sort_keys=True)
                     chunk_hash = hashlib.md5(
                         content_str.encode(), usedforsecurity=False
@@ -917,15 +929,71 @@ class QwenOAuthConnector(OpenAIConnector):
                     )
                     continue
 
-                # Add to recent hashes and yield the chunk
+                # Add to recent hashes
                 recent_hashes.append(chunk_hash)
+
+                # Accumulate content for usage calculation
+                if isinstance(content, dict):
+                    choices = content.get("choices", [])
+                    if choices and len(choices) > 0:
+                        delta = choices[0].get("delta", {})
+                        delta_content = delta.get("content", "")
+                        if delta_content:
+                            accumulated_content.append(delta_content)
+
+                # Yield the chunk as-is (usage will be added to final chunk)
                 yield chunk
+
+            # After all chunks, calculate and yield a final chunk with usage
+            if accumulated_content:
+                try:
+                    from src.core.utils.token_count import (
+                        count_tokens,
+                        extract_prompt_text,
+                    )
+
+                    # Calculate prompt tokens
+                    prompt_text = extract_prompt_text(processed_messages)
+                    prompt_tokens = count_tokens(prompt_text, model_name)
+
+                    # Calculate completion tokens from accumulated content
+                    completion_text = "".join(accumulated_content)
+                    completion_tokens = count_tokens(completion_text, model_name)
+
+                    # Calculate total
+                    total_tokens = prompt_tokens + completion_tokens
+
+                    usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": total_tokens,
+                    }
+
+                    logger.info(
+                        f"Calculated streaming token usage for {model_name}: {usage}"
+                    )
+
+                    # Yield a final chunk with usage information
+                    # This follows the OpenAI streaming format where usage is in a separate chunk
+                    usage_chunk = {
+                        "id": "usage-calculation",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model_name,
+                        "choices": [],
+                        "usage": usage,
+                    }
+
+                    yield ProcessedResponse(content=usage_chunk, usage=usage)
+
+                except Exception as e:
+                    logger.warning(f"Failed to calculate streaming token usage: {e}")
 
         # Return a new handle with the deduplicated iterator
         from src.core.domain.responses import StreamingResponseHandle
 
         return StreamingResponseHandle(
-            iterator=deduplicated_iterator(),
+            iterator=deduplicated_iterator_with_usage(),
             cancel_callback=stream_handle.cancel_callback,
             headers=(
                 stream_handle.headers if hasattr(stream_handle, "headers") else None
@@ -945,6 +1013,12 @@ class QwenOAuthConnector(OpenAIConnector):
         """Handle chat completions using Qwen OAuth API.
 
         This overrides the parent class method to ensure credentials are valid before API call.
+        
+        Special handling for reasoning_effort:
+        - When reasoning_effort is set to "medium" or "high", this method appends " /think"
+          to the last client message (user or system role, not tool responses).
+        - This triggers Qwen's extended reasoning mode for more thoughtful responses.
+        - The " /think" suffix is only appended to regular messages, not tool call responses.
         """
         # Ensure token is refreshed before making the API call
         if not await self._refresh_token_if_needed():
@@ -965,6 +1039,64 @@ class QwenOAuthConnector(OpenAIConnector):
                 status_code=502,
                 detail=error_detail,
             )
+
+        # Handle reasoning_effort by appending " /think" to the last user message
+        reasoning_effort = None
+        if hasattr(request_data, "reasoning_effort"):
+            reasoning_effort = request_data.reasoning_effort
+        elif isinstance(request_data, dict):
+            reasoning_effort = request_data.get("reasoning_effort")
+
+        if reasoning_effort in ("medium", "high") and processed_messages:
+            # Find the last message from the client (user or system role, not tool responses)
+            last_client_message_idx = None
+            for idx in range(len(processed_messages) - 1, -1, -1):
+                msg = processed_messages[idx]
+                role = None
+                if hasattr(msg, "role"):
+                    role = msg.role
+                elif isinstance(msg, dict):
+                    role = msg.get("role")
+                
+                # Skip tool response messages
+                if role in ("user", "system"):
+                    last_client_message_idx = idx
+                    break
+            
+            if last_client_message_idx is not None:
+                # Append " /think" to the content of the last client message
+                msg = processed_messages[last_client_message_idx]
+                
+                # Handle different message formats
+                if hasattr(msg, "content"):
+                    content = msg.content
+                    if isinstance(content, str):
+                        # Create a modified copy of the message
+                        if hasattr(msg, "model_copy"):
+                            processed_messages[last_client_message_idx] = msg.model_copy(
+                                update={"content": content + " /think"}
+                            )
+                        elif hasattr(msg, "copy"):
+                            modified_msg = msg.copy()
+                            modified_msg.content = content + " /think"
+                            processed_messages[last_client_message_idx] = modified_msg
+                        else:
+                            # Fallback: modify in place
+                            msg.content = content + " /think"
+                        logger.info(
+                            f"Appended ' /think' to last client message due to reasoning_effort={reasoning_effort}"
+                        )
+                elif isinstance(msg, dict):
+                    content = msg.get("content")
+                    if isinstance(content, str):
+                        # Create a modified copy of the dict
+                        modified_msg = dict(msg)
+                        modified_msg["content"] = content + " /think"
+                        processed_messages[last_client_message_idx] = modified_msg
+                        logger.info(
+                            f"Appended ' /think' to last client message due to reasoning_effort={reasoning_effort}"
+                        )
+
 
         try:
             # Use the effective model and properly extract just the model name part

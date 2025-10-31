@@ -1,6 +1,7 @@
 import pytest
 
 pytest.importorskip("respx")
+import httpx
 from respx import MockRouter
 from starlette.testclient import TestClient
 
@@ -61,6 +62,31 @@ def test_zai_coding_plan_backend_integration(
 
     from src.core.domain.responses import ResponseEnvelope
 
+    # Mock the health check call to the models endpoint
+    respx_mock.get("https://api.z.ai/api/coding/paas/v4/models").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "glm-4.6",
+                        "name": "glm-4.6",
+                        "object": "model",
+                        "created": 1,
+                        "owned_by": "zai",
+                    },
+                    {
+                        "id": "claude-sonnet-4-20250514",
+                        "name": "claude-sonnet-4-20250514",
+                        "object": "model",
+                        "created": 2,
+                        "owned_by": "zai",
+                    }
+                ]
+            },
+        )
+    )
+
     # Mock the backend's chat_completions method instead of HTTP
     with patch(
         "src.connectors.zai_coding_plan.ZaiCodingPlanBackend.chat_completions"
@@ -71,7 +97,7 @@ def test_zai_coding_plan_backend_integration(
                     "id": "chatcmpl-123",
                     "object": "chat.completion",
                     "created": 1677652288,
-                    "model": "claude-sonnet-4-20250514",
+                    "model": "glm-4.6",
                     "choices": [
                         {
                             "index": 0,
@@ -97,7 +123,7 @@ def test_zai_coding_plan_backend_integration(
         response = client.post(
             "/v1/chat/completions",
             json={
-                "model": "zai-coding-plan:claude-sonnet-4-20250514",
+                "model": "zai-coding-plan:glm-4.6",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
         )
@@ -110,4 +136,4 @@ def test_zai_coding_plan_backend_integration(
         content = data["choices"][0]["message"]["content"]
         assert "Hello from ZAI!" in content
         # The model in the response may not have the backend prefix
-        assert "claude-sonnet-4-20250514" in data["model"]
+        assert "glm-4.6" in data["model"]

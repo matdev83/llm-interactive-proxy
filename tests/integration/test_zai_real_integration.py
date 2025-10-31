@@ -89,7 +89,7 @@ async def test_zai_real_non_stream_endpoints() -> None:
         r1 = await client.post(
             "/v1/chat/completions",
             json={
-                "model": "zai-coding-plan:claude-sonnet-4-20250514",
+                "model": "zai-coding-plan:glm-4.6",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 256,
             },
@@ -112,7 +112,7 @@ async def test_zai_real_non_stream_endpoints() -> None:
         r2 = await client.post(
             "/anthropic/v1/messages",
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": "glm-4.6",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 256,
             },
@@ -186,7 +186,7 @@ async def test_zai_real_stream_endpoints() -> None:
             "POST",
             "/v1/chat/completions",
             json={
-                "model": "zai-coding-plan:claude-sonnet-4-20250514",
+                "model": "zai-coding-plan:glm-4.6",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 128,
                 "stream": True,
@@ -206,7 +206,7 @@ async def test_zai_real_stream_endpoints() -> None:
             "POST",
             "/anthropic/v1/messages",
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": "glm-4.6",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 128,
                 "stream": True,
