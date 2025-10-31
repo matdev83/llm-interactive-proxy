@@ -75,32 +75,46 @@ async def parse_sse_stream(response: httpx.Response) -> AsyncGenerator[dict, Non
                         continue
 
 
-def detect_reasoning_end(chunk: dict) -> bool:
+def detect_reasoning_end(chunk: dict, accumulated_content: str) -> tuple[bool, str]:
     """
-    Detect if reasoning phase has ended.
+    Detect if reasoning phase has ended using priority-based strategy.
     
-    Different models signal reasoning end differently:
-    - MiniMax: Check for finish_reason or content completion markers
-    - Generic: Look for finish_reason="stop" or similar
+    Priority order:
+    1. Explicit closing tags: </think>, </thinking>, </reason>, </reasoning>
+    2. finish_reason in response metadata
+    3. Content transition markers (with caution)
+    
+    Returns:
+        Tuple of (is_complete, detection_method)
     """
-    # Check for finish_reason in choices
+    # Priority 1: Check for explicit closing tags
+    explicit_tags = ["</think>", "</thinking>", "</reason>", "</reasoning>"]
+    content_lower = accumulated_content.lower()
+    
+    for tag in explicit_tags:
+        if tag in content_lower:
+            print_info("  ✓ Detected explicit tag", tag, Colors.YELLOW)
+            return True, f"explicit_tag:{tag}"
+    
+    # Priority 2: Check for finish_reason in choices
     choices = chunk.get("choices", [])
     for choice in choices:
         finish_reason = choice.get("finish_reason")
         if finish_reason and finish_reason != "null":
-            print_info("  Detected finish_reason", finish_reason, Colors.YELLOW)
-            return True
-        
-        # Check delta for completion indicators
-        delta = choice.get("delta", {})
-        content = delta.get("content", "")
-        
-        # Look for reasoning completion markers
-        if any(marker in content.lower() for marker in ["</think>", "</reasoning>", "therefore", "in conclusion"]):
-            print_info("  Detected reasoning marker", "in content", Colors.YELLOW)
-            return True
+            print_info("  ✓ Detected finish_reason", finish_reason, Colors.YELLOW)
+            return True, f"finish_reason:{finish_reason}"
     
-    return False
+    # Priority 3: Check for content transition markers (with caution)
+    transition_markers = ["therefore,", "in conclusion,", "to summarize,", "in summary,"]
+    
+    for marker in transition_markers:
+        if marker in content_lower:
+            # Only trigger if we have substantial content (avoid premature cancellation)
+            if len(accumulated_content) > 1000:
+                print_info("  ⚠️  Detected transition marker", marker, Colors.YELLOW)
+                return True, f"transition_marker:{marker}"
+    
+    return False, ""
 
 
 def extract_reasoning_content(chunks: list[dict]) -> str:
@@ -142,7 +156,9 @@ async def call_reasoning_model(prompt: str) -> str:
     print_info("\nRequest Payload", json.dumps(request_payload, indent=2), Colors.BLUE)
     
     captured_chunks = []
+    accumulated_content = ""
     reasoning_complete = False
+    detection_method = ""
     
     print(f"\n{Colors.GREEN}Streaming reasoning output:{Colors.END}\n")
     
@@ -172,12 +188,16 @@ async def call_reasoning_model(prompt: str) -> str:
                     delta = choice.get("delta", {})
                     content = delta.get("content", "")
                     if content:
+                        accumulated_content += content
                         print(f"{Colors.GREEN}{content}{Colors.END}", end="", flush=True)
                 
-                # Check if reasoning is complete
-                if detect_reasoning_end(chunk):
+                # Check if reasoning is complete (with accumulated content)
+                is_complete, method = detect_reasoning_end(chunk, accumulated_content)
+                if is_complete:
                     reasoning_complete = True
+                    detection_method = method
                     print(f"\n\n{Colors.YELLOW}🛑 Reasoning phase detected as complete!{Colors.END}")
+                    print_info("Detection method", detection_method, Colors.YELLOW)
                     print_info("Chunks captured", str(chunk_count), Colors.YELLOW)
                     
                     # Cancel the stream
@@ -192,6 +212,8 @@ async def call_reasoning_model(prompt: str) -> str:
     
     print_info("Reasoning captured", f"{len(reasoning_output)} characters", Colors.CYAN)
     print_info("Reasoning complete", str(reasoning_complete), Colors.CYAN)
+    if detection_method:
+        print_info("Detection method", detection_method, Colors.CYAN)
     
     if not reasoning_output:
         print(f"{Colors.RED}⚠️  Warning: No reasoning content captured!{Colors.END}")

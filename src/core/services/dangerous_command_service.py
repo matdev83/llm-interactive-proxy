@@ -9,6 +9,9 @@ from src.core.domain.configuration.dangerous_command_config import (
     DangerousCommandRule,
 )
 
+_SUBSHELL_GIT_PATTERN = re.compile(r"\$\((?:which|command\s+-v)\s+git\)", re.IGNORECASE)
+_ENV_PREFIX_PATTERN = re.compile(r"\b[A-Z_][A-Z0-9_]*=.*?(?=\s+git\b)", re.IGNORECASE)
+
 
 class DangerousCommandService:
     def __init__(self, config: DangerousCommandConfig):
@@ -84,6 +87,12 @@ class DangerousCommandService:
                 return None
         return None
 
+    def _normalize_for_detection(self, command: str) -> str:
+        collapsed = re.sub(r"\s+", " ", command).strip()
+        without_subshell = _SUBSHELL_GIT_PATTERN.sub("git", collapsed)
+        without_env = _ENV_PREFIX_PATTERN.sub("", without_subshell)
+        return re.sub(r"\s+", " ", without_env).strip()
+
     def _generate_command_candidates(self, command: str) -> list[str]:
         """Produce normalized variants to improve pattern detection."""
         # For large commands, skip expensive normalization. A fast pre-check should
@@ -96,20 +105,10 @@ class DangerousCommandService:
         candidates.add(command)
         candidates.add(collapsed)
 
-        substitution_normalized = re.sub(
-            r"\$\((?:which|command\s+-v)\s+git\)",
-            "git",
-            collapsed,
-            flags=re.IGNORECASE,
-        )
+        substitution_normalized = _SUBSHELL_GIT_PATTERN.sub("git", collapsed)
         candidates.add(substitution_normalized.strip())
 
-        env_stripped = re.sub(
-            r"\b[A-Z_][A-Z0-9_]*=.*?(?=\s+git\b)",
-            "",
-            substitution_normalized,
-            flags=re.IGNORECASE,
-        )
+        env_stripped = _ENV_PREFIX_PATTERN.sub("", substitution_normalized)
         env_stripped = re.sub(r"\s+", " ", env_stripped).strip()
         candidates.add(env_stripped)
 
@@ -150,11 +149,15 @@ class DangerousCommandService:
             command_to_check = command_to_check[: self.config.max_command_length]
 
         # Fast pre-check on the (potentially truncated) command
-        if not _COMBINED_DANGEROUS_PATTERN.search(command_to_check):
+        normalized_for_detection = self._normalize_for_detection(command_to_check)
+
+        if not _COMBINED_DANGEROUS_PATTERN.search(normalized_for_detection):
             return None
 
         # If there's a potential match, generate candidates to find the specific rule
-        candidates = self._generate_command_candidates(command_to_check)
+        candidates = self._generate_command_candidates(normalized_for_detection)
+        if command_to_check not in candidates:
+            candidates.append(command_to_check)
 
         for rule in self.config.rules:
             for candidate in candidates:

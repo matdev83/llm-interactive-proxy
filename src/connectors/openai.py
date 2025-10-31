@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 import logging
 
@@ -425,6 +426,8 @@ class OpenAIConnector(LLMBackend):
         # request_data is expected to be a CanonicalChatRequest already
         # (the caller creates it via TranslationService.to_domain_request).
         payload = self.translation_service.from_domain_request(request_data, "openai")
+        if inspect.isawaitable(payload):
+            payload = await payload
 
         # Prefer processed_messages (these are the canonical, post-processed
         # messages ready to send). Convert them to plain dicts to ensure JSON

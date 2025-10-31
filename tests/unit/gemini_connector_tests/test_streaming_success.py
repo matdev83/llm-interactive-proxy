@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from typing import Any
+from collections.abc import AsyncGenerator, Callable
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 import pytest_asyncio
 
-try:  # pragma: no cover - optional test dependency
+if TYPE_CHECKING:
     from pytest_httpx import HTTPXMock
-except ModuleNotFoundError:  # pragma: no cover - optional test dependency
+else:
+    # Provide a type alias for runtime when pytest_httpx is not available
     HTTPXMock = None  # type: ignore[assignment]
+
 from src.connectors.gemini import GeminiBackend
 from src.core.common.exceptions import ServiceUnavailableError
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -147,7 +149,7 @@ async def test_chat_completions_streaming_cancel_request(
     assert isinstance(envelope, StreamingResponseEnvelope)
     assert envelope.cancel_callback is not None
 
-    first_chunk = await envelope.content.__anext__()
+    first_chunk = await envelope.content.__anext__()  # type: ignore[union-attr]
     assert isinstance(first_chunk, ProcessedResponse)
 
     await envelope.cancel_callback()
@@ -166,8 +168,8 @@ class _StubStreamResponse:
         self.headers: dict[str, str] = {"content-type": "text/event-stream"}
         self.closed = False
 
-    def aiter_text(self) -> Any:
-        async def _gen() -> Any:
+    def aiter_text(self) -> AsyncGenerator[str, None]:
+        async def _gen() -> AsyncGenerator[str, None]:
             yield (
                 'data: {"candidates": [{"content": {"parts": [{"text": '
                 '"Hello chunk"}]}}]}\n\n'
@@ -246,7 +248,9 @@ async def test_chat_completions_streaming_uses_httpx_stream_send() -> None:
 
     client = _StubAsyncClient()
     backend = GeminiBackend(
-        client=client, config=AppConfig(), translation_service=TranslationService()
+        client=client,  # type: ignore[arg-type]
+        config=AppConfig(),
+        translation_service=TranslationService(),
     )
 
     request = ChatRequest(
@@ -283,8 +287,8 @@ class _ErrorStreamResponse(_StubStreamResponse):
         super().__init__()
         self._request = httpx.Request("POST", request_url)
 
-    def aiter_text(self) -> Any:
-        async def _gen() -> Any:
+    def aiter_text(self) -> AsyncGenerator[str, None]:
+        async def _gen() -> AsyncGenerator[str, None]:
             yield (
                 'data: {"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}\n\n'
             )
@@ -312,7 +316,9 @@ async def test_chat_completions_streaming_network_error_translated() -> None:
         response_factory=lambda: _ErrorStreamResponse(request_url)
     )
     backend = GeminiBackend(
-        client=client, config=AppConfig(), translation_service=TranslationService()
+        client=client,  # type: ignore[arg-type]
+        config=AppConfig(),
+        translation_service=TranslationService(),
     )
 
     envelope = await backend.chat_completions(

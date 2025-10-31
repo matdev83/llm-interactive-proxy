@@ -89,9 +89,27 @@ Edit `dev/hybrid_backend_poc.py` to change:
 
 ## Reasoning Detection
 
-The script detects reasoning completion by looking for:
-1. `finish_reason` in response chunks (most reliable)
-2. Content markers like `</think>`, `</reasoning>`, "therefore", "in conclusion"
+The script uses a **priority-based detection strategy**:
+
+### Priority 1: Explicit Closing Tags (Most Reliable)
+- `</think>` - MiniMax, DeepSeek native format
+- `</thinking>` - OpenAI, Anthropic format
+- `</reason>` - Alternative format
+- `</reasoning>` - Generic format
+
+### Priority 2: finish_reason (High Reliability)
+- Checks response metadata for `finish_reason="stop"`
+- Reliable for models without explicit tags
+
+### Priority 3: Content Transition Markers (Lower Reliability)
+- "therefore,", "in conclusion,", "to summarize,", "in summary,"
+- Only triggers if content length > 1000 chars (prevents premature cancellation)
+- Use with caution
+
+### Priority 4: Safety Limits (Fallback)
+- Token/character limits to prevent runaway capture
+
+**POC Finding:** Initial test detected "in conclusion" marker (Priority 3), but should have waited for `</think>` tag (Priority 1). The improved detection logic now prioritizes explicit tags.
 
 You can adjust the detection logic in the `detect_reasoning_end()` function.
 

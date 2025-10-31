@@ -198,7 +198,7 @@ class TestQwenOAuthTokenUsage:
         # Mock the parent method
         with (
             patch.object(
-                qwen_connector.__class__.__bases__[0], "chat_completions"
+                qwen_connector.__class__.__bases__[0], "chat_completions", autospec=True
             ) as mock_parent,
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,
             patch.object(qwen_connector, "_refresh_token_if_needed", return_value=True),
@@ -251,7 +251,7 @@ class TestQwenOAuthTokenUsage:
         # Mock the parent method
         with (
             patch.object(
-                qwen_connector.__class__.__bases__[0], "chat_completions"
+                qwen_connector.__class__.__bases__[0], "chat_completions", autospec=True
             ) as mock_parent,
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,
             patch.object(qwen_connector, "_refresh_token_if_needed", return_value=True),
@@ -298,7 +298,7 @@ class TestQwenOAuthTokenUsage:
         # Mock the parent method
         with (
             patch.object(
-                qwen_connector.__class__.__bases__[0], "chat_completions"
+                qwen_connector.__class__.__bases__[0], "chat_completions", autospec=True
             ) as mock_parent,
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,
             patch.object(qwen_connector, "_refresh_token_if_needed", return_value=True),
