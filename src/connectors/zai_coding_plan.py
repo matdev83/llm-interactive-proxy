@@ -423,6 +423,110 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             url, payload, headers, session_id, stream_format
         )
 
+    def _extract_mcp_tool_calls_from_messages(self, messages: list[Any]) -> list[Any]:
+        """Extract MCP tool calls from message content and convert to tool_calls format.
+
+        This method processes messages to find XML-style MCP tool invocations in the
+        content and converts them to proper OpenAI-style tool_calls, removing the XML
+        from the content.
+
+        Args:
+            messages: List of messages to process
+
+        Returns:
+            List of messages with tool calls extracted
+        """
+        import re
+
+        processed_messages = []
+
+        # Import here to avoid circular dependency
+        from src.core.di.services import get_service_provider
+        from src.core.interfaces.tool_call_repair_service_interface import (
+            IToolCallRepairService,
+        )
+
+        service_provider = get_service_provider()
+        repair_service = service_provider.get_required_service(IToolCallRepairService)
+        tool_pattern = re.compile(
+            r"<(?P<tag>[A-Za-z0-9_\-]+)\b[^>]*>.*?</(?P=tag)>",
+            re.DOTALL,
+        )
+
+        for message in messages:
+            # Get message attributes
+            if isinstance(message, dict):
+                role = message.get("role", "")
+                content = message.get("content", "")
+                existing_tool_calls = message.get("tool_calls", [])
+            else:
+                role = getattr(message, "role", "")
+                content = getattr(message, "content", "")
+                existing_tool_calls = getattr(message, "tool_calls", [])
+
+            # Only process assistant messages with string content
+            if role != "assistant" or not isinstance(content, str):
+                processed_messages.append(message)
+                continue
+
+            # Check if there are already tool_calls - if so, skip extraction
+            if existing_tool_calls:
+                processed_messages.append(message)
+                continue
+
+            matches = list(tool_pattern.finditer(content))
+            if not matches:
+                # No MCP tool calls found
+                processed_messages.append(message)
+                continue
+
+            tool_calls = []
+            cleaned_content = content
+
+            for match in matches:
+                xml_block = match.group(0)
+                tool_call = repair_service._extract_xml_tool_call(xml_block)
+                if not tool_call:
+                    continue
+
+                tool_calls.append(tool_call)
+                cleaned_content = cleaned_content.replace(xml_block, "", 1).strip()
+
+            if not tool_calls:
+                processed_messages.append(message)
+                continue
+
+            # Create updated message with tool_calls
+            if isinstance(message, dict):
+                updated_message = message.copy()
+                updated_message["tool_calls"] = tool_calls
+                # Keep any remaining text content
+                if cleaned_content:
+                    updated_message["content"] = cleaned_content
+                else:
+                    # OpenAI requires content for assistant messages with tool_calls
+                    updated_message["content"] = ""
+            else:
+                # Handle Pydantic models
+                update_dict: dict[str, Any] = {"tool_calls": tool_calls}
+                if cleaned_content:
+                    update_dict["content"] = cleaned_content
+                else:
+                    update_dict["content"] = ""
+
+                if hasattr(message, "model_copy"):
+                    updated_message = message.model_copy(update=update_dict)
+                else:
+                    # Fallback for non-Pydantic objects
+                    updated_message = message
+
+            logger.info(
+                f"Extracted {len(tool_calls)} MCP tool call(s) from assistant message"
+            )
+            processed_messages.append(updated_message)
+
+        return processed_messages
+
     async def _prepare_payload(
         self,
         request_data: Any,
@@ -436,6 +540,12 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             processed_messages: Processed messages (for compatibility)
             effective_model: The effective model name (for compatibility)
         """
+        # Extract MCP tool calls from message content before preparing payload
+        if processed_messages:
+            processed_messages = self._extract_mcp_tool_calls_from_messages(
+                processed_messages
+            )
+
         # Use OpenAI-style payload preparation while preserving the requested model
         selected_model = self._select_model(
             effective_model or getattr(request_data, "model", None)

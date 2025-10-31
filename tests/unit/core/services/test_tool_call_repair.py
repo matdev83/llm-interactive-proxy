@@ -74,6 +74,66 @@ class TestToolCallRepairService:
         assert arguments["path"] == "src/example.py"
         assert arguments["patch_content"] == 'print("hello world")'
 
+    def test_repair_tool_calls_xml_direct_tool_nested(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        content = """
+        <patch_file>
+            <args>
+                <file>
+                    <path>src/core/services/streaming/tool_call_repair_processor.py</path>
+                    <diff>
+                        <content><![CDATA[
+<<<<<<< SEARCH
+return old_line
+=======
+return new_line
+>>>>>>> REPLACE
+]]></content>
+                    </diff>
+                </file>
+            </args>
+        </patch_file>
+        """
+        repaired = repair_service.repair_tool_calls(content)
+        assert repaired is not None
+        assert repaired["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired["function"]["arguments"])
+        assert arguments["path"] == (
+            "src/core/services/streaming/tool_call_repair_processor.py"
+        )
+        assert "diff" in arguments
+        assert "<<<<<<< SEARCH" in arguments["diff"]
+
+    def test_repair_tool_calls_xml_direct_tool_unescaped_diff(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        content = """
+        <patch_file>
+            <path>src/module.py</path>
+            <diff>--- a/src/module.py
++++ b/src/module.py
+@@ -1 +1 @@
+-old = 1
++new = 2
+<<<<<<< SEARCH
+print(x < y)
+=======
+print(x > y)
+>>>>>>> REPLACE
+</diff>
+        </patch_file>
+        """
+
+        repaired = repair_service.repair_tool_calls(content)
+
+        assert repaired is not None
+        assert repaired["function"]["name"] == "patch_file"
+        args = json.loads(repaired["function"]["arguments"])
+        assert args["path"] == "src/module.py"
+        assert "new = 2" in args["diff"]
+        assert "print(x < y)" in args["diff"]
+
     def test_repair_tool_calls_xml_use_mcp_wrapper(
         self, repair_service: ToolCallRepairService
     ) -> None:
@@ -216,9 +276,7 @@ class TestStreamingToolCallRepairProcessor:
         ]
 
         assert len(results) >= 1
-        tool_chunks = [
-            chunk for chunk in results if chunk.metadata.get("tool_calls")
-        ]
+        tool_chunks = [chunk for chunk in results if chunk.metadata.get("tool_calls")]
         assert tool_chunks, "Expected at least one chunk with tool_calls metadata"
         chunk = tool_chunks[0]
         assert chunk.content == ""
@@ -263,3 +321,73 @@ class TestToolCallRepairProcessorBuffering:
         )
         # End of stream flushes remaining buffer
         assert final.content == "BBBBBBBBCCCC"  # Remaining 8 B's + 4 C's
+
+
+class TestToolCallRepairProcessorReasoning:
+    @pytest.mark.asyncio
+    async def test_detects_tool_call_in_reasoning(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        processor = ToolCallRepairProcessor(repair_service)
+        stream_id = "reasoning-stream"
+        chunk = StreamingContent(
+            content="",
+            metadata={
+                "stream_id": stream_id,
+                "reasoning_content": """
+                <patch_file>
+                    <path>src/example.py</path>
+                    <patch_content>print("hello")</patch_content>
+                </patch_file>
+                """,
+            },
+        )
+
+        result = await processor.process(chunk)
+
+        tool_calls = result.metadata.get("tool_calls")
+        assert isinstance(tool_calls, list) and len(tool_calls) == 1
+        call = tool_calls[0]
+        assert call["function"]["name"] == "patch_file"
+        args = json.loads(call["function"]["arguments"])
+        assert args["path"] == "src/example.py"
+        assert args["patch_content"] == 'print("hello")'
+        assert result.content == ""
+        assert "reasoning_content" not in result.metadata
+
+    @pytest.mark.asyncio
+    async def test_detects_tool_call_split_across_reasoning_chunks(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        processor = ToolCallRepairProcessor(repair_service)
+        stream_id = "split-reasoning"
+
+        first_chunk = StreamingContent(
+            content="",
+            metadata={
+                "stream_id": stream_id,
+                "reasoning_content": "<patch_file><path>src/app.py</path>",
+            },
+        )
+        second_chunk = StreamingContent(
+            content="",
+            metadata={
+                "stream_id": stream_id,
+                "reasoning_content": "<patch_content>diff</patch_content></patch_file>",
+            },
+        )
+
+        result1 = await processor.process(first_chunk)
+        assert "tool_calls" not in result1.metadata
+        assert result1.content == ""
+
+        result2 = await processor.process(second_chunk)
+        tool_calls = result2.metadata.get("tool_calls")
+        assert isinstance(tool_calls, list) and len(tool_calls) == 1
+        call = tool_calls[0]
+        assert call["function"]["name"] == "patch_file"
+        args = json.loads(call["function"]["arguments"])
+        assert args["path"] == "src/app.py"
+        assert args["patch_content"] == "diff"
+        assert result2.content == ""
+        assert "reasoning_content" not in result2.metadata

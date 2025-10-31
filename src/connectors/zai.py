@@ -143,6 +143,12 @@ class ZAIConnector(OpenAIConnector):
             request_data, processed_messages, effective_model
         )
 
+        # ZAI currently breaks tool calling when reasoning is enabled. The upstream
+        # service does not support the OpenAI reasoning payload, so strip any
+        # client-specified reasoning configuration before sending the request.
+        payload.pop("reasoning", None)
+        payload.pop("reasoning_effort", None)
+
         # ZAI backend supports up to 128K output tokens
         # Override max_tokens only if client explicitly set a valid positive value
         requested_max_tokens = getattr(request_data, "max_tokens", None)

@@ -2,7 +2,6 @@
 
 ## [2025-10-31]
 
-### Added
 
 - **XML Tool Call Format Support**: Added support for XML tool call format in ToolCallRepairService
   - XML pattern detection and parsing for Kilo MCP tools
@@ -10,9 +9,7 @@
   - XML element to dictionary conversion for argument parsing
   - Comprehensive tests for XML tool call repair functionality
 
-## [Unreleased]
-
-### Added
+## [2025-10-30]
 
 - **Think Tags Fix Feature**: Added `--fix-think-tags` CLI flag and `FIX_THINK_TAGS_ENABLED` environment variable to correct improperly formatted `think` tags in model responses
   - Detects and fixes models that expose reasoning content as `<think>reasoning</think>response` instead of using proper reasoning/thinking token separation
@@ -27,6 +24,7 @@
 ## [2025-10-23]
 
 ### Added
+
 - **Intelligent Session Management**: Autonomous session continuity detection via message history fingerprinting
   - **Context Loss Prevention**: Eliminates session loss for stateless clients (e.g., Kilo Code, Cursor) that don't send session IDs
   - **Message History Fingerprinting**: Computes stable hashes from conversation sequences to detect continuity
@@ -47,6 +45,7 @@
 ## [2025-01-21]
 
 ### Added
+
 - **LLM Assessment System**: Intelligent conversation quality monitoring inspired by Google's gemini-cli
   - Automatically detects unproductive patterns like repetitive tool calls and cognitive loops
   - Event-driven assessment triggers after configurable turn thresholds (default: 30 turns)
@@ -226,13 +225,13 @@
 
 - **Enhancement**: Improved OAuth credential auto-refresh functionality across Anthropic, Gemini, and OpenAI backends
   - **Force Reload**: Added `force_reload` parameter to credential loading methods to bypass timestamp cache when file changes are detected
- - **Cross-Platform Path Handling**: Fixed file system watcher path comparison logic using Path objects to handle Windows/Unix differences correctly
-  - **Robust File Watching**: Enhanced error handling in file modification events to prevent crashes during path comparison operations
-  - **Immediate Reload**: File watcher now schedules immediate credential reloads when OAuth credential files change, ensuring fresh tokens are loaded without restart
+- **Cross-Platform Path Handling**: Fixed file system watcher path comparison logic using Path objects to handle Windows/Unix differences correctly
+- **Robust File Watching**: Enhanced error handling in file modification events to prevent crashes during path comparison operations
+- **Immediate Reload**: File watcher now schedules immediate credential reloads when OAuth credential files change, ensuring fresh tokens are loaded without restart
 
 - **Bug Fix**: Fixed ContentAccumulationProcessor to preserve metadata and usage information for empty streaming chunks
   - **Streaming Continuity**: Empty chunks now maintain their metadata/usage data so downstream processors (e.g., usage accounting) continue to receive updated values
- - **Improved Streaming**: Fixed issue where empty chunks were losing important context information during processing
+- **Improved Streaming**: Fixed issue where empty chunks were losing important context information during processing
 
 - **Bug Fix**: Corrected tuple syntax in ToolCallLoopDetectionMiddleware type checking from `str | bytes | bytearray` to `(str, bytes, bytearray)` for proper isinstance() usage
 
@@ -242,6 +241,7 @@
   - **Cross-Platform Tests**: Tests validate proper handling of different file path formats
 
 - **OAuth Backends**: Enhanced credential management for `anthropic-oauth`, `gemini-oauth-personal`, and `openai-codex` backends with improved reliability and automatic refresh
+
 ## 2025-10-01 - Code Quality and Type Hinting Improvements
 
 - **Enhancement**: Added comprehensive type hints across the codebase to improve code quality, maintainability, and developer experience

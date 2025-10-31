@@ -48,7 +48,11 @@ class StreamingContent:
         tool_calls = self.metadata.get("tool_calls")
         if isinstance(tool_calls, list) and tool_calls:
             return False
-        return True
+        reasoning_content = self.metadata.get("reasoning_content")
+        if isinstance(reasoning_content, str) and reasoning_content.strip():
+            return False
+        reasoning = self.metadata.get("reasoning")
+        return not (isinstance(reasoning, str) and reasoning.strip())
 
     def to_bytes(self) -> bytes:
         """Convert this chunk to a bytes representation for streaming."""
@@ -124,11 +128,17 @@ class StreamingContent:
                     if isinstance(choice, dict):
                         if "delta" in choice:
                             delta = choice["delta"]
-                            if isinstance(delta, dict) and "content" in delta:
+                            if isinstance(delta, dict):
+                                reasoning_value = delta.get("reasoning_content")
+                                if reasoning_value:
+                                    metadata["reasoning_content"] = (
+                                        reasoning_value
+                                        if isinstance(reasoning_value, str)
+                                        else str(reasoning_value)
+                                    )
                                 content_value = delta.get("content")
-                                content = (
-                                    content_value if content_value is not None else ""
-                                )
+                                if content_value is not None:
+                                    content = content_value
                         elif "message" in choice:
                             message = choice["message"]
                             if isinstance(message, dict) and "content" in message:

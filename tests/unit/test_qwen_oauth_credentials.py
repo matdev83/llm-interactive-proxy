@@ -211,30 +211,37 @@ class TestQwenOAuthCredentials:
 
     @pytest.mark.asyncio
     async def test_refresh_token_if_needed_http_error(self, connector, mock_client):
-        """Test token refresh when CLI process fails."""
+        """Test token refresh when CLI process fails but API fallback succeeds."""
         connector._oauth_credentials = {
             "refresh_token": "test-refresh-token",
         }
 
-        # Mock CLI process failure (CLI not found)
+        # Mock CLI process failure (CLI not found) but API fallback succeeds
         with (
             patch.object(connector, "_is_token_expired", return_value=True),
             patch("shutil.which", return_value=None),  # CLI tool not available
             patch.object(
                 connector, "_load_oauth_credentials", return_value=False
             ),  # Force CLI refresh
+            patch.object(
+                connector, "_poll_for_new_token", return_value=False
+            ),  # CLI polling fails
+            patch.object(
+                connector, "_refresh_token_via_endpoint", return_value=True
+            ) as mock_api_refresh,  # API fallback succeeds
         ):
             result = await connector._refresh_token_if_needed()
-            assert result is False
+            assert result is True  # Should succeed via API fallback
+            mock_api_refresh.assert_called_once()  # Verify API fallback was called
 
     @pytest.mark.asyncio
     async def test_refresh_token_if_needed_network_error(self, connector, mock_client):
-        """Test token refresh when CLI polling fails."""
+        """Test token refresh when both CLI and API fallback fail."""
         connector._oauth_credentials = {
             "refresh_token": "test-refresh-token",
         }
 
-        # Mock CLI refresh process to fail (polling fails)
+        # Mock both CLI and API refresh to fail
         with (
             patch.object(connector, "_is_token_expired", return_value=True),
             patch("shutil.which", return_value="/mock/qwen"),  # CLI tool available
@@ -245,10 +252,14 @@ class TestQwenOAuthCredentials:
             patch.object(
                 connector, "_poll_for_new_token", return_value=False
             ),  # CLI failed
+            patch.object(
+                connector, "_refresh_token_via_endpoint", return_value=False
+            ) as mock_api_refresh,  # API fallback also fails
         ):
             result = await connector._refresh_token_if_needed()
-            assert result is False
+            assert result is False  # Should fail when both methods fail
             mock_launch.assert_called_once()
+            mock_api_refresh.assert_called_once()  # Verify API fallback was attempted
 
     @pytest.mark.slow
     @pytest.mark.integration

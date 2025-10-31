@@ -189,6 +189,45 @@ async def test_chat_completions_with_tools(
 
 
 @pytest.mark.asyncio
+async def test_chat_completions_strips_reasoning_payload(
+    zai_backend: ZAIConnector, httpx_mock: HTTPXMock
+) -> None:
+    """Ensure reasoning metadata is removed before sending to ZAI."""
+    httpx_mock.add_response(
+        url=f"{TEST_ZAI_API_BASE_URL}/chat/completions",
+        method="POST",
+        json={"choices": [{"message": {"content": "ok"}}]},
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
+
+    request = ChatRequest(
+        model="glm-4.5",
+        messages=[ChatMessage(role="user", content="Run analysis")],
+        reasoning={"effort": "medium", "budget_tokens": 2048},
+        reasoning_effort="medium",
+        max_tokens=512,
+        stream=False,
+    )
+
+    processed_messages = [ChatMessage(role="user", content="Run analysis")]
+    await zai_backend.chat_completions(
+        request_data=request,
+        processed_messages=processed_messages,
+        effective_model="glm-4.5",
+    )
+
+    sent_request = httpx_mock.get_request(
+        method="POST", url=f"{TEST_ZAI_API_BASE_URL}/chat/completions"
+    )
+    assert sent_request is not None
+    sent_payload = json.loads(sent_request.content)
+
+    assert "reasoning" not in sent_payload
+    assert "reasoning_effort" not in sent_payload
+
+
+@pytest.mark.asyncio
 async def test_chat_completions_streaming(
     zai_backend: ZAIConnector, httpx_mock: HTTPXMock
 ) -> None:

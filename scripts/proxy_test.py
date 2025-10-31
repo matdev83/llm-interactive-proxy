@@ -5,17 +5,8 @@ Quick check of the local proxy with OpenAI-compatible client.
 
 from __future__ import annotations
 
-import sys
-
-from openai import OpenAI
-
 
 def main() -> None:
-    sys.stdout.reconfigure(encoding="utf-8")
-    client = OpenAI(
-        api_key="test-placeholder",
-        base_url="http://127.0.0.1:8000/v1",
-    )
     import httpx
 
     request_payload = {

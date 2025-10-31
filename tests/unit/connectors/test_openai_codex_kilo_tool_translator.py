@@ -967,6 +967,50 @@ class TestTranslateUseMcpTool:
         assert "diff" in arguments["tool_arguments"]
 
     @pytest.mark.asyncio
+    async def test_translate_use_mcp_tool_patch_file_with_tool_name_element(
+        self, translator
+    ):
+        """Test parsing when tool name provided via <tool_name> element."""
+        xml = """<use_mcp_tool>
+            <tool_name>patch_file</tool_name>
+            <arguments>
+                <diff>--- a/foo.py
++++ b/foo.py
+@@ -1 +1 @@
+-old
++new
+</diff>
+            </arguments>
+        </use_mcp_tool>"""
+
+        result = await translator.translate_tool_invocation(xml)
+
+        assert result is not None
+        tool_name, arguments = result
+        assert tool_name == "__proxy_use_mcp_tool"
+        assert arguments["tool_name"] == "patch_file"
+        assert "diff" in arguments["tool_arguments"]
+
+    @pytest.mark.asyncio
+    async def test_translate_use_mcp_tool_patch_file_with_tool_name_attribute(
+        self, translator
+    ):
+        """Test parsing when tool name provided via tool_name attribute."""
+        xml = """<use_mcp_tool tool_name="patch_file">
+            <arguments>
+                <patch>diff content</patch>
+            </arguments>
+        </use_mcp_tool>"""
+
+        result = await translator.translate_tool_invocation(xml)
+
+        assert result is not None
+        tool_name, arguments = result
+        assert tool_name == "__proxy_use_mcp_tool"
+        assert arguments["tool_name"] == "patch_file"
+        assert "patch" in arguments["tool_arguments"]
+
+    @pytest.mark.asyncio
     async def test_translate_use_mcp_tool_patch_file_with_patch(self, translator):
         """Test translating use_mcp_tool with patch_file tool and patch parameter."""
         xml = """<use_mcp_tool name="patch_file">

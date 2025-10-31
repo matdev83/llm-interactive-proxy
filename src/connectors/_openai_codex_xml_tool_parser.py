@@ -469,18 +469,22 @@ class XMLToolParser:
         """
         arguments: dict[str, Any] = {}
 
-        # Extract tool name from attribute
+        # Extract tool name from attribute variants (name/tool_name)
         name_match = re.search(
-            r'name\s*=\s*["\']([^"\']+)["\']', raw_xml, re.IGNORECASE
+            r'(?:name|tool_name)\s*=\s*["\']([^"\']+)["\']', raw_xml, re.IGNORECASE
         )
         if name_match:
             arguments["tool_name"] = name_match.group(1)
         else:
-            # Try to extract nested <name> tag
-            name_content = self._extract_nested_tag(content, "name")
-            if name_content and name_content.strip():
-                arguments["tool_name"] = name_content
-            else:
+            # Try to extract nested tag variants (<tool_name>, <name>)
+            name_content = None
+            for candidate_tag in ("tool_name", "name"):
+                name_content = self._extract_nested_tag(content, candidate_tag)
+                if name_content and name_content.strip():
+                    arguments["tool_name"] = name_content.strip()
+                    break
+
+            if not arguments.get("tool_name"):
                 raise XMLParseError(
                     f"Missing required 'name' parameter in <{tag}> tag", raw_xml
                 )

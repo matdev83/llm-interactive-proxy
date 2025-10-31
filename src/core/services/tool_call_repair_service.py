@@ -32,6 +32,7 @@ class ToolCallRepairService:
         self._tool_call_buffers: dict[str, str] = {}
         # Cap per-session buffer to guard against pathological streams
         self._max_buffer_bytes: int = max_buffer_bytes or (64 * 1024)  # default 64 KB
+        self._last_tool_snippet: str | None = None
 
     @property
     def max_buffer_bytes(self) -> int:
@@ -80,6 +81,7 @@ class ToolCallRepairService:
         xml_tool_call = self._extract_xml_tool_call(content)
         if xml_tool_call:
             return xml_tool_call
+        self._last_tool_snippet = None
 
         # Attempt to detect using textual patterns only if keywords present
         if (
@@ -222,6 +224,8 @@ class ToolCallRepairService:
         if not stripped.startswith("<") or "</" not in stripped:
             return None
 
+        self._last_tool_snippet = None
+
         use_mcp_match = re.search(
             r"<use_mcp_tool(?:\s[^>]*)?>.*?</use_mcp_tool>", stripped, re.DOTALL
         )
@@ -236,33 +240,145 @@ class ToolCallRepairService:
         for xml_snippet in candidate_snippets:
 
             try:
-                import xml.etree.ElementTree as ET
+                import xml.etree.ElementTree as ElementTree
 
-                root = ET.fromstring(xml_snippet)
+                root = ElementTree.fromstring(xml_snippet)
             except Exception:
+                fallback = self._parse_lenient_tool_call(xml_snippet)
+                if fallback:
+                    self._last_tool_snippet = xml_snippet
+                    return fallback
                 continue
 
             if root.tag in {"tool_name", "tool_arguments"}:
                 continue
 
             if root.tag == "use_mcp_tool":
+                tool_name_candidate = (
+                    root.attrib.get("tool_name") or root.attrib.get("name") or ""
+                )
                 tool_name_element = root.find("tool_name")
-                if tool_name_element is None or not tool_name_element.text:
+                if not tool_name_candidate and tool_name_element is not None:
+                    tool_name_candidate = tool_name_element.text or ""
+                tool_name_candidate = tool_name_candidate.strip()
+                if not tool_name_candidate:
                     continue
-                arguments_element = root.find("tool_arguments")
-                arguments = (
-                    self._element_children_to_dict(arguments_element)
-                    if arguments_element is not None
-                    else {}
-                )
-                return self._format_openai_tool_call(
-                    tool_name_element.text.strip(), arguments
-                )
 
-            arguments = self._element_children_to_dict(root)
+                arguments_element = None
+                for candidate_tag in ("tool_arguments", "arguments", "args"):
+                    arguments_element = root.find(candidate_tag)
+                    if arguments_element is not None:
+                        break
+
+                if arguments_element is not None:
+                    arguments_raw = self._element_children_to_dict(arguments_element)
+                else:
+                    arguments_raw = {}
+                    for child in list(root):
+                        if child.tag in {"tool_name", "name"}:
+                            continue
+                        arguments_raw[child.tag] = self._element_children_to_dict(child)
+
+                if not isinstance(arguments_raw, dict):
+                    arguments_raw = {"content": arguments_raw} if arguments_raw else {}
+
+                arguments = self._normalize_tool_arguments(
+                    tool_name_candidate,
+                    arguments_raw,
+                    arguments_element or root,
+                )
+                self._last_tool_snippet = xml_snippet
+                return self._format_openai_tool_call(tool_name_candidate, arguments)
+
+            arguments_raw = self._element_children_to_dict(root)
+            if not isinstance(arguments_raw, dict):
+                arguments_raw = {"content": arguments_raw} if arguments_raw else {}
+            # Ensure the detected snippet corresponds to a top-level tool invocation.
+            leading = stripped.lstrip()
+            if not leading.lower().startswith(f"<{root.tag.lower()}"):
+                continue
+            self._last_tool_snippet = xml_snippet
+            arguments = self._normalize_tool_arguments(root.tag, arguments_raw, root)
             return self._format_openai_tool_call(root.tag, arguments)
 
         return None
+
+    @property
+    def last_tool_snippet(self) -> str | None:
+        """Return the last matched XML snippet for a detected tool call."""
+        return self._last_tool_snippet
+
+    def _parse_lenient_tool_call(self, xml_snippet: str) -> dict[str, Any] | None:
+        """Best-effort parser for malformed XML that still resembles tool calls."""
+        snippet = xml_snippet.strip()
+        if not snippet.startswith("<"):
+            return None
+
+        tag_match = re.match(r"<([A-Za-z0-9_\-]+)", snippet)
+        if not tag_match:
+            return None
+
+        root_tag = tag_match.group(1)
+        if root_tag == "use_mcp_tool":
+            return self._parse_lenient_use_mcp_tool(snippet)
+        if root_tag == "patch_file":
+            return self._parse_lenient_patch_file(snippet)
+        return None
+
+    def _parse_lenient_use_mcp_tool(self, snippet: str) -> dict[str, Any] | None:
+        tool_name = None
+        attr_match = re.search(
+            r'(?:name|tool_name)\s*=\s*["\']([^"\']+)["\']', snippet, re.IGNORECASE
+        )
+        if attr_match:
+            tool_name = attr_match.group(1).strip()
+        else:
+            element_match = re.search(
+                r"<tool_name>(.*?)</tool_name>", snippet, re.IGNORECASE | re.DOTALL
+            )
+            if element_match:
+                tool_name = element_match.group(1).strip()
+
+        if not tool_name:
+            return None
+
+        arguments: dict[str, Any] = {}
+        for match in re.finditer(
+            r"<([A-Za-z0-9_\-]+)>(.*?)</\1>", snippet, re.IGNORECASE | re.DOTALL
+        ):
+            tag, value = match.groups()
+            if tag.lower() in {"tool_name", "name"}:
+                continue
+            arguments[tag] = self._sanitize_extracted_text(value)
+
+        return self._format_openai_tool_call(tool_name, arguments)
+
+    def _parse_lenient_patch_file(self, snippet: str) -> dict[str, Any] | None:
+        arguments: dict[str, Any] = {}
+
+        path_match = re.search(
+            r"<path>(.*?)</path>", snippet, re.DOTALL | re.IGNORECASE
+        )
+        if path_match:
+            arguments["path"] = self._sanitize_extracted_text(path_match.group(1))
+
+        for tag in ("diff", "patch", "patch_content", "content"):
+            match = re.search(
+                rf"<{tag}>(.*?)</{tag}>", snippet, re.DOTALL | re.IGNORECASE
+            )
+            if match:
+                arguments[tag] = self._sanitize_extracted_text(match.group(1))
+
+        if not arguments:
+            return None
+
+        return self._format_openai_tool_call("patch_file", arguments)
+
+    def _sanitize_extracted_text(self, value: str) -> str:
+        text = value.strip()
+        if text.startswith("<![CDATA[") and text.endswith("]]>"):
+            text = text[9:-3]
+        return text.strip()
 
     def _element_children_to_dict(self, element: Any) -> dict[str, Any] | str:
         """Convert XML element children into JSON-serializable objects."""
@@ -302,6 +418,64 @@ class ToolCallRepairService:
             return text_content
 
         if list(result.keys()) == ["_text"]:
-            return result["_text"]
+            return result["_text"]  # type: ignore
 
         return result
+
+    def _normalize_tool_arguments(
+        self, tool_name: str, arguments: dict[str, Any], context_element: Any
+    ) -> dict[str, Any]:
+        """Apply tool-specific normalization to extracted XML arguments."""
+        if tool_name != "patch_file":
+            return arguments
+
+        normalized = dict(arguments)
+
+        path = self._find_first_text(context_element, ("path",))
+        if path and not normalized.get("path"):
+            normalized["path"] = path
+
+        diff_text = self._find_first_text(context_element, ("diff",))
+        if diff_text:
+            normalized["diff"] = diff_text
+        else:
+            patch_text = self._find_first_text(context_element, ("patch",))
+            if patch_text:
+                normalized["patch"] = patch_text
+            patch_content = self._find_first_text(
+                context_element, ("patch_content", "content")
+            )
+            if patch_content and "diff" not in normalized and "patch" not in normalized:
+                normalized["diff"] = patch_content
+
+        # Ensure diff is preferred when both diff and patch exist
+        if "diff" not in normalized and "patch" in normalized:
+            normalized["diff"] = normalized["patch"]
+
+        return normalized
+
+    def _find_first_text(self, element: Any, tag_names: tuple[str, ...]) -> str | None:
+        """Find the first non-empty text for any of the provided tag names."""
+        if element is None:
+            return None
+
+        for tag in tag_names:
+            found = element.find(f".//{tag}")
+            if found is not None:
+                text = self._collect_element_text(found)
+                if text:
+                    return text
+        return None
+
+    def _collect_element_text(self, element: Any) -> str:
+        """Collect text content from an XML element, including nested nodes."""
+        parts: list[str] = []
+        if element.text:
+            parts.append(element.text)
+        for child in list(element):
+            child_text = self._collect_element_text(child)
+            if child_text:
+                parts.append(child_text)
+            if child.tail:
+                parts.append(child.tail)
+        return "".join(parts).strip()

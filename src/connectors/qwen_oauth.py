@@ -529,9 +529,17 @@ class QwenOAuthConnector(OpenAIConnector):
                     with contextlib.suppress(Exception):
                         await self._load_oauth_credentials()
                     return True
+
+                # FIX: Fall back to API-based refresh if CLI fails
+                logger.warning(
+                    "CLI token refresh failed or timed out, attempting API-based refresh as fallback"
+                )
+                if await self._refresh_token_via_endpoint():
+                    logger.info("Successfully refreshed token via API endpoint")
+                    return True
+
+                logger.error("Both CLI and API token refresh methods failed")
                 return False
-                # If CLI did not provide a new token, do not fall back to endpoint here.
-                # Returning False aligns with tests and avoids unintended network calls.
 
             # Not expired and not near expiry covered above; default allow
             return True
@@ -544,6 +552,7 @@ class QwenOAuthConnector(OpenAIConnector):
         """
         refresh_token = self._get_refresh_token()
         if not refresh_token:
+            logger.warning("Cannot refresh token via API: no refresh token available")
             return False
 
         url = "https://chat.qwen.ai/api/v1/oauth2/token"
@@ -551,19 +560,29 @@ class QwenOAuthConnector(OpenAIConnector):
 
         try:
             response = await self.client.post(url, json=payload)
-        except httpx.RequestError:
+        except httpx.RequestError as e:
+            logger.error(f"Network error during API token refresh: {e}")
             return False
 
         # Honor HTTP errors
         try:
             response.raise_for_status()
-        except httpx.HTTPStatusError:
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"HTTP error during API token refresh: {e.response.status_code}"
+            )
             return False
 
         # Parse JSON body
         try:
-            data = response.json()
+            data = await response.json()
         except Exception:
+            logger.error(
+                f"Failed to parse API token refresh response as JSON. "
+                f"Content-Type: {response.headers.get('content-type')}, "
+                f"Status: {response.status_code}, "
+                f"Body preview: {response.text[:200]}"
+            )
             return False
 
         new_access_token = data.get("access_token")
@@ -764,13 +783,11 @@ class QwenOAuthConnector(OpenAIConnector):
             logger.info("Step 3: Checking token expiry and refreshing if needed...")
             if not await self._refresh_token_if_needed():
                 # Tolerant startup behavior: degrade instead of outright failure
-                pending_msg = (
-                    "OAuth token refresh pending; background refresh was triggered"
-                )
+                error_msg = "OAuth token refresh pending"
                 logger.error(
                     "Failed to refresh expired OAuth token during initialization"
                 )
-                self._credential_validation_errors = [pending_msg]
+                self._credential_validation_errors = [error_msg]
                 self._initialization_failed = False
                 self.is_functional = False
                 # Do not raise; allow app to start in degraded mode

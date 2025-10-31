@@ -675,10 +675,25 @@ class BackendService(IBackendService):
                 hasattr(backend, "is_backend_functional")
                 and not backend.is_backend_functional()
             ):
+                # Get detailed validation errors if available
+                validation_errors: list[str] = []
+                if hasattr(backend, "get_validation_errors"):
+                    validation_errors = backend.get_validation_errors()
+
+                error_details: dict[str, Any] = {
+                    "reason": "Backend reported as non-functional",
+                }
+
+                if validation_errors:
+                    error_details["validation_errors"] = validation_errors
+                    error_message = f"Backend {backend_type} is not functional: {'; '.join(validation_errors)}"
+                else:
+                    error_message = f"Backend {backend_type} is not functional"
+
                 raise BackendError(
-                    message=f"Backend {backend_type} is not functional",
+                    message=error_message,
                     backend_name=backend_type,
-                    details={"reason": "Backend reported as non-functional"},
+                    details=error_details,
                 )
 
             domain_request: ChatRequest = request

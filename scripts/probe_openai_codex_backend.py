@@ -263,15 +263,13 @@ async def _send_payload(
     ) as response:
         response_summary["status_code"] = response.status_code
         response_summary["reason_phrase"] = response.reason_phrase
-        response_summary["headers"] = {
-            key: value for key, value in response.headers.items()
-        }
+        response_summary["headers"] = dict(response.headers.items())
 
         if response.status_code >= 400:
             body = await response.aread()
-            response_summary["body_preview"] = body.decode(
-                "utf-8", errors="replace"
-            )[:max_bytes]
+            response_summary["body_preview"] = body.decode("utf-8", errors="replace")[
+                :max_bytes
+            ]
             return response_summary
 
         events: list[str] = []
@@ -380,9 +378,7 @@ async def async_main(args: argparse.Namespace) -> int:
         return 0
 
     selected_keys = (
-        list(scenarios_catalogue.keys())
-        if not args.scenarios
-        else args.scenarios
+        list(scenarios_catalogue.keys()) if not args.scenarios else args.scenarios
     )
 
     missing = [key for key in selected_keys if key not in scenarios_catalogue]
@@ -431,7 +427,9 @@ async def async_main(args: argparse.Namespace) -> int:
                         reasoning_effort=scenario.reasoning_effort,
                     )
                 system_prompt = system_prompt_override or (
-                    DEFAULT_KILO_SYSTEM_PROMPT if scenario.system_strategy != "none" else None
+                    DEFAULT_KILO_SYSTEM_PROMPT
+                    if scenario.system_strategy != "none"
+                    else None
                 )
                 result = await run_scenario(
                     connector,
@@ -445,7 +443,9 @@ async def async_main(args: argparse.Namespace) -> int:
                     max_bytes=args.max_bytes,
                 )
                 reports.append(result)
-                LOGGER.info("Scenario %s result: %s", scenario.key, json.dumps(result, indent=2))
+                LOGGER.info(
+                    "Scenario %s result: %s", scenario.key, json.dumps(result, indent=2)
+                )
         finally:
             connector._stop_file_watching()
 

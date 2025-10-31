@@ -230,11 +230,9 @@ def normalize_streaming_response(
                 iterator, output_format="bytes"
             )
             async for chunk in processed_stream:
-                # StreamNormalizer with output_format="bytes" should already yield bytes
                 if isinstance(chunk, bytes):
                     yield chunk
                 else:
-                    # Fallback: convert to bytes conservatively
                     yield str(chunk).encode("utf-8")
         else:
             # Just ensure we have bytes output

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import logging
+from typing import Any
 
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
@@ -36,7 +36,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         else:
             self._max_buffer_bytes = 64 * 1024
 
-        self._buffers: dict[str, str] = {}
+        self._buffers: dict[str, dict[str, str]] = {}
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """
@@ -46,36 +46,101 @@ class ToolCallRepairProcessor(IStreamProcessor):
             return content  # Nothing to process
 
         stream_id = get_stream_id(content)
-        buffer = self._buffers.get(stream_id, "")
+        state = self._buffers.get(stream_id, {"pending_text": ""})
         metadata = dict(content.metadata or {})
         detected_tool_calls: list[dict[str, Any]] = []
 
-        buffer += content.content or ""
+        chunk_text = content.content or ""
+        reasoning_segments: list[str] = []
+        for key in ("reasoning_content", "reasoning"):
+            value = metadata.pop(key, None)
+            if isinstance(value, str) and value:
+                reasoning_segments.append(value)
+
+        if reasoning_segments:
+            state["pending_text"] += "".join(reasoning_segments)
+
+        if chunk_text:
+            state["pending_text"] += chunk_text
 
         repaired_content_parts: list[str] = []
 
-        if buffer:
-            repaired_json = self.tool_call_repair_service.repair_tool_calls(buffer)
+        buffer_text = state["pending_text"]
+
+        for marker in ("<use_mcp_tool", "<patch_file"):
+            marker_index = buffer_text.find(marker)
+            if marker_index > 0:
+                prefix = buffer_text[:marker_index]
+                if prefix.strip():
+                    repaired_content_parts.append(prefix)
+                buffer_text = buffer_text[marker_index:]
+                state["pending_text"] = buffer_text
+                break
+
+        if buffer_text:
+            repaired_json = self.tool_call_repair_service.repair_tool_calls(buffer_text)
             if repaired_json:
                 detected_tool_calls.append(repaired_json)
-                buffer = ""
-            else:
-                flushed = self._trim_buffer(buffer)
-                if flushed:
-                    repaired_content_parts.append(flushed)
-                    buffer = buffer[len(flushed) :]
+                snippet = getattr(
+                    self.tool_call_repair_service, "last_tool_snippet", None
+                )
+                if snippet:
+                    idx = buffer_text.find(snippet)
+                    if idx != -1:
+                        prefix = buffer_text[:idx]
+                        suffix = buffer_text[idx + len(snippet) :]
+                        if prefix.strip():
+                            repaired_content_parts.append(prefix)
+                        buffer_text = suffix
+                state["pending_text"] = buffer_text
 
-        if content.is_done and buffer:
-            repaired_content_parts.append(buffer)
-            buffer = ""
+        if not detected_tool_calls:
+            trimmed = self._trim_buffer(state["pending_text"])
+            if trimmed:
+                repaired_content_parts.append(trimmed)
+                state["pending_text"] = state["pending_text"][len(trimmed) :]
 
-        if buffer:
-            self._buffers[stream_id] = buffer
-        else:
-            self._buffers.pop(stream_id, None)
+        if content.is_done:
+            pending_text = state["pending_text"]
+            if pending_text:
+                synthetic_calls = (
+                    ("<use_mcp_tool", "</use_mcp_tool>"),
+                    ("<patch_file", "</patch_file>"),
+                )
+                handled = False
+                for opener, closer in synthetic_calls:
+                    if opener in pending_text and closer not in pending_text:
+                        synthetic_buffer = pending_text + closer
+                        repaired_json = self.tool_call_repair_service.repair_tool_calls(
+                            synthetic_buffer
+                        )
+                        if repaired_json:
+                            detected_tool_calls.append(repaired_json)
+                            snippet = getattr(
+                                self.tool_call_repair_service, "last_tool_snippet", None
+                            )
+                            if snippet:
+                                idx = synthetic_buffer.find(snippet)
+                                prefix = synthetic_buffer[:idx]
+                                suffix = synthetic_buffer[idx + len(snippet) :]
+                                if prefix.strip():
+                                    repaired_content_parts.append(prefix)
+                                if suffix.strip():
+                                    repaired_content_parts.append(suffix)
+                            handled = True
+                            pending_text = ""
+                            break
+                if not handled and pending_text:
+                    repaired_content_parts.append(pending_text)
+            state["pending_text"] = ""
 
         if content.is_done or content.is_cancellation:
             self._buffers.pop(stream_id, None)
+        else:
+            if state["pending_text"]:
+                self._buffers[stream_id] = state
+            else:
+                self._buffers.pop(stream_id, None)
 
         new_content_str = "".join(repaired_content_parts)
         if detected_tool_calls:

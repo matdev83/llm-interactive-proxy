@@ -64,14 +64,10 @@ async def test_tool_call_repair_isolates_parallel_streams() -> None:
 
         tool_calls: list[dict[str, object]] = []
         async for item in normalizer.process_stream(stream(), output_format="objects"):
-            if not item.content:
-                continue
-            try:
-                parsed = json.loads(item.content)
-            except json.JSONDecodeError:
-                continue
-            if parsed.get("type") == "function":
-                tool_calls.append(parsed)
+            # Check for tool calls in metadata, not content
+            item_tool_calls = item.metadata.get("tool_calls")
+            if isinstance(item_tool_calls, list):
+                tool_calls.extend(item_tool_calls)
         assert tool_calls, "Expected repaired tool call"
         return tool_calls[-1]
 
