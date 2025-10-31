@@ -47,6 +47,8 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
         stream_id = get_stream_id(content)
         buffer = self._buffers.get(stream_id, "")
+        metadata = dict(content.metadata or {})
+        detected_tool_calls: list[dict[str, Any]] = []
 
         buffer += content.content or ""
 
@@ -55,7 +57,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         if buffer:
             repaired_json = self.tool_call_repair_service.repair_tool_calls(buffer)
             if repaired_json:
-                repaired_content_parts.append(json.dumps(repaired_json))
+                detected_tool_calls.append(repaired_json)
                 buffer = ""
             else:
                 flushed = self._trim_buffer(buffer)
@@ -76,12 +78,20 @@ class ToolCallRepairProcessor(IStreamProcessor):
             self._buffers.pop(stream_id, None)
 
         new_content_str = "".join(repaired_content_parts)
-        if new_content_str or content.is_done:
+        if detected_tool_calls:
+            existing_calls = metadata.get("tool_calls")
+            if isinstance(existing_calls, list):
+                metadata["tool_calls"] = existing_calls + detected_tool_calls
+            else:
+                metadata["tool_calls"] = detected_tool_calls
+            metadata.setdefault("finish_reason", "tool_calls")
+
+        if new_content_str or detected_tool_calls or content.is_done:
             return StreamingContent(
                 content=new_content_str,
                 is_done=content.is_done,
                 is_cancellation=content.is_cancellation,
-                metadata=content.metadata,
+                metadata=metadata,
                 usage=content.usage,
                 raw_data=content.raw_data,
             )
@@ -89,6 +99,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
         return StreamingContent(
             content="",
             is_cancellation=content.is_cancellation,
+            metadata=metadata,
+            usage=content.usage,
+            raw_data=content.raw_data,
         )  # Return empty if nothing to yield
 
     def _trim_buffer(self, buffer: str) -> str:

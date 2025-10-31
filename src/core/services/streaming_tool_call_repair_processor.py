@@ -66,7 +66,12 @@ class StreamingToolCallRepairProcessor:
             processed_streaming_content = (
                 await self._tool_call_repair_processor.process(streaming_content_chunk)
             )
-            if processed_streaming_content.content:
+            should_emit = bool(processed_streaming_content.content)
+            metadata_tool_calls = processed_streaming_content.metadata.get("tool_calls")
+            if isinstance(metadata_tool_calls, list) and metadata_tool_calls:
+                should_emit = True
+
+            if should_emit:
                 yield ProcessedResponse(
                     content=processed_streaming_content.content,
                     usage=processed_streaming_content.usage,
@@ -79,7 +84,12 @@ class StreamingToolCallRepairProcessor:
                 content="", is_done=True, metadata={"stream_id": stream_id}
             )
         )
-        if final_streaming_content.content:
+        should_emit_final = bool(final_streaming_content.content)
+        final_tool_calls = final_streaming_content.metadata.get("tool_calls")
+        if isinstance(final_tool_calls, list) and final_tool_calls:
+            should_emit_final = True
+
+        if should_emit_final:
             yield ProcessedResponse(
                 content=final_streaming_content.content,
                 usage=final_streaming_content.usage,

@@ -93,7 +93,7 @@ class TestToolCallRepairService:
         assert repaired["function"]["name"] == "patch_file"
         arguments = json.loads(repaired["function"]["arguments"])
         assert arguments["path"] == "src/example.py"
-        assert "print(\"updated\")" in arguments["patch_content"]
+        assert 'print("updated")' in arguments["patch_content"]
 
     def test_repair_tool_calls_no_match(
         self, repair_service: ToolCallRepairService
@@ -188,6 +188,44 @@ class TestStreamingToolCallRepairProcessor:
         )
         assert actual_calls[2].content == "World."
         assert actual_calls[3].is_done is True and actual_calls[3].content == ""
+
+    @pytest.mark.asyncio
+    async def test_process_chunks_with_xml_tool_call(
+        self, streaming_processor: StreamingToolCallRepairProcessor
+    ) -> None:
+        input_chunks = [
+            ProcessedResponse(content="<use_mcp_tool>"),
+            ProcessedResponse(content="<tool_name>patch_file</tool_name>"),
+            ProcessedResponse(
+                content="""
+                <tool_arguments>
+                    <path>src/example.py</path>
+                </tool_arguments>
+                </use_mcp_tool>
+                """
+            ),
+        ]
+
+        async def generator() -> AsyncGenerator[ProcessedResponse, None]:
+            for chunk in input_chunks:
+                yield chunk
+
+        results = [
+            chunk
+            async for chunk in streaming_processor.process_chunks(generator(), "sess")
+        ]
+
+        assert len(results) == 1
+        chunk = results[0]
+        assert chunk.content == ""
+        tool_calls = chunk.metadata.get("tool_calls")
+        assert isinstance(tool_calls, list)
+        assert tool_calls
+        tool_call = tool_calls[0]
+        assert tool_call["function"]["name"] == "patch_file"
+        arguments = json.loads(tool_call["function"]["arguments"])
+        assert arguments["path"] == "src/example.py"
+        assert chunk.metadata.get("finish_reason") == "tool_calls"
 
 
 class TestToolCallRepairProcessorBuffering:

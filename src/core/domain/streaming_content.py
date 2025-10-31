@@ -43,7 +43,12 @@ class StreamingContent:
     @property
     def is_empty(self) -> bool:
         """Whether this chunk contains no actual content."""
-        return not bool(self.content)
+        if self.content:
+            return False
+        tool_calls = self.metadata.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            return False
+        return True
 
     def to_bytes(self) -> bytes:
         """Convert this chunk to a bytes representation for streaming."""
