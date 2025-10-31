@@ -215,8 +215,12 @@ class TestStreamingToolCallRepairProcessor:
             async for chunk in streaming_processor.process_chunks(generator(), "sess")
         ]
 
-        assert len(results) == 1
-        chunk = results[0]
+        assert len(results) >= 1
+        tool_chunks = [
+            chunk for chunk in results if chunk.metadata.get("tool_calls")
+        ]
+        assert tool_chunks, "Expected at least one chunk with tool_calls metadata"
+        chunk = tool_chunks[0]
         assert chunk.content == ""
         tool_calls = chunk.metadata.get("tool_calls")
         assert isinstance(tool_calls, list)

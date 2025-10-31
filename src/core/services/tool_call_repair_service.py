@@ -25,7 +25,7 @@ class ToolCallRepairService:
     )
     _CODE_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*\}\s*)\s*```", re.DOTALL)
     _XML_SNIPPET_PATTERN = re.compile(
-        r"\A\s*<([A-Za-z0-9_\-]+)(?:\s[^>]*)?>(.*)</\1>\s*\Z", re.DOTALL
+        r"<([A-Za-z0-9_\-]+)(?:\s[^>]*)?>.*?</\1>", re.DOTALL
     )
 
     def __init__(self, max_buffer_bytes: int | None = None) -> None:
@@ -222,35 +222,47 @@ class ToolCallRepairService:
         if not stripped.startswith("<") or "</" not in stripped:
             return None
 
-        match = self._XML_SNIPPET_PATTERN.match(stripped)
-        if not match:
-            return None
-
-        xml_snippet = match.group(0)
-
-        try:
-            import xml.etree.ElementTree as ET
-
-            root = ET.fromstring(xml_snippet)
-        except Exception:
-            return None
-
-        if root.tag == "use_mcp_tool":
-            tool_name_element = root.find("tool_name")
-            if tool_name_element is None or not tool_name_element.text:
+        use_mcp_match = re.search(
+            r"<use_mcp_tool(?:\s[^>]*)?>.*?</use_mcp_tool>", stripped, re.DOTALL
+        )
+        if use_mcp_match:
+            candidate_snippets = [use_mcp_match.group(0)]
+        else:
+            matches = list(self._XML_SNIPPET_PATTERN.finditer(stripped))
+            if not matches:
                 return None
-            arguments_element = root.find("tool_arguments")
-            arguments = (
-                self._element_children_to_dict(arguments_element)
-                if arguments_element is not None
-                else {}
-            )
-            return self._format_openai_tool_call(
-                tool_name_element.text.strip(), arguments
-            )
+            candidate_snippets = [match.group(0) for match in matches]
 
-        arguments = self._element_children_to_dict(root)
-        return self._format_openai_tool_call(root.tag, arguments)
+        for xml_snippet in candidate_snippets:
+
+            try:
+                import xml.etree.ElementTree as ET
+
+                root = ET.fromstring(xml_snippet)
+            except Exception:
+                continue
+
+            if root.tag in {"tool_name", "tool_arguments"}:
+                continue
+
+            if root.tag == "use_mcp_tool":
+                tool_name_element = root.find("tool_name")
+                if tool_name_element is None or not tool_name_element.text:
+                    continue
+                arguments_element = root.find("tool_arguments")
+                arguments = (
+                    self._element_children_to_dict(arguments_element)
+                    if arguments_element is not None
+                    else {}
+                )
+                return self._format_openai_tool_call(
+                    tool_name_element.text.strip(), arguments
+                )
+
+            arguments = self._element_children_to_dict(root)
+            return self._format_openai_tool_call(root.tag, arguments)
+
+        return None
 
     def _element_children_to_dict(self, element: Any) -> dict[str, Any] | str:
         """Convert XML element children into JSON-serializable objects."""

@@ -79,6 +79,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
         new_content_str = "".join(repaired_content_parts)
         if detected_tool_calls:
+            logger.debug(
+                "ToolCallRepairProcessor captured tool call(s): %s", detected_tool_calls
+            )
             existing_calls = metadata.get("tool_calls")
             if isinstance(existing_calls, list):
                 metadata["tool_calls"] = existing_calls + detected_tool_calls

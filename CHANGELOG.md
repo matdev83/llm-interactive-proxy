@@ -1,10 +1,20 @@
 # Changelog
 
+## [2025-10-31]
+
+### Added
+
+- **XML Tool Call Format Support**: Added support for XML tool call format in ToolCallRepairService
+  - XML pattern detection and parsing for Kilo MCP tools
+  - Support for both direct XML tool format and use_mcp_tool wrapper format
+  - XML element to dictionary conversion for argument parsing
+  - Comprehensive tests for XML tool call repair functionality
+
 ## [Unreleased]
 
 ### Added
 
-- **Think Tags Fix Feature**: Added `--fix-think-tags` CLI flag and `FIX_THINK_TAGS_ENABLED` environment variable to correct improperly formatted `<think>` tags in model responses
+- **Think Tags Fix Feature**: Added `--fix-think-tags` CLI flag and `FIX_THINK_TAGS_ENABLED` environment variable to correct improperly formatted `think` tags in model responses
   - Detects and fixes models that expose reasoning content as `<think>reasoning</think>response` instead of using proper reasoning/thinking token separation
   - Preserves reasoning content in appropriate fields (OpenAI-style `reasoning` field, metadata, etc.) instead of discarding it
   - Full streaming support with session-based buffering for think tags split across multiple chunks

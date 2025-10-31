@@ -654,6 +654,10 @@ class ResponsesController:
                                 normalized_calls.append(call_data)
 
                             delta["tool_calls"] = normalized_calls
+                            logger.debug(
+                                "ResponsesController normalized streaming tool_calls: %s",
+                                normalized_calls,
+                            )
 
                         if not delta:
                             delta["content"] = ""
