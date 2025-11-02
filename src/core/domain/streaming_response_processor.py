@@ -8,30 +8,11 @@ responses in a consistent way, regardless of the source or format.
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 
-from src.core.domain.streaming_content import StreamingContent
+from src.core.ports.streaming import IStreamProcessor, StreamingContent
 
 logger = logging.getLogger(__name__)
-
-
-# The StreamingContent class definition has been moved to src/core/domain/streaming_content.py
-
-
-class IStreamProcessor(ABC):
-    """Interface for processing streaming content."""
-
-    @abstractmethod
-    async def process(self, content: StreamingContent) -> StreamingContent:
-        """Process a streaming content chunk.
-
-        Args:
-            content: The content to process
-
-        Returns:
-            The processed content
-        """
 
 
 from src.core.interfaces.loop_detector_interface import ILoopDetector

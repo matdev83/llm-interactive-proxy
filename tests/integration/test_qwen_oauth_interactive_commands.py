@@ -20,7 +20,4 @@ def _qwen_oauth_available() -> bool:
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.network,
-    pytest.mark.skip(
-        reason="Qwen OAuth integration tests disabled to prevent browser OAuth flows - run with --run-qwen-oauth to enable"
-    ),
 ]

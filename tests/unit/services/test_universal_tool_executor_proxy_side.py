@@ -260,9 +260,9 @@ class TestShellExecution:
         import platform
 
         if platform.system() == "Windows":
-            # Use 'cd' command on Windows
+            # Use 'echo %CD%' to print the current directory on Windows
             result = await executor.execute_tool(
-                "shell", {"command": "cd", "working_dir": "subdir"}
+                "shell", {"command": "echo %CD%", "working_dir": "subdir"}
             )
         else:
             # Use 'pwd' command on Unix

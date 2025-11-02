@@ -570,6 +570,7 @@ class Session(ISession):
         created_at: datetime | None = None,
         last_active_at: datetime | None = None,
         agent: str | None = None,
+        user_id: str | None = None,
     ) -> None:
         self._session_id: str = session_id
         self._state: ISessionState
@@ -589,6 +590,7 @@ class Session(ISession):
         self._created_at: datetime = created_at or datetime.now(timezone.utc)
         self._last_active_at: datetime = last_active_at or datetime.now(timezone.utc)
         self._agent: str | None = agent
+        self._user_id: str | None = user_id
 
     @property
     def id(self) -> str:
@@ -659,6 +661,16 @@ class Session(ISession):
             self.state = self.state.with_is_cline_agent(False)
 
     @property
+    def user_id(self) -> str | None:
+        """Get the user ID for this session."""
+        return self._user_id
+
+    @user_id.setter
+    def user_id(self, value: str | None) -> None:
+        """Set the user ID for this session."""
+        self._user_id = value
+
+    @property
     def proxy_state(self) -> ISessionState:
         """Get the proxy state (backward compatibility alias for state)."""
         return self._state
@@ -703,6 +715,7 @@ class Session(ISession):
             "created_at": self.created_at.isoformat(),
             "last_active_at": self.last_active_at.isoformat(),
             "agent": self.agent,
+            "user_id": self.user_id,
         }
 
     @classmethod
@@ -746,4 +759,5 @@ class Session(ISession):
             created_at=created_at,
             last_active_at=last_active_at,
             agent=data.get("agent"),
+            user_id=data.get("user_id"),
         )

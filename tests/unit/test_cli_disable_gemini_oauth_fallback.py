@@ -14,6 +14,7 @@ class TestDisableGeminiOAuthFallback:
     ) -> None:
         """Test that --disable-gemini-oauth-fallback sets the flag to True."""
         # Clean environment
+        monkeypatch.delenv("COMMAND_PREFIX", raising=False)
         monkeypatch.delenv("DISABLE_GEMINI_OAUTH_FALLBACK", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         for i in range(1, 21):
@@ -39,6 +40,7 @@ class TestDisableGeminiOAuthFallback:
     ) -> None:
         """Test that without --disable-gemini-oauth-fallback, the flag defaults to False."""
         # Clean environment
+        monkeypatch.delenv("COMMAND_PREFIX", raising=False)
         monkeypatch.delenv("DISABLE_GEMINI_OAUTH_FALLBACK", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         for i in range(1, 21):
@@ -61,6 +63,7 @@ class TestDisableGeminiOAuthFallback:
     ) -> None:
         """Test that DISABLE_GEMINI_OAUTH_FALLBACK=1 sets the flag to True."""
         # Set environment variable
+        monkeypatch.delenv("COMMAND_PREFIX", raising=False)
         monkeypatch.setenv("DISABLE_GEMINI_OAUTH_FALLBACK", "1")
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         for i in range(1, 21):
@@ -83,6 +86,7 @@ class TestDisableGeminiOAuthFallback:
     ) -> None:
         """Test that DISABLE_GEMINI_OAUTH_FALLBACK=0 sets the flag to False."""
         # Set environment variable
+        monkeypatch.delenv("COMMAND_PREFIX", raising=False)
         monkeypatch.setenv("DISABLE_GEMINI_OAUTH_FALLBACK", "0")
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         for i in range(1, 21):
@@ -103,6 +107,7 @@ class TestDisableGeminiOAuthFallback:
     def test_cli_overrides_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that CLI flag overrides environment variable."""
         # Set environment variable to False
+        monkeypatch.delenv("COMMAND_PREFIX", raising=False)
         monkeypatch.setenv("DISABLE_GEMINI_OAUTH_FALLBACK", "0")
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         for i in range(1, 21):

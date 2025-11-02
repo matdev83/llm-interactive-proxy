@@ -579,75 +579,30 @@ class BackendSettings(DomainModel):
         None  # Force all requests to backend:model (e.g., "gemini-oauth-plan:gemini-2.5-pro")
     )
     disable_gemini_oauth_fallback: bool = False
+    disable_hybrid_backend: bool = False
 
     def __init__(self, **data: Any) -> None:
-        # Extract backend configs from data before calling super().__init__
-        backend_configs: dict[str, Any] = {}
-        # Keep a copy of remaining data to capture non-registered backends too
-        remaining_data = dict(data)
-        registered_backends: list[str] = backend_registry.get_registered_backends()
+        # Separate standard fields from backend-specific configs
+        known_fields = set(self.model_fields.keys())
 
-        # Extract backend configs from data for registered backends
-        # IMPORTANT: Only extract if the config has actual data (non-empty dict or BackendConfig)
-        # This prevents overwriting configs with API keys that may be in remaining_data
-        for backend_name in registered_backends:
-            if backend_name in data:
-                config_data = data[backend_name]
-                # Only extract if it's a non-empty dict or BackendConfig
-                if (isinstance(config_data, dict) and config_data) or isinstance(
-                    config_data, BackendConfig
-                ):
-                    backend_configs[backend_name] = data.pop(backend_name)
-                    # Also remove from remaining_data
-                    remaining_data.pop(backend_name, None)
+        init_data = {k: v for k, v in data.items() if k in known_fields}
+        backend_data = {k: v for k, v in data.items() if k not in known_fields}
 
-        # Call parent constructor with remaining data
-        super().__init__(**data)
+        # Initialize the model with standard fields
+        super().__init__(**init_data)
 
-        # First, absorb any backend configs from remaining_data (including registered backends
-        # that weren't extracted above). This ensures API keys from env vars are preserved.
-        # Do this BEFORE processing backend_configs to prioritize env/file configs
-        for key, value in remaining_data.items():
-            if key == "default_backend" or key.startswith("_"):
-                continue
-            if isinstance(value, dict) and value:  # Only process non-empty dicts
-                # Always set configs from remaining_data if they have data - they came from env/file
-                # and should be set. Only skip if already set AND existing has API key AND new doesn't
-                existing = self.__dict__.get(key)
-                if (
-                    existing is None
-                    or not isinstance(existing, BackendConfig)
-                    or not existing.api_key
-                ):
-                    # No existing config, or existing has no API key, so set the new one
-                    self.__dict__[key] = BackendConfig(**value)
-                elif value.get("api_key"):
-                    # New config has API key, so it should take precedence
-                    self.__dict__[key] = BackendConfig(**value)
-            elif isinstance(value, BackendConfig):
-                # Direct BackendConfig instance - always set it
-                self.__dict__[key] = value
-
-        # Set backend configs using __dict__ to bypass Pydantic's field system
-        # ALWAYS set configs from backend_configs since they were explicitly provided in data
-        for backend_name, config_data in backend_configs.items():
+        # Manually set the backend configurations
+        for backend_name, config_data in backend_data.items():
             if isinstance(config_data, dict):
-                config: BackendConfig = BackendConfig(**config_data)
+                self.__dict__[backend_name] = BackendConfig(**config_data)
             elif isinstance(config_data, BackendConfig):
-                config = config_data
-            else:
-                config = BackendConfig()
-            # Always set configs from backend_configs - they came from the data dict
-            # and should take precedence over any existing configs
-            self.__dict__[backend_name] = config
+                self.__dict__[backend_name] = config_data
 
-        # Add default BackendConfig for any registered backends that don't have configs
-        # Do this LAST to avoid overwriting configs with API keys
-        for backend_name in registered_backends:
+        # Ensure all registered backends have a config
+        for backend_name in backend_registry.get_registered_backends():
             if backend_name not in self.__dict__:
                 self.__dict__[backend_name] = BackendConfig()
 
-        # Mark initialization as complete so __getattr__ can create lazy configs
         self._initialization_complete = True
 
     def __getitem__(self, key: str) -> BackendConfig:
@@ -1590,6 +1545,13 @@ class AppConfig(DomainModel, IConfig):
                 False,
                 env,
                 path="backends.disable_gemini_oauth_fallback",
+                resolution=resolution,
+            ),
+            "disable_hybrid_backend": _env_to_bool(
+                "DISABLE_HYBRID_BACKEND",
+                False,
+                env,
+                path="backends.disable_hybrid_backend",
                 resolution=resolution,
             ),
         }

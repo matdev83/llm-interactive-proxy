@@ -12,7 +12,7 @@ from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
 from src.core.domain.configuration.reasoning_config import ReasoningConfiguration
-from src.core.domain.session import Session, SessionState
+from src.core.domain.session import ISessionState, Session, SessionState
 from src.core.repositories.session_repository import InMemorySessionRepository
 
 
@@ -23,7 +23,7 @@ class MockSessionWithUser(Session):
         self,
         session_id: str,
         user_id: str | None = None,
-        state: SessionState | None = None,
+        state: ISessionState | SessionState | None = None,
         created_at: datetime | None = None,
         last_active_at: datetime | None = None,
         agent: str | None = None,
@@ -220,7 +220,9 @@ class TestInMemorySessionRepository:
         assert sample_session.session_id not in repository._sessions
 
         # Check user tracking cleanup
-        assert sample_session.session_id not in repository._user_sessions["user-456"]
+        assert sample_session.session_id not in repository._user_sessions.get(
+            "user-456", []
+        )
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_session(
@@ -351,13 +353,17 @@ class TestInMemorySessionRepository:
 
         # Verify user tracking exists
         assert "user-456" in repository._user_sessions
-        assert sample_session.session_id in repository._user_sessions["user-456"]
+        assert sample_session.session_id in repository._user_sessions.get(
+            "user-456", []
+        )
 
         # Delete the session
         await repository.delete(sample_session.session_id)
 
         # Verify user tracking is cleaned up
-        assert sample_session.session_id not in repository._user_sessions["user-456"]
+        assert sample_session.session_id not in repository._user_sessions.get(
+            "user-456", []
+        )
 
     @pytest.mark.asyncio
     async def test_get_all_returns_copy(

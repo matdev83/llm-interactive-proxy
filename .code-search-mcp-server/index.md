@@ -1,0 +1,269 @@
+# Codebase Index
+
+## Project Overview
+
+- **Project Type:** Python FastAPI server and CLI application acting as a universal proxy for LLM APIs.
+
+## Data Storage
+
+- **Databases:** None
+
+<!-- EVIDENCE_START -->
+{"id":"E1","type":"cmd","cmd":"search_file_content(include = "*.py", path = "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src", pattern = "sqlalchemy|sqlite|postgres|mysql|mongo|redis|database| db | orm")","excerpt":"File: core\\repositories\\session_repository.py\nL22: It would use file-based storage, a database, or another persistence mechanism."}
+<!-- EVIDENCE_END -->
+- **ORM Models:** None
+- **Pydantic Models:**
+  - `src/core/domain/anthropic_tools.py`: `AnthropicToolSchema`, `AnthropicToolFunction`, `AnthropicToolDefinition`, `OpenAIToolFunction`, `OpenAIToolDefinition`
+  - `src/core/domain/backend_config.py`: `GeminiGenerationConfig`, `GeminiBackendConfig`, `OpenAIBackendConfig`, `AnthropicBackendConfig`, `BackendConfiguration`
+  - `src/core/domain/configuration/reasoning_aliases_config.py`: `ReasoningMode`, `ModelReasoningAliases`, `ReasoningAliasesConfig`
+  - `src/core/domain/gemini_api.py`: `GeminiPart`, `GeminiContent`, `GeminiFunctionDeclaration`, `GeminiTool`, `GeminiGenerationConfig`, `GeminiRequest`, `GeminiCandidate`, `GeminiUsageMetadata`, `GeminiResponse`, `OpenAIToolFunction`, `OpenAITool`, `OpenAIMessage`, `OpenAIRequest`
+  - `src/core/domain/gemini_metadata.py`: `GeminiUsageInfo`, `GeminiModelInfo`, `GeminiResponseHeaders`, `GeminiGenerationConfig`, `GeminiResponseMetadata`, `GeminiStreamingMetadata`
+  - `src/core/domain/multimodal_formats.py`: `OpenAITextContent`, `OpenAIImageUrl`, `OpenAIImageContent`, `OpenAIAudioContent`, `OpenAIVideoContent`, `OpenAIMultimodalMessage`, `AnthropicTextContent`, `AnthropicImageSource`, `AnthropicImageContent`, `AnthropicAudioContent`, `AnthropicVideoContent`, `AnthropicMultimodalMessage`, `GeminiTextPart`, `GeminiInlineData`, `GeminiInlineDataPart`, `GeminiFileData`, `GeminiFileDataPart`, `GeminiMultimodalMessage`
+  - `src/core/domain/usage_stats.py`: `ModelUsageStats`, `UsageStatsResponse`
+  - `src/core/domain/wire_capture.py`: `WireCaptureTimestamp`, `WireCaptureCommunication`, `WireCaptureMetadata`, `WireCaptureEntry`, `BufferedWireCaptureEntry`
+  - `src/core/interfaces/model_bases.py`: `DomainModel`
+- **Dataclasses:**
+  - `src/connectors/_openai_codex_capabilities.py`: (multiple)
+  - `src/connectors/_openai_codex_session_detector.py`: (multiple)
+  - `src/connectors/_openai_codex_telemetry.py`: (multiple)
+  - `src/connectors/_openai_codex_xml_tool_parser.py`: (multiple)
+  - `src/connectors/gemini_oauth_base.py`: (multiple)
+  - `src/connectors/openai_codex_config.py`: (multiple)
+  - `src/core/commands/models.py`: (multiple)
+  - `src/core/commands/pipeline/match_filter.py`: (multiple)
+  - `src/core/commands/pipeline/tail_extractor.py`: (multiple)
+  - `src/core/commands/tool_call_text_parser.py`: (multiple)
+  - `src/core/config/parameter_resolution.py`: (multiple)
+  - `src/core/domain/assessment.py`: (multiple)
+  - `src/core/domain/command_context.py`: (multiple)
+  - `src/core/domain/command_results.py`: (multiple)
+  - `src/core/domain/configuration/assessment_config.py`: (multiple)
+  - `src/core/domain/model_capabilities.py`: (multiple)
+  - `src/core/domain/replacement_rule.py`: (multiple)
+  - `src/core/domain/request_context.py`: (multiple)
+  - `src/core/domain/responses.py`: (multiple)
+  - `src/core/domain/tool_call_reactor.py`: (multiple)
+  - `src/core/interfaces/loop_detector_interface.py`: (multiple)
+  - `src/core/interfaces/tool_call_reactor_interface.py`: (multiple)
+  - `src/core/persistence.py`: (multiple)
+  - `src/core/security/middleware.py`: (multiple)
+  - `src/core/services/conversation_fingerprint_service.py`: (multiple)
+  - `src/core/services/failover_service.py`: (multiple)
+  - `src/core/services/production_concurrency_guard.py`: (multiple)
+  - `src/core/services/streaming/content_accumulation_processor.py`: (multiple)
+  - `src/core/services/streaming/json_repair_processor.py`: (multiple)
+  - `src/core/services/tool_access_policy_service.py`: (multiple)
+  - `src/core/services/tool_call_handlers/config_steering_handler.py`: (multiple)
+  - `src/core/services/tool_call_handlers/pytest_full_suite_handler.py`: (multiple)
+  - `src/loop_detection/config.py`: (multiple)
+  - `src/loop_detection/event.py`: (multiple)
+  - `src/performance_tracker.py`: (multiple)
+  - `src/tool_call_loop/config.py`: (multiple)
+  - `src/tool_call_loop/tracker.py`: (multiple)
+
+## API & Entry Points
+
+- **CLI Commands:**
+  - `restart-service`: `dev.tools.restart_service:main`
+  - `test-request`: `dev.tools.test_request:main`
+  - `analyze-logs`: `dev.tools.analyze_logs:main`
+- **Framework Routes:**
+  - `src/core/app/controllers/__init__.py`:
+    - `GET /internal/health`
+    - `POST /v1/chat/completions`
+    - `POST /v1/responses`
+    - `GET /v1beta/models`
+    - `POST /v1beta/models/{model}:generateContent`
+    - `POST /v1beta/models/{model}:streamGenerateContent`
+    - `POST {prefix}/v1/messages`
+    - `GET {prefix}/v1/models`
+    - `GET {prefix}/v1/health`
+    - `GET {prefix}/v1/info`
+  - `src/core/app/controllers/models_controller.py`:
+    - `GET /models`
+  - `src/core/app/controllers/usage_controller.py`:
+    - `GET /stats`
+    - `GET /recent`
+
+## Configuration
+
+- **Config Files:**
+  - `.coderabbit.yaml`
+  - `.pre-commit-config.yaml`
+  - `codecov.yml`
+  - `pyproject.toml`
+  - `vulture_suppressions.ini`
+  - `config/config.example.yaml`
+  - `config/edit_precision_model_temperatures.yaml`
+  - `config/edit_precision_patterns.yaml`
+  - `config/qwen_backend.example.yaml`
+  - `config/reasoning_aliases.yaml.example`
+  - `config/sample.env`
+  - `config/tool_access_control_examples.yaml`
+  - `config/tool_call_reactor_config.yaml`
+  - `config/backends/openai_codex.yaml.example`
+  - `config/schemas/app_config.schema.yaml`
+  - `config/schemas/assessment_config.schema.yaml`
+  - `config/schemas/edit_precision_patterns.schema.yaml`
+  - `config/schemas/openai_codex_backend.schema.yaml`
+  - `config/schemas/reasoning_aliases.schema.yaml`
+  - `config/schemas/tool_call_reactor_config.schema.yaml`
+  - `config/schemas/zai_default_models.schema.yaml`
+- **Environment Variables:**
+  - `APPDATA`
+  - `GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`, `GEMINI_API_KEY_3`, `GEMINI_API_KEY_4`, `GEMINI_API_KEY_5`
+  - `LLM_BACKEND`
+  - `GOOGLE_CLOUD_PROJECT`
+  - `LLM_INTERACTIVE_PROXY_API_KEY`
+  - `BRUTE_FORCE_PROTECTION_ENABLED`
+  - `BRUTE_FORCE_MAX_FAILED_ATTEMPTS`
+  - `BRUTE_FORCE_TTL_SECONDS`
+  - `BRUTE_FORCE_INITIAL_BLOCK_SECONDS`
+  - `BRUTE_FORCE_BLOCK_MULTIPLIER`
+  - `BRUTE_FORCE_MAX_BLOCK_SECONDS`
+  - `REDACT_API_KEYS_IN_PROMPTS`
+  - `DISABLE_INTERACTIVE_COMMANDS`
+  - `TOOL_CALL_REPAIR_ENABLED`
+  - `TOOL_CALL_REPAIR_BUFFER_CAP_BYTES`
+  - `LOOP_DETECTION_ENABLED`
+  - `LOOP_DETECTION_BUFFER_SIZE`
+  - `LOOP_DETECTION_MAX_PATTERN_LENGTH`
+  - `TOOL_CALL_REACTOR_ENABLED`
+  - `APPLY_DIFF_STEERING_ENABLED`
+  - `APPLY_DIFF_STEERING_RATE_LIMIT_SECONDS`
+  - `PYTEST_FULL_SUITE_STEERING_ENABLED`
+  - `DISABLE_HEALTH_CHECKS`
+  - `ANTHROPIC_API_KEY_1`, `ANTHROPIC_API_KEY_2`
+  - `ANTHROPIC_API_KEY`
+  - `GEMINI_CLI_WORKSPACE`
+  - `GEMINI_CLI_CLIENT_ID`
+  - `GEMINI_CLI_CLIENT_SECRET`
+  - `GEMINI_CLI_OAUTH_SCOPES`
+  - `GOOGLE_APPLICATION_CREDENTIALS`
+  - `TERM_PROGRAM`
+  - `TERM_PROGRAM_VERSION`
+  - `WEZTERM_VERSION`
+  - `KITTY_WINDOW_ID`
+  - `TERM`
+  - `ALACRITTY_SOCKET`
+  - `KONSOLE_VERSION`
+  - `GNOME_TERMINAL_SCREEN`
+  - `VTE_VERSION`
+  - `WT_SESSION`
+  - `OPENAI_CODEX_PROMPT_DEDUPLICATE`
+  - `OPENAI_CODEX_PROMPT_FALLBACK_DEFAULT`
+  - `OPENAI_CODEX_STREAMING_MAX_RETRIES`
+  - `OPENAI_CODEX_STREAMING_RETRY_BACKOFF`
+  - `OPENAI_CODEX_COMPATIBILITY_LAYER_ENABLED`
+  - `OS`
+  - `SHELL`
+  - `USERPROFILE`
+  - `ZAI_API_KEY`
+  - `ZAI_API_BASE_URL`
+  - `STRICT_CONTROLLER_ERRORS`
+  - `STRICT_CONTROLLER_DI`
+  - `DISABLE_AUTH`
+  - `PYTEST_CURRENT_TEST`
+  - `COMMAND_PREFIX`
+  - `PROXY_PORT`
+  - `FORCE_CONTEXT_WINDOW`
+  - `THINKING_BUDGET`
+  - `STATIC_ROUTE`
+  - `DISABLE_GEMINI_OAUTH_FALLBACK`
+  - `DISABLE_HYBRID_BACKEND`
+  - `MODEL_ALIASES`
+  - `GEMINI_API_KEY`
+  - `DEFAULT_INTERACTIVE_MODE`
+  - `DISABLE_INTERACTIVE_MODE`
+  - `FORCE_SET_PROJECT`
+  - `DISABLE_ACCOUNTING`
+  - `LLM_ASSESSMENT_ENABLED`
+  - `LLM_ASSESSMENT_TURN_THRESHOLD`
+  - `LLM_ASSESSMENT_CONFIDENCE_THRESHOLD`
+  - `LLM_ASSESSMENT_BACKEND`
+  - `LLM_ASSESSMENT_MODEL`
+  - `LLM_ASSESSMENT_HISTORY_WINDOW`
+  - `LLM_ASSESSMENT_MIN_INTERVAL`
+  - `LLM_ASSESSMENT_MAX_INTERVAL`
+  - `STRICT_SERVICES_ERRORS`
+  - `PYTEST_COMPRESSION_MIN_LINES`
+
+## Technical Details
+
+- **Concurrency Patterns:**
+  - **`asyncio`**: Extensively used with `async def` for asynchronous operations across connectors, application controllers, services, and middleware. Evident in files like `src/connectors/*.py`, `src/core/app/**/*.py`, `src/core/services/**/*.py`, etc.
+  - **`threading`**: Used for managing background tasks and thread-safe operations, particularly in `src/connectors/anthropic_oauth.py`, `src/connectors/gemini_cloud_project.py`, `src/connectors/gemini_oauth_base.py`, `src/connectors/openai_codex.py`, `src/core/services/backend_registry.py`, `src/core/services/metrics_service.py`, `src/core/services/production_concurrency_guard.py`, and `src/core/services/tool_access_policy_service.py`.
+  - **`concurrent.futures.ThreadPoolExecutor`**: Employed to run synchronous code in a separate thread pool, allowing it to be integrated into the `asyncio` event loop. Found in `src/anthropic_server.py`, `src/core/app/application_builder.py`, `src/core/app/test_builder.py`, and `src/core/services/sync_session_manager.py`.
+- **Logging Frameworks:**
+  - **`logging`**: The standard Python `logging` module is used extensively throughout the codebase, with `logging.getLogger(__name__)` being the primary way to obtain loggers.
+  - **`structlog`**: Used for structured logging, as indicated by imports and usage in `src/core/common/logging_utils.py` and `src/core/common/structlog_config.py`.
+- **Top-Level Imports:**
+  - **Standard Library**: `asyncio`, `logging`, `json`, `os`, `re`, `sys`, `pathlib`, `datetime`, `uuid`, `inspect`, `contextlib`, `threading`, `time`, `enum`, `functools`, `subprocess`, `warnings`, `math`, `platform`, `tempfile`, `xml.etree.ElementTree`.
+  - **Third-Party Libraries**: `fastapi`, `uvicorn`, `httpx`, `pydantic`, `starlette`, `tiktoken`, `google.auth`, `requests`, `watchdog`, `json_repair`, `jsonschema`, `pytz`, `structlog`.
+  - **Internal Modules**: `src.anthropic_converters`, `src.anthropic_models`, `src.command_prefix`, `src.command_utils`, `src.constants`, `src.gemini_converters`, `src.gemini_models`, `src.llm_accounting_utils`, `src.rate_limit`, `src.request_middleware`, `src.response_middleware`, `src.security`, `src.tool_call_loop.config`, `src.tool_call_loop.tracker`, and numerous submodules under `src.core`, `src.connectors`, and `src.loop_detection`.
+
+## Repository Information
+
+- **Git Info:**
+  - Latest Commit Hash: `41a834641f1eeefa9687807a5bba01b800844d4c`
+  - Latest Commit Author: `matdev83`
+  - Latest Commit Date: `2025-11-01T23:49:34+01:00`
+  - Total Commits: `1458`
+- **Pip Packages:**
+  - **Dependencies:**
+    - `fastapi`
+    - `uvicorn[standard]`
+    - `httpx`
+    - `python-dotenv`
+    - `pydantic>=2`
+    - `openai==1.84.0`
+    - `tomli`
+    - `typer`
+    - `rich`
+    - `llm-accounting`
+    - `tiktoken`
+    - `google-genai`
+    - `anthropic`
+    - `structlog`
+    - `pyyaml`
+    - `jsonschema>=4.19.0`
+    - `google-auth>=2.27.0`
+    - `google-auth-oauthlib>=1.2.0`
+    - `json-repair`
+    - `ijson`
+    - `watchdog`
+    - `pytz`
+    - `pytest-asyncio==0.23.7`
+    - `pytest-xdist==3.6.1`
+  - **Dev Dependencies:**
+    - `pytest==8.3.2`
+    - `pytest-asyncio==0.23.7`
+    - `pytest-cov==5.0.0`
+    - `pytest-xdist==3.6.1`
+    - `pytest-httpx==0.30.0`
+    - `pytest-mock==3.14.0`
+    - `freezegun==1.5.1`
+    - `ruff==0.5.6`
+    - `black==24.8.0`
+    - `requests`
+    - `bandit`
+    - `mdformat`
+    - `types-PyYAML==6.0.12.20240808`
+    - `types-jsonschema==4.23.0.20240813`
+    - `types-colorama==0.4.15.20240311`
+    - `respx`
+    - `dependency-injector`
+    - `vulture`
+    - `pytest-snapshot==0.9.0`
+    - `mypy==1.10.0`
+    - `hypothesis==6.112.1`
+    - `xenon`
+    - `radon`
+    - `types-pytz`
+    - `pytest-testmon`
+    - `pytest-timeout`
+- **File Counts:** {file_counts}
+- **LOC by Language:** {loc_by_language}
+
+<!-- EVIDENCE_START -->
+<!-- EVIDENCE_END -->

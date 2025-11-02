@@ -134,6 +134,7 @@ properties:
     properties:
       default_backend: { type: string }
       disable_gemini_oauth_fallback: { type: boolean }
+      disable_hybrid_backend: { type: boolean }
   default_backend: { type: string }
   reasoning_aliases:
     type: object

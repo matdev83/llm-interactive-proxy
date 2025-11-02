@@ -107,6 +107,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable automatic Gemini OAuth fallback to gemini-2.5-flash",
     )
+    parser.add_argument(
+        "--disable-hybrid-backend",
+        dest="disable_hybrid_backend",
+        action="store_true",
+        help="Disable the hybrid backend (enabled by default)",
+    )
 
     def validate_model_alias(value: str) -> tuple[str, str]:
         """Validate model alias format: pattern=replacement"""
@@ -855,6 +861,15 @@ def apply_cli_args(
             "backends.disable_gemini_oauth_fallback",
             True,
             "--disable-gemini-oauth-fallback",
+        )
+    if getattr(args, "disable_hybrid_backend", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["disable_hybrid_backend"] = True
+        os.environ["DISABLE_HYBRID_BACKEND"] = "1"
+        record_cli(
+            "backends.disable_hybrid_backend",
+            True,
+            "--disable-hybrid-backend",
         )
 
     # Model aliases configuration (CLI overrides config file)

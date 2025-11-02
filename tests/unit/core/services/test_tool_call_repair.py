@@ -3,8 +3,8 @@ from collections.abc import AsyncGenerator  # Added import
 
 import pytest
 from pytest_mock import MockerFixture
-from src.core.domain.streaming_content import StreamingContent
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.ports.streaming import StreamingContent
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )

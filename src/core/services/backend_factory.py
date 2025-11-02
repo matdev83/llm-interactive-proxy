@@ -8,14 +8,15 @@ import httpx
 
 from src.connectors.base import LLMBackend
 from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.interfaces.backend_factory_interface import IBackendFactory
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.services.backend_registry import BackendRegistry
-from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
 
-class BackendFactory:
+class BackendFactory(IBackendFactory):
     """Factory for creating LLM backends.
 
     This factory creates and configures backends based on type and configuration.
@@ -26,7 +27,7 @@ class BackendFactory:
         httpx_client: httpx.AsyncClient,
         backend_registry: BackendRegistry,
         config: AppConfig,
-        translation_service: TranslationService,
+        translation_service: ITranslationService,
     ) -> None:
         """Initialize the backend factory.
 

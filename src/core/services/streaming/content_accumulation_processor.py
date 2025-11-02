@@ -1,11 +1,9 @@
 import logging
+import time
 from collections import deque
 from dataclasses import dataclass, field
 
-from src.core.domain.streaming_response_processor import (
-    IStreamProcessor,
-    StreamingContent,
-)
+from src.core.ports.streaming import IStreamProcessor, StreamingContent
 from src.core.services.streaming.stream_utils import get_stream_id
 
 logger = logging.getLogger(__name__)
@@ -19,6 +17,8 @@ class _StreamBufferState:
     chunk_lengths: deque[int] = field(default_factory=deque)
     byte_length: int = 0
     truncation_logged: bool = False
+    # Track when this state was last accessed for TTL cleanup
+    last_accessed: float = field(default_factory=time.time)
 
 
 class ContentAccumulationProcessor(IStreamProcessor):
@@ -28,16 +28,26 @@ class ContentAccumulationProcessor(IStreamProcessor):
     This processor buffers all streaming content until the stream is complete,
     then returns the full accumulated content. A maximum buffer size is enforced
     to prevent unbounded memory growth from pathologically large streams.
+
+    Fixes memory leak by implementing TTL cleanup of stale stream states that
+    don't complete normally (e.g., due to network timeouts, connection failures).
     """
 
-    def __init__(self, max_buffer_bytes: int = 10 * 1024 * 1024) -> None:
+    def __init__(
+        self,
+        max_buffer_bytes: int = 10 * 1024 * 1024,
+        state_ttl_seconds: int = 300,  # 5 minutes default TTL
+    ) -> None:
         """
         Initialize the content accumulation processor.
 
         Args:
             max_buffer_bytes: Maximum buffer size in bytes (default: 10MB).
+            state_ttl_seconds: Time-to-live for stream states in seconds (default: 300).
+                              Stale states older than this will be automatically cleaned up.
         """
         self._max_buffer_bytes = max_buffer_bytes
+        self._state_ttl_seconds = state_ttl_seconds
         self._states: dict[str, _StreamBufferState] = {}
 
     def _get_state(self, stream_id: str) -> _StreamBufferState:
@@ -47,13 +57,37 @@ class ContentAccumulationProcessor(IStreamProcessor):
             self._states[stream_id] = state
         return state
 
+    def _cleanup_stale_states(self) -> None:
+        """Remove stream states that have expired due to TTL."""
+        current_time = time.time()
+        expired_stream_ids = []
+
+        for stream_id, state in list(self._states.items()):
+            if current_time - state.last_accessed > self._state_ttl_seconds:
+                expired_stream_ids.append(stream_id)
+
+        # Clean up expired states
+        for stream_id in expired_stream_ids:
+            del self._states[stream_id]
+            logger.debug(
+                "Cleaned up expired stream state for stream_id=%s due to TTL (%s seconds)",
+                stream_id,
+                self._state_ttl_seconds,
+            )
+
     def reset(self) -> None:
         """Reset the internal buffer so stale content does not leak between streams."""
         self._states.clear()
 
     async def process(self, content: StreamingContent) -> StreamingContent:
+        # Clean up stale states on each request to prevent memory leaks
+        self._cleanup_stale_states()
+
         stream_id = get_stream_id(content)
         state = self._get_state(stream_id)
+
+        # Update last accessed time for TTL tracking
+        state.last_accessed = time.time()
 
         if content.is_empty and not content.is_done:
             # Preserve metadata/usage even when the chunk has no text so downstream

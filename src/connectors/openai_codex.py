@@ -1553,7 +1553,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     @staticmethod
     def _extract_status_code_from_payload(
-        payload: Mapping[str, Any] | None
+        payload: Mapping[str, Any] | None,
     ) -> int | None:
         """Extract an HTTP status code from an error payload, if present."""
         if not isinstance(payload, Mapping):

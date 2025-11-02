@@ -90,16 +90,12 @@ class InMemorySessionRepository(ISessionRepository):
     async def delete(self, id: str) -> bool:
         """Delete a session by its ID."""
         if id in self._sessions:
-            session = self._sessions[id]
-
-            # Remove from user tracking if applicable
-            if hasattr(session, "user_id") and session.user_id:
-                user_id = session.user_id
-                if (
-                    user_id in self._user_sessions
-                    and id in self._user_sessions[user_id]
-                ):
-                    self._user_sessions[user_id].remove(id)
+            # Remove from user tracking
+            for user_id, session_ids in list(self._user_sessions.items()):
+                if id in session_ids:
+                    session_ids.remove(id)
+                    if not session_ids:
+                        del self._user_sessions[user_id]
 
             # Remove from fingerprint tracking
             if id in self._fingerprints:

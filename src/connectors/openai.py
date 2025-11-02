@@ -716,14 +716,54 @@ class OpenAIConnector(LLMBackend):
                 try:
                     if stream_format in {"openai", "responses", "openai-responses"}:
                         async for message in iter_sse_messages():
-                            yield self.translation_service.to_domain_stream_chunk(
-                                message, stream_format
+                            domain_chunk = (
+                                self.translation_service.to_domain_stream_chunk(
+                                    message, stream_format
+                                )
                             )
+                            if (
+                                isinstance(domain_chunk, dict)
+                                and domain_chunk.get("error")
+                                and logger.isEnabledFor(logging.DEBUG)
+                            ):
+                                try:
+                                    logger.debug(
+                                        "Streaming chunk translation returned error=%s raw=%s",
+                                        domain_chunk.get("error"),
+                                        (
+                                            message[:500]
+                                            if isinstance(message, str)
+                                            else str(message)
+                                        ),
+                                    )
+                                except Exception:
+                                    logger.debug(
+                                        "Streaming chunk translation returned error but raw chunk not serializable"
+                                    )
+                            yield domain_chunk
                     else:
                         async for chunk in response.aiter_text():
-                            yield self.translation_service.to_domain_stream_chunk(
-                                chunk, stream_format
+                            domain_chunk = (
+                                self.translation_service.to_domain_stream_chunk(
+                                    chunk, stream_format
+                                )
                             )
+                            if (
+                                isinstance(domain_chunk, dict)
+                                and domain_chunk.get("error")
+                                and logger.isEnabledFor(logging.DEBUG)
+                            ):
+                                try:
+                                    logger.debug(
+                                        "Streaming chunk translation returned error=%s raw=%s",
+                                        domain_chunk.get("error"),
+                                        chunk[:500],
+                                    )
+                                except Exception:
+                                    logger.debug(
+                                        "Streaming chunk translation returned error but raw chunk not serializable"
+                                    )
+                            yield domain_chunk
                 except httpx.RequestError as exc:
                     raise ServiceUnavailableError(
                         message=f"Streaming connection interrupted ({exc})"

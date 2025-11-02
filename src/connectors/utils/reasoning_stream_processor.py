@@ -1,0 +1,542 @@
+"""
+Reasoning Stream Processor for Hybrid Backend.
+
+This module provides utilities for capturing and extracting reasoning output
+from streaming LLM responses. It implements a priority-based detection strategy
+to identify when the reasoning phase ends and extract the reasoning content.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Any
+
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.ports.streaming import StreamingContent
+
+logger = logging.getLogger(__name__)
+
+
+class ReasoningStreamProcessor:
+    """
+    Processor for capturing reasoning output from streaming LLM responses.
+
+    This class implements a multi-strategy approach to detect when reasoning
+    phase ends and extract the reasoning content from streaming responses.
+    """
+
+    # Explicit reasoning end tags (priority order)
+    REASONING_END_TAGS = [
+        "</think>",  # MiniMax, DeepSeek
+        "</thinking>",  # OpenAI, Anthropic
+        "</reason>",  # Alternative
+        "</reasoning>",  # Generic
+    ]
+
+    # Content transition markers (lower priority)
+    TRANSITION_MARKERS = [
+        "therefore,",
+        "in conclusion,",
+        "to summarize,",
+        "in summary,",
+    ]
+
+    # Default limits
+    DEFAULT_MAX_TOKENS = 4096
+    DEFAULT_MAX_CHARS = 16384
+
+    async def capture_reasoning_stream(
+        self,
+        response_stream: (
+            AsyncIterator[ProcessedResponse] | AsyncGenerator[ProcessedResponse, None]
+        ),
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_chars: int = DEFAULT_MAX_CHARS,
+    ) -> tuple[str, bool, dict[str, Any]]:
+        """
+        Capture reasoning output from streaming response.
+
+        This method iterates through the response stream, accumulating chunks
+        until the reasoning phase is detected as complete using a priority-based
+        detection strategy.
+
+        Args:
+            response_stream: Async generator of ProcessedResponse objects
+            max_tokens: Maximum tokens to capture (safety limit)
+            max_chars: Maximum characters to capture (safety limit)
+
+        Returns:
+            Tuple of (reasoning_text, reasoning_complete, metadata)
+            - reasoning_text: Extracted reasoning content
+            - reasoning_complete: True if reasoning phase ended naturally
+            - metadata: Detection details (method, chunks_processed, etc.)
+        """
+        chunks: list[dict[str, Any]] = []
+        accumulated_content = ""
+        detection_metadata: dict[str, Any] = {
+            "method": None,
+            "chunks_processed": 0,
+            "tokens_estimated": 0,
+            "chars_captured": 0,
+        }
+
+        try:
+            async for processed_response in response_stream:
+                detection_metadata["chunks_processed"] += 1
+
+                raw_content = processed_response.content
+                chunk = self._normalize_chunk(raw_content)
+                if chunk is None:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        try:
+                            logger.debug(
+                                "Reasoning stream raw chunk could not be normalized: %s",
+                                (
+                                    raw_content
+                                    if isinstance(raw_content, str)
+                                    else str(raw_content)
+                                ),
+                            )
+                        except Exception:
+                            logger.debug(
+                                "Reasoning stream raw chunk could not be normalized (non-serializable)"
+                            )
+                    continue
+
+                chunks.append(chunk)
+
+                if logger.isEnabledFor(logging.DEBUG):
+                    try:
+                        logger.debug(
+                            "Reasoning stream chunk parsed: %s",
+                            json.dumps(chunk)[:500],
+                        )
+                    except Exception:
+                        logger.debug("Reasoning stream chunk parsed (non-serializable)")
+
+                if (
+                    isinstance(chunk, dict)
+                    and not chunk.get("choices")
+                    and logger.isEnabledFor(logging.DEBUG)
+                ):
+                    try:
+                        logger.debug(
+                            "Reasoning stream chunk missing 'choices': %s",
+                            json.dumps(chunk)[:500],
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Reasoning stream chunk missing 'choices' (non-serializable)"
+                        )
+                    if not isinstance(raw_content, str):
+                        try:
+                            logger.debug(
+                                "Original raw reasoning chunk: %s",
+                                str(raw_content),
+                            )
+                        except Exception:
+                            logger.debug(
+                                "Original raw reasoning chunk not serializable"
+                            )
+
+                if isinstance(chunk, dict) and chunk.get("error"):
+                    if logger.isEnabledFor(logging.WARNING):
+                        try:
+                            logger.warning(
+                                "Reasoning stream chunk reported error: %s | raw=%s",
+                                json.dumps(chunk)[:500],
+                                (
+                                    raw_content
+                                    if isinstance(raw_content, str)
+                                    else str(raw_content)
+                                ),
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Reasoning stream chunk reported error with non-serializable raw content"
+                            )
+                    continue
+
+                # Extract content from chunk
+                content = self._extract_content_from_chunk(chunk)
+                if content:
+                    accumulated_content += content
+                    detection_metadata["chars_captured"] = len(accumulated_content)
+
+                # Estimate tokens
+                tokens = self.estimate_tokens(accumulated_content)
+                detection_metadata["tokens_estimated"] = tokens
+
+                # Priority 1: Check for explicit closing tags
+                is_complete, tag = self.detect_by_tags(accumulated_content)
+                if is_complete:
+                    detection_metadata["method"] = f"explicit_tag:{tag}"
+                    logger.debug(
+                        f"Reasoning end detected by explicit tag: {tag} "
+                        f"(chunks: {detection_metadata['chunks_processed']}, "
+                        f"chars: {detection_metadata['chars_captured']})"
+                    )
+                    logger.debug(
+                        "Stream capture stopping - reasoning phase complete",
+                        extra={
+                            "detection_method": "explicit_tag",
+                            "tag": tag,
+                            "chunks_processed": detection_metadata["chunks_processed"],
+                            "chars_captured": detection_metadata["chars_captured"],
+                        },
+                    )
+                    break
+
+                # Priority 2: Check finish_reason in response metadata
+                is_complete, reason = self.detect_by_finish_reason(chunk)
+                if is_complete:
+                    detection_metadata["method"] = f"finish_reason:{reason}"
+                    logger.debug(
+                        f"Reasoning end detected by finish_reason: {reason} "
+                        f"(chunks: {detection_metadata['chunks_processed']}, "
+                        f"chars: {detection_metadata['chars_captured']})"
+                    )
+                    logger.debug(
+                        "Stream capture stopping - reasoning phase complete",
+                        extra={
+                            "detection_method": "finish_reason",
+                            "finish_reason": reason,
+                            "chunks_processed": detection_metadata["chunks_processed"],
+                            "chars_captured": detection_metadata["chars_captured"],
+                        },
+                    )
+                    break
+
+                # Priority 3: Check transition markers (with caution)
+                is_complete, marker = self.detect_by_markers(accumulated_content)
+                if is_complete and self._confirm_transition(accumulated_content):
+                    detection_metadata["method"] = f"transition_marker:{marker}"
+                    logger.debug(
+                        f"Reasoning end detected by transition marker: {marker} "
+                        f"(chunks: {detection_metadata['chunks_processed']}, "
+                        f"chars: {detection_metadata['chars_captured']})"
+                    )
+                    logger.debug(
+                        "Stream capture stopping - reasoning phase complete",
+                        extra={
+                            "detection_method": "transition_marker",
+                            "marker": marker,
+                            "chunks_processed": detection_metadata["chunks_processed"],
+                            "chars_captured": detection_metadata["chars_captured"],
+                        },
+                    )
+                    break
+
+                # Priority 4: Safety limit - token count
+                if tokens >= max_tokens:
+                    detection_metadata["method"] = "token_limit"
+                    logger.warning(
+                        f"Reasoning capture stopped at token limit: {tokens} >= {max_tokens} "
+                        f"(chunks: {detection_metadata['chunks_processed']}, "
+                        f"chars: {detection_metadata['chars_captured']})"
+                    )
+                    logger.debug(
+                        "Stream capture stopping - token limit reached",
+                        extra={
+                            "detection_method": "token_limit",
+                            "tokens": tokens,
+                            "max_tokens": max_tokens,
+                            "chunks_processed": detection_metadata["chunks_processed"],
+                            "chars_captured": detection_metadata["chars_captured"],
+                        },
+                    )
+                    break
+
+                # Priority 4: Safety limit - character count
+                if len(accumulated_content) >= max_chars:
+                    detection_metadata["method"] = "char_limit"
+                    logger.warning(
+                        f"Reasoning capture stopped at character limit: "
+                        f"{len(accumulated_content)} >= {max_chars} "
+                        f"(chunks: {detection_metadata['chunks_processed']})"
+                    )
+                    logger.debug(
+                        "Stream capture stopping - character limit reached",
+                        extra={
+                            "detection_method": "char_limit",
+                            "chars": len(accumulated_content),
+                            "max_chars": max_chars,
+                            "chunks_processed": detection_metadata["chunks_processed"],
+                        },
+                    )
+                    break
+
+        except Exception as e:
+            logger.error(f"Error capturing reasoning stream: {e}", exc_info=True)
+            detection_metadata["method"] = "error"
+            detection_metadata["error"] = str(e)
+
+        # Extract reasoning text from captured chunks
+        reasoning_text = self.extract_reasoning_content(chunks)
+        reasoning_complete = detection_metadata["method"] is not None
+
+        return reasoning_text, reasoning_complete, detection_metadata
+
+    def _parse_chunk(self, chunk_bytes: bytes) -> dict[str, Any] | None:
+        """
+        Parse a chunk from bytes to dictionary.
+
+        Handles SSE format (data: {...}) and raw JSON.
+
+        Args:
+            chunk_bytes: Raw chunk bytes
+
+        Returns:
+            Parsed chunk as dictionary, or None if parsing fails
+        """
+        try:
+            chunk_str = chunk_bytes.decode("utf-8").strip()
+
+            # Handle SSE format: "data: {...}"
+            if chunk_str.startswith("data: "):
+                chunk_str = chunk_str[6:].strip()
+
+            # Skip [DONE] markers
+            if chunk_str == "[DONE]" or chunk_str == "data: [DONE]":
+                return None
+
+            # Parse JSON
+            if chunk_str:
+                parsed_json = json.loads(chunk_str)
+                if isinstance(parsed_json, dict):
+                    return parsed_json
+                return None
+
+            return None
+
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            logger.debug(f"Failed to parse chunk: {e}")
+            return None
+
+    def _extract_content_from_chunk(self, chunk: dict[str, Any]) -> str:
+        """
+        Extract text content from a chunk.
+
+        Handles various response formats from different backends.
+
+        Args:
+            chunk: Parsed chunk dictionary
+
+        Returns:
+            Extracted text content, or empty string if none found
+        """
+        content_parts: list[str] = []
+
+        try:
+            streaming_chunk = StreamingContent.from_raw(chunk)
+        except Exception:  # pragma: no cover - defensive guard
+            streaming_chunk = None
+
+        if streaming_chunk is not None:
+            reasoning_value = streaming_chunk.metadata.get("reasoning_content")
+            if reasoning_value:
+                content_parts.append(self._coerce_text(reasoning_value))
+
+            streaming_content = streaming_chunk.content
+            if streaming_content:
+                content_parts.append(self._coerce_text(streaming_content))
+
+        if not content_parts:
+            # OpenAI format: choices[0].delta.content
+            choices = chunk.get("choices", [])
+
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+
+                delta = choice.get("delta")
+                if isinstance(delta, dict):
+                    content_parts.append(
+                        self._coerce_text(delta.get("reasoning_content"))
+                    )
+                    content_parts.append(self._coerce_text(delta.get("content")))
+
+                    # Some providers embed reasoning inside "message" even in delta
+                    if "message" in delta:
+                        content_parts.append(self._coerce_text(delta.get("message")))
+                    if "messages" in delta:
+                        content_parts.append(self._coerce_text(delta.get("messages")))
+
+                message = choice.get("message")
+                if message is not None:
+                    content_parts.append(self._coerce_text(message))
+
+        if not content_parts:
+            content_parts.append(self._coerce_text(chunk.get("reasoning_content")))
+            content_parts.append(self._coerce_text(chunk.get("content")))
+            content_parts.append(self._coerce_text(chunk.get("text")))
+
+        return "".join(part for part in content_parts if part)
+
+    def _coerce_text(self, value: Any) -> str:
+        """Convert different content payload shapes into text."""
+
+        if value is None:
+            return ""
+
+        if isinstance(value, str):
+            return value
+
+        if isinstance(value, list):
+            return "".join(self._coerce_text(item) for item in value)
+
+        if isinstance(value, dict):
+            # Prefer explicit text/content keys
+            for key in ("text", "content", "value", "message"):
+                if key in value:
+                    coerced = self._coerce_text(value[key])
+                    if coerced:
+                        return coerced
+            return ""
+
+        # Fallback: avoid noisy repr for non-string primitives
+        if isinstance(value, int | float):
+            return str(value)
+
+        return ""
+
+    def _normalize_chunk(self, content: Any) -> dict[str, Any] | None:
+        """Normalize ProcessedResponse content to a dictionary chunk."""
+
+        if isinstance(content, dict):
+            return content
+
+        if isinstance(content, bytes):
+            chunk = self._parse_chunk(content)
+            if chunk is not None:
+                return chunk
+            try:
+                text = content.decode("utf-8", errors="ignore")
+            except Exception:
+                return None
+            if text.strip().upper() == "DATA: [DONE]":
+                return None
+            return {"text": text}
+
+        if isinstance(content, str):
+            encoded = content.encode("utf-8")
+            chunk = self._parse_chunk(encoded)
+            if chunk is not None:
+                return chunk
+            if content.strip().upper() == "DATA: [DONE]" or content.strip() == "[DONE]":
+                return None
+            return {"text": content}
+
+        return None
+
+    def detect_by_tags(self, content: str) -> tuple[bool, str | None]:
+        """
+        Detect reasoning end by explicit closing tags.
+
+        This is the primary detection method with highest priority.
+
+        Args:
+            content: Content to check for tags
+
+        Returns:
+            Tuple of (detected, tag_found)
+        """
+        content_lower = content.lower()
+        for tag in self.REASONING_END_TAGS:
+            if tag in content_lower:
+                return True, tag
+        return False, None
+
+    def detect_by_finish_reason(self, chunk: dict[str, Any]) -> tuple[bool, str | None]:
+        """
+        Detect reasoning end by finish_reason in response metadata.
+
+        This is the secondary detection method.
+
+        Args:
+            chunk: Response chunk with potential finish_reason
+
+        Returns:
+            Tuple of (detected, finish_reason)
+        """
+        choices = chunk.get("choices", [])
+        for choice in choices:
+            finish_reason = choice.get("finish_reason")
+            if finish_reason and finish_reason not in ("null", None):
+                return True, finish_reason
+        return False, None
+
+    def detect_by_markers(self, content: str) -> tuple[bool, str | None]:
+        """
+        Detect reasoning end by content transition markers.
+
+        This is the tertiary detection method (use with caution).
+        Less reliable than explicit tags or finish_reason.
+
+        Args:
+            content: Content to check for markers
+
+        Returns:
+            Tuple of (detected, marker_found)
+        """
+        content_lower = content.lower()
+        for marker in self.TRANSITION_MARKERS:
+            if marker in content_lower:
+                return True, marker
+        return False, None
+
+    def _confirm_transition(self, content: str) -> bool:
+        """
+        Confirm transition marker is actually end of reasoning.
+
+        This prevents premature cancellation on transition markers
+        that appear early in the reasoning phase.
+
+        Args:
+            content: Accumulated content
+
+        Returns:
+            True if transition marker is likely end of reasoning
+        """
+        # Require minimum reasoning length to avoid premature detection
+        return len(content) > 1000
+
+    def extract_reasoning_content(self, chunks: list[dict[str, Any]]) -> str:
+        """
+        Extract reasoning text from captured chunks.
+
+        Handles different response formats (SSE, JSON chunks) and
+        extracts text content from various model response structures.
+
+        Args:
+            chunks: List of parsed response chunks
+
+        Returns:
+            Concatenated reasoning text
+        """
+        reasoning_parts: list[str] = []
+
+        for chunk in chunks:
+            content = self._extract_content_from_chunk(chunk)
+            if content:
+                reasoning_parts.append(content)
+
+        return "".join(reasoning_parts)
+
+    def estimate_tokens(self, text: str) -> int:
+        """
+        Estimate token count for safety limits.
+
+        Uses a simple heuristic: ~4 characters per token on average.
+        This is conservative and works across different tokenizers.
+
+        Args:
+            text: Text to estimate tokens for
+
+        Returns:
+            Estimated token count
+        """
+        # Simple heuristic: ~4 chars per token
+        return len(text) // 4

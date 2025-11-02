@@ -63,9 +63,9 @@ def _check_gemini_cli_authenticated() -> bool:
 
 def _check_gemini_cli_acp_working() -> bool:
     """Check if gemini-cli ACP mode is working properly."""
-    # Skip ACP tests entirely for now since the experimental feature
-    # is not working reliably in test environments
-    return False
+    # Check for environment variable to enable ACP testing
+    # Set ENABLE_GEMINI_ACP_TESTS=1 to run these tests
+    return os.environ.get("ENABLE_GEMINI_ACP_TESTS") == "1"
 
 
 def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 30.0) -> None:

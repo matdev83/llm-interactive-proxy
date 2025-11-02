@@ -64,6 +64,7 @@ from src.core.interfaces.streaming_response_processor_interface import IStreamNo
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
+from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
@@ -1105,6 +1106,17 @@ def register_core_services(
 
     _add_singleton(
         TranslationService, implementation_factory=_translation_service_factory
+    )
+
+    # Register ITranslationService interface to resolve to the same singleton instance
+    def _translation_service_interface_factory(
+        provider: IServiceProvider,
+    ) -> TranslationService:
+        return provider.get_required_service(TranslationService)
+
+    _add_singleton(
+        cast(type, ITranslationService),
+        implementation_factory=_translation_service_interface_factory,
     )
 
     # Register assessment services if enabled

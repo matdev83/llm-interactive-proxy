@@ -3,11 +3,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import pytest
-from src.core.domain.streaming_content import StreamingContent
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
+from src.core.ports.streaming import StreamingContent
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )

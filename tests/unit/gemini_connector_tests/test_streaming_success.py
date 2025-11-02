@@ -2,18 +2,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import httpx
 import pytest
 import pytest_asyncio
-
-if TYPE_CHECKING:
-    from pytest_httpx import HTTPXMock
-else:
-    # Provide a type alias for runtime when pytest_httpx is not available
-    HTTPXMock = None  # type: ignore[assignment]
-
+from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
 from src.core.common.exceptions import ServiceUnavailableError
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -48,7 +42,6 @@ def sample_processed_messages() -> list[ChatMessage]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(HTTPXMock is None, reason="pytest_httpx not installed")
 async def test_chat_completions_streaming_success(
     gemini_backend: GeminiBackend,
     httpx_mock: HTTPXMock,
@@ -103,7 +96,6 @@ async def test_chat_completions_streaming_success(
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(HTTPXMock is None, reason="pytest_httpx not installed")
 async def test_chat_completions_streaming_cancel_request(
     gemini_backend: GeminiBackend,
     httpx_mock: HTTPXMock,

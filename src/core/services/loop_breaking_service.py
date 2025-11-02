@@ -17,10 +17,10 @@ from src.core.common.logging_utils import get_logger
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.domain.request_context import RequestContext
-from src.core.domain.streaming_content import StreamingContent
 from src.core.interfaces.assessment_service_interface import IAssessmentService
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.ports.streaming import StreamingContent
 from src.core.services.assessment_prompts import get_steering_template
 
 logger = get_logger(__name__)

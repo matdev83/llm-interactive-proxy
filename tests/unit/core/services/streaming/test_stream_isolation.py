@@ -5,12 +5,12 @@ import json
 from collections.abc import AsyncGenerator
 
 import pytest
-from src.core.domain.streaming_content import StreamingContent
 from src.core.domain.streaming_response_processor import LoopDetectionProcessor
 from src.core.interfaces.loop_detector_interface import (
     ILoopDetector,
     LoopDetectionResult,
 )
+from src.core.ports.streaming import StreamingContent
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,

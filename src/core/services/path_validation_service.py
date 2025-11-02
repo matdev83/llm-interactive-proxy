@@ -71,18 +71,19 @@ class PathValidationService(IPathValidator):
             if not path or not path.strip():
                 raise ValueError("Path cannot be empty or whitespace-only")
 
-            # Handle home directory expansion
-            if path.startswith(("~/", "~\\")):
-                path = os.path.expanduser(path)
-
-            # Normalize path separators for cross-platform compatibility
-            # Convert mixed separators to the platform-appropriate separator
+            # Normalize path separators for cross-platform compatibility FIRST
+            # This ensures that Windows-style home paths (~\) work correctly on Unix
             if self._is_windows:
                 # On Windows, normalize forward slashes to backslashes
                 path = path.replace("/", "\\")
             else:
                 # On Unix-like systems, normalize backslashes to forward slashes
                 path = path.replace("\\", "/")
+
+            # Handle home directory expansion after path separator normalization
+            # Now ~\ will have been converted to ~/ on Unix systems
+            if path.startswith("~/"):
+                path = os.path.expanduser(path)
 
             # Convert to Path object
             path_obj = Path(path)

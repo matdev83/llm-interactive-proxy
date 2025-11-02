@@ -1349,6 +1349,16 @@ class Translation(BaseTranslator):
 
         # Basic validation for essential keys
         if "id" not in chunk or "choices" not in chunk:
+            if logger.isEnabledFor(logging.DEBUG):
+                try:
+                    logger.debug(
+                        "OpenAI stream chunk missing id/choices: %s",
+                        json.dumps(chunk)[:500],
+                    )
+                except Exception:
+                    logger.debug(
+                        "OpenAI stream chunk missing id/choices (non-serializable)"
+                    )
             return {"error": "Invalid chunk: missing 'id' or 'choices'"}
 
         # For simplicity, we'll return the chunk as a dictionary.

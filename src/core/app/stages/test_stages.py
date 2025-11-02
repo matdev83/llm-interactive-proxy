@@ -13,12 +13,15 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 from src.core.app.stages.base import InitializationStage
-from src.core.common.exceptions import InitializationError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.backend_factory_interface import IBackendFactory
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.translation_service_interface import ITranslationService
+from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService as _BackendService
+from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,46 @@ if TYPE_CHECKING:
     import httpx
 
 
-class MockBackendStage(InitializationStage):
+class BaseTestBackendStage(InitializationStage):
+    """Base class for test stages that provide backend services."""
+
+    def _override_session_service_for_test_compatibility(
+        self, services: ServiceCollection
+    ) -> None:
+        """Override session service to ensure it returns real Session objects instead of mocks.
+
+        This prevents the 'coroutine was never awaited' warnings that occur when
+        session service methods return AsyncMock instead of real Session objects.
+        """
+        try:
+            from typing import cast
+
+            from src.core.interfaces.repositories_interface import ISessionRepository
+            from src.core.interfaces.session_service_interface import ISessionService
+            from src.core.services.session_service_impl import SessionService
+
+            def session_service_factory(provider: IServiceProvider) -> SessionService:
+                """Factory function for creating SessionService with real session repository."""
+                repo: ISessionRepository = provider.get_required_service(
+                    cast(type, ISessionRepository)
+                )
+                return SessionService(repo)
+
+            # Override the session service registration to ensure it returns real Session objects
+            services.add_singleton(
+                SessionService, implementation_factory=session_service_factory
+            )
+            services.add_singleton(
+                cast(type, ISessionService),
+                implementation_factory=session_service_factory,
+            )
+
+            logger.debug("Overrode session service to ensure real Session objects")
+        except ImportError as e:
+            logger.warning(f"Could not override session service: {e}")
+
+
+class MockBackendStage(BaseTestBackendStage):
     """
     Test stage that provides mock backend services.
 
@@ -55,13 +97,23 @@ class MockBackendStage(InitializationStage):
         # Register mock backend config provider first
         self._register_backend_config_provider(services)
 
-        # Import required classes for service checks
+        # Get translation service first (it should be registered by CoreServicesStage)
+        provider = services.build_service_provider()
+        translation_service: TranslationService = provider.get_required_service(
+            TranslationService
+        )
 
-        # Always register mock services for test environments, overwriting real ones
-        self._register_mock_backend_factory(services)
+        # Register mock backend factory first before trying to resolve it
+        self._register_mock_backend_factory(services, translation_service)
         logger.debug("Registered mock backend factory")
 
-        self._register_mock_backend_service(services)
+        # Rebuild the provider to include the newly registered mock factory
+        provider = services.build_service_provider()
+        backend_factory: BackendFactory = provider.get_required_service(BackendFactory)
+
+        self._register_mock_backend_service(
+            services, config, backend_factory, translation_service
+        )
         logger.debug("Registered mock backend service")
 
         # Override session service to ensure real sessions instead of mocks
@@ -69,9 +121,6 @@ class MockBackendStage(InitializationStage):
 
         # Skip real backend service registration in test environment
         # The mock backend service should be sufficient for testing
-
-        # Override session service to ensure real sessions instead of mocks
-        self._override_session_service_for_test_compatibility(services)
 
         logger.info("Mock backend services initialized successfully")
 
@@ -120,9 +169,16 @@ class MockBackendStage(InitializationStage):
         except ImportError as e:
             logger.warning(f"Could not register mock backend config provider: {e}")
 
-    def _register_mock_backend_service(self, services: ServiceCollection) -> None:
+    def _register_mock_backend_service(
+        self,
+        services: ServiceCollection,
+        config: AppConfig,
+        backend_factory: IBackendFactory,
+        translation_service: ITranslationService,
+    ) -> None:
         """Register a comprehensive mock backend service."""
         try:
+            from src.connectors.base import LLMBackend
             from src.core.domain.responses import (
                 ResponseEnvelope,
                 StreamingResponseEnvelope,
@@ -143,86 +199,51 @@ class MockBackendStage(InitializationStage):
                     or (args[0] if args else None)
                 )
 
-                # Check if there's a configured mock backend that we should delegate to
-                # This allows tests to inject their own mock responses
+                # Check if we should delegate to a real (but patched) backend
                 try:
-                    from typing import cast
-
-                    from src.core.services.backend_service import BackendService
-
-                    provider = services.build_service_provider()
-                    backend_service = cast(BackendService, provider.get_required_service(IBackendService))  # type: ignore[type-abstract]
-
-                    # Check if the backend service has test-configured backends
+                    backend_type = None
+                    effective_model = None
                     if (
-                        hasattr(backend_service, "_backends")
-                        and "openrouter" in backend_service._backends
+                        request
+                        and hasattr(request, "model")
+                        and isinstance(request.model, str)
+                        and ":" in request.model
                     ):
-                        backend = backend_service._backends["openrouter"]
+                        parts = request.model.split(":", 1)
+                        backend_type = parts[0]
+                        effective_model = parts[1]
 
-                        if hasattr(backend, "chat_completions"):
-                            chat_completions = backend.chat_completions
+                    # If the backend type is one for which we create a "real" instance
+                    # in mock_get_or_create_backend, we can delegate the call to it.
+                    # This allows tests that patch connector classes to work correctly.
+                    if backend_type in ("openai-codex", "anthropic"):
+                        backend: LLMBackend = (
+                            await mock_backend_service._get_or_create_backend(
+                                backend_type
+                            )
+                        )
 
-                            if (
-                                hasattr(chat_completions, "side_effect")
-                                and chat_completions.side_effect is not None
-                            ):
-                                side_effect = chat_completions.side_effect
+                        # The real chat_completions method needs specific arguments.
+                        # The RequestProcessorService should have already translated the messages.
+                        processed_messages = kwargs.get("processed_messages", [])
 
-                                if callable(side_effect):
-                                    result = await side_effect(*args, **kwargs)
-                                    # Cast the result to the expected type
-                                    if isinstance(
-                                        result,
-                                        ResponseEnvelope | StreamingResponseEnvelope,
-                                    ):
-                                        return result
-                                    # If it's a dict, wrap it in a ResponseEnvelope
-                                    if isinstance(result, dict):
-                                        return ResponseEnvelope(
-                                            content=result,
-                                            headers={
-                                                "content-type": "application/json"
-                                            },
-                                            status_code=200,
-                                        )
-                                    return result  # type: ignore[no-any-return]
-                                else:
-                                    # side_effect is a list/iterator of responses
-                                    try:
-                                        # Try to get the next response from the side_effect
-                                        response = next(side_effect)
-
-                                        # Wrap the response in a ResponseEnvelope if it's not already
-                                        if isinstance(response, dict):
-                                            return ResponseEnvelope(
-                                                content=response,
-                                                headers={
-                                                    "content-type": "application/json"
-                                                },
-                                                status_code=200,
-                                            )
-                                        return response  # type: ignore[no-any-return]
-                                    except StopIteration:
-                                        # Iterator exhausted, fall back to default behavior
-                                        pass
-                            elif (
-                                hasattr(chat_completions, "return_value")
-                                and chat_completions.return_value is not None
-                            ):
-                                return_value = chat_completions.return_value
-
-                                # Wrap the response in a ResponseEnvelope if it's not already
-                                if isinstance(return_value, dict):
-                                    return ResponseEnvelope(
-                                        content=return_value,
-                                        headers={"content-type": "application/json"},
-                                        status_code=200,
-                                    )
-                                return return_value  # type: ignore[no-any-return]
-                except Exception:
-                    # If we can't get the backend or it fails, fall back to default behavior
-                    pass
+                        # The connector's method is what's patched by the test.
+                        if request and effective_model:
+                            return await backend.chat_completions(
+                                request_data=request,
+                                processed_messages=processed_messages,
+                                effective_model=effective_model,
+                            )
+                        # Fallback to the generic mock response if request or effective_model is None
+                        logger.warning(
+                            "Delegation in mock_chat_completions falling back: request or effective_model is None"
+                        )
+                        return await mock_chat_completions(*args, **kwargs)
+                except Exception as e:
+                    # Log delegation failure but fall through to the generic mock response
+                    logger.warning(
+                        f"Delegation to patched backend in mock_chat_completions failed: {e}"
+                    )
 
                 # Check if tools are requested
                 tools = getattr(request, "tools", None) if request else None
@@ -438,56 +459,57 @@ class MockBackendStage(InitializationStage):
                     return await patched_call(*args, **kwargs)  # type: ignore[misc]
 
                 try:
-                    # Attempt to import Anthropic connector and call its method.
-                    # If tests patched AnthropicBackend.chat_completions, their
-                    # AsyncMock will be invoked here and awaited.
-                    from src.connectors.anthropic import AnthropicBackend
-                    from src.core.config.app_config import AppConfig
-                    from src.core.services.translation_service import TranslationService
+                    # Attempt to delegate to a real backend instance to honor test patches
+                    # on connector methods. This requires performing translation manually
+                    # as call_completion bypasses the RequestProcessorService.
 
-                    # Try to get existing translation service from services
-                    translation_service = None
-                    try:
-                        provider = services.build_service_provider()
-                        translation_service = provider.get_required_service(
-                            TranslationService
+                    backend_type = None
+                    effective_model = None
+                    if (
+                        request
+                        and hasattr(request, "model")
+                        and isinstance(request.model, str)
+                        and ":" in request.model
+                    ):
+                        backend_type, effective_model = request.model.split(":", 1)
+
+                    if backend_type in ("anthropic", "openai-codex"):
+                        # Get the "real" backend instance, which might have patched methods
+                        real_backend = (
+                            await mock_backend_service._get_or_create_backend(
+                                backend_type
+                            )
                         )
-                    except Exception:
-                        translation_service = None
 
-                    httpx_client = self._resolve_httpx_client(services)
-                    if httpx_client is None:
-                        logger.debug(
-                            "No shared HTTP client available; using mock backend"
-                        )
-                        return await mock_chat_completions(*args, **kwargs)
+                        # Manually translate messages, as this is normally done by RequestProcessorService.
+                        # Use the injected translation service.
 
-                    if translation_service is None:
-                        logger.debug(
-                            "TranslationService unavailable for mock backend factory"
-                        )
-                        return await mock_chat_completions(*args, **kwargs)
+                        processed_messages = []
+                        if (
+                            request
+                            and hasattr(request, "messages")
+                            and request.messages
+                        ):
+                            domain_request = translation_service.to_domain_request(
+                                request, backend_type
+                            )
+                            processed_messages = domain_request.messages
 
-                    real_backend = AnthropicBackend(
-                        httpx_client, AppConfig(), translation_service
-                    )
-                    # Call connector using a minimal processed_messages list and
-                    # the request.model as effective_model when available.
-                    processed_messages: list[dict[str, str]] = []
-                    effective_model = (
-                        getattr(request, "model", "mock-model")
-                        if request
-                        else "mock-model"
-                    )
-                    # Ensure request is not None before passing to chat_completions
-                    if request is not None:
+                        # Call the (potentially patched) chat_completions method
                         return await real_backend.chat_completions(
-                            request, processed_messages, effective_model
+                            request_data=request,
+                            processed_messages=processed_messages,
+                            effective_model=effective_model,
                         )
                     else:
-                        # Fall back to global mock behavior if request is None
+                        # If backend type is not supported for delegation, fall back to mock
                         return await mock_chat_completions(*args, **kwargs)
-                except Exception:
+
+                except Exception as e:
+                    logger.warning(
+                        f"Delegation in _call_completion_delegate failed: {e}. "
+                        "Falling back to generic mock response."
+                    )
                     # Fall back to global mock behavior
                     return await mock_chat_completions(*args, **kwargs)
 
@@ -540,53 +562,30 @@ class MockBackendStage(InitializationStage):
                 # that patch connector implementations, e.g. patching
                 # src.connectors.anthropic.AnthropicBackend.chat_completions).
                 try:
-                    if backend_type == "anthropic":
-                        from src.connectors.anthropic import AnthropicBackend
-                        from src.core.config.app_config import AppConfig
-                        from src.core.services.translation_service import (
-                            TranslationService,
+                    real_backend: LLMBackend
+                    # Use the injected BackendFactory and TranslationService to create real backends
+                    httpx_client = self._resolve_httpx_client(services)
+
+                    if httpx_client is None:
+                        logger.debug(
+                            "No shared HTTP client available for backend; "
+                            "falling back to mock"
                         )
+                        mock_backend = MagicMock()
+                        mock_backend.chat_completions = AsyncMock(
+                            side_effect=mock_chat_completions
+                        )
+                        return mock_backend
 
-                        # Try to get existing translation service from services
-                        translation_service = None
-                        try:
-                            provider = services.build_service_provider()
-                            translation_service = provider.get_required_service(
-                                TranslationService
-                            )
-                        except Exception:
-                            translation_service = None
+                    if backend_type == "anthropic" or backend_type == "openai-codex":
+                        real_backend = backend_factory.create_backend(
+                            backend_type,
+                            config=config,
+                        )
+                        await real_backend.initialize()
+                        mock_backend_service._backend_cache[backend_type] = real_backend
+                        return real_backend
 
-                        httpx_client = self._resolve_httpx_client(services)
-                        if httpx_client is None:
-                            logger.debug(
-                                "No shared HTTP client available for anthropic backend; "
-                                "falling back to mock"
-                            )
-                            # Fall back to mock behavior instead of raising error
-                        else:
-                            if translation_service is None:
-                                logger.debug(
-                                    "TranslationService unavailable for mock backend factory"
-                                )
-                                # Return a mock backend since we can't create a real one
-                                mock_backend = MagicMock()
-                                mock_backend.chat_completions = AsyncMock(
-                                    side_effect=mock_chat_completions
-                                )
-                                return mock_backend
-
-                            real_backend = AnthropicBackend(
-                                httpx_client, AppConfig(), translation_service
-                            )
-                            # If the connector was patched in tests, its methods will
-                            # already reflect the patch. Cache and return the real
-                            # backend so tests that patch connector class methods
-                            # observe calls.
-                            mock_backend_service._backend_cache[backend_type] = (
-                                real_backend
-                            )
-                            return real_backend
                 except Exception:
                     # Fall back to mock backend when real instantiation fails
                     pass
@@ -612,34 +611,20 @@ class MockBackendStage(InitializationStage):
 
             # Always register the mock service instance to ensure it overrides any
             # previously registered real service.
-            services.add_instance(
-                IBackendService, mock_backend_service
-            )  # noqa: DI-bypass (test fallback)
+            services.add_instance(IBackendService, mock_backend_service)
             logger.debug("Registered mock backend service with full method coverage")
         except ImportError as e:
             logger.warning(f"Could not register mock backend service: {e}")
 
-    def _register_mock_backend_factory(self, services: ServiceCollection) -> None:
+    def _register_mock_backend_factory(
+        self, services: ServiceCollection, translation_service: ITranslationService
+    ) -> None:
         """Register a mock backend factory."""
         try:
             from src.connectors.base import LLMBackend
             from src.core.services.backend_factory import BackendFactory
 
             # Create mock backend factory
-            from src.core.services.translation_service import TranslationService
-
-            # Try to get existing translation service or create a new one
-            translation_service = None
-            try:
-                provider = services.build_service_provider()
-                translation_service = provider.get_required_service(TranslationService)
-            except Exception:
-                translation_service = None
-            if translation_service is None:
-                raise InitializationError(
-                    "TranslationService unavailable for mock backend factory"
-                )
-
             mock_factory = MagicMock(spec=BackendFactory)
             mock_factory.translation_service = translation_service
 
@@ -671,6 +656,8 @@ class MockBackendStage(InitializationStage):
             # Always register the mock factory instance to ensure it overrides any
             # previously registered real factory.
             services.add_instance(BackendFactory, mock_factory)
+            # Register the interface to resolve to the same mock factory instance
+            services.add_instance(IBackendFactory, mock_factory)
             logger.debug("Registered mock backend factory")
         except ImportError as e:
             logger.warning(f"Could not register mock backend factory: {e}")
@@ -725,7 +712,7 @@ class MockBackendStage(InitializationStage):
 
                     wire_capture = provider.get_service(cast(type, IWireCapture))
 
-                return BackendService(  # noqa: DI-bypass (test fallback)
+                return BackendService(
                     backend_factory,
                     rate_limiter,
                     app_config,
@@ -750,41 +737,6 @@ class MockBackendStage(InitializationStage):
             logger.debug("Registered BackendService with all dependencies")
         except ImportError as e:
             logger.warning(f"Could not register mock backend factory: {e}")
-
-    def _override_session_service_for_test_compatibility(
-        self, services: ServiceCollection
-    ) -> None:
-        """Override session service to ensure it returns real Session objects instead of mocks.
-
-        This prevents the 'coroutine was never awaited' warnings that occur when
-        session service methods return AsyncMock instead of real Session objects.
-        """
-        try:
-            from typing import cast
-
-            from src.core.interfaces.repositories_interface import ISessionRepository
-            from src.core.interfaces.session_service_interface import ISessionService
-            from src.core.services.session_service_impl import SessionService
-
-            def session_service_factory(provider: IServiceProvider) -> SessionService:
-                """Factory function for creating SessionService with real session repository."""
-                repo: ISessionRepository = provider.get_required_service(
-                    cast(type, ISessionRepository)
-                )
-                return SessionService(repo)  # noqa: DI-bypass
-
-            # Override the session service registration to ensure it returns real Session objects
-            services.add_singleton(
-                SessionService, implementation_factory=session_service_factory
-            )
-            services.add_singleton(
-                cast(type, ISessionService),
-                implementation_factory=session_service_factory,
-            )
-
-            logger.debug("Overrode session service to ensure real Session objects")
-        except ImportError as e:
-            logger.warning(f"Could not override session service: {e}")
 
 
 class MinimalTestStage(InitializationStage):
@@ -858,7 +810,7 @@ class MinimalTestStage(InitializationStage):
             logger.warning(f"Could not register mock request processor: {e}")
 
 
-class RealBackendTestStage(InitializationStage):
+class RealBackendTestStage(BaseTestBackendStage):
     """
     Test stage that provides real backend services for HTTP mocking tests.
 
@@ -891,41 +843,6 @@ class RealBackendTestStage(InitializationStage):
         self._override_session_service_for_test_compatibility(services)
 
         logger.info("Real backend services for HTTP mocking initialized successfully")
-
-    def _override_session_service_for_test_compatibility(
-        self, services: ServiceCollection
-    ) -> None:
-        """Override session service to ensure it returns real Session objects instead of mocks.
-
-        This prevents the 'coroutine was never awaited' warnings that occur when
-        session service methods return AsyncMock instead of real Session objects.
-        """
-        try:
-            from typing import cast
-
-            from src.core.interfaces.repositories_interface import ISessionRepository
-            from src.core.interfaces.session_service_interface import ISessionService
-            from src.core.services.session_service_impl import SessionService
-
-            def session_service_factory(provider: IServiceProvider) -> SessionService:
-                """Factory function for creating SessionService with real session repository."""
-                repo: ISessionRepository = provider.get_required_service(
-                    cast(type, ISessionRepository)
-                )
-                return SessionService(repo)  # noqa: DI-bypass
-
-            # Override the session service registration to ensure it returns real Session objects
-            services.add_singleton(
-                SessionService, implementation_factory=session_service_factory
-            )
-            services.add_singleton(
-                cast(type, ISessionService),
-                implementation_factory=session_service_factory,
-            )
-
-            logger.debug("Overrode session service to ensure real Session objects")
-        except ImportError as e:
-            logger.warning(f"Could not override session service: {e}")
 
 
 class CustomTestStage(InitializationStage):

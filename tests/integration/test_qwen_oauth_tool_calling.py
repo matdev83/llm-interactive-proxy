@@ -20,13 +20,9 @@ from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
 
 # Mark all tests in this module as integration and network tests
-# Additionally skip them by default to prevent OAuth browser popups during regular test runs
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.network,
-    pytest.mark.skip(
-        reason="Qwen OAuth integration tests disabled to prevent browser OAuth flows - run with --run-qwen-oauth to enable"
-    ),
 ]
 
 
