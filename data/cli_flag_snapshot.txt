@@ -74,6 +74,7 @@
 --project-dir-resolution-mode
 --project-dir-resolution-model
 --reasoning-injection-probability
+--reasoning_injection_probability
 --static-route
 --strict-command-detection
 --thinking-budget

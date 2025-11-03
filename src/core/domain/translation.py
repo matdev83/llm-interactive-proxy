@@ -2014,7 +2014,12 @@ class Translation(BaseTranslator):
         # Track tool_call id -> function name to map tool responses
         tool_name_by_id: dict[str, str] = {}
 
-        for message in request.messages:
+        # Group consecutive tool messages together to match Gemini's requirement
+        # that all functionResponse parts must be in a single user message
+        i = 0
+        while i < len(request.messages):
+            message = request.messages[i]
+
             # Map assistant role to 'model' for Gemini compatibility; keep others as-is
             if message.role == "assistant":
                 gemini_role = "model"
@@ -2027,7 +2032,10 @@ class Translation(BaseTranslator):
             parts: list[dict[str, Any]] = []
 
             # Add assistant tool calls as functionCall parts
-            if message.role == "assistant" and getattr(message, "tool_calls", None):
+            has_tool_calls = message.role == "assistant" and getattr(
+                message, "tool_calls", None
+            )
+            if has_tool_calls:
                 try:
                     for tc in message.tool_calls or []:
                         tc_dict = tc if isinstance(tc, dict) else tc.model_dump()
@@ -2053,51 +2061,74 @@ class Translation(BaseTranslator):
                     pass
 
             # Handle content which could be string, list of parts, or None
-            if isinstance(message.content, str):
-                # Simple text content
-                parts.append({"text": message.content})
-            elif isinstance(message.content, list):
-                # Multimodal content (list of parts)
-                for part in message.content:
-                    if hasattr(part, "type") and part.type == "image_url":
-                        processed_image = Translation._process_gemini_image_part(part)
-                        if processed_image:
-                            parts.append(processed_image)
-                    elif hasattr(part, "type") and part.type == "text":
-                        from src.core.domain.chat import MessageContentPartText
+            # IMPORTANT: Gemini API requires that if a message has functionCall parts,
+            # it should NOT have text content in the same message. This prevents
+            # "number of function response parts not equal to function call parts" errors.
+            if not has_tool_calls:
+                if isinstance(message.content, str):
+                    # Simple text content
+                    parts.append({"text": message.content})
+                elif isinstance(message.content, list):
+                    # Multimodal content (list of parts)
+                    for part in message.content:
+                        if hasattr(part, "type") and part.type == "image_url":
+                            processed_image = Translation._process_gemini_image_part(
+                                part
+                            )
+                            if processed_image:
+                                parts.append(processed_image)
+                        elif hasattr(part, "type") and part.type == "text":
+                            from src.core.domain.chat import MessageContentPartText
 
-                        # Handle text part
-                        if isinstance(part, MessageContentPartText) and hasattr(
-                            part, "text"
-                        ):
-                            parts.append({"text": part.text})
-                    else:
-                        # Try best effort conversion
-                        if hasattr(part, "model_dump"):
-                            part_dict = part.model_dump()
-                            if "text" in part_dict:
-                                parts.append({"text": part_dict["text"]})
+                            # Handle text part
+                            if isinstance(part, MessageContentPartText) and hasattr(
+                                part, "text"
+                            ):
+                                parts.append({"text": part.text})
+                        else:
+                            # Try best effort conversion
+                            if hasattr(part, "model_dump"):
+                                part_dict = part.model_dump()
+                                if "text" in part_dict:
+                                    parts.append({"text": part_dict["text"]})
 
             # Map tool role messages to functionResponse parts
+            # Group all consecutive tool messages into a single user message
             if message.role == "tool":
-                # Try to map tool_call_id back to the function name
-                name = tool_name_by_id.get(getattr(message, "tool_call_id", ""), "")
-                resp_obj: dict[str, Any]
-                val = message.content
-                # Try to parse JSON result if provided
-                if isinstance(val, str):
-                    import json as _json
+                # Collect all consecutive tool messages
+                tool_messages = [message]
+                j = i + 1
+                while j < len(request.messages) and request.messages[j].role == "tool":
+                    tool_messages.append(request.messages[j])
+                    j += 1
 
-                    try:
-                        resp_obj = _json.loads(val)
-                    except Exception:
-                        resp_obj = {"text": val}
-                elif isinstance(val, dict):
-                    resp_obj = val
-                else:
-                    resp_obj = {"text": str(val)}
+                # Process all tool messages into functionResponse parts
+                for tool_msg in tool_messages:
+                    # Try to map tool_call_id back to the function name
+                    name = tool_name_by_id.get(
+                        getattr(tool_msg, "tool_call_id", ""), ""
+                    )
+                    resp_obj: dict[str, Any]
+                    val = tool_msg.content
+                    # Try to parse JSON result if provided
+                    if isinstance(val, str):
+                        import json as _json
 
-                parts.append({"functionResponse": {"name": name, "response": resp_obj}})
+                        try:
+                            resp_obj = _json.loads(val)
+                        except Exception:
+                            resp_obj = {"text": val}
+                    elif isinstance(val, dict):
+                        resp_obj = val
+                    else:
+                        resp_obj = {"text": str(val)}
+
+                    parts.append(
+                        {"functionResponse": {"name": name, "response": resp_obj}}
+                    )
+
+                # Skip the tool messages we just processed
+                i = j - 1
 
             # Add parts to message
             msg_dict["parts"] = parts  # type: ignore
@@ -2105,6 +2136,8 @@ class Translation(BaseTranslator):
             # Only add non-empty messages
             if parts:
                 contents.append(msg_dict)
+
+            i += 1
 
         result = {"contents": contents, "generationConfig": config}
 
