@@ -83,6 +83,7 @@ graph TD
 - [Quick Start](#quick-start)
 - [Using It Day-To-Day](#using-it-day-to-day)
 - [Dangerous Command Protection](#dangerous-command-protection)
+- [File Access Sandboxing](#file-access-sandboxing)
 - [Security](#security)
 - [Debugging (Wire Capture)](#debugging-wire-capture)
 - [Optional Capabilities (Short List)](#optional-capabilities-short-list)
@@ -561,6 +562,121 @@ git filter-branch --prune-empty
 
 **Note**: This protection is enabled by default for security. Only disable it if you understand the risks and need to execute these specific commands for legitimate reasons.
 
+## File Access Sandboxing
+
+The proxy includes file access sandboxing to prevent LLM agents from modifying files outside your project directory. This security feature protects system files and other sensitive directories while allowing normal development work within your project workspace.
+
+### Key Features
+
+- **Project-Aware Protection**: Automatically restricts file operations to the detected project root directory
+- **Path Normalization**: Handles relative paths, symlinks, `~` expansion, and cross-platform path formats (Windows/Unix)
+- **Comprehensive Tool Coverage**: Monitors common file-changing tools including `write_file`, `fsWrite`, `str_replace`, `strReplace`, `edit_file`, `delete_file`, `create_file`, and more
+- **Real-Time Blocking**: Intercepts file operations at the tool call level before they can execute
+- **Transparent Operation**: Works seamlessly with existing project directory detection
+
+### Configuration
+
+**Configuration (precedence: CLI > Environment > Config File)**:
+
+**CLI Flags**:
+- `--enable-sandboxing` to enable file access sandboxing
+
+**Environment Variables**:
+- `ENABLE_SANDBOXING=true|false` (default: false)
+
+**Config File** (`config.yaml`):
+```yaml
+sandboxing:
+  enabled: true
+```
+
+### Usage Examples
+
+```bash
+# Enable sandboxing via CLI
+python -m src.core.cli --enable-sandboxing --default-backend openai
+
+# Enable via environment variable
+export ENABLE_SANDBOXING=true
+python -m src.core.cli
+
+# In config.yaml
+sandboxing:
+  enabled: true
+```
+
+### Behavior
+
+When sandboxing is enabled and a project root is detected:
+
+1. **Path Validation**: All file operation paths are normalized and validated against the project root
+2. **Boundary Enforcement**: Operations outside the project directory are blocked
+3. **Clear Error Messages**: Returns descriptive error explaining the allowed directory
+4. **Audit Logging**: Logs all blocked operations with session ID, tool name, and attempted path
+
+**Example blocked operation**:
+```
+Tool: write_file
+Path: /etc/hosts
+Result: BLOCKED
+Message: "File operation outside project root detected. Allowed folder: /home/user/my-project"
+```
+
+### Path Handling
+
+The sandboxing system correctly handles:
+
+- **Relative paths**: `../../../etc/passwd` → Normalized to absolute path and validated
+- **Home directory**: `~/sensitive-file` → Expanded and validated
+- **Symlinks**: Resolved to actual paths before validation
+- **Cross-platform**: Works on both Windows (`C:\`, `\`) and Unix (`/`) systems
+
+### Requirements
+
+- **Project Root Detection**: Sandboxing only activates when a project root is detected for the session
+- **No Project Root**: If no project root is detected, all file operations are allowed (with a warning logged)
+- **Automatic Detection**: Works with the proxy's automatic project directory detection feature
+
+### Advanced Configuration
+
+Customize which tools and path parameters are monitored:
+
+```yaml
+sandboxing:
+  enabled: true
+  tool_patterns:
+    - "write_file"
+    - "fsWrite"
+    - "str_replace"
+    - "strReplace"
+    - "edit_file"
+    - "delete_file"
+    - "deleteFile"
+    - "create_file"
+    - "move_file"
+    - "rename_file"
+    - "copy_file"
+  path_params:
+    - "path"
+    - "file_path"
+    - "filepath"
+    - "file"
+    - "target"
+    - "destination"
+    - "source"
+    - "paths"
+    - "files"
+```
+
+### Use Cases
+
+- **System Protection**: Prevent accidental or malicious modifications to system files (`/etc`, `/usr`, `C:\Windows`)
+- **Multi-Project Safety**: Ensure agents working on one project don't accidentally modify files in other projects
+- **Shared Environments**: Protect other users' files in shared development environments
+- **CI/CD Safety**: Add an extra layer of protection in automated environments
+
+**Note**: Sandboxing is disabled by default to maintain backward compatibility. Enable it when working with untrusted prompts or in production environments where file access control is critical.
+
 ## Killer Features
 
 ### Compatibility
@@ -723,12 +839,13 @@ The hybrid backend has been tested with several model combinations with varying 
 **✅ Tested and Promising:**
 - **Reasoning**: MiniMax-M2
 - **Execution**: Qwen3-Coder-Plus
+- **Model String**: `hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]`
 - **Status**: Results are promising but not yet production-grade
 
 **⚠️ Tested with Limited Success:**
 - Other model combinations have been tested but did not show great success
 
-**Recommendation**: If you're interested in testing this experimental feature, start with the MiniMax-M2 + Qwen3-Coder-Plus combination as it has shown the most promise in testing.
+**Recommendation**: If you're interested in testing this experimental feature, use the model string `hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]` as it has shown the most promise in testing.
 
 ### Key Benefits
 

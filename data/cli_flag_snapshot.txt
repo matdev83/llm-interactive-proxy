@@ -46,6 +46,7 @@
 --enable-pytest-compression
 --enable-pytest-context-saving
 --enable-pytest-full-suite-steering
+--enable-sandboxing
 --fix-think-tags
 --force-context-window
 --force-set-project

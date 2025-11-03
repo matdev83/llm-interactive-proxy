@@ -296,6 +296,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help="Enable strict command detection (requires commands to be at the start of messages)",
     )
+    parser.add_argument(
+        "--enable-sandboxing",
+        action="store_true",
+        default=None,
+        help="Enable file access sandboxing to restrict file operations to the project directory (env: ENABLE_SANDBOXING)",
+    )
 
     # Planning phase options
     parser.add_argument(
@@ -1156,6 +1162,17 @@ def apply_cli_args(
             "session.dangerous_command_prevention_enabled",
             not args.disable_dangerous_git_commands_protection,
             "--disable-dangerous-git-commands-protection",
+        )
+
+    # File access sandboxing
+    if getattr(args, "enable_sandboxing", None) is not None:
+        sandboxing_overrides = cli_overrides.setdefault("sandboxing", {})
+        sandboxing_overrides["enabled"] = args.enable_sandboxing
+        os.environ["ENABLE_SANDBOXING"] = "true" if args.enable_sandboxing else "false"
+        record_cli(
+            "sandboxing.enabled",
+            args.enable_sandboxing,
+            "--enable-sandboxing",
         )
 
     # Tool Access Control global overrides

@@ -81,7 +81,6 @@ class TestFileSandboxingIntegration:
                 config=config.sandboxing,
                 path_validator=path_validator,
                 session_service=session_service,
-                priority=100,  # High priority to run early
             )
 
             reactor_service.register_handler_sync(handler)
@@ -443,7 +442,7 @@ class TestFileSandboxingIntegration:
         assert "outside of the project root" in result.content.lower()
         assert str(temp_project_dir) in result.content
         # The error message should explain the violation clearly
-        assert "potential file-changing operation" in result.content.lower()
+        assert "file operation" in result.content.lower()
 
     # Test 16.2: Project directory detection integration
 

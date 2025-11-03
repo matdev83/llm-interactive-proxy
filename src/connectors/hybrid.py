@@ -1755,7 +1755,7 @@ class HybridConnector(LLMBackend):
             # Check for reasoning_effort parameter and log warning
             has_reasoning_effort_in_reasoning = "reasoning_effort" in reasoning_params
             has_reasoning_effort_in_execution = "reasoning_effort" in execution_params
-            
+
             if has_reasoning_effort_in_reasoning or has_reasoning_effort_in_execution:
                 logger.warning(
                     "reasoning_effort parameter in hybrid model string is not effective. "
@@ -1770,15 +1770,19 @@ class HybridConnector(LLMBackend):
                         "reasoning_effort_in_execution": has_reasoning_effort_in_execution,
                     },
                 )
-                
+
                 # Remove reasoning_effort from parameters to prevent it from being applied
                 if has_reasoning_effort_in_reasoning:
                     reasoning_params = {
-                        k: v for k, v in reasoning_params.items() if k != "reasoning_effort"
+                        k: v
+                        for k, v in reasoning_params.items()
+                        if k != "reasoning_effort"
                     }
                 if has_reasoning_effort_in_execution:
                     execution_params = {
-                        k: v for k, v in execution_params.items() if k != "reasoning_effort"
+                        k: v
+                        for k, v in execution_params.items()
+                        if k != "reasoning_effort"
                     }
 
             # Log hybrid request initiation with session and model details
