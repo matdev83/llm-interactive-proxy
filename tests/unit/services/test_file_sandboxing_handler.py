@@ -159,7 +159,7 @@ class TestFileSandboxingHandler:
         result = await handler.handle(context)
 
         assert result.should_swallow is True
-        assert "outside of the project root" in result.replacement_response.lower()
+        assert "paths outside project root" in result.replacement_response.lower()
         assert result.metadata["decision"] == "blocked"
 
     @pytest.mark.asyncio

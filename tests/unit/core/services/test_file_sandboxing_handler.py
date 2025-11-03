@@ -113,7 +113,7 @@ async def test_handle_blocks_path_outside_project(handler, mock_path_validator):
     assert isinstance(result, ToolCallReactionResult)
     assert result.should_swallow is True
     assert result.replacement_response is not None
-    assert "outside of the project root" in result.replacement_response
+    assert "Paths outside project root" in result.replacement_response
     # Check for project path (platform-agnostic - could be /home/user/project or \home\user\project)
     assert "project" in result.replacement_response
     assert result.metadata["decision"] == "blocked"
@@ -423,7 +423,7 @@ class TestBlockingLogic:
 
         assert result.should_swallow is True
         assert result.replacement_response is not None
-        assert "outside of the project root" in result.replacement_response
+        assert "Paths outside project root" in result.replacement_response
         assert result.metadata["decision"] == "blocked"
         assert handler.get_metrics()["blocked_count"] == 1
 

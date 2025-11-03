@@ -157,7 +157,7 @@ class TestFileSandboxingIntegration:
         # Verify the tool call was blocked
         assert isinstance(result, ProcessedResponse)
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "outside of the project root" in result.content.lower()
+        assert "paths outside project root" in result.content.lower()
 
     @pytest.mark.asyncio
     async def test_cline_write_to_file_allowed_inside_project(self, temp_project_dir):
@@ -237,7 +237,7 @@ class TestFileSandboxingIntegration:
 
         # Verify the tool call was blocked
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "outside of the project root" in result.content.lower()
+        assert "paths outside project root" in result.content.lower()
 
     @pytest.mark.asyncio
     async def test_kilocode_apply_diff_with_relative_path(self, temp_project_dir):
@@ -314,7 +314,7 @@ class TestFileSandboxingIntegration:
 
         # Verify the tool call was blocked
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "outside of the project root" in result.content.lower()
+        assert "paths outside project root" in result.content.lower()
 
     @pytest.mark.asyncio
     async def test_codex_apply_patch_allowed_inside_project(self, temp_project_dir):
@@ -439,7 +439,7 @@ class TestFileSandboxingIntegration:
 
         # Verify error response format
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "outside of the project root" in result.content.lower()
+        assert "paths outside project root" in result.content.lower()
         assert str(temp_project_dir) in result.content
         # The error message should explain the violation clearly
         assert "file operation" in result.content.lower()
@@ -857,7 +857,7 @@ class TestFileSandboxingIntegration:
 
         # Should be blocked by sandboxing (not access control)
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "outside of the project root" in result.content.lower()
+        assert "paths outside project root" in result.content.lower()
 
     @pytest.mark.asyncio
     async def test_tool_access_control_blocks_before_sandboxing(self, temp_project_dir):

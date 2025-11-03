@@ -117,11 +117,7 @@ class FileSandboxingHandler(IToolCallHandler):
                 return False
 
         # Check if tool matches file-changing patterns
-        for pattern in self._tool_patterns:
-            if pattern.search(tool_name):
-                return True
-
-        return False
+        return any(pattern.search(tool_name) for pattern in self._tool_patterns)
 
     async def can_handle(self, context: ToolCallContext) -> bool:
         """Check if this handler can process the given tool call.
@@ -140,169 +136,142 @@ class FileSandboxingHandler(IToolCallHandler):
         return self._is_file_changing_tool(context.tool_name)
 
     async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
-        """Handle the tool call by validating file paths.
-
-        Args:
-            context: The tool call context
-
-        Returns:
-            ToolCallReactionResult indicating whether to block the call
-        """
+        """Handle the tool call by validating file paths."""
         try:
-            # Get session to retrieve project directory
             session = await self._session_service.get_session(context.session_id)
             project_dir = session.state.project_dir
 
-            # If no project directory is set, allow the operation
-            # (Requirements 2.2: When no project root is detected, allow all operations)
             if not project_dir:
                 logger.debug(
-                    f"No project directory set for session {context.session_id}, "
-                    f"allowing tool call '{context.tool_name}'"
+                    f"No project directory set for session {context.session_id}, allowing tool call '{context.tool_name}'"
                 )
                 return ToolCallReactionResult(
                     should_swallow=False,
                     metadata={"decision": "skipped_no_project_dir"},
                 )
 
-            # Normalize project directory to absolute path
             project_root = Path(project_dir).resolve()
 
-            # Extract paths from tool arguments
-            paths = self._validator.extract_paths_from_arguments(
-                context.tool_arguments, self._config.path_parameter_names
-            )
-
-            # If no paths found, log warning and handle based on strict mode
-            if not paths:
-                logger.warning(
-                    f"No file paths found in tool call '{context.tool_name}' "
-                    f"with arguments: {list(context.tool_arguments.keys())}"
+            try:
+                paths = self._validator.extract_paths_from_arguments(
+                    context.tool_arguments, self._config.path_parameter_names
                 )
+            except ValueError as e:
+                logger.error(
+                    f"Path extraction failed for tool '{context.tool_name}': {e}",
+                    exc_info=True,
+                )
+                self._validation_errors += 1
                 if self._config.strict_mode:
-                    # In strict mode, block tool calls with no extractable paths
-                    logger.warning(
-                        f"Blocking tool call '{context.tool_name}' in strict mode "
-                        f"due to missing file paths"
-                    )
                     self._blocked_count += 1
                     return ToolCallReactionResult(
                         should_swallow=True,
-                        replacement_response=(
-                            f"File operation blocked: No file paths found in tool call. "
-                            f"Allowed folder: {project_root}"
-                        ),
+                        replacement_response=f"File operation blocked: Failed to extract file paths. Error: {e}",
+                        metadata={
+                            "decision": "blocked",
+                            "reason": "path_extraction_failed",
+                            "error": str(e),
+                            "handler": self.name,
+                        },
+                    )
+                return ToolCallReactionResult(
+                    should_swallow=False,
+                    metadata={
+                        "decision": "extraction_error_fail_open",
+                        "error": str(e),
+                    },
+                )
+
+            if not paths:
+                logger.warning(
+                    f"No file paths found in tool call '{context.tool_name}' with arguments: {list(context.tool_arguments.keys())}"
+                )
+                if self._config.strict_mode:
+                    self._blocked_count += 1
+                    return ToolCallReactionResult(
+                        should_swallow=True,
+                        replacement_response=f"File operation blocked: No file paths found in tool call. Allowed folder: {project_root}",
                         metadata={
                             "decision": "blocked",
                             "reason": "no_paths_found",
                             "tool_name": context.tool_name,
                             "project_root": str(project_root),
+                            "handler": self.name,
                         },
                     )
-                else:
-                    # In non-strict mode, allow the operation
-                    return ToolCallReactionResult(
-                        should_swallow=False,
-                        metadata={"decision": "no_paths_found"},
-                    )
+                return ToolCallReactionResult(
+                    should_swallow=False, metadata={"decision": "no_paths_found"}
+                )
 
-            # Validate each extracted path
+            violating_paths = []
+            invalid_path_errors = []
+
             for path_str in paths:
                 try:
-                    # Normalize the path
                     normalized_path = self._validator.normalize_path(
                         path_str, str(project_root)
                     )
-
-                    # Check if path is within project boundary
-                    is_within = self._validator.is_within_boundary(
+                    if not self._validator.is_within_boundary(
                         normalized_path,
                         project_root,
                         allow_parent=self._config.allow_parent_access,
-                    )
-
-                    if not is_within:
-                        # Path is outside project root - block the operation
-                        logger.warning(
-                            f"Blocked tool call '{context.tool_name}' in session "
-                            f"{context.session_id}: path '{path_str}' (normalized: "
-                            f"'{normalized_path}') is outside of the project root '{project_root}'"
-                        )
-
-                        self._blocked_count += 1
-                        return ToolCallReactionResult(
-                            should_swallow=True,
-                            replacement_response=(
-                                f"File operation outside of the project root detected. "
-                                f"Allowed folder: {project_root}"
-                            ),
-                            metadata={
-                                "decision": "blocked",
-                                "reason": "path_outside_boundary",
-                                "tool_name": context.tool_name,
-                                "blocked_path": path_str,
-                                "normalized_path": str(normalized_path),
-                                "project_root": str(project_root),
-                                "session_id": context.session_id,
-                            },
-                        )
-
+                    ):
+                        violating_paths.append(path_str)
                 except ValueError as e:
-                    # Path normalization failed
-                    logger.error(
-                        f"Path validation failed for '{path_str}' in tool call "
-                        f"'{context.tool_name}': {e}"
+                    invalid_path_errors.append((path_str, str(e)))
+
+            if violating_paths or invalid_path_errors:
+                self._blocked_count += 1
+                if invalid_path_errors:
+                    self._validation_errors += len(invalid_path_errors)
+
+                if self._config.strict_mode or violating_paths:
+                    error_messages = []
+                    if violating_paths:
+                        error_messages.append(
+                            f"Paths outside project root: {', '.join(violating_paths)}"
+                        )
+                    if invalid_path_errors:
+                        error_messages.append(
+                            f"Invalid paths: {', '.join([p for p, e in invalid_path_errors])}"
+                        )
+
+                    return ToolCallReactionResult(
+                        should_swallow=True,
+                        replacement_response=f"File operation blocked. {'. '.join(error_messages)}. Allowed folder: {project_root}",
+                        metadata={
+                            "decision": "blocked",
+                            "reason": "path_validation_failed",
+                            "tool_name": context.tool_name,
+                            "violating_paths": violating_paths,
+                            "invalid_path_errors": [
+                                {"path": p, "error": e} for p, e in invalid_path_errors
+                            ],
+                            "project_root": str(project_root),
+                            "handler": self.name,
+                            "session_id": context.session_id,
+                        },
                     )
-                    self._validation_errors += 1
 
-                    if self._config.strict_mode:
-                        # In strict mode, block operations with invalid paths
-                        self._blocked_count += 1
-                        return ToolCallReactionResult(
-                            should_swallow=True,
-                            replacement_response=(
-                                f"File operation blocked: Invalid file path. "
-                                f"Allowed folder: {project_root}"
-                            ),
-                            metadata={
-                                "decision": "blocked",
-                                "reason": "invalid_path",
-                                "tool_name": context.tool_name,
-                                "invalid_path": path_str,
-                                "error": str(e),
-                                "project_root": str(project_root),
-                            },
-                        )
-                    else:
-                        # In non-strict mode, allow but log the error
-                        logger.warning(
-                            f"Allowing tool call '{context.tool_name}' despite "
-                            f"path validation error (non-strict mode)"
-                        )
-                        continue
+            if invalid_path_errors:  # non-strict mode
+                logger.warning(
+                    f"Allowing tool call '{context.tool_name}' despite path validation errors (non-strict mode): {invalid_path_errors}"
+                )
 
-            # All paths validated successfully
             logger.debug(
-                f"Tool call '{context.tool_name}' validated successfully: "
-                f"all paths within project root '{project_root}'"
+                f"Tool call '{context.tool_name}' validated successfully: all paths within project root '{project_root}'"
             )
             self._allowed_count += 1
             return ToolCallReactionResult(
-                should_swallow=False,
-                metadata={"decision": "allowed"},
+                should_swallow=False, metadata={"decision": "allowed"}
             )
 
         except Exception as e:
-            # Unexpected error during validation
             logger.error(
-                f"Unexpected error in file sandboxing handler for tool "
-                f"'{context.tool_name}': {e}",
+                f"Unexpected error in file sandboxing handler for tool '{context.tool_name}': {e}",
                 exc_info=True,
             )
-
-            # In case of unexpected errors, fail safe by allowing the operation
-            # to avoid breaking legitimate tool calls
             return ToolCallReactionResult(
                 should_swallow=False,
-                metadata={"decision": "error_fail_open"},
+                metadata={"decision": "error_fail_open", "error": str(e)},
             )
