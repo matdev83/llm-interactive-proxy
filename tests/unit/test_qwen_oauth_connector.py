@@ -13,9 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
-from src.core.common.exceptions import ServiceUnavailableError
+from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 
@@ -147,20 +146,18 @@ class TestQwenOAuthConnectorUnit:
 
     @pytest.mark.asyncio
     async def test_get_headers_no_access_token_raises_exception(self, connector):
-        """Test that get_headers raises HTTPException when no access token is available."""
+        """Test that get_headers raises AuthenticationError when no access token is available."""
         connector._oauth_credentials = None  # Simulate no credentials
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(AuthenticationError) as exc_info:
             connector.get_headers()
-        assert exc_info.value.status_code == 401
-        assert "No valid Qwen OAuth access token available" in exc_info.value.detail
+        assert "No valid Qwen OAuth access token available" in str(exc_info.value)
 
         connector._oauth_credentials = {
             "access_token": None
         }  # Simulate credentials with no access token
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(AuthenticationError) as exc_info:
             connector.get_headers()
-        assert exc_info.value.status_code == 401
-        assert "No valid Qwen OAuth access token available" in exc_info.value.detail
+        assert "No valid Qwen OAuth access token available" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_chat_completions_success(self, connector, mock_client):

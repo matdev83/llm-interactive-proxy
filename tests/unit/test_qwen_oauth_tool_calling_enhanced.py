@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from fastapi import HTTPException
 
 pytestmark = [
     pytest.mark.xdist_group("qwen_oauth_tool_calling"),
     pytest.mark.no_global_mock,
 ]
 from src.connectors.qwen_oauth import QwenOAuthConnector
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
@@ -527,15 +527,15 @@ class TestQwenOAuthToolCallingEnhanced:
         error_detail = {
             "error": {"message": "Invalid tool definition", "code": "invalid_parameter"}
         }
-        mock_parent_chat_completions.side_effect = HTTPException(
-            status_code=400, detail=error_detail
+        mock_parent_chat_completions.side_effect = BackendError(
+            message=f"Qwen OAuth chat completion failed: 400: {error_detail!s}"
         )
 
         with patch.object(
             connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
         ):
             # Act & Assert
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BackendError) as exc_info:
                 await connector.chat_completions(
                     request_data=request_data,
                     processed_messages=[test_message],
@@ -543,8 +543,7 @@ class TestQwenOAuthToolCallingEnhanced:
                 )
 
             # Verify the exception was passed through with the correct status code
-            assert exc_info.value.status_code == 400
-            assert exc_info.value.detail == error_detail
+            assert "Invalid tool definition" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_model_prefix_stripping(

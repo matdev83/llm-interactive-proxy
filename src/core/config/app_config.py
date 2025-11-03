@@ -583,6 +583,12 @@ class BackendSettings(DomainModel):
     )
     disable_gemini_oauth_fallback: bool = False
     disable_hybrid_backend: bool = False
+    reasoning_injection_probability: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Probability of using the reasoning model for a request in the hybrid backend.",
+    )
 
     def __init__(self, **data: Any) -> None:
         # Separate standard fields from backend-specific configs
@@ -900,13 +906,34 @@ class AppConfig(DomainModel, IConfig):
                 resolution=resolution,
             ),
             "backends": {
+                "default_backend": _get_env_value(
+                    env,
+                    "LLM_BACKEND",
+                    "openai",
+                    path="backends.default_backend",
+                    resolution=resolution,
+                ),
                 "disable_gemini_oauth_fallback": _env_to_bool(
                     "DISABLE_GEMINI_OAUTH_FALLBACK",
                     False,
                     env,
                     path="backends.disable_gemini_oauth_fallback",
                     resolution=resolution,
-                )
+                ),
+                "disable_hybrid_backend": _env_to_bool(
+                    "DISABLE_HYBRID_BACKEND",
+                    False,
+                    env,
+                    path="backends.disable_hybrid_backend",
+                    resolution=resolution,
+                ),
+                "reasoning_injection_probability": _env_to_float(
+                    "REASONING_INJECTION_PROBABILITY",
+                    1.0,
+                    env,
+                    path="backends.reasoning_injection_probability",
+                    resolution=resolution,
+                ),
             },
             "host": _get_env_value(
                 env,
@@ -1569,6 +1596,13 @@ class AppConfig(DomainModel, IConfig):
                 False,
                 env,
                 path="backends.disable_hybrid_backend",
+                resolution=resolution,
+            ),
+            "reasoning_injection_probability": _env_to_float(
+                "REASONING_INJECTION_PROBABILITY",
+                1.0,
+                env,
+                path="backends.reasoning_injection_probability",
                 resolution=resolution,
             ),
         }

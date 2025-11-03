@@ -113,6 +113,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable the hybrid backend (enabled by default)",
     )
+    parser.add_argument(
+        "--reasoning-injection-probability",
+        dest="reasoning_injection_probability",
+        type=float,
+        help="Probability of using the reasoning model in the hybrid backend (0.0 to 1.0)",
+    )
 
     def validate_model_alias(value: str) -> tuple[str, str]:
         """Validate model alias format: pattern=replacement"""
@@ -876,6 +882,17 @@ def apply_cli_args(
             "backends.disable_hybrid_backend",
             True,
             "--disable-hybrid-backend",
+        )
+
+    if getattr(args, "reasoning_injection_probability", None) is not None:
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["reasoning_injection_probability"] = (
+            args.reasoning_injection_probability
+        )
+        record_cli(
+            "backends.reasoning_injection_probability",
+            args.reasoning_injection_probability,
+            "--reasoning-injection-probability",
         )
 
     # Model aliases configuration (CLI overrides config file)

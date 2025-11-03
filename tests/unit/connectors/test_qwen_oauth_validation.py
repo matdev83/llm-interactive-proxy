@@ -24,8 +24,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
+from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
 
 
@@ -469,15 +469,13 @@ class TestErrorResponses(TestQwenOAuthCredentialValidation):
                 connector, "_validate_runtime_credentials", return_value=False
             ),
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BackendError) as exc_info:
                 await connector.chat_completions({}, [], "test-model")
 
-            assert exc_info.value.status_code == 502
-            assert (
-                "No valid OAuth credentials found for backend qwen-oauth"
-                in exc_info.value.detail
+            assert "No valid OAuth credentials found for backend qwen-oauth" in str(
+                exc_info.value
             )
-            assert "Token expired; Invalid credentials" in exc_info.value.detail
+            assert "Token expired; Invalid credentials" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_chat_completions_non_functional_backend_no_specific_errors(
@@ -495,15 +493,13 @@ class TestErrorResponses(TestQwenOAuthCredentialValidation):
                 connector, "_validate_runtime_credentials", return_value=False
             ),
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BackendError) as exc_info:
                 await connector.chat_completions({}, [], "test-model")
 
-            assert exc_info.value.status_code == 502
-            assert (
-                "No valid OAuth credentials found for backend qwen-oauth"
-                in exc_info.value.detail
+            assert "No valid OAuth credentials found for backend qwen-oauth" in str(
+                exc_info.value
             )
-            assert "Backend is not functional" in exc_info.value.detail
+            assert "Backend is not functional" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_chat_completions_token_refresh_failure(
@@ -514,12 +510,11 @@ class TestErrorResponses(TestQwenOAuthCredentialValidation):
         with (
             patch.object(connector, "_validate_runtime_credentials", return_value=True),
             patch.object(connector, "_refresh_token_if_needed", return_value=False),
-            pytest.raises(HTTPException) as exc_info,
+            pytest.raises(AuthenticationError) as exc_info,
         ):
             await connector.chat_completions({}, [], "test-model")
 
-        assert exc_info.value.status_code == 401
-        assert "Failed to refresh Qwen OAuth token" in exc_info.value.detail
+        assert "Failed to refresh Qwen OAuth token" in str(exc_info.value)
 
 
 class TestFileWatchingFunctionality(TestQwenOAuthCredentialValidation):

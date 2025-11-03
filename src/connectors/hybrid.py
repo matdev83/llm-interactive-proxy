@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import random
 import re
 import time
 import uuid
@@ -33,6 +34,7 @@ from src.connectors.utils.reasoning_stream_processor import (
     ReasoningStreamProcessor,
 )
 from src.core.common.exceptions import (
+    AuthenticationError,
     BackendError,
     ConfigurationError,
     ServiceResolutionError,
@@ -1656,6 +1658,9 @@ class HybridConnector(LLMBackend):
         except BackendError:
             # Re-raise BackendError as-is (already has proper context)
             raise
+        except AuthenticationError:
+            # Re-raise AuthenticationError as-is (already has proper context)
+            raise
         except Exception as e:
             logger.error(
                 f"Execution phase failed with unexpected error: {type(e).__name__}",
@@ -1729,7 +1734,7 @@ class HybridConnector(LLMBackend):
             )
 
         # Convert request_data to dict if needed
-        if hasattr(request_data, "model_dump"):
+        if isinstance(request_data, DomainModel):
             request_dict = request_data.model_dump()
         elif isinstance(request_data, dict):
             request_dict = request_data
@@ -1816,83 +1821,93 @@ class HybridConnector(LLMBackend):
         reasoning_output = ""
         client_reasoning = ""
         has_reasoning_content = False
+        reasoning_time = 0.0
 
-        try:
-            # Phase 1: Execute reasoning phase and capture output
-            reasoning_result = await self._execute_reasoning_phase(
-                messages=processed_messages,
-                reasoning_backend=reasoning_backend,
-                reasoning_model=reasoning_model,
-                request_data=request_data,  # Pass original request_data, not dict
-                identity=identity,
-                uri_params=reasoning_params,
-            )
-            reasoning_output = reasoning_result.text
+        # Decide whether to use the reasoning model
+        use_reasoning = (
+            random.random() < self.config.backends.reasoning_injection_probability
+        )
+        logger.info(
+            f"Reasoning model injection decision: {'USE' if use_reasoning else 'SKIP'}"
+        )
 
-            reasoning_time = time.time() - start_time
-            client_reasoning = self._format_reasoning_for_client(
-                reasoning_output, reasoning_backend
-            )
-            has_reasoning_content = self._has_reasoning_content(client_reasoning)
-            if not has_reasoning_content:
-                client_reasoning = ""
+        if use_reasoning:
+            try:
+                # Phase 1: Execute reasoning phase and capture output
+                reasoning_result = await self._execute_reasoning_phase(
+                    messages=processed_messages,
+                    reasoning_backend=reasoning_backend,
+                    reasoning_model=reasoning_model,
+                    request_data=request_data,  # Pass original request_data, not dict
+                    identity=identity,
+                    uri_params=reasoning_params,
+                )
+                reasoning_output = reasoning_result.text
 
-            # Log reasoning phase completion with output length and duration
-            logger.info(
-                f"Reasoning phase completed: {len(reasoning_output)} chars captured in {reasoning_time:.2f}s",
-                extra={
-                    "session_id": session_id,
-                    "phase": "reasoning",
-                    "reasoning_backend": reasoning_backend,
-                    "reasoning_model": reasoning_model,
-                    "output_length": len(reasoning_output),
-                    "duration_seconds": reasoning_time,
-                    "tool_call_count": len(reasoning_result.tool_calls),
-                },
-            )
+                reasoning_time = time.time() - start_time
+                client_reasoning = self._format_reasoning_for_client(
+                    reasoning_output, reasoning_backend
+                )
+                has_reasoning_content = self._has_reasoning_content(client_reasoning)
+                if not has_reasoning_content:
+                    client_reasoning = ""
 
-            skip_execution_due_to_tool_call = (
-                not has_reasoning_content and reasoning_result.has_tool_calls()
-            )
-            if skip_execution_due_to_tool_call:
+                # Log reasoning phase completion with output length and duration
                 logger.info(
-                    "[hybrid-backend] Skipping call to the execution model as reasoning model produced no reasoning output but a tool call",
+                    f"Reasoning phase completed: {len(reasoning_output)} chars captured in {reasoning_time:.2f}s",
                     extra={
                         "session_id": session_id,
+                        "phase": "reasoning",
                         "reasoning_backend": reasoning_backend,
                         "reasoning_model": reasoning_model,
+                        "output_length": len(reasoning_output),
+                        "duration_seconds": reasoning_time,
                         "tool_call_count": len(reasoning_result.tool_calls),
                     },
                 )
-                return self._build_tool_call_only_response(
-                    tool_calls=reasoning_result.tool_calls,
-                    request_dict=request_dict,
-                    reasoning_backend=reasoning_backend,
-                    reasoning_model=reasoning_model,
-                )
 
-        except BackendError as e:
-            logger.error(
-                f"Reasoning phase failed: {e.message}",
-                extra={
-                    "session_id": session_id,
-                    "phase": "reasoning",
-                    "reasoning_backend": reasoning_backend,
-                    "reasoning_model": reasoning_model,
-                    "error_code": e.code,
-                    "error": e.message,
-                },
-            )
-            raise BackendError(
-                message=f"Hybrid backend error (reasoning phase): {e.message}",
-                code="hybrid_reasoning_failed",
-                details={
-                    "phase": "reasoning",
-                    "reasoning_backend": reasoning_backend,
-                    "reasoning_model": reasoning_model,
-                    "original_error": e.code,
-                },
-            ) from e
+                skip_execution_due_to_tool_call = (
+                    not has_reasoning_content and reasoning_result.has_tool_calls()
+                )
+                if skip_execution_due_to_tool_call:
+                    logger.info(
+                        "[hybrid-backend] Skipping call to the execution model as reasoning model produced no reasoning output but a tool call",
+                        extra={
+                            "session_id": session_id,
+                            "reasoning_backend": reasoning_backend,
+                            "reasoning_model": reasoning_model,
+                            "tool_call_count": len(reasoning_result.tool_calls),
+                        },
+                    )
+                    return self._build_tool_call_only_response(
+                        tool_calls=reasoning_result.tool_calls,
+                        request_dict=request_dict,
+                        reasoning_backend=reasoning_backend,
+                        reasoning_model=reasoning_model,
+                    )
+
+            except BackendError as e:
+                logger.error(
+                    f"Reasoning phase failed: {e.message}",
+                    extra={
+                        "session_id": session_id,
+                        "phase": "reasoning",
+                        "reasoning_backend": reasoning_backend,
+                        "reasoning_model": reasoning_model,
+                        "error_code": e.code,
+                        "error": e.message,
+                    },
+                )
+                raise BackendError(
+                    message=f"Hybrid backend error (reasoning phase): {e.message}",
+                    code="hybrid_reasoning_failed",
+                    details={
+                        "phase": "reasoning",
+                        "reasoning_backend": reasoning_backend,
+                        "reasoning_model": reasoning_model,
+                        "original_error": e.code,
+                    },
+                ) from e
 
         try:
             # Phase 2: Augment messages with reasoning output

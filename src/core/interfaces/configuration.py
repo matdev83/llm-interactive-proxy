@@ -38,6 +38,8 @@ class IConfig(abc.ABC):
 class IAppIdentityConfig(abc.ABC):
     """Interface for application identity configuration."""
 
+    session_id: str | None = None
+
     @abc.abstractmethod
     def get_resolved_headers(
         self, incoming_headers: dict[str, Any] | None

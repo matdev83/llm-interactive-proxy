@@ -768,6 +768,20 @@ class BufferedWireCapture(IWireCapture):
         except Exception:
             pass
 
+    def _robust_replace(
+        self, src: str, dst: str, retries: int = 5, delay: float = 0.1
+    ) -> None:
+        """Attempt to replace a file with retries to handle Windows file locking."""
+        for i in range(retries):
+            try:
+                os.replace(src, dst)
+                return
+            except PermissionError:
+                if i < retries - 1:
+                    time.sleep(delay)
+                else:
+                    raise
+
     def _perform_rotation(self) -> None:
         """Perform file rotation."""
         if not self._file_path or self._max_files <= 0:
@@ -787,11 +801,11 @@ class BufferedWireCapture(IWireCapture):
                 src = f"{self._file_path}.{i}"
                 dst = f"{self._file_path}.{i + 1}"
                 if os.path.exists(src):
-                    os.replace(src, dst)
+                    self._robust_replace(src, dst)
 
             # 3. Rotate the current log to .1
             if os.path.exists(self._file_path):
-                os.replace(self._file_path, f"{self._file_path}.1")
+                self._robust_replace(self._file_path, f"{self._file_path}.1")
 
             # 4. Ensure a fresh file exists for subsequent writes
             with open(self._file_path, "a", encoding="utf-8"):

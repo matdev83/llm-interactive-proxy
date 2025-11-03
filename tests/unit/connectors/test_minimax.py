@@ -80,11 +80,11 @@ class TestMinimaxConnector:
         """Test that name property is set correctly."""
         assert minimax_backend.name == "minimax"
 
-    async def test_inherits_from_openai(self):
-        """Test that MinimaxConnector inherits from OpenAIConnector."""
-        from src.connectors.openai import OpenAIConnector
+    async def test_inherits_from_llm_backend(self):
+        """Test that MinimaxConnector inherits from LLMBackend."""
+        from src.connectors.base import LLMBackend
 
-        assert issubclass(MinimaxConnector, OpenAIConnector)
+        assert issubclass(MinimaxConnector, LLMBackend)
 
 
 class TestMinimaxConnectorInitialization:

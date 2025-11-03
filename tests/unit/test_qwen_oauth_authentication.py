@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
+from src.core.common.exceptions import AuthenticationError
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 pytestmark = [
@@ -325,7 +325,7 @@ class TestQwenOAuthAuthentication:
             )
 
             # Call the method, should raise exception
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(AuthenticationError) as exc_info:
                 await connector.chat_completions(
                     request_data=request,
                     processed_messages=[{"role": "user", "content": "Test"}],
@@ -333,8 +333,7 @@ class TestQwenOAuthAuthentication:
                 )
 
             # Verify the exception details
-            assert exc_info.value.status_code == 401
-            assert "Failed to refresh Qwen OAuth token" in str(exc_info.value.detail)
+            assert "Failed to refresh Qwen OAuth token" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_credential_persistence(self, connector, mock_credentials):
@@ -510,14 +509,11 @@ class TestQwenOAuthAuthentication:
         connector._oauth_credentials = None
 
         # Get headers should raise exception
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(AuthenticationError) as exc_info:
             connector.get_headers()
 
         # Verify exception
-        assert exc_info.value.status_code == 401
-        assert "No valid Qwen OAuth access token available" in str(
-            exc_info.value.detail
-        )
+        assert "No valid Qwen OAuth access token available" in str(exc_info.value)
 
 
 if __name__ == "__main__":

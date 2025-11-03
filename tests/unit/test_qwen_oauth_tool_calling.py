@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
@@ -497,14 +497,14 @@ class TestQwenOAuthToolCallingUnit:
         mock_client.post = AsyncMock(return_value=mock_response)
 
         with patch.object(connector, "_refresh_token_if_needed", return_value=True):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(BackendError) as exc_info:
                 await connector.chat_completions(
                     request_data=request_data,
                     processed_messages=[test_message],
                     effective_model="qwen3-coder-plus",
                 )
 
-            assert exc_info.value.status_code == 400
+            assert "Invalid tool definition" in str(exc_info.value)
 
     def test_tool_call_serialization(self, connector):
         """Test that tool calls are properly serialized in requests."""

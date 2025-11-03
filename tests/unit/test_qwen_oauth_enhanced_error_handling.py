@@ -14,9 +14,8 @@ pytestmark = [
     pytest.mark.xdist_group("qwen_oauth_serial"),
     pytest.mark.no_global_mock,
 ]
-from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 
@@ -195,16 +194,20 @@ class TestQwenOAuthEnhancedErrorHandling:
             assert sent_effective_model == "qwen3-coder-plus"
 
     @pytest.mark.asyncio
-    async def test_http_exception_passthrough(self, connector):
-        """Test that HTTPExceptions from parent class are passed through."""
+    async def test_backend_error_passthrough(self, connector):
+        """Test that BackendErrors from parent class are properly re-raised."""
         request = ChatRequest(
             model="qwen3-coder-plus",
             messages=[ChatMessage(role="user", content="Hello")],
         )
         processed_messages = [ChatMessage(role="user", content="Hello")]
 
-        # Mock validation to pass, token refresh to succeed and parent class to raise HTTPException
-        http_exception = HTTPException(status_code=429, detail="Rate limited")
+        # Mock validation to pass, token refresh to succeed and parent class to raise BackendError
+        backend_error = BackendError(
+            message="Rate limited",
+            backend_name="qwen-oauth",
+            details={"status_code": 429},
+        )
         with (
             patch.object(
                 connector,
@@ -216,20 +219,21 @@ class TestQwenOAuthEnhancedErrorHandling:
             ),
             patch(
                 "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
-                AsyncMock(side_effect=http_exception),
+                AsyncMock(side_effect=backend_error),
             ),
         ):
             connector._oauth_credentials = {"access_token": "fake-token"}
-            # Execute and verify exception is re-raised
-            with pytest.raises(HTTPException) as exc_info:
+            # Execute and verify exception is re-raised as-is
+            with pytest.raises(BackendError) as exc_info:
                 await connector.chat_completions(
                     request_data=request,
                     processed_messages=processed_messages,
                     effective_model="qwen3-coder-plus",
                 )
 
-            assert exc_info.value.status_code == 429
-            assert exc_info.value.detail == "Rate limited"
+            # Should be the same BackendError, not wrapped
+            assert exc_info.value is backend_error
+            assert "Rate limited" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_chat_completions_refresh_token_failure(self, connector):
@@ -248,13 +252,12 @@ class TestQwenOAuthEnhancedErrorHandling:
             ),
             patch.object(connector, "_refresh_token_if_needed", return_value=False),
         ):
-            # Verify that HTTPException is raised with 401 status code
-            with pytest.raises(HTTPException) as exc_info:
+            # Verify that AuthenticationError is raised
+            with pytest.raises(AuthenticationError) as exc_info:
                 await connector.chat_completions(
                     request_data=request,
                     processed_messages=processed_messages,
                     effective_model="qwen3-coder-plus",
                 )
 
-            assert exc_info.value.status_code == 401
-            assert "Failed to refresh Qwen OAuth token" in exc_info.value.detail
+            assert "Failed to refresh Qwen OAuth token" in str(exc_info.value)

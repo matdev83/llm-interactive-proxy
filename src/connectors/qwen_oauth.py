@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from fastapi import HTTPException
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -712,9 +711,9 @@ class QwenOAuthConnector(OpenAIConnector):
         if not self._oauth_credentials or not self._oauth_credentials.get(
             "access_token"
         ):
-            raise HTTPException(
-                status_code=401,
-                detail="No valid Qwen OAuth access token available. Please authenticate.",
+            raise AuthenticationError(
+                message="No valid Qwen OAuth access token available. Please authenticate.",
+                details={"backend": "qwen-oauth"},
             )
         return ensure_loop_guard_header(
             {
@@ -1061,9 +1060,12 @@ class QwenOAuthConnector(OpenAIConnector):
         """
         # Ensure token is refreshed before making the API call
         if not await self._refresh_token_if_needed():
-            raise HTTPException(
-                status_code=401,
-                detail="Failed to refresh Qwen OAuth token",
+            raise AuthenticationError(
+                message="Failed to refresh Qwen OAuth token",
+                details={
+                    "backend": "qwen-oauth",
+                    "reason": "Token refresh failed for both CLI and API methods",
+                },
             )
 
         # Validate runtime credentials and backend functionality
@@ -1074,9 +1076,12 @@ class QwenOAuthConnector(OpenAIConnector):
             else:
                 error_detail = "No valid OAuth credentials found for backend qwen-oauth: Backend is not functional"
 
-            raise HTTPException(
-                status_code=502,
-                detail=error_detail,
+            raise BackendError(
+                message=error_detail,
+                backend_name="qwen-oauth",
+                details={
+                    "validation_errors": self._credential_validation_errors,
+                },
             )
 
         # Handle reasoning_effort by appending " /think" to the last user message
@@ -1246,9 +1251,6 @@ class QwenOAuthConnector(OpenAIConnector):
 
             return response_envelope
 
-        except HTTPException:
-            # Re-raise HTTP exceptions directly
-            raise
         except (AuthenticationError, BackendError, ServiceUnavailableError):
             # Re-raise domain exceptions
             raise
