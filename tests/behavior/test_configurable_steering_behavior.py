@@ -959,18 +959,22 @@ class TestErrorHandlingAndResilienceBehavior:
         ]
         handler = ConfigSteeringHandler(rules)
 
-        # When - Generate many hits across different sessions
-        for session_id in [f"session_{i}" for i in range(100)]:
-            for _ in range(30):  # More than the 20 hit limit per key
-                ToolCallContext(
-                    session_id=session_id,
-                    backend_name="test_backend",
-                    model_name="test_model",
-                    full_response=None,
-                    tool_name="test_tool",
-                    tool_arguments={},
-                )
-                asyncio.run(handler._record_hit(handler._rules[0], session_id))
+        # When - Generate many hits across different sessions using efficient async execution
+        async def generate_hits():
+            for session_id in [f"session_{i}" for i in range(100)]:
+                for _ in range(30):  # More than the 20 hit limit per key
+                    ToolCallContext(
+                        session_id=session_id,
+                        backend_name="test_backend",
+                        model_name="test_model",
+                        full_response=None,
+                        tool_name="test_tool",
+                        tool_arguments={},
+                    )
+                    await handler._record_hit(handler._rules[0], session_id)
+
+        # Run all hit recordings in a single async context
+        asyncio.run(generate_hits())
 
         # Then - Hits should be limited to prevent memory leaks
         for session_id in [f"session_{i}" for i in range(100)]:

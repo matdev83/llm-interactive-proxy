@@ -6,6 +6,12 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from src.core.utils.message_processing_utils import (
+    find_last_assistant_message,
+    is_message_processed,
+    mark_message_processed,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,13 +46,17 @@ class ToolCallRepairService:
 
         return self._max_buffer_bytes
 
-    def repair_tool_calls(self, response_content: str) -> dict[str, Any] | None:
+    def repair_tool_calls(
+        self, response_content: str, force_reprocess: bool = False
+    ) -> dict[str, Any] | None:
         """
         Detects tool calls within the given response content (string) and converts
         them into an OpenAI-compatible tool_calls structure.
 
         Args:
             response_content: The string content of the LLM response.
+            force_reprocess: If True, bypass processing marker checks and force
+                           reprocessing. Useful for debugging scenarios.
 
         Returns:
             A dictionary representing the OpenAI-compatible tool_calls structure
@@ -94,6 +104,144 @@ class ToolCallRepairService:
                 return self._process_text_match(match.group(1), match.group(2))
 
         return None
+
+    def repair_tool_calls_in_messages(
+        self, messages: list[Any], force_reprocess: bool = False
+    ) -> list[Any]:
+        """
+        Repair tool calls in a list of messages, skipping already processed ones.
+
+        This method processes tool calls in messages while respecting processing
+        markers to avoid redundant processing of historical messages. Only new
+        messages (those without processing markers) will have their tool calls
+        repaired.
+
+        Args:
+            messages: List of messages to process. Each message can be a dict
+                     or an object with message attributes.
+            force_reprocess: If True, bypass processing marker checks and force
+                           reprocessing of all messages. Useful for debugging.
+
+        Returns:
+            List of messages with repaired tool calls. Historical messages are
+            returned unchanged, while new messages have their tool calls repaired
+            and are marked as processed.
+
+        Examples:
+            >>> service = ToolCallRepairService()
+            >>> messages = [
+            ...     {"role": "user", "content": "Hello"},
+            ...     {"role": "assistant", "content": "Hi there"}
+            ... ]
+            >>> repaired = service.repair_tool_calls_in_messages(messages)
+            >>> len(repaired) == 2
+            True
+        """
+        if not messages:
+            return []
+
+        repaired_messages = []
+        last_assistant_idx = find_last_assistant_message(messages)
+
+        for idx, message in enumerate(messages):
+            # Skip if already processed (unless forced)
+            if not force_reprocess and is_message_processed(message):
+                logger.log(
+                    5, "Skipping tool call repair for already processed message"
+                )  # TRACE level
+                repaired_messages.append(message)
+                continue
+
+            # Get message role
+            role = self._get_message_role(message)
+
+            # Only process assistant messages
+            if role != "assistant":
+                repaired_messages.append(message)
+                continue
+
+            # Fallback: Only process last assistant message if no marker
+            if (
+                not force_reprocess
+                and last_assistant_idx is not None
+                and idx != last_assistant_idx
+            ):
+                logger.log(
+                    5,
+                    f"Skipping tool call repair for historical assistant message at index {idx}",
+                )  # TRACE level
+                repaired_messages.append(message)
+                continue
+
+            # Repair tool calls in this message
+            repaired = self._repair_message_tool_calls(message, force_reprocess)
+
+            # Mark as processed
+            if not force_reprocess:
+                mark_message_processed(repaired)
+                logger.log(
+                    5, f"Marked message at index {idx} as processed"
+                )  # TRACE level
+
+            repaired_messages.append(repaired)
+
+        return repaired_messages
+
+    def _get_message_role(self, message: Any) -> str | None:
+        """Extract the role from a message (dict or object).
+
+        Args:
+            message: The message to extract role from.
+
+        Returns:
+            The role string, or None if not found.
+        """
+        if isinstance(message, dict):
+            return message.get("role")
+        return getattr(message, "role", None)
+
+    def _repair_message_tool_calls(
+        self, message: Any, force_reprocess: bool = False
+    ) -> Any:
+        """Repair tool calls within a single message.
+
+        Args:
+            message: The message to repair (dict or object).
+            force_reprocess: If True, force reprocessing even if already processed.
+
+        Returns:
+            The message with repaired tool calls.
+        """
+        # Get message content
+        if isinstance(message, dict):
+            content = message.get("content", "")
+            # Create a copy to avoid modifying the original
+            repaired_message = dict(message)
+        else:
+            content = getattr(message, "content", "")
+            # For objects, we'll modify in place (backward compatible)
+            repaired_message = message
+
+        if not content or not isinstance(content, str):
+            return repaired_message
+
+        # Attempt to repair tool calls
+        repaired_tool_call = self.repair_tool_calls(content, force_reprocess)
+
+        if repaired_tool_call:
+            # Add tool_calls to message if repair was successful
+            if isinstance(repaired_message, dict):
+                if "tool_calls" not in repaired_message:
+                    repaired_message["tool_calls"] = []
+                repaired_message["tool_calls"].append(repaired_tool_call)
+            else:
+                existing_tool_calls = getattr(repaired_message, "tool_calls", None)
+                if existing_tool_calls is None:
+                    repaired_message.tool_calls = [repaired_tool_call]
+                else:
+                    existing_tool_calls.append(repaired_tool_call)
+
+        return repaired_message
 
     def _process_json_match(self, json_string: str) -> dict[str, Any] | None:
         """Helper to process a detected JSON string."""

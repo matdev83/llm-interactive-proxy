@@ -261,3 +261,135 @@ class TestZaiMCPToolExtraction:
         assert "diff" in args
         assert "old line" in args["diff"]
         assert "new line" in args["diff"]
+
+    def test_skip_already_processed_messages(self, backend):
+        """Test that messages with processing marker are skipped."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="test"><arg>value</arg></use_mcp_tool>',
+                "_tool_calls_processed": True,
+            }
+        ]
+
+        result = backend._extract_mcp_tool_calls_from_messages(messages)
+
+        assert len(result) == 1
+        # Should not extract tool calls from processed message
+        assert "tool_calls" not in result[0]
+        assert result[0]["content"] == messages[0]["content"]
+
+    def test_skip_historical_assistant_messages(self, backend):
+        """Test that only the last assistant message is processed when no markers present."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="old_tool"><arg>old</arg></use_mcp_tool>',
+            },
+            {"role": "user", "content": "Continue"},
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="new_tool"><arg>new</arg></use_mcp_tool>',
+            },
+        ]
+
+        result = backend._extract_mcp_tool_calls_from_messages(messages)
+
+        assert len(result) == 3
+        # First assistant message should be skipped (historical)
+        assert "tool_calls" not in result[0]
+        assert "<use_mcp_tool" in result[0]["content"]
+
+        # Last assistant message should be processed
+        assert "tool_calls" in result[2]
+        assert result[2]["tool_calls"][0]["function"]["name"] == "new_tool"
+        assert "<use_mcp_tool" not in result[2]["content"]
+
+    def test_process_only_last_assistant_message(self, backend):
+        """Test that only the most recent assistant message is processed."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="tool1"><arg>1</arg></use_mcp_tool>',
+            },
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="tool2"><arg>2</arg></use_mcp_tool>',
+            },
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="tool3"><arg>3</arg></use_mcp_tool>',
+            },
+        ]
+
+        result = backend._extract_mcp_tool_calls_from_messages(messages)
+
+        assert len(result) == 3
+        # Only last message should have tool_calls extracted
+        assert "tool_calls" not in result[0]
+        assert "tool_calls" not in result[1]
+        assert "tool_calls" in result[2]
+        assert result[2]["tool_calls"][0]["function"]["name"] == "tool3"
+
+    def test_marker_added_after_processing(self, backend):
+        """Test that processing marker is added after extracting tool calls."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="test"><arg>value</arg></use_mcp_tool>',
+            }
+        ]
+
+        result = backend._extract_mcp_tool_calls_from_messages(messages)
+
+        assert len(result) == 1
+        # Marker should be added
+        assert result[0].get("_tool_calls_processed") is True
+
+    def test_mixed_processed_and_unprocessed_messages(self, backend):
+        """Test handling of mixed processed and unprocessed messages."""
+        messages = [
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="old_tool"><arg>old</arg></use_mcp_tool>',
+                "_tool_calls_processed": True,
+            },
+            {"role": "user", "content": "Continue"},
+            {
+                "role": "assistant",
+                "content": '<use_mcp_tool tool_name="new_tool"><arg>new</arg></use_mcp_tool>',
+            },
+        ]
+
+        result = backend._extract_mcp_tool_calls_from_messages(messages)
+
+        assert len(result) == 3
+        # First message should be skipped (already processed)
+        assert result[0]["_tool_calls_processed"] is True
+        assert "tool_calls" not in result[0]
+
+        # Last message should be processed
+        assert "tool_calls" in result[2]
+        assert result[2]["tool_calls"][0]["function"]["name"] == "new_tool"
+        assert result[2].get("_tool_calls_processed") is True
+
+    def test_no_assistant_messages(self, backend):
+        """Test handling when there are no assistant messages."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "user", "content": "Are you there?"},
+        ]
+
+        result = backend._extract_mcp_tool_calls_from_messages(messages)
+
+        assert len(result) == 2
+        assert result[0] == messages[0]
+        assert result[1] == messages[1]
+
+    def test_empty_message_list(self, backend):
+        """Test handling of empty message list."""
+        messages = []
+
+        result = backend._extract_mcp_tool_calls_from_messages(messages)
+
+        assert len(result) == 0

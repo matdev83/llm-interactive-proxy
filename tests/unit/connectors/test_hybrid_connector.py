@@ -1,13 +1,18 @@
 """Unit tests for hybrid connector core functionality."""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from src.connectors.hybrid import HybridConnector
 from src.connectors.utils.model_capabilities import get_reasoning_tags
-from src.core.common.exceptions import BackendError, ConfigurationError
+from src.core.common.exceptions import (
+    BackendError,
+    ConfigurationError,
+    ServiceResolutionError,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
@@ -539,6 +544,48 @@ class TestReasoningExposure:
         assert "<think>Plan</think>" in combined
 
 
+class TestIdentityResolution:
+    """Tests for backend identity resolution logic."""
+
+    def test_backend_identity_preferred(self, hybrid_connector):
+        from types import SimpleNamespace
+
+        backend_identity = MagicMock(spec=IAppIdentityConfig)
+        request_identity = MagicMock(spec=IAppIdentityConfig)
+
+        resolved = hybrid_connector._resolve_backend_identity(
+            "minimax",
+            request_identity,
+            SimpleNamespace(identity=backend_identity),
+        )
+
+        assert resolved is backend_identity
+
+    def test_request_identity_fallback(self, hybrid_connector):
+        from types import SimpleNamespace
+
+        request_identity = MagicMock(spec=IAppIdentityConfig)
+
+        resolved = hybrid_connector._resolve_backend_identity(
+            "minimax",
+            request_identity,
+            SimpleNamespace(identity=None),
+        )
+
+        assert resolved is request_identity
+
+    def test_app_identity_fallback(self, hybrid_connector):
+        app_identity = hybrid_connector.config.identity
+
+        resolved = hybrid_connector._resolve_backend_identity(
+            "minimax",
+            None,
+            None,
+        )
+
+        assert resolved is app_identity
+
+
 class TestReasoningParameterOverrides:
     """Test reasoning parameter overrides (Task 8.3)."""
 
@@ -794,22 +841,25 @@ class TestErrorHandling:
 
     def test_backend_not_found_error(self, hybrid_connector):
         """Test backend not found error."""
-        # Mock backend registry to raise ValueError
-        hybrid_connector._backend_registry.get_backend_factory = Mock(
-            side_effect=ValueError("Backend not found")
-        )
-
-        with pytest.raises(BackendError) as exc_info:
+        with patch(
+            "src.core.di.services.get_required_service",
+            side_effect=ServiceResolutionError(
+                "No service registered for BackendFactory",
+                service_name="BackendFactory",
+            ),
+        ):
             import asyncio
 
-            asyncio.run(
-                hybrid_connector._execute_reasoning_phase(
-                    messages=[{"role": "user", "content": "test"}],
-                    reasoning_backend="nonexistent",
-                    reasoning_model="model",
-                    request_data={"model": "model"},
-                    identity=None,
+            with pytest.raises(BackendError) as exc_info:
+                asyncio.run(
+                    hybrid_connector._execute_reasoning_phase(
+                        messages=[{"role": "user", "content": "test"}],
+                        reasoning_backend="nonexistent",
+                        reasoning_model="model",
+                        request_data={"model": "model"},
+                        identity=None,
+                    )
                 )
-            )
 
-        assert "not found" in str(exc_info.value).lower()
+        assert exc_info.value.code == "reasoning_backend_init_failed"
+        assert "failed to initialize reasoning backend" in str(exc_info.value).lower()

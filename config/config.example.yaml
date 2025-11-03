@@ -47,6 +47,33 @@ session:
     max_turns: 10  # Maximum turns before switching back to default model
     max_file_writes: 1  # Maximum file writes before switching back to default model
 
+  # Tool call processing behavior
+  # These settings control how tool calls are processed to prevent re-processing of historical messages
+  # 
+  # By default, the system tracks which messages have been processed and skips re-processing
+  # historical tool calls on subsequent requests. This significantly improves performance
+  # when dealing with long conversation histories (70+ messages).
+  #
+  # force_reprocess_tool_calls: Controls whether to bypass the processing marker checks
+  #   - Default: false (recommended for production)
+  #   - Set to true to force reprocessing of all tool calls
+  #   - Use cases:
+  #     * Debugging tool call processing issues
+  #     * Testing changes to tool call repair logic
+  #     * Investigating unexpected behavior in tool call handling
+  #   - Note: Enabling this will reduce performance with long conversation histories
+  #
+  # log_skipped_tool_calls: Controls visibility of skipped message logging
+  #   - Default: false (recommended for production to reduce log noise)
+  #   - Set to true to log when messages are skipped
+  #   - Use cases:
+  #     * Understanding which messages are being optimized
+  #     * Verifying the optimization is working correctly
+  #     * Development and debugging of the processing system
+  #   - Note: Logs are emitted at TRACE level (level 5) to minimize noise
+  force_reprocess_tool_calls: false
+  log_skipped_tool_calls: false
+
 # Logging
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL

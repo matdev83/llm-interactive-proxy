@@ -467,6 +467,9 @@ class SessionConfig(DomainModel):
         default_factory=SessionContinuityConfig
     )
     tool_access_global_overrides: dict[str, Any] | None = None
+    # Tool call processing behavior configuration
+    force_reprocess_tool_calls: bool = False
+    log_skipped_tool_calls: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -1241,6 +1244,20 @@ class AppConfig(DomainModel, IConfig):
                 ),
                 "overrides": planning_overrides,
             },
+            "force_reprocess_tool_calls": _env_to_bool(
+                "FORCE_REPROCESS_TOOL_CALLS",
+                False,
+                env,
+                path="session.force_reprocess_tool_calls",
+                resolution=resolution,
+            ),
+            "log_skipped_tool_calls": _env_to_bool(
+                "LOG_SKIPPED_TOOL_CALLS",
+                False,
+                env,
+                path="session.log_skipped_tool_calls",
+                resolution=resolution,
+            ),
         }
 
         config["logging"] = {

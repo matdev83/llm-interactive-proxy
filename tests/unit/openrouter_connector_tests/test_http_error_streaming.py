@@ -32,9 +32,14 @@ def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
 async def openrouter_backend_fixture():
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        backend = OpenRouterBackend(client=client, config=config)
+        # Create a mock TranslationService
+        mock_translation_service = TranslationService()
+        backend = OpenRouterBackend(
+            client=client, config=config, translation_service=mock_translation_service
+        )
         # Call initialize with required arguments
         await backend.initialize(
             api_key="test_key",  # A dummy API key for initialization
@@ -93,9 +98,14 @@ async def test_chat_completions_http_error_streaming(
 
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
 
         config = AppConfig()
-        openrouter_backend = OpenRouterBackend(client=client, config=config)
+        # Create a mock TranslationService
+        mock_translation_service = TranslationService()
+        openrouter_backend = OpenRouterBackend(
+            client=client, config=config, translation_service=mock_translation_service
+        )
 
         with pytest.raises(Exception) as exc_info:
             await openrouter_backend.chat_completions(

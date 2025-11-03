@@ -128,6 +128,8 @@ properties:
           steering_rules:
             type: array
             items: { type: object }
+      force_reprocess_tool_calls: { type: boolean }
+      log_skipped_tool_calls: { type: boolean }
   backends:
     type: object
     additionalProperties: true

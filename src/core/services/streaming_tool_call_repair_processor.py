@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import cast
 from uuid import uuid4
@@ -9,6 +10,12 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
+from src.core.utils.message_processing_utils import (
+    is_message_processed,
+    mark_message_processed,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class StreamingToolCallRepairProcessor:
@@ -33,6 +40,9 @@ class StreamingToolCallRepairProcessor:
         Accepts either an async iterator, a callable returning an async iterator,
         or an awaitable that resolves to an async iterator. This makes it robust
         against tests using AsyncMock in different forms.
+
+        Skips processing for chunks that have already been processed (marked with
+        _tool_calls_processed marker) to avoid redundant repairs on historical data.
         """
         iterator: AsyncIterator[ProcessedResponse]
 
@@ -53,8 +63,20 @@ class StreamingToolCallRepairProcessor:
             iterator = cast(AsyncIterator[ProcessedResponse], chunk_source)
 
         stream_id = uuid4().hex
+        chunks_processed = False
 
         async for chunk in iterator:
+            # Check if this chunk has already been processed
+            if is_message_processed(chunk):
+                logger.log(
+                    5,  # TRACE level
+                    "Skipping already-processed streaming chunk for session %s",
+                    session_id,
+                )
+                # Pass through without reprocessing
+                yield chunk
+                continue
+
             streaming_content_chunk = StreamingContent(
                 content=chunk.content or "",
                 is_done=False,  # Assume not done until the last chunk
@@ -72,6 +94,7 @@ class StreamingToolCallRepairProcessor:
                 should_emit = True
 
             if should_emit:
+                chunks_processed = True
                 yield ProcessedResponse(
                     content=processed_streaming_content.content,
                     usage=processed_streaming_content.usage,
@@ -79,19 +102,24 @@ class StreamingToolCallRepairProcessor:
                 )
 
         # Process final chunk to flush any remaining buffer
-        final_streaming_content = await self._tool_call_repair_processor.process(
-            StreamingContent(
-                content="", is_done=True, metadata={"stream_id": stream_id}
+        # Only process if we actually processed chunks (not all were skipped)
+        if chunks_processed:
+            final_streaming_content = await self._tool_call_repair_processor.process(
+                StreamingContent(
+                    content="", is_done=True, metadata={"stream_id": stream_id}
+                )
             )
-        )
-        should_emit_final = bool(final_streaming_content.content)
-        final_tool_calls = final_streaming_content.metadata.get("tool_calls")
-        if isinstance(final_tool_calls, list) and final_tool_calls:
-            should_emit_final = True
+            should_emit_final = bool(final_streaming_content.content)
+            final_tool_calls = final_streaming_content.metadata.get("tool_calls")
+            if isinstance(final_tool_calls, list) and final_tool_calls:
+                should_emit_final = True
 
-        if should_emit_final:
-            yield ProcessedResponse(
-                content=final_streaming_content.content,
-                usage=final_streaming_content.usage,
-                metadata=final_streaming_content.metadata,
-            )
+            if should_emit_final:
+                final_response = ProcessedResponse(
+                    content=final_streaming_content.content,
+                    usage=final_streaming_content.usage,
+                    metadata=final_streaming_content.metadata,
+                )
+                # Mark the final assembled message as processed
+                mark_message_processed(final_response)
+                yield final_response

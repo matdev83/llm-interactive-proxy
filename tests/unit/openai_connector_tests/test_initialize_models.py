@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 from src.connectors.openai import OpenAIConnector
 from src.core.config.app_config import AppConfig
+from src.core.services.translation_service import TranslationService
 
 
 @pytest.fixture
@@ -23,7 +24,12 @@ def _build_response(content: str) -> httpx.Response:
 
 @pytest.mark.asyncio
 async def test_initialize_strips_xssi_guard(mock_client: AsyncMock) -> None:
-    connector = OpenAIConnector(client=mock_client, config=AppConfig())
+    mock_translation_service = MagicMock(spec=TranslationService)
+    connector = OpenAIConnector(
+        client=mock_client,
+        config=AppConfig(),
+        translation_service=mock_translation_service,
+    )
     payload = ')]}\',\n{"data":[{"id":"gpt-4"}]}'
     mock_client.get = AsyncMock(return_value=_build_response(payload))
 
@@ -35,7 +41,12 @@ async def test_initialize_strips_xssi_guard(mock_client: AsyncMock) -> None:
 
 @pytest.mark.asyncio
 async def test_initialize_handles_trailing_payload(mock_client: AsyncMock) -> None:
-    connector = OpenAIConnector(client=mock_client, config=AppConfig())
+    mock_translation_service = MagicMock(spec=TranslationService)
+    connector = OpenAIConnector(
+        client=mock_client,
+        config=AppConfig(),
+        translation_service=mock_translation_service,
+    )
     payload = '{"data":[{"id":"gpt-4o"}]}\n<!-- html comment -->'
     mock_client.get = AsyncMock(return_value=_build_response(payload))
 

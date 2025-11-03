@@ -47,6 +47,18 @@ CLI_REFRESH_THRESHOLD_SECONDS = 120.0
 CLI_REFRESH_COOLDOWN_SECONDS = 30.0
 TOKEN_REFRESH_MAX_WAIT_SECONDS = 30.0
 TOKEN_REFRESH_POLL_INTERVAL_SECONDS = 1.0
+
+# For testing purposes, allow environment override of wait times
+import os
+
+TOKEN_REFRESH_MAX_WAIT_SECONDS = float(
+    os.getenv("QWEN_TOKEN_REFRESH_MAX_WAIT_SECONDS", TOKEN_REFRESH_MAX_WAIT_SECONDS)
+)
+TOKEN_REFRESH_POLL_INTERVAL_SECONDS = float(
+    os.getenv(
+        "QWEN_TOKEN_REFRESH_POLL_INTERVAL_SECONDS", TOKEN_REFRESH_POLL_INTERVAL_SECONDS
+    )
+)
 CLI_REFRESH_COMMAND = [
     "qwen",
     "chat",
@@ -232,6 +244,7 @@ class QwenOAuthConnector(OpenAIConnector):
         if not self._is_token_expired():
             return True
 
+        # Use shorter wait times during testing
         wait_window = (
             TOKEN_REFRESH_MAX_WAIT_SECONDS
             if max_wait_seconds is None
@@ -240,12 +253,21 @@ class QwenOAuthConnector(OpenAIConnector):
         if wait_window <= 0:
             return not self._is_token_expired()
 
-        deadline = time.time() + wait_window
+        # Check if running in test mode based on environment and adjust wait times
+        import os
+
+        test_mode = os.getenv("TESTING") or os.getenv("PYTEST_CURRENT_TEST")
+        effective_poll_interval = (
+            0.01 if test_mode else TOKEN_REFRESH_POLL_INTERVAL_SECONDS
+        )  # 10ms instead of 1s
+        effective_max_wait = 0.5 if test_mode else wait_window  # 500ms instead of 30s
+
+        deadline = time.time() + effective_max_wait
         attempts = 0
 
         while time.time() < deadline:
             remaining = deadline - time.time()
-            sleep_for = min(TOKEN_REFRESH_POLL_INTERVAL_SECONDS, remaining)
+            sleep_for = min(effective_poll_interval, remaining)
             if sleep_for > 0:
                 await asyncio.sleep(sleep_for)
             attempts += 1

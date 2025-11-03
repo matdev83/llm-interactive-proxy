@@ -1,5 +1,6 @@
 """Unit tests for the tool call loop detection middleware."""
 
+import copy
 import json
 
 import pytest
@@ -123,21 +124,48 @@ async def test_process_with_tool_calls(
 ) -> None:
     """Test that the middleware processes responses with tool calls."""
     # First call should pass through
-    result = await middleware.process(
-        tool_call_response, "session123", context={"config": loop_config}
+    first_response = ProcessedResponse(
+        content=copy.deepcopy(tool_call_response.content),
+        usage=tool_call_response.usage,
+        metadata=tool_call_response.metadata.copy(),
     )
-    assert result == tool_call_response
+    result = await middleware.process(
+        first_response,
+        "session123",
+        context={"config": loop_config},
+    )
+    # The middleware returns the same response object but marks tool calls as processed
+    assert result is first_response
+    # Verify tool calls were marked as processed
+    tool_calls = result.content["choices"][0]["message"]["tool_calls"]
+    assert all(tc.get("_already_processed") for tc in tool_calls)
 
     # Second call should pass through
-    result = await middleware.process(
-        tool_call_response, "session123", context={"config": loop_config}
+    second_response = ProcessedResponse(
+        content=copy.deepcopy(tool_call_response.content),
+        usage=tool_call_response.usage,
+        metadata=tool_call_response.metadata.copy(),
     )
-    assert result == tool_call_response
+    result = await middleware.process(
+        second_response,
+        "session123",
+        context={"config": loop_config},
+    )
+    assert result is second_response
+    # Verify tool calls were marked as processed
+    tool_calls = result.content["choices"][0]["message"]["tool_calls"]
+    assert all(tc.get("_already_processed") for tc in tool_calls)
 
     # Third call should raise an exception (max_repeats=3)
     with pytest.raises(ToolCallLoopError) as exc_info:
         await middleware.process(
-            tool_call_response, "session123", context={"config": loop_config}
+            ProcessedResponse(
+                content=copy.deepcopy(tool_call_response.content),
+                usage=tool_call_response.usage,
+                metadata=tool_call_response.metadata.copy(),
+            ),
+            "session123",
+            context={"config": loop_config},
         )
 
     # Check the exception details
@@ -205,7 +233,13 @@ async def test_config_changes_update_existing_tracker(
 
     # Prime the tracker with the initial configuration
     await middleware.process(
-        tool_call_response, session_id, context={"config": initial_config}
+        ProcessedResponse(
+            content=copy.deepcopy(tool_call_response.content),
+            usage=tool_call_response.usage,
+            metadata=tool_call_response.metadata.copy(),
+        ),
+        session_id,
+        context={"config": initial_config},
     )
 
     updated_config = LoopDetectionConfiguration(
@@ -218,7 +252,13 @@ async def test_config_changes_update_existing_tracker(
     # The stricter config should take effect immediately for the existing tracker
     with pytest.raises(ToolCallLoopError):
         await middleware.process(
-            tool_call_response, session_id, context={"config": updated_config}
+            ProcessedResponse(
+                content=copy.deepcopy(tool_call_response.content),
+                usage=tool_call_response.usage,
+                metadata=tool_call_response.metadata.copy(),
+            ),
+            session_id,
+            context={"config": updated_config},
         )
 
 
@@ -268,15 +308,25 @@ async def test_different_tool_calls(middleware, loop_config) -> None:
     for _ in range(
         loop_config.tool_loop_max_repeats - 1
     ):  # One less than the threshold
-        result = await middleware.process(
-            tool_call_1, "session123", context={"config": loop_config}
+        loop_response_1 = ProcessedResponse(
+            content=copy.deepcopy(tool_call_1.content),
         )
-        assert result == tool_call_1
+        result = await middleware.process(
+            loop_response_1,
+            "session123",
+            context={"config": loop_config},
+        )
+        # The middleware returns the same response object but marks tool calls as processed
+        assert result is loop_response_1
 
     # The next call with the same tool should trigger the loop detection
     with pytest.raises(ToolCallLoopError):
         await middleware.process(
-            tool_call_1, "session123", context={"config": loop_config}
+            ProcessedResponse(
+                content=copy.deepcopy(tool_call_1.content),
+            ),
+            "session123",
+            context={"config": loop_config},
         )
 
     # Reset the session before testing the second tool call
@@ -286,15 +336,24 @@ async def test_different_tool_calls(middleware, loop_config) -> None:
     for _ in range(
         loop_config.tool_loop_max_repeats - 1
     ):  # One less than the threshold
-        result = await middleware.process(
-            tool_call_2, "session123", context={"config": loop_config}
+        loop_response_2 = ProcessedResponse(
+            content=copy.deepcopy(tool_call_2.content),
         )
-        assert result == tool_call_2
+        result = await middleware.process(
+            loop_response_2,
+            "session123",
+            context={"config": loop_config},
+        )
+        assert result is loop_response_2
 
     # The next call with the second tool should trigger the loop detection
     with pytest.raises(ToolCallLoopError):
         await middleware.process(
-            tool_call_2, "session123", context={"config": loop_config}
+            ProcessedResponse(
+                content=copy.deepcopy(tool_call_2.content),
+            ),
+            "session123",
+            context={"config": loop_config},
         )
 
 
@@ -308,7 +367,13 @@ async def test_tracker_cache_eviction(loop_config, tool_call_response) -> None:
     for index in range(3):
         session_id = f"session-{index}"
         await middleware.process(
-            tool_call_response, session_id, context={"config": loop_config}
+            ProcessedResponse(
+                content=copy.deepcopy(tool_call_response.content),
+                usage=tool_call_response.usage,
+                metadata=tool_call_response.metadata.copy(),
+            ),
+            session_id,
+            context={"config": LoopDetectionConfiguration(**loop_config.model_dump())},
         )
 
     # Only the two most recent sessions should remain cached

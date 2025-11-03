@@ -61,8 +61,12 @@ def fastapi_to_domain_request_context(
         ),
         # Adapter layer: Extract app state from FastAPI request for domain context
         # Direct access is necessary to bridge framework and domain layers
-        app_state=getattr(request.app, "state", None),
-        state=getattr(request.state, "request_state", {}),
+        app_state=getattr(
+            request.app, "state", None
+        ),  # noqa: DIP-violation-adapter-layer
+        state=getattr(
+            request.state, "request_state", {}
+        ),  # noqa: DIP-violation-adapter-layer
         agent=agent,
     )
 

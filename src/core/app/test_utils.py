@@ -23,7 +23,7 @@ def get_app_config_from_state(app: Any) -> Any:
     """
     app_config = None
     # Get service provider if available
-    service_provider = getattr(app, "state", None)
+    service_provider = getattr(app, "state", None)  # noqa: DIP-violation-test-utility
     if service_provider and hasattr(service_provider, "service_provider"):
         # Try to get AppConfig through IApplicationState
         try:
@@ -42,8 +42,8 @@ def get_app_config_from_state(app: Any) -> Any:
     # Fallback for legacy test code - this will be removed once all code is migrated
     if (
         app_config is None
-        and hasattr(app, "state")
-        and hasattr(app.state, "app_config")
+        and hasattr(app, "state")  # noqa: DIP-violation-test-utility
+        and hasattr(app.state, "app_config")  # noqa: DIP-violation-test-utility
     ):
         app_config = app.state.app_config
 

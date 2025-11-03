@@ -73,3 +73,400 @@ async def test_tool_call_loop_detection_isolates_sessions() -> None:
 
     assert len(alpha_tracker.signatures) == 2
     assert len(beta_tracker.signatures) == 2
+
+
+@pytest.mark.asyncio
+async def test_skips_processed_tool_calls() -> None:
+    """Test that tool calls marked as processed are skipped."""
+    middleware = ToolCallLoopDetectionMiddleware()
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=2,
+        tool_loop_ttl_seconds=120,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+
+    # Create a response with a processed tool call
+    response = ProcessedResponse(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "test_tool",
+                                    "arguments": "{}",
+                                },
+                                "_already_processed": True,  # Mark as processed
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        metadata={},
+    )
+
+    # Process the response - should skip tracking
+    result = await middleware.process(
+        response=response,
+        session_id="test-session",
+        context={"config": config},
+        is_streaming=False,
+    )
+
+    assert result == response
+    # Tracker should not have any signatures since tool call was skipped
+    tracker = middleware._session_trackers.get("test-session")
+    assert tracker is None or len(tracker.signatures) == 0
+
+
+@pytest.mark.asyncio
+async def test_tracks_only_new_tool_calls() -> None:
+    """Test that only new (unprocessed) tool calls are tracked."""
+    middleware = ToolCallLoopDetectionMiddleware()
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=2,
+        tool_loop_ttl_seconds=120,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+
+    # Create a response with both processed and new tool calls
+    response = ProcessedResponse(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "old_tool",
+                                    "arguments": "{}",
+                                },
+                                "_already_processed": True,  # Processed
+                            },
+                            {
+                                "function": {
+                                    "name": "new_tool",
+                                    "arguments": "{}",
+                                },
+                                # Not marked as processed
+                            },
+                        ]
+                    }
+                }
+            ]
+        },
+        metadata={},
+    )
+
+    # Process the response
+    result = await middleware.process(
+        response=response,
+        session_id="test-session",
+        context={"config": config},
+        is_streaming=False,
+    )
+
+    assert result == response
+    # Tracker should only have the new tool call
+    tracker = middleware._session_trackers["test-session"]
+    assert len(tracker.signatures) == 1
+    assert tracker.signatures[0].tool_name == "new_tool"
+
+
+@pytest.mark.asyncio
+async def test_marks_tool_calls_as_processed_after_tracking() -> None:
+    """Test that tool calls are marked as processed after tracking."""
+    middleware = ToolCallLoopDetectionMiddleware()
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=2,
+        tool_loop_ttl_seconds=120,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+
+    # Create a response with a new tool call
+    tool_call = {
+        "function": {
+            "name": "test_tool",
+            "arguments": "{}",
+        },
+    }
+    response = ProcessedResponse(
+        content={"choices": [{"message": {"tool_calls": [tool_call]}}]},
+        metadata={},
+    )
+
+    # Process the response
+    await middleware.process(
+        response=response,
+        session_id="test-session",
+        context={"config": config},
+        is_streaming=False,
+    )
+
+    # Tool call should now be marked as processed
+    assert tool_call.get("_already_processed") is True
+    # Message should also be marked as processed
+    message = response.content["choices"][0]["message"]
+    assert message.get("_tool_calls_processed") is True
+
+
+@pytest.mark.asyncio
+async def test_skips_processed_message() -> None:
+    """Test that messages marked as processed are skipped entirely."""
+    middleware = ToolCallLoopDetectionMiddleware()
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=2,
+        tool_loop_ttl_seconds=120,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+
+    # Create a response with a processed message
+    response = ProcessedResponse(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "test_tool",
+                                    "arguments": "{}",
+                                }
+                            }
+                        ],
+                        "_tool_calls_processed": True,  # Mark message as processed
+                    }
+                }
+            ]
+        },
+        metadata={},
+    )
+
+    # Process the response - should skip tracking
+    result = await middleware.process(
+        response=response,
+        session_id="test-session",
+        context={"config": config},
+        is_streaming=False,
+    )
+
+    assert result == response
+    # Tracker should not have any signatures since message was skipped
+    tracker = middleware._session_trackers.get("test-session")
+    assert tracker is None or len(tracker.signatures) == 0
+
+
+@pytest.mark.asyncio
+async def test_no_false_positives_from_historical_data() -> None:
+    """Test that historical tool calls don't cause false loop detection."""
+    from src.core.common.exceptions import ToolCallLoopError
+
+    middleware = ToolCallLoopDetectionMiddleware()
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=2,  # Low threshold
+        tool_loop_ttl_seconds=120,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+
+    # Simulate multiple historical calls (already processed)
+    for _ in range(5):  # Well above threshold
+        response = ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "test_tool",
+                                        "arguments": '{"param": "value"}',
+                                    },
+                                    "_already_processed": True,  # Historical
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            metadata={},
+        )
+
+        # Should not raise ToolCallLoopError
+        result = await middleware.process(
+            response=response,
+            session_id="test-session",
+            context={"config": config},
+            is_streaming=False,
+        )
+        assert result == response
+
+    # Now send a new tool call with same parameters
+    new_response = ProcessedResponse(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "test_tool",
+                                    "arguments": '{"param": "value"}',
+                                },
+                                # Not marked as processed - this is new
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        metadata={},
+    )
+
+    # First new call should succeed
+    result = await middleware.process(
+        response=new_response,
+        session_id="test-session",
+        context={"config": config},
+        is_streaming=False,
+    )
+    assert result == new_response
+
+    # Second new call should trigger loop detection (threshold is 2)
+    new_response2 = ProcessedResponse(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "test_tool",
+                                    "arguments": '{"param": "value"}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        metadata={},
+    )
+
+    with pytest.raises(ToolCallLoopError) as exc_info:
+        await middleware.process(
+            response=new_response2,
+            session_id="test-session",
+            context={"config": config},
+            is_streaming=False,
+        )
+
+    assert "Tool call loop detected" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_loop_detection_accuracy_with_mixed_calls() -> None:
+    """Test loop detection accuracy when mixing processed and new tool calls."""
+    from src.core.common.exceptions import ToolCallLoopError
+
+    middleware = ToolCallLoopDetectionMiddleware()
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=3,
+        tool_loop_ttl_seconds=120,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+
+    # Send historical calls (should be ignored)
+    for _ in range(10):
+        response = ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "tool_a",
+                                        "arguments": "{}",
+                                    },
+                                    "_already_processed": True,
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            metadata={},
+        )
+        await middleware.process(
+            response=response,
+            session_id="test-session",
+            context={"config": config},
+            is_streaming=False,
+        )
+
+    # Now send new calls with different tool (below threshold)
+    for _ in range(2):
+        response = ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "tool_b",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            metadata={},
+        )
+        # Should not raise error - below threshold
+        result = await middleware.process(
+            response=response,
+            session_id="test-session",
+            context={"config": config},
+            is_streaming=False,
+        )
+        assert result == response
+
+    # Now repeat tool_b one more time to trigger loop (threshold is 3)
+    response = ProcessedResponse(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "function": {
+                                    "name": "tool_b",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        metadata={},
+    )
+
+    with pytest.raises(ToolCallLoopError):
+        await middleware.process(
+            response=response,
+            session_id="test-session",
+            context={"config": config},
+            is_streaming=False,
+        )

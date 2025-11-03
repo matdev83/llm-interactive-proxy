@@ -23,6 +23,9 @@ from src.core.interfaces.tool_call_reactor_interface import (
 
 logger = logging.getLogger(__name__)
 
+# Marker key used to track if a tool call has been processed
+_TOOL_CALL_PROCESSING_MARKER = "_already_processed"
+
 
 class ToolCallReactorMiddleware(IResponseMiddleware):
     """Middleware that integrates tool call reactor into the response pipeline.
@@ -79,6 +82,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         # Extract tool calls from various possible locations
         tool_calls: list[dict[str, Any]] = []
+        raw_tool_calls: list[Any] = []  # Keep track of original objects
 
         # Priority 1: Direct 'tool_calls' attribute (e.g., on ChatMessage)
         if (
@@ -90,6 +94,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                 normalized = self._normalize_tool_call(raw_call)
                 if normalized:
                     tool_calls.append(normalized)
+                    raw_tool_calls.append(raw_call)
 
         # Priority 2: 'tool_calls' within a 'metadata' attribute
         if not tool_calls:
@@ -100,6 +105,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                         normalized = self._normalize_tool_call(raw_call)
                         if normalized:
                             tool_calls.append(normalized)
+                            raw_tool_calls.append(raw_call)
             except Exception as e:
                 logger.debug(
                     "Error extracting tool calls from metadata: %s", e, exc_info=True
@@ -110,10 +116,44 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             content = getattr(response, "content", None)
             if content:
                 tool_calls = self._extract_tool_calls(content)
+                # For content-extracted tool calls, they are already dicts
+                raw_tool_calls = tool_calls
         if not tool_calls:
             return response
 
-        logger.debug(f"Detected {len(tool_calls)} tool call(s) in session {session_id}")
+        # Filter out already-processed tool calls
+        # We need to track both the normalized dict and the raw object
+        new_tool_calls_with_raw: list[tuple[dict[str, Any], Any]] = []
+        for i, tc in enumerate(tool_calls):
+            raw_tc = raw_tool_calls[i] if i < len(raw_tool_calls) else tc
+            # Check if already processed in either the normalized dict or raw object
+            is_processed = tc.get(_TOOL_CALL_PROCESSING_MARKER, False)
+            if not is_processed and raw_tc is not tc:
+                # Also check the raw object
+                if isinstance(raw_tc, dict):
+                    is_processed = raw_tc.get(_TOOL_CALL_PROCESSING_MARKER, False)
+                else:
+                    is_processed = getattr(raw_tc, _TOOL_CALL_PROCESSING_MARKER, False)
+
+            if not is_processed:
+                new_tool_calls_with_raw.append((tc, raw_tc))
+
+        # Log skipped tool calls
+        skipped_count = len(tool_calls) - len(new_tool_calls_with_raw)
+        if skipped_count > 0:
+            logger.debug(
+                f"Skipped {skipped_count} already-processed tool call(s) in session {session_id}"
+            )
+
+        if not new_tool_calls_with_raw:
+            logger.debug(
+                f"All {len(tool_calls)} tool call(s) already processed in session {session_id}, skipping reactor execution"
+            )
+            return response
+
+        logger.debug(
+            f"Detected {len(new_tool_calls_with_raw)} new tool call(s) in session {session_id}"
+        )
 
         # Get session context information
         backend_name = context.get("backend_name", "unknown")
@@ -144,8 +184,8 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                 "Failed to annotate tool calls in metadata/context", exc_info=True
             )
 
-        # Process each tool call through the reactor
-        for tool_call in tool_calls:
+        # Process each new tool call through the reactor
+        for tool_call, raw_tool_call in new_tool_calls_with_raw:
             function_payload = tool_call.get("function")
 
             if not isinstance(function_payload, dict):
@@ -199,6 +239,15 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             try:
                 result = await self._tool_call_reactor.process_tool_call(tool_context)
 
+                # Mark tool call as processed after reactor execution
+                # Mark both the normalized dict and the raw object
+                tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
+                if raw_tool_call is not tool_call:
+                    if isinstance(raw_tool_call, dict):
+                        raw_tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
+                    else:
+                        setattr(raw_tool_call, _TOOL_CALL_PROCESSING_MARKER, True)
+
                 if result and result.should_swallow:
                     logger.info(
                         f"Tool call '{tool_context.tool_name}' was swallowed by reactor "
@@ -225,6 +274,14 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     f"Error processing tool call through reactor: {e}",
                     exc_info=True,
                 )
+                # Mark as processed even on error to avoid retry loops
+                # Mark both the normalized dict and the raw object
+                tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
+                if raw_tool_call is not tool_call:
+                    if isinstance(raw_tool_call, dict):
+                        raw_tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
+                    else:
+                        setattr(raw_tool_call, _TOOL_CALL_PROCESSING_MARKER, True)
                 # Continue with next tool call on error
 
         # No handlers swallowed any tool calls, return original response

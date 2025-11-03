@@ -430,6 +430,10 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         content and converts them to proper OpenAI-style tool_calls, removing the XML
         from the content.
 
+        Only processes new messages (those without a processing marker). Historical
+        messages that have already been processed are skipped to avoid redundant
+        processing and excessive logging.
+
         Args:
             messages: List of messages to process
 
@@ -437,6 +441,12 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             List of messages with tool calls extracted
         """
         import re
+
+        from src.core.utils.message_processing_utils import (
+            find_last_assistant_message,
+            is_message_processed,
+            mark_message_processed,
+        )
 
         processed_messages = []
 
@@ -451,7 +461,20 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             re.DOTALL,
         )
 
-        for message in messages:
+        # Find last assistant message for fallback logic
+        last_assistant_idx = find_last_assistant_message(messages)
+
+        for idx, message in enumerate(messages):
+            # Check if message has already been processed
+            if is_message_processed(message):
+                logger.log(
+                    5,  # TRACE level
+                    "Skipping already processed message at index %d",
+                    idx,
+                )
+                processed_messages.append(message)
+                continue
+
             # Get message attributes
             if isinstance(message, dict):
                 role = message.get("role", "")
@@ -467,6 +490,17 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 processed_messages.append(message)
                 continue
 
+            # Fallback: Only process last assistant message if no marker present
+            if idx != last_assistant_idx:
+                logger.log(
+                    5,  # TRACE level
+                    "Skipping historical assistant message at index %d (last is %d)",
+                    idx,
+                    last_assistant_idx,
+                )
+                processed_messages.append(message)
+                continue
+
             # Check if there are already tool_calls - if so, skip extraction
             if existing_tool_calls:
                 processed_messages.append(message)
@@ -474,7 +508,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
             matches = list(tool_pattern.finditer(content))
             if not matches:
-                # No MCP tool calls found
+                # No XML tool calls found
                 processed_messages.append(message)
                 continue
 
@@ -518,9 +552,12 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                     # Fallback for non-Pydantic objects
                     updated_message = message
 
-            logger.info(
-                f"Extracted {len(tool_calls)} MCP tool call(s) from assistant message"
+            logger.debug(
+                f"Extracted {len(tool_calls)} XML tool call(s) from assistant message"
             )
+
+            # Mark message as processed
+            mark_message_processed(updated_message)
             processed_messages.append(updated_message)
 
         return processed_messages

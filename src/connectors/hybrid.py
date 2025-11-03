@@ -17,7 +17,7 @@ import time
 import uuid
 from copy import deepcopy
 from dataclasses import asdict, is_dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -31,7 +31,11 @@ from src.connectors.utils.model_capabilities import (
 from src.connectors.utils.reasoning_stream_processor import (
     ReasoningStreamProcessor,
 )
-from src.core.common.exceptions import BackendError, ConfigurationError
+from src.core.common.exceptions import (
+    BackendError,
+    ConfigurationError,
+    ServiceResolutionError,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
@@ -40,6 +44,7 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
 
 if TYPE_CHECKING:
+    from src.core.domain.chat import CanonicalChatRequest
     from src.core.services.backend_registry import BackendRegistry
     from src.core.services.translation_service import TranslationService
 
@@ -192,69 +197,144 @@ class HybridConnector(LLMBackend):
     def _apply_reasoning_params(
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
-        backend: str,
-        enable_reasoning: bool,
+        backend_or_params: str | dict[str, Any],
+        enable_reasoning: bool | None = None,
     ) -> DomainModel | InternalDTO | dict[str, Any]:
-        """Apply reasoning parameters based on backend and phase.
+        """Apply backend-specific reasoning parameters to the request.
 
-        Args:
-            request_data: Original request data (domain model, DTO, or dict)
-            backend: Backend name
-            enable_reasoning: True for reasoning phase, False for execution phase
-
-        Returns:
-            Request data with overridden reasoning parameters (same type as input)
+        This method supports both legacy usage where a backend name is provided
+        alongside the ``enable_reasoning`` flag, as well as direct parameter
+        dictionaries (used in certain integration tests).
         """
-        # Get appropriate parameters based on phase
-        if enable_reasoning:
-            params = get_reasoning_params(backend)
-            phase_name = "reasoning"
+
+        if isinstance(backend_or_params, str):
+            if enable_reasoning is None:
+                raise TypeError(
+                    "enable_reasoning flag is required when backend name is provided"
+                )
+            params = (
+                get_reasoning_params(backend_or_params)
+                if enable_reasoning
+                else get_execution_params(backend_or_params)
+            )
+        elif isinstance(backend_or_params, dict):
+            params = backend_or_params
         else:
-            params = get_execution_params(backend)
-            phase_name = "execution"
+            raise TypeError(
+                "backend_or_params must be a backend string or parameter dictionary"
+            )
+
+        return self._apply_parameter_overrides(request_data, params)
+
+    def _apply_parameter_overrides(
+        self,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
+        params: dict[str, Any],
+    ) -> DomainModel | InternalDTO | dict[str, Any]:
+        """Apply a parameter dictionary to the request data."""
 
         # If no parameters to override, return original
         if not params:
             return request_data
 
-        # Handle domain models with model_copy
-        if hasattr(request_data, "model_copy"):
-            # Pydantic model - use model_copy to create a new instance with updates
-            for key, value in params.items():
-                old_value = getattr(request_data, key, None)
-                if old_value != value:
-                    logger.debug(
-                        f"Overriding {key}: {old_value} -> {value} for {backend} ({phase_name} phase)"
-                    )
-            return request_data.model_copy(update=params)
+        # Log the overrides
+        for key, value in params.items():
+            logger.debug(f"Applying override {key}={value} to request")
+
+        # Handle Pydantic models (includes CanonicalChatRequest)
+        if isinstance(request_data, DomainModel):
+            # Ensure extra_body is a mutable dict
+            current_extra_body = getattr(request_data, "extra_body", None)
+            new_extra_body = dict(current_extra_body) if current_extra_body else {}
+
+            # Apply overrides
+            new_extra_body.update(params)
+
+            return request_data.model_copy(
+                update={"extra_body": new_extra_body, **params}
+            )
 
         # Handle dicts
         elif isinstance(request_data, dict):
             request_copy = dict(request_data)
-            for key, value in params.items():
-                old_value = request_copy.get(key)
-                request_copy[key] = value
-                if old_value != value:
-                    logger.debug(
-                        f"Overriding {key}: {old_value} -> {value} for {backend} ({phase_name} phase)"
-                    )
+            # Ensure extra_body exists and is a mutable dict
+            current_extra_body = request_copy.get("extra_body")
+            new_extra_body = (
+                dict(current_extra_body) if isinstance(current_extra_body, dict) else {}
+            )
+
+            # Apply overrides
+            new_extra_body.update(params)
+            request_copy["extra_body"] = new_extra_body
+
+            # Expose overrides at the top level for compatibility
+            request_copy.update(params)
+
             return request_copy
 
         # Handle dataclasses
         elif is_dataclass(request_data) and not isinstance(request_data, type):
             request_dict = asdict(request_data)
-            for key, value in params.items():
-                old_value = request_dict.get(key)
-                request_dict[key] = value
-                if old_value != value:
-                    logger.debug(
-                        f"Overriding {key}: {old_value} -> {value} for {backend} ({phase_name} phase)"
-                    )
+            # Ensure extra_body exists and is a mutable dict
+            current_extra_body = request_dict.get("extra_body")
+            new_extra_body = (
+                dict(current_extra_body) if isinstance(current_extra_body, dict) else {}
+            )
+
+            # Apply overrides
+            new_extra_body.update(params)
+            request_dict["extra_body"] = new_extra_body
+
+            # Merge overrides into the dataclass representation
+            request_dict.update(params)
+
             # Return as dict since we can't easily reconstruct the dataclass
             return request_dict
-
-        # Fallback: return original
+        # Fallback: return original if type is not supported
+        logger.warning(
+            f"Unsupported request_data type in _apply_reasoning_params: {type(request_data).__name__}"
+        )
         return request_data
+
+    def _resolve_backend_identity(
+        self,
+        backend: str,
+        request_identity: IAppIdentityConfig | None,
+        backend_config: Any = None,
+    ) -> IAppIdentityConfig | None:
+        """Resolve identity configuration for backend calls.
+
+        Preference order:
+        1. Backend-specific identity provided via backend_config or AppConfig.backends
+        2. Identity attached to the current request
+        3. Global application identity
+        """
+
+        if backend_config is not None and getattr(backend_config, "identity", None):
+            return cast(IAppIdentityConfig, backend_config.identity)
+
+        backend_identity = None
+        if hasattr(self.config, "backends"):
+            with contextlib.suppress(AttributeError):
+                backend_settings = getattr(self.config.backends, backend)
+                backend_identity = getattr(backend_settings, "identity", None)
+        if backend_identity is not None:
+            return cast(IAppIdentityConfig, backend_identity)
+
+        if request_identity is not None:
+            return request_identity
+
+        return getattr(self.config, "identity", None)
+
+    def get_reasoning_params(self, backend: str = "openai") -> dict[str, Any]:
+        """Expose reasoning parameter presets for tests and diagnostics."""
+
+        return get_reasoning_params(backend)
+
+    def get_execution_params(self, backend: str = "openai") -> dict[str, Any]:
+        """Expose execution parameter presets for tests and diagnostics."""
+
+        return get_execution_params(backend)
 
     def _supports_system_messages(self, backend: str) -> bool:
         """Check if backend supports system messages.
@@ -770,89 +850,30 @@ class HybridConnector(LLMBackend):
                 },
             )
 
-        try:
-            # Use backend factory to properly create and initialize the backend
-            from src.core.di.services import get_required_service
-            from src.core.services.backend_factory import BackendFactory
-
-            backend_factory_instance = get_required_service(BackendFactory)
-
-            # Get backend config for reasoning backend
-            reasoning_backend_config = None
-            if hasattr(self.config, "backends"):
-                with contextlib.suppress(AttributeError):
-                    reasoning_backend_config = getattr(
-                        self.config.backends, reasoning_backend
-                    )
-
-            # Use ensure_backend which properly handles API key initialization
-            reasoning_connector = await backend_factory_instance.ensure_backend(
-                reasoning_backend, self.config, reasoning_backend_config
-            )
-
-        except ValueError as e:
-            logger.error(
-                f"Reasoning backend '{reasoning_backend}' not found in registry",
-                extra={
-                    "phase": "reasoning",
-                    "reasoning_backend": reasoning_backend,
-                    "reasoning_model": reasoning_model,
-                    "error": str(e),
-                },
-            )
-            raise BackendError(
-                message=f"Reasoning backend '{reasoning_backend}' not found: {e}",
-                code="reasoning_backend_not_found",
-                details={
-                    "phase": "reasoning",
-                    "reasoning_backend": reasoning_backend,
-                    "reasoning_model": reasoning_model,
-                },
-            ) from e
-        except Exception as e:
-            logger.error(
-                f"Failed to initialize reasoning backend '{reasoning_backend}'",
-                extra={
-                    "phase": "reasoning",
-                    "reasoning_backend": reasoning_backend,
-                    "reasoning_model": reasoning_model,
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-            raise BackendError(
-                message=f"Failed to initialize reasoning backend: {e}",
-                code="reasoning_backend_init_failed",
-                details={
-                    "phase": "reasoning",
-                    "reasoning_backend": reasoning_backend,
-                    "reasoning_model": reasoning_model,
-                },
-            ) from e
-
         # Create request payload for reasoning model
-        reasoning_request = self._apply_reasoning_params(
-            request_data, reasoning_backend, enable_reasoning=True
+        reasoning_params = get_reasoning_params(reasoning_backend)
+        reasoning_request = self._apply_reasoning_params(request_data, reasoning_params)
+
+        # Prepare canonical request for backend service
+        canonical_reasoning_request = self._prepare_backend_request(
+            reasoning_request,
+            target_model=reasoning_model,
+            stream=True,
+            messages=messages,
         )
 
-        # Ensure streaming is enabled for reasoning capture
-        if hasattr(reasoning_request, "model_copy"):
-            reasoning_request = reasoning_request.model_copy(update={"stream": True})
-        elif isinstance(reasoning_request, dict):
-            reasoning_request["stream"] = True
-        else:
-            # For other types, try to set attribute using setattr to avoid type errors
-            with contextlib.suppress(AttributeError):
-                reasoning_request.stream = True  # type: ignore[attr-defined]
-
         try:
-            # Call reasoning model with timeout
+            from src.core.di.services import get_required_service
+            from src.core.services.backend_service import BackendService
+
+            backend_service = get_required_service(BackendService)
+
+            # Call reasoning model with timeout via backend service
             response = await asyncio.wait_for(
-                reasoning_connector.chat_completions(
-                    request_data=reasoning_request,
-                    processed_messages=messages,
-                    effective_model=reasoning_model,
-                    identity=identity,
+                backend_service.call_completion(
+                    canonical_reasoning_request,
+                    stream=True,
+                    allow_failover=False,
                 ),
                 timeout=REASONING_PHASE_TIMEOUT,
             )
@@ -918,6 +939,27 @@ class HybridConnector(LLMBackend):
 
             return reasoning_text
 
+        except ServiceResolutionError as e:
+            logger.error(
+                "Failed to resolve BackendService for reasoning phase",
+                extra={
+                    "phase": "reasoning",
+                    "reasoning_backend": reasoning_backend,
+                    "reasoning_model": reasoning_model,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise BackendError(
+                message=f"Failed to initialize reasoning backend: {e}",
+                code="reasoning_backend_init_failed",
+                details={
+                    "phase": "reasoning",
+                    "reasoning_backend": reasoning_backend,
+                    "reasoning_model": reasoning_model,
+                },
+            ) from e
+
         except asyncio.TimeoutError as e:
             # Handle timeout with partial reasoning fallback
             logger.warning(
@@ -968,6 +1010,57 @@ class HybridConnector(LLMBackend):
                     "error_type": type(e).__name__,
                 },
             ) from e
+
+    def _prepare_backend_request(
+        self,
+        request_data: DomainModel | InternalDTO | dict[str, Any],
+        target_model: str,
+        stream: bool,
+        messages: list | None = None,
+    ) -> CanonicalChatRequest:
+        """Normalize request for backend service calls."""
+
+        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+
+        request_obj: Any = request_data
+
+        if hasattr(request_obj, "model_copy"):
+            request_obj = request_obj.model_copy(
+                update={"model": target_model, "stream": stream}
+            )
+        elif isinstance(request_obj, dict):
+            request_dict = dict(request_obj)
+            request_dict["model"] = target_model
+            request_dict["stream"] = stream
+            request_obj = self.translation_service.to_domain_request(
+                request_dict, "openai"
+            )
+        elif is_dataclass(request_obj) and not isinstance(request_obj, type):
+            request_dict = asdict(request_obj)
+            request_dict["model"] = target_model
+            request_dict["stream"] = stream
+            request_obj = self.translation_service.to_domain_request(
+                request_dict, "openai"
+            )
+        elif isinstance(request_obj, ChatRequest):
+            request_obj = request_obj.model_copy(
+                update={"model": target_model, "stream": stream}
+            )
+        else:
+            raise TypeError(
+                "Unable to prepare backend request from type "
+                f"{type(request_obj).__name__}"
+            )
+
+        if not isinstance(request_obj, CanonicalChatRequest):
+            request_obj = self.translation_service.to_domain_request(
+                request_obj, "openai"
+            )
+
+        if messages is not None:
+            request_obj = request_obj.model_copy(update={"messages": messages})
+
+        return cast("CanonicalChatRequest", request_obj)
 
     async def _execute_execution_phase(
         self,
@@ -1035,6 +1128,10 @@ class HybridConnector(LLMBackend):
                         self.config.backends, execution_backend
                     )
 
+            execution_identity = self._resolve_backend_identity(
+                execution_backend, identity, execution_backend_config
+            )
+
             # Use ensure_backend which properly handles API key initialization
             execution_connector = await backend_factory_instance.ensure_backend(
                 execution_backend, self.config, execution_backend_config
@@ -1085,9 +1182,8 @@ class HybridConnector(LLMBackend):
             ) from e
 
         # Create request payload with augmented messages
-        execution_request = self._apply_reasoning_params(
-            request_data, execution_backend, enable_reasoning=False
-        )
+        execution_params = get_execution_params(execution_backend)
+        execution_request = self._apply_reasoning_params(request_data, execution_params)
 
         try:
             # Call execution model with augmented messages and timeout
@@ -1096,7 +1192,7 @@ class HybridConnector(LLMBackend):
                     request_data=execution_request,
                     processed_messages=augmented_messages,
                     effective_model=execution_model,
-                    identity=identity,
+                    identity=execution_identity,
                     **kwargs,
                 ),
                 timeout=EXECUTION_PHASE_TIMEOUT,

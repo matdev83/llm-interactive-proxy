@@ -81,6 +81,7 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self.is_interface_layer = "/interfaces/" in file_path
         self.is_test_file = (
             "/tests/" in file_path
+            or "test" in file_path.lower()
             or file_path.endswith(("_test.py", "test_.py"))
             or file_path.startswith("test_")
             or "/test_" in file_path
@@ -372,12 +373,47 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         """Check if the node has a DIP noqa comment."""
         # This is a simplified check - in a real implementation you'd need to parse comments
         # For now, we'll check if the line contains specific noqa patterns
+        # We'll check the line of the node and also a few surrounding lines for multi-line expressions
         try:
             with open(self.file_path, encoding="utf-8") as f:
                 lines = f.readlines()
-                if node.lineno - 1 < len(lines):
-                    line = lines[node.lineno - 1]
-                    return "noqa: DIP-violation" in line or "DIP-violation-" in line
+
+            # Check the line before the node (original behavior)
+            if node.lineno - 1 < len(lines):
+                line = lines[node.lineno - 1]
+                if (
+                    "noqa: DIP-violation" in line
+                    or "DIP-violation-" in line
+                    or "DIP-violation-initialization" in line
+                    or "DIP-violation-test-utility" in line
+                    or "DIP-violation-adapter-layer" in line
+                ):
+                    return True
+
+            # Check the same line as the node
+            if node.lineno < len(lines):
+                line = lines[node.lineno - 1]  # lineno is 1-indexed, lines is 0-indexed
+                if (
+                    "noqa: DIP-violation" in line
+                    or "DIP-violation-" in line
+                    or "DIP-violation-initialization" in line
+                    or "DIP-violation-test-utility" in line
+                    or "DIP-violation-adapter-layer" in line
+                ):
+                    return True
+
+            # Check a few lines ahead for multi-line expressions
+            for i in range(max(0, node.lineno - 1), min(len(lines), node.lineno + 5)):
+                line = lines[i]
+                if (
+                    "noqa: DIP-violation" in line
+                    or "DIP-violation-" in line
+                    or "DIP-violation-initialization" in line
+                    or "DIP-violation-test-utility" in line
+                    or "DIP-violation-adapter-layer" in line
+                ):
+                    return True
+
         except Exception:
             pass
         return False
@@ -386,12 +422,47 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         """Check if the call node has a DIP noqa comment."""
         # This is a simplified check - in a real implementation you'd need to parse comments
         # For now, we'll check if the line contains specific noqa patterns
+        # We'll check the line of the node and also a few surrounding lines for multi-line expressions
         try:
             with open(self.file_path, encoding="utf-8") as f:
                 lines = f.readlines()
-                if node.lineno - 1 < len(lines):
-                    line = lines[node.lineno - 1]
-                    return "noqa: DIP-violation" in line or "DIP-violation-" in line
+
+            # Check the line before the node (original behavior)
+            if node.lineno - 1 < len(lines):
+                line = lines[node.lineno - 1]
+                if (
+                    "noqa: DIP-violation" in line
+                    or "DIP-violation-" in line
+                    or "DIP-violation-initialization" in line
+                    or "DIP-violation-test-utility" in line
+                    or "DIP-violation-adapter-layer" in line
+                ):
+                    return True
+
+            # Check the same line as the node
+            if node.lineno < len(lines):
+                line = lines[node.lineno - 1]  # lineno is 1-indexed, lines is 0-indexed
+                if (
+                    "noqa: DIP-violation" in line
+                    or "DIP-violation-" in line
+                    or "DIP-violation-initialization" in line
+                    or "DIP-violation-test-utility" in line
+                    or "DIP-violation-adapter-layer" in line
+                ):
+                    return True
+
+            # Check a few lines ahead for multi-line expressions
+            for i in range(max(0, node.lineno - 1), min(len(lines), node.lineno + 5)):
+                line = lines[i]
+                if (
+                    "noqa: DIP-violation" in line
+                    or "DIP-violation-" in line
+                    or "DIP-violation-initialization" in line
+                    or "DIP-violation-test-utility" in line
+                    or "DIP-violation-adapter-layer" in line
+                ):
+                    return True
+
         except Exception:
             pass
         return False

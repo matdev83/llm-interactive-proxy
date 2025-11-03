@@ -1498,6 +1498,7 @@ When limits are exceeded, the proxy returns a structured 400 error:
 - Tool-call repair: convert textual tool calls to proper `tool_calls`
 - Tool Call Reactor: event-driven system to intercept and steer tool calls (e.g., apply_diff to patch_file), with configurable YAML rules and rate limiting
 - Tool Access Control: fine-grained control over which tools LLMs can access and execute (see [Tool Access Control](#tool-access-control) section and [full documentation](docs/tool_access_control.md))
+- Tool Call Processing Optimization: prevents re-processing of historical tool calls in long conversations (70+ messages), achieving >90% reduction in processing time ([full documentation](docs/tool_call_processing_optimization.md))
 - Opt-in pytest full-suite steering: warns before running the entire pytest suite and requires a second confirmation
 - Loop detection: stop repeated identical tool calls
 - Dangerous-command prevention: steer away from destructive shell actions

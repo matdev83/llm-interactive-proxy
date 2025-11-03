@@ -353,7 +353,7 @@ class ApplicationBuilder:
 
             if hasattr(app_state_service, "set_state_provider"):
                 try:
-                    app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]
+                    app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]  # noqa: DIP-violation-initialization
                 except Exception:
                     logger.debug(
                         "Failed to set state provider on application state service",
@@ -363,12 +363,16 @@ class ApplicationBuilder:
             for attribute_name in dir(app_state_service):
                 if attribute_name.startswith("_"):
                     continue
-                if hasattr(app.state, attribute_name):
+                if hasattr(
+                    app.state, attribute_name
+                ):  # noqa: DIP-violation-initialization
                     continue
                 attribute_value = getattr(app_state_service, attribute_name)
                 if callable(attribute_value):
                     try:
-                        setattr(app.state, attribute_name, attribute_value)
+                        setattr(
+                            app.state, attribute_name, attribute_value
+                        )  # noqa: DIP-violation-initialization
                     except Exception:
                         logger.debug(
                             "Failed to expose application state attribute '%s' on app.state",

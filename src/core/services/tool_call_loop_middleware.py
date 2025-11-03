@@ -19,6 +19,10 @@ from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
+from src.core.utils.message_processing_utils import (
+    is_message_processed,
+    mark_message_processed,
+)
 from src.tool_call_loop.tracker import ToolCallTracker
 
 if TYPE_CHECKING:
@@ -85,6 +89,15 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         if not tool_calls:
             return response
 
+        # Filter out already-processed tool calls to avoid tracking historical data
+        new_tool_calls = self._filter_new_tool_calls(tool_calls, response)
+        if not new_tool_calls:
+            logger.log(
+                5,  # TRACE level
+                f"Skipping loop detection - all {len(tool_calls)} tool calls already processed",
+            )
+            return response
+
         tracker_config = self._build_tracker_config(config)
 
         resolved_session_id = session_id or context.get("stream_id")
@@ -106,8 +119,8 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             if tracker.config != tracker_config:
                 tracker.config = tracker_config
 
-        # Process each tool call
-        for tool_call in tool_calls:
+        # Process each NEW tool call only
+        for tool_call in new_tool_calls:
             tool_name = tool_call.get("function", {}).get("name", "unknown")
             arguments = tool_call.get("function", {}).get("arguments", "{}")
 
@@ -133,6 +146,9 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                         "mode": tracker.config.mode.value,
                     },
                 )
+
+        # Mark tool calls as processed after tracking
+        self._mark_tool_calls_processed(tool_calls, response)
 
         # If we get here, no loops were detected
         return response
@@ -256,3 +272,56 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                 )
 
         return ToolLoopMode.BREAK
+
+    def _filter_new_tool_calls(
+        self, tool_calls: list[dict[str, Any]], response: Any
+    ) -> list[dict[str, Any]]:
+        """Filter tool calls to only include new ones that haven't been processed.
+
+        This method implements a hybrid approach:
+        1. Check if tool calls have a processing marker (primary)
+        2. Check if the response message has been processed (fallback)
+
+        Args:
+            tool_calls: List of tool call dictionaries
+            response: The response object containing the tool calls
+
+        Returns:
+            List of new (unprocessed) tool calls
+        """
+        # Check if the response itself has been processed
+        # This handles the case where the entire message was processed
+        if hasattr(response, "content") and isinstance(response.content, dict):
+            # Check if this is from a message that was already processed
+            choices = response.content.get("choices", [])
+            if choices:
+                message = choices[0].get("message", {})
+                if is_message_processed(message):
+                    return []
+
+        # Filter individual tool calls that have been marked as processed
+        new_tool_calls = [
+            tc for tc in tool_calls if not tc.get("_already_processed", False)
+        ]
+
+        return new_tool_calls
+
+    def _mark_tool_calls_processed(
+        self, tool_calls: list[dict[str, Any]], response: Any
+    ) -> None:
+        """Mark tool calls as processed to prevent reprocessing.
+
+        Args:
+            tool_calls: List of tool call dictionaries to mark
+            response: The response object containing the tool calls
+        """
+        # Mark individual tool calls as processed
+        for tool_call in tool_calls:
+            tool_call["_already_processed"] = True
+
+        # Also mark the message as processed if we can access it
+        if hasattr(response, "content") and isinstance(response.content, dict):
+            choices = response.content.get("choices", [])
+            if choices:
+                message = choices[0].get("message", {})
+                mark_message_processed(message)
