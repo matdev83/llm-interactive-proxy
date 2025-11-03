@@ -708,9 +708,27 @@ python -m src.core.cli --default-backend gemini-cli-acp
 !/project-dir(/path/to/another/project)
 ```
 
-## Hybrid Backend
+## Hybrid Backend ⚠️ EXPERIMENTAL
+
+![Experimental](https://img.shields.io/badge/status-experimental-orange)
+
+**⚠️ WARNING: This feature is experimental and not yet production-grade. Results may vary.**
 
 The hybrid backend is a powerful virtual backend that orchestrates two sequential LLM API calls to enhance response quality. It captures reasoning output from a "reasoning model" and uses that output to augment the prompt sent to an "execution model". This enables leveraging the reasoning capabilities of one model (e.g., a model with strong chain-of-thought abilities) to improve the output of another model (e.g., a faster or more specialized model).
+
+### Testing Status
+
+The hybrid backend has been tested with several model combinations with varying degrees of success:
+
+**✅ Tested and Promising:**
+- **Reasoning**: MiniMax-M2
+- **Execution**: Qwen3-Coder-Plus
+- **Status**: Results are promising but not yet production-grade
+
+**⚠️ Tested with Limited Success:**
+- Other model combinations have been tested but did not show great success
+
+**Recommendation**: If you're interested in testing this experimental feature, start with the MiniMax-M2 + Qwen3-Coder-Plus combination as it has shown the most promise in testing.
 
 ### Key Benefits
 
@@ -738,6 +756,19 @@ hybrid:[reasoning-backend:reasoning-model,execution-backend:execution-model]
 
 ### Examples
 
+**Recommended Starting Point (Tested and Promising)**:
+
+```bash
+# This combination has shown promise in testing
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+    "messages": [{"role": "user", "content": "Write a Python function to parse JSON"}],
+    "stream": true
+  }'
+```
+
 **Basic Hybrid Request (Same Backend)**:
 
 ```bash
@@ -750,14 +781,14 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-**Cross-Backend Hybrid Request**:
+**Cross-Backend Hybrid Request** (experimental):
 
 ```bash
-# Use MiniMax for reasoning, Qwen for execution
+# Other combinations have been tested with limited success
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+    "model": "hybrid:[openai:gpt-4,anthropic:claude-3]",
     "messages": [{"role": "user", "content": "Write a Python function to parse JSON"}],
     "stream": true
   }'
