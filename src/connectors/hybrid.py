@@ -13,10 +13,11 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
 import uuid
 from copy import deepcopy
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
@@ -55,10 +56,34 @@ REASONING_PHASE_TIMEOUT = 60.0  # seconds
 EXECUTION_PHASE_TIMEOUT = 120.0  # seconds
 
 
+@dataclass
+class ReasoningPhaseResult:
+    """Container for reasoning phase outcome."""
+
+    text: str
+    complete: bool
+    tool_calls: list[dict[str, Any]]
+    raw_chunks: list[ProcessedResponse]
+    media_type: str | None
+    headers: dict[str, str] | None
+
+    def has_tool_calls(self) -> bool:
+        """Check whether reasoning produced any tool calls."""
+
+        return bool(self.tool_calls)
+
+
 class HybridConnector(LLMBackend):
     """LLMBackend implementation for hybrid two-phase reasoning approach."""
 
     backend_type: str = "hybrid"
+    _LEADING_REASONING_TAG = re.compile(
+        r"^\s*<\s*(?:think|thinking|reason|reasoning)\b[^>]*>\s*", re.IGNORECASE
+    )
+    _TRAILING_REASONING_TAG = re.compile(
+        r"\s*<\s*/\s*(?:think|thinking|reason|reasoning)\b[^>]*>\s*$",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -110,19 +135,24 @@ class HybridConnector(LLMBackend):
 
         logger.info("Hybrid backend initialized successfully")
 
-    def _parse_hybrid_model_spec(self, model_spec: str) -> tuple[str, str, str, str]:
-        """Parse hybrid model specification.
+    def _parse_hybrid_model_spec(
+        self, model_spec: str
+    ) -> tuple[str, str, dict[str, Any], str, str, dict[str, Any]]:
+        """Parse hybrid model specification with optional URI parameters.
 
         Args:
-            model_spec: Format "hybrid:[reasoning-backend:reasoning-model,execution-backend:execution-model]"
-                       Example: "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]"
+            model_spec: Format "hybrid:[reasoning-backend:reasoning-model?params,execution-backend:execution-model?params]"
+                       Example: "hybrid:[minimax:MiniMax-M2?temperature=0.8,qwen-oauth:qwen3-coder-plus?temperature=0.3]"
 
         Returns:
-            Tuple of (reasoning_backend, reasoning_model, execution_backend, execution_model)
+            Tuple of (reasoning_backend, reasoning_model, reasoning_params,
+                     execution_backend, execution_model, execution_params)
 
         Raises:
             ValueError: If format is invalid or incomplete with descriptive messages and examples
         """
+        from src.core.domain.model_utils import parse_model_with_params
+
         # Remove "hybrid:" prefix if present
         if model_spec.startswith("hybrid:"):
             model_spec = model_spec[7:]
@@ -137,8 +167,44 @@ class HybridConnector(LLMBackend):
         # Remove brackets
         model_spec = model_spec[1:-1]
 
-        # Split by comma
-        parts = model_spec.split(",")
+        # Split by comma - need to be careful with commas in query strings
+        # Strategy: Split by comma, but track if we're inside a query string
+        # A comma inside a query string (after ?) should not split the models
+        # We need to find the comma that separates the two model specs
+        parts = []
+        current_part: list[str] = []
+
+        i = 0
+        while i < len(model_spec):
+            char = model_spec[i]
+
+            # Check if this is a comma that separates models
+            # It should be a comma that's not part of a query string
+            if char == ",":
+                # Look back to see if we're in a query string
+                # A comma is a separator if there's no '?' before it in the current part
+                # or if there's a complete backend:model before it
+                current_str = "".join(current_part)
+
+                # Check if we have a complete model spec (backend:model with optional ?params)
+                # by checking if there's a colon before any question mark
+                has_colon = ":" in current_str
+                current_str.find("?")
+
+                if has_colon:
+                    # This looks like a complete model spec, so this comma is a separator
+                    parts.append(current_str)
+                    current_part = []
+                    i += 1
+                    continue
+
+            current_part.append(char)
+            i += 1
+
+        # Add the last part
+        if current_part:
+            parts.append("".join(current_part))
+
         if len(parts) != 2:
             raise ValueError(
                 f"Invalid hybrid model format. Expected exactly 2 models separated by comma, got {len(parts)}. "
@@ -149,17 +215,26 @@ class HybridConnector(LLMBackend):
         reasoning_spec = parts[0].strip()
         execution_spec = parts[1].strip()
 
-        # Parse reasoning model spec
-        reasoning_parts = reasoning_spec.split(":")
-        if len(reasoning_parts) != 2:
+        # Parse reasoning model spec with URI parameters
+        try:
+            reasoning_backend, reasoning_model, reasoning_params = (
+                parse_model_with_params(reasoning_spec)
+            )
+        except Exception as e:
+            # Log warning about parsing failure but provide helpful error message
+            logger.warning(
+                f"Failed to parse reasoning model specification '{reasoning_spec}': {e}. "
+                f"Attempting to continue with fallback parsing."
+            )
             raise ValueError(
                 f"Invalid reasoning model specification: '{reasoning_spec}'. "
-                "Expected format: backend:model. "
-                "Example: minimax:MiniMax-M2"
-            )
+                f"Error: {e}. "
+                "Expected format: backend:model or backend:model?params. "
+                "Example: minimax:MiniMax-M2?temperature=0.8"
+            ) from e
 
-        reasoning_backend = reasoning_parts[0].strip()
-        reasoning_model = reasoning_parts[1].strip()
+        reasoning_backend = reasoning_backend.strip()
+        reasoning_model = reasoning_model.strip()
 
         if not reasoning_backend or not reasoning_model:
             raise ValueError(
@@ -168,17 +243,26 @@ class HybridConnector(LLMBackend):
                 "Example: minimax:MiniMax-M2"
             )
 
-        # Parse execution model spec
-        execution_parts = execution_spec.split(":")
-        if len(execution_parts) != 2:
+        # Parse execution model spec with URI parameters
+        try:
+            execution_backend, execution_model, execution_params = (
+                parse_model_with_params(execution_spec)
+            )
+        except Exception as e:
+            # Log warning about parsing failure but provide helpful error message
+            logger.warning(
+                f"Failed to parse execution model specification '{execution_spec}': {e}. "
+                f"Attempting to continue with fallback parsing."
+            )
             raise ValueError(
                 f"Invalid execution model specification: '{execution_spec}'. "
-                "Expected format: backend:model. "
-                "Example: qwen-oauth:qwen3-coder-plus"
-            )
+                f"Error: {e}. "
+                "Expected format: backend:model or backend:model?params. "
+                "Example: qwen-oauth:qwen3-coder-plus?temperature=0.3"
+            ) from e
 
-        execution_backend = execution_parts[0].strip()
-        execution_model = execution_parts[1].strip()
+        execution_backend = execution_backend.strip()
+        execution_model = execution_model.strip()
 
         if not execution_backend or not execution_model:
             raise ValueError(
@@ -188,11 +272,18 @@ class HybridConnector(LLMBackend):
             )
 
         logger.debug(
-            f"Parsed hybrid model spec: reasoning={reasoning_backend}:{reasoning_model}, "
-            f"execution={execution_backend}:{execution_model}"
+            f"Parsed hybrid model spec: reasoning={reasoning_backend}:{reasoning_model} (params={reasoning_params}), "
+            f"execution={execution_backend}:{execution_model} (params={execution_params})"
         )
 
-        return reasoning_backend, reasoning_model, execution_backend, execution_model
+        return (
+            reasoning_backend,
+            reasoning_model,
+            reasoning_params,
+            execution_backend,
+            execution_model,
+            execution_params,
+        )
 
     def _apply_reasoning_params(
         self,
@@ -250,8 +341,15 @@ class HybridConnector(LLMBackend):
             # Apply overrides
             new_extra_body.update(params)
 
+            # Strip hybrid routing hints that would confuse downstream connectors
+            for drop_key in ("backend_type", "model"):
+                new_extra_body.pop(drop_key, None)
+
             return request_data.model_copy(
-                update={"extra_body": new_extra_body, **params}
+                update={
+                    "extra_body": new_extra_body if new_extra_body else None,
+                    **params,
+                }
             )
 
         # Handle dicts
@@ -265,7 +363,9 @@ class HybridConnector(LLMBackend):
 
             # Apply overrides
             new_extra_body.update(params)
-            request_copy["extra_body"] = new_extra_body
+            for drop_key in ("backend_type", "model"):
+                new_extra_body.pop(drop_key, None)
+            request_copy["extra_body"] = new_extra_body if new_extra_body else None
 
             # Expose overrides at the top level for compatibility
             request_copy.update(params)
@@ -283,7 +383,9 @@ class HybridConnector(LLMBackend):
 
             # Apply overrides
             new_extra_body.update(params)
-            request_dict["extra_body"] = new_extra_body
+            for drop_key in ("backend_type", "model"):
+                new_extra_body.pop(drop_key, None)
+            request_dict["extra_body"] = new_extra_body if new_extra_body else None
 
             # Merge overrides into the dataclass representation
             request_dict.update(params)
@@ -347,6 +449,84 @@ class HybridConnector(LLMBackend):
         """
         return supports_system_messages(backend)
 
+    @staticmethod
+    def _assemble_reasoning_markup(
+        opening_tag: str, closing_tag: str, body: str
+    ) -> str:
+        """Rebuild reasoning text with canonical tags."""
+
+        if not body:
+            return f"{opening_tag}{closing_tag}"
+
+        if "\n" in body or body.startswith("<"):
+            return f"{opening_tag}\n{body}\n{closing_tag}"
+
+        return f"{opening_tag}{body}{closing_tag}"
+
+    def _normalize_reasoning_markup(
+        self, reasoning_output: str, opening_tag: str, closing_tag: str
+    ) -> str:
+        """Normalize reasoning markup to use canonical tags and ensure closure."""
+
+        truncated = self._truncate_after_reasoning_close(reasoning_output)
+        stripped = truncated.strip()
+        if not stripped:
+            return stripped
+
+        leading_match = self._LEADING_REASONING_TAG.match(stripped)
+        body_start = leading_match.end() if leading_match else 0
+        body_section = stripped[body_start:]
+
+        trailing_match = self._TRAILING_REASONING_TAG.search(body_section)
+        if trailing_match:
+            body_end = trailing_match.start()
+            body_section = body_section[:body_end]
+
+        body = body_section.strip()
+        return self._assemble_reasoning_markup(opening_tag, closing_tag, body)
+
+    def _apply_reasoning_tag_wrapping(
+        self, reasoning_output: str, opening_tag: str, closing_tag: str
+    ) -> str:
+        """Wrap or normalize reasoning output using backend-specific tags."""
+
+        return self._normalize_reasoning_markup(
+            reasoning_output, opening_tag, closing_tag
+        )
+
+    @staticmethod
+    def _extract_reasoning_inner_text(text: str) -> str:
+        """Strip XML-like tags and return inner text for reasoning payloads."""
+
+        if not text:
+            return ""
+
+        return re.sub(r"<[^>]+>", "", text).strip()
+
+    def _has_reasoning_content(self, formatted_reasoning: str) -> bool:
+        """Determine whether the formatted reasoning contains substantive text."""
+
+        return bool(self._extract_reasoning_inner_text(formatted_reasoning))
+
+    def _prepare_reasoning_texts(
+        self, reasoning_output: str, backend: str
+    ) -> tuple[str, str]:
+        """Return backend-tagged reasoning and plain text representations."""
+
+        if not reasoning_output:
+            return "", ""
+
+        opening_tag, closing_tag = get_reasoning_tags(backend)
+        tagged = self._apply_reasoning_tag_wrapping(
+            reasoning_output, opening_tag, closing_tag
+        ).strip()
+
+        plain = self._extract_reasoning_inner_text(tagged)
+        if not plain:
+            return "", ""
+
+        return tagged, plain
+
     def _format_reasoning_for_model(self, reasoning_output: str, backend: str) -> str:
         """Format reasoning with model-specific tags.
 
@@ -357,8 +537,8 @@ class HybridConnector(LLMBackend):
         Returns:
             Formatted reasoning with appropriate tags
         """
-        opening_tag, closing_tag = get_reasoning_tags(backend)
-        return f"{opening_tag}\n{reasoning_output}\n{closing_tag}"
+        tagged, plain = self._prepare_reasoning_texts(reasoning_output, backend)
+        return tagged if plain else ""
 
     def _inject_as_system_message(
         self, messages: list, reasoning_output: str, execution_backend: str
@@ -381,6 +561,8 @@ class HybridConnector(LLMBackend):
         formatted_reasoning = self._format_reasoning_for_model(
             reasoning_output, execution_backend
         )
+        if not formatted_reasoning:
+            return messages_copy
 
         # Create system message content
         system_content = (
@@ -425,6 +607,8 @@ class HybridConnector(LLMBackend):
         formatted_reasoning = self._format_reasoning_for_model(
             reasoning_output, execution_backend
         )
+        if not formatted_reasoning:
+            return messages_copy
 
         # Find first user message
         for i, msg in enumerate(messages_copy):
@@ -652,31 +836,52 @@ class HybridConnector(LLMBackend):
         if not reasoning_output:
             return ""
 
-        truncated = self._truncate_after_reasoning_close(reasoning_output)
-        trimmed = truncated.rstrip()
-
-        if not trimmed:
-            return ""
-
-        opening_tag, closing_tag = get_reasoning_tags(reasoning_backend)
-        if opening_tag in trimmed and closing_tag in trimmed:
-            return trimmed
-
-        return f"{opening_tag}\n{trimmed}\n{closing_tag}"
+        _, plain_text = self._prepare_reasoning_texts(
+            reasoning_output, reasoning_backend
+        )
+        return plain_text
 
     def _build_reasoning_stream_chunk(
         self,
         reasoning_output: str,
         reasoning_backend: str,
         reasoning_model: str,
+        formatted_reasoning: str | None = None,
     ) -> ProcessedResponse | None:
         """Create a processed response chunk that surfaces reasoning to clients."""
 
-        formatted_reasoning = self._format_reasoning_for_client(
-            reasoning_output, reasoning_backend
+        formatted = (
+            formatted_reasoning.strip()
+            if formatted_reasoning
+            and "<" in formatted_reasoning
+            and ">" in formatted_reasoning
+            else ""
         )
-        if not formatted_reasoning:
+        if not formatted:
+            formatted, plain_reasoning = self._prepare_reasoning_texts(
+                reasoning_output, reasoning_backend
+            )
+        else:
+            plain_reasoning = self._extract_reasoning_inner_text(formatted)
+
+        if formatted_reasoning and formatted_reasoning.strip() and not formatted:
+            # formatted_reasoning provided but lacked tags; reuse for plain text
+            plain_reasoning = formatted_reasoning.strip()
+            formatted, _ = self._prepare_reasoning_texts(
+                reasoning_output, reasoning_backend
+            )
+            if not formatted:
+                formatted = formatted_reasoning.strip()
+
+        if not plain_reasoning:
             return None
+
+        delta_payload: dict[str, Any] = {
+            "role": "assistant",
+            "reasoning": formatted,
+            "reasoning_content": plain_reasoning,
+            "content": "",
+        }
 
         payload = {
             "id": f"hybrid-reasoning-{uuid.uuid4().hex}",
@@ -686,10 +891,7 @@ class HybridConnector(LLMBackend):
             "choices": [
                 {
                     "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "content": formatted_reasoning,
-                    },
+                    "delta": delta_payload,
                     "finish_reason": None,
                 }
             ],
@@ -707,17 +909,103 @@ class HybridConnector(LLMBackend):
             },
         )
 
+    def _build_tool_call_only_response(
+        self,
+        tool_calls: list[dict[str, Any]],
+        request_dict: dict[str, Any],
+        reasoning_backend: str,
+        reasoning_model: str,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Construct a response that forwards tool calls without execution."""
+
+        stream_requested = bool(request_dict.get("stream", False))
+        created_ts = int(time.time())
+        model_name = f"{reasoning_backend}:{reasoning_model}"
+
+        if stream_requested:
+            payload = {
+                "id": f"hybrid-tool-call-{uuid.uuid4().hex}",
+                "object": "chat.completion.chunk",
+                "created": created_ts,
+                "model": model_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": tool_calls,
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            }
+            sse_payload = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            done_payload = "data: [DONE]\n\n"
+
+            async def tool_call_stream():
+                yield ProcessedResponse(
+                    content=sse_payload,
+                    metadata={
+                        "hybrid_phase": "reasoning",
+                        "reasoning_backend": reasoning_backend,
+                        "reasoning_model": reasoning_model,
+                        "skipped_execution": True,
+                    },
+                )
+                yield ProcessedResponse(
+                    content=done_payload,
+                    metadata={"is_done": True},
+                )
+
+            return StreamingResponseEnvelope(
+                content=tool_call_stream(),
+                media_type="text/event-stream",
+            )
+
+        response_content = {
+            "id": f"hybrid-tool-call-{uuid.uuid4().hex}",
+            "object": "chat.completion",
+            "created": created_ts,
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": tool_calls,
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        }
+
+        return ResponseEnvelope(
+            content=response_content,
+            metadata={
+                "hybrid_phase": "reasoning",
+                "reasoning_backend": reasoning_backend,
+                "reasoning_model": reasoning_model,
+                "skipped_execution": True,
+            },
+        )
+
     def _prepend_reasoning_chunk_to_stream(
         self,
         response: StreamingResponseEnvelope,
         reasoning_output: str,
         reasoning_backend: str,
         reasoning_model: str,
+        formatted_reasoning: str | None = None,
     ) -> StreamingResponseEnvelope:
         """Inject the reasoning chunk ahead of the execution stream."""
 
         reasoning_chunk = self._build_reasoning_stream_chunk(
-            reasoning_output, reasoning_backend, reasoning_model
+            reasoning_output,
+            reasoning_backend,
+            reasoning_model,
+            formatted_reasoning=formatted_reasoning,
         )
         if reasoning_chunk is None:
             return response
@@ -738,43 +1026,34 @@ class HybridConnector(LLMBackend):
             cancel_callback=response.cancel_callback,
         )
 
-    @staticmethod
-    def _join_reasoning_with_text(reasoning: str, existing: str | None) -> str:
-        """Combine reasoning text with existing assistant message content."""
-
-        if not existing:
-            return reasoning
-        if reasoning.endswith("\n") or existing.startswith("\n"):
-            return f"{reasoning}{existing}"
-        return f"{reasoning}\n{existing}"
-
     def _prepend_reasoning_to_non_streaming_content(
         self,
         content: Any,
         reasoning_output: str,
         reasoning_backend: str,
         reasoning_model: str,
+        formatted_reasoning: str | None = None,
     ) -> Any:
         """Attach reasoning output to non-streaming responses."""
 
-        formatted_reasoning = self._format_reasoning_for_client(
+        tagged, plain = self._prepare_reasoning_texts(
             reasoning_output, reasoning_backend
         )
-        if not formatted_reasoning:
+        if formatted_reasoning:
+            candidate = formatted_reasoning.strip()
+            if "<" in candidate and ">" in candidate:
+                tagged = candidate
+                plain = self._extract_reasoning_inner_text(candidate) or plain
+            elif candidate:
+                plain = candidate
+        if not plain or not tagged:
             return content
 
         if isinstance(content, bytes):
-            try:
-                existing_text = content.decode("utf-8")
-            except UnicodeDecodeError:
-                return content
-            combined = self._join_reasoning_with_text(
-                formatted_reasoning, existing_text
-            )
-            return combined.encode("utf-8")
+            return content
 
         if isinstance(content, str):
-            return self._join_reasoning_with_text(formatted_reasoning, content)
+            return content
 
         if isinstance(content, dict):
             updated = deepcopy(content)
@@ -786,24 +1065,24 @@ class HybridConnector(LLMBackend):
 
                     message = choice.get("message")
                     if isinstance(message, dict):
-                        existing = message.get("content")
-                        if existing is None:
-                            message["content"] = formatted_reasoning
-                        elif isinstance(existing, str):
-                            message["content"] = self._join_reasoning_with_text(
-                                formatted_reasoning, existing
-                            )
+                        if "role" not in message:
+                            message["role"] = "assistant"
+                        message["reasoning"] = tagged
+                        message["reasoning_content"] = plain
                         continue
 
                     delta = choice.get("delta")
                     if isinstance(delta, dict):
-                        existing_delta_content = delta.get("content")
-                        if existing_delta_content is None:
-                            delta["content"] = formatted_reasoning
-                        elif isinstance(existing_delta_content, str):
-                            delta["content"] = self._join_reasoning_with_text(
-                                formatted_reasoning, existing_delta_content
-                            )
+                        if "role" not in delta:
+                            delta["role"] = "assistant"
+                        delta["reasoning"] = tagged
+                        delta["reasoning_content"] = plain
+            else:
+                metadata = updated.setdefault("metadata", {})
+                if isinstance(metadata, dict):
+                    metadata["reasoning"] = tagged
+                    metadata["reasoning_content"] = plain
+                    metadata.setdefault("reasoning_format", "hybrid_injected")
             return updated
 
         return content
@@ -815,8 +1094,9 @@ class HybridConnector(LLMBackend):
         reasoning_model: str,
         request_data: DomainModel | InternalDTO | dict[str, Any],
         identity: IAppIdentityConfig | None,
-    ) -> str:
-        """Execute reasoning phase and capture output.
+        uri_params: dict[str, Any] | None = None,
+    ) -> ReasoningPhaseResult:
+        """Execute reasoning phase and capture output and metadata.
 
         Args:
             messages: Original message history
@@ -826,7 +1106,7 @@ class HybridConnector(LLMBackend):
             identity: Optional identity configuration
 
         Returns:
-            Extracted reasoning output as string
+            Structured result containing reasoning text, tool calls, and stream metadata
 
         Raises:
             BackendError: If reasoning model call fails (HTTP 502)
@@ -851,34 +1131,115 @@ class HybridConnector(LLMBackend):
             )
 
         # Create request payload for reasoning model
-        reasoning_params = get_reasoning_params(reasoning_backend)
-        reasoning_request = self._apply_reasoning_params(request_data, reasoning_params)
+        reasoning_preset_params = get_reasoning_params(reasoning_backend)
+        reasoning_request = self._apply_reasoning_params(
+            request_data, reasoning_preset_params
+        )
+
+        # Apply URI parameters if provided
+        if uri_params:
+            try:
+                # Validate URI parameters before applying
+                from src.core.services.uri_parameter_validator import (
+                    URIParameterValidator,
+                )
+
+                validator = URIParameterValidator()
+                normalized_params, validation_errors = validator.validate_and_normalize(
+                    uri_params
+                )
+
+                if validation_errors:
+                    logger.warning(
+                        f"URI parameter validation errors for reasoning phase ({reasoning_backend}:{reasoning_model}): "
+                        f"{', '.join(validation_errors)}. Invalid parameters will be excluded."
+                    )
+
+                # Apply normalized parameters
+                if normalized_params:
+                    reasoning_request = self._apply_parameter_overrides(
+                        reasoning_request, normalized_params
+                    )
+            except Exception as param_error:
+                # Log error but continue without URI parameters
+                logger.warning(
+                    f"Failed to apply URI parameters for reasoning phase ({reasoning_backend}:{reasoning_model}): "
+                    f"{param_error}. Continuing without URI parameters."
+                )
 
         # Prepare canonical request for backend service
+        # Use full backend:model format so backend_service can properly resolve it
         canonical_reasoning_request = self._prepare_backend_request(
             reasoning_request,
-            target_model=reasoning_model,
+            target_model=f"{reasoning_backend}:{reasoning_model}",
             stream=True,
             messages=messages,
         )
 
+        # DEBUG: Log what we're sending
+        extra_body = getattr(canonical_reasoning_request, "extra_body", None)
+        if isinstance(extra_body, dict):
+            extra_body_keys = ", ".join(sorted(map(str, extra_body.keys())))
+        elif extra_body is None:
+            extra_body_keys = "None"
+        else:
+            extra_body_keys = f"<non-dict:{type(extra_body).__name__}>"
+
+        logger.error(
+            "[HYBRID DEBUG] Prepared reasoning request: model=%s, extra_body_keys=%s",
+            canonical_reasoning_request.model,
+            extra_body_keys,
+        )
+
         try:
             from src.core.di.services import get_required_service
+            from src.core.domain.request_context import (
+                RequestContext,
+                RequestCookies,
+                RequestHeaders,
+            )
             from src.core.services.backend_service import BackendService
 
             backend_service = get_required_service(BackendService)
 
-            # Call reasoning model with timeout via backend service
-            response = await asyncio.wait_for(
-                backend_service.call_completion(
-                    canonical_reasoning_request,
-                    stream=True,
-                    allow_failover=False,
-                ),
-                timeout=REASONING_PHASE_TIMEOUT,
+            # Create a clean context without session to prevent session backend inheritance
+            # This ensures the reasoning backend is resolved from the model name, not session state
+            clean_context = RequestContext(
+                headers=RequestHeaders(),
+                cookies=RequestCookies(),
+                state=None,
+                app_state=None,
+                session_id=None,  # No session to prevent backend inheritance
             )
 
+            # Call reasoning model with timeout via backend service
+            try:
+                response = await asyncio.wait_for(
+                    backend_service.call_completion(
+                        canonical_reasoning_request,
+                        stream=True,
+                        allow_failover=False,
+                        context=clean_context,  # Prefer context-enabled call
+                    ),
+                    timeout=REASONING_PHASE_TIMEOUT,
+                )
+            except TypeError as exc:
+                # Integration stubs may not accept context; retry without it.
+                if "context" not in str(exc):
+                    raise
+                response = await asyncio.wait_for(
+                    backend_service.call_completion(
+                        canonical_reasoning_request,
+                        stream=True,
+                        allow_failover=False,
+                    ),
+                    timeout=REASONING_PHASE_TIMEOUT,
+                )
+
             # Extract stream from response
+            response_media_type = getattr(response, "media_type", None)
+            response_headers = getattr(response, "headers", None)
+
             if isinstance(response, StreamingResponseEnvelope) and response.content:
                 stream = response.content
             else:
@@ -907,6 +1268,8 @@ class HybridConnector(LLMBackend):
             reasoning_text, reasoning_complete, metadata = (
                 await processor.capture_reasoning_stream(stream)
             )
+            tool_calls = metadata.get("tool_calls") or []
+            raw_chunks = metadata.get("raw_chunks") or []
 
             # Cancel the stream if it has a cancel callback
             if hasattr(response, "cancel_callback") and response.cancel_callback:
@@ -937,7 +1300,14 @@ class HybridConnector(LLMBackend):
                 f"chunks={metadata.get('chunks_processed')}"
             )
 
-            return reasoning_text
+            return ReasoningPhaseResult(
+                text=reasoning_text,
+                complete=reasoning_complete,
+                tool_calls=tool_calls,
+                raw_chunks=raw_chunks,
+                media_type=response_media_type,
+                headers=response_headers,
+            )
 
         except ServiceResolutionError as e:
             logger.error(
@@ -1060,6 +1430,22 @@ class HybridConnector(LLMBackend):
         if messages is not None:
             request_obj = request_obj.model_copy(update={"messages": messages})
 
+        # Remove session_id from extra_body to prevent session backend inheritance
+        # This ensures the backend is resolved from the model name, not session state
+        if request_obj.extra_body and isinstance(request_obj.extra_body, dict):
+            keys_to_strip = {"session_id", "backend_type", "model"}
+            cleaned_extra_body = {
+                k: v
+                for k, v in request_obj.extra_body.items()
+                if k not in keys_to_strip
+            }
+            if len(cleaned_extra_body) != len(request_obj.extra_body):
+                request_obj = request_obj.model_copy(
+                    update={
+                        "extra_body": cleaned_extra_body if cleaned_extra_body else None
+                    }
+                )
+
         return cast("CanonicalChatRequest", request_obj)
 
     async def _execute_execution_phase(
@@ -1070,6 +1456,7 @@ class HybridConnector(LLMBackend):
         execution_model: str,
         identity: IAppIdentityConfig | None,
         reasoning_output_length: int = 0,
+        uri_params: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute execution phase with augmented messages.
@@ -1182,8 +1569,41 @@ class HybridConnector(LLMBackend):
             ) from e
 
         # Create request payload with augmented messages
-        execution_params = get_execution_params(execution_backend)
-        execution_request = self._apply_reasoning_params(request_data, execution_params)
+        execution_preset_params = get_execution_params(execution_backend)
+        execution_request = self._apply_reasoning_params(
+            request_data, execution_preset_params
+        )
+
+        # Apply URI parameters if provided
+        if uri_params:
+            try:
+                # Validate URI parameters before applying
+                from src.core.services.uri_parameter_validator import (
+                    URIParameterValidator,
+                )
+
+                validator = URIParameterValidator()
+                normalized_params, validation_errors = validator.validate_and_normalize(
+                    uri_params
+                )
+
+                if validation_errors:
+                    logger.warning(
+                        f"URI parameter validation errors for execution phase ({execution_backend}:{execution_model}): "
+                        f"{', '.join(validation_errors)}. Invalid parameters will be excluded."
+                    )
+
+                # Apply normalized parameters
+                if normalized_params:
+                    execution_request = self._apply_parameter_overrides(
+                        execution_request, normalized_params
+                    )
+            except Exception as param_error:
+                # Log error but continue without URI parameters
+                logger.warning(
+                    f"Failed to apply URI parameters for execution phase ({execution_backend}:{execution_model}): "
+                    f"{param_error}. Continuing without URI parameters."
+                )
 
         try:
             # Call execution model with augmented messages and timeout
@@ -1322,24 +1742,28 @@ class HybridConnector(LLMBackend):
             )
 
         try:
-            # Parse hybrid model specification
+            # Parse hybrid model specification with URI parameters
             (
                 reasoning_backend,
                 reasoning_model,
+                reasoning_params,
                 execution_backend,
                 execution_model,
+                execution_params,
             ) = self._parse_hybrid_model_spec(effective_model)
 
             # Log hybrid request initiation with session and model details
             logger.info(
-                f"Hybrid request initiated: reasoning={reasoning_backend}:{reasoning_model}, "
-                f"execution={execution_backend}:{execution_model}",
+                f"Hybrid request initiated: reasoning={reasoning_backend}:{reasoning_model} (params={reasoning_params}), "
+                f"execution={execution_backend}:{execution_model} (params={execution_params})",
                 extra={
                     "session_id": session_id,
                     "reasoning_backend": reasoning_backend,
                     "reasoning_model": reasoning_model,
+                    "reasoning_params": reasoning_params,
                     "execution_backend": execution_backend,
                     "execution_model": execution_model,
+                    "execution_params": execution_params,
                     "message_count": len(processed_messages),
                     "stream": request_dict.get("stream", False),
                 },
@@ -1356,17 +1780,29 @@ class HybridConnector(LLMBackend):
             )
             raise
 
+        reasoning_output = ""
+        client_reasoning = ""
+        has_reasoning_content = False
+
         try:
             # Phase 1: Execute reasoning phase and capture output
-            reasoning_output = await self._execute_reasoning_phase(
+            reasoning_result = await self._execute_reasoning_phase(
                 messages=processed_messages,
                 reasoning_backend=reasoning_backend,
                 reasoning_model=reasoning_model,
                 request_data=request_data,  # Pass original request_data, not dict
                 identity=identity,
+                uri_params=reasoning_params,
             )
+            reasoning_output = reasoning_result.text
 
             reasoning_time = time.time() - start_time
+            client_reasoning = self._format_reasoning_for_client(
+                reasoning_output, reasoning_backend
+            )
+            has_reasoning_content = self._has_reasoning_content(client_reasoning)
+            if not has_reasoning_content:
+                client_reasoning = ""
 
             # Log reasoning phase completion with output length and duration
             logger.info(
@@ -1378,8 +1814,29 @@ class HybridConnector(LLMBackend):
                     "reasoning_model": reasoning_model,
                     "output_length": len(reasoning_output),
                     "duration_seconds": reasoning_time,
+                    "tool_call_count": len(reasoning_result.tool_calls),
                 },
             )
+
+            skip_execution_due_to_tool_call = (
+                not has_reasoning_content and reasoning_result.has_tool_calls()
+            )
+            if skip_execution_due_to_tool_call:
+                logger.info(
+                    "[hybrid-backend] Skipping call to the execution model as reasoning model produced no reasoning output but a tool call",
+                    extra={
+                        "session_id": session_id,
+                        "reasoning_backend": reasoning_backend,
+                        "reasoning_model": reasoning_model,
+                        "tool_call_count": len(reasoning_result.tool_calls),
+                    },
+                )
+                return self._build_tool_call_only_response(
+                    tool_calls=reasoning_result.tool_calls,
+                    request_dict=request_dict,
+                    reasoning_backend=reasoning_backend,
+                    reasoning_model=reasoning_model,
+                )
 
         except BackendError as e:
             logger.error(
@@ -1451,6 +1908,7 @@ class HybridConnector(LLMBackend):
                 execution_model=execution_model,
                 identity=identity,
                 reasoning_output_length=len(reasoning_output),
+                uri_params=execution_params,
                 **kwargs,
             )
 
@@ -1470,6 +1928,7 @@ class HybridConnector(LLMBackend):
                     reasoning_output,
                     reasoning_backend,
                     reasoning_model,
+                    formatted_reasoning=client_reasoning,
                 )
             elif isinstance(response, ResponseEnvelope):
                 logger.debug(
@@ -1486,7 +1945,15 @@ class HybridConnector(LLMBackend):
                     reasoning_output,
                     reasoning_backend,
                     reasoning_model,
+                    formatted_reasoning=client_reasoning,
                 )
+                if client_reasoning:
+                    if response.metadata is None:
+                        response.metadata = {}
+                    response.metadata.setdefault("reasoning", client_reasoning)
+                    response.metadata.setdefault("reasoning_format", "hybrid_injected")
+                    response.metadata.setdefault("reasoning_backend", reasoning_backend)
+                    response.metadata.setdefault("reasoning_model", reasoning_model)
 
             total_time = time.time() - start_time
             execution_time = total_time - reasoning_time

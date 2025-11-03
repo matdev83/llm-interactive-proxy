@@ -30,6 +30,12 @@ REASONING_TAG_FORMAT: dict[str, tuple[str, str]] = {
     "qwen": ("<thinking>", "</thinking>"),
     "qwen-oauth": ("<thinking>", "</thinking>"),
     "deepseek": ("<think>", "</think>"),  # DeepSeek uses <think> natively
+    "minimax": ("<think>", "</think>"),
+    "gemini": ("<thinking>", "</thinking>"),
+    "gemini-oauth-plan": ("<thinking>", "</thinking>"),
+    "gemini-oauth-free": ("<thinking>", "</thinking>"),
+    "gemini-cli-acp": ("<thinking>", "</thinking>"),
+    "gemini-cli-cloud-project": ("<thinking>", "</thinking>"),
     # Default for others
     "_default": ("<reasoning>", "</reasoning>"),
 }

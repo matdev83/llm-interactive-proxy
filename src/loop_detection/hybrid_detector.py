@@ -233,7 +233,7 @@ class HybridLoopDetector(ILoopDetector):
         self._is_enabled = True
         self._loop_events: list[LoopDetectionEvent] = []
 
-        logger.info(
+        logger.debug(
             "HybridLoopDetector initialized: short_chunk_size=%d, long_min_length=%d",
             self.short_detector.content_chunk_size,
             self.long_detector.min_pattern_length,

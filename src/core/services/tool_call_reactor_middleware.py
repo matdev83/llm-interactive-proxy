@@ -45,12 +45,14 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         Args:
             tool_call_reactor: The tool call reactor service
-            enabled: Whether the middleware is enabled
+            enabled: Whether middleware is enabled
             priority: Priority of this middleware (lower numbers run later)
         """
         self._tool_call_reactor = tool_call_reactor
         self._enabled = enabled
         self._priority = priority
+        # Track processed tool calls per session to avoid cross-session contamination
+        self._processed_tool_calls: dict[str, set[str]] = {}
 
     @property
     def priority(self) -> int:
@@ -121,19 +123,19 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if not tool_calls:
             return response
 
-        # Filter out already-processed tool calls
-        # We need to track both the normalized dict and the raw object
+        # For proper handling of session state changes between requests, process all tool calls
+        # without cross-request persistence of processed state
         new_tool_calls_with_raw: list[tuple[dict[str, Any], Any]] = []
+
         for i, tc in enumerate(tool_calls):
             raw_tc = raw_tool_calls[i] if i < len(raw_tool_calls) else tc
-            # Check if already processed in either the normalized dict or raw object
+
+            # Check if this tool call has already been processed
+            # Check both the normalized dict and the raw object
             is_processed = tc.get(_TOOL_CALL_PROCESSING_MARKER, False)
             if not is_processed and raw_tc is not tc:
                 # Also check the raw object
-                if isinstance(raw_tc, dict):
-                    is_processed = raw_tc.get(_TOOL_CALL_PROCESSING_MARKER, False)
-                else:
-                    is_processed = getattr(raw_tc, _TOOL_CALL_PROCESSING_MARKER, False)
+                is_processed = getattr(raw_tc, _TOOL_CALL_PROCESSING_MARKER, False)
 
             if not is_processed:
                 new_tool_calls_with_raw.append((tc, raw_tc))
@@ -175,7 +177,16 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     replace_metadata_calls = True
 
                 if replace_metadata_calls:
-                    response.metadata["tool_calls"] = list(tool_calls)
+                    # Store clean copies without the processing marker to avoid cross-session contamination
+                    clean_tool_calls = []
+                    for tc in tool_calls:
+                        clean_tc = {
+                            k: v
+                            for k, v in tc.items()
+                            if k != _TOOL_CALL_PROCESSING_MARKER
+                        }
+                        clean_tool_calls.append(clean_tc)
+                    response.metadata["tool_calls"] = clean_tool_calls
             # Also pass via context so processors can use them even if metadata is overwritten later
             if isinstance(context, dict):
                 context["detected_tool_calls"] = list(tool_calls)
@@ -282,23 +293,34 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                         raw_tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
                     else:
                         setattr(raw_tool_call, _TOOL_CALL_PROCESSING_MARKER, True)
-                # Continue with next tool call on error
 
-        # No handlers swallowed any tool calls, return original response
         return response
+
+    def get_registered_handlers(self) -> list[str]:
+        """Get the names of all registered handlers in the underlying reactor.
+
+        Returns:
+            List of handler names.
+        """
+        return self._tool_call_reactor.get_registered_handlers()
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable the middleware.
+
+        Args:
+            enabled: Whether the middleware should be enabled.
+        """
+        self._enabled = enabled
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content.
 
         Args:
-            content: The response content
+            content: The response content to extract tool calls from
 
         Returns:
             List of tool call dictionaries
         """
-        if not content:
-            return []
-
         # Normalize the content into a Python structure that can be inspected
         if isinstance(content, dict | list):
             data = content
@@ -335,6 +357,43 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         return tool_calls
 
+    def _normalize_tool_call(self, tool_call: Any) -> dict[str, Any] | None:
+        """Normalize a tool call entry from metadata into a dictionary.
+
+        Args:
+            tool_call: The tool call object to normalize
+
+        Returns:
+            The normalized tool call as a dictionary, or None if it cannot be normalized
+        """
+        # If already a dict, return as-is
+        if isinstance(tool_call, dict):
+            return tool_call
+
+        # If it's a Pydantic model, use model_dump
+        if hasattr(tool_call, "model_dump"):
+            try:
+                result = tool_call.model_dump()
+                # Ensure the result is a dict
+                if isinstance(result, dict):
+                    return result
+                return None
+            except (TypeError, ValueError) as e:
+                logger.debug(f"Failed to convert Pydantic model to dict: {e}")
+                return None
+
+        # If it's a dataclass, convert to dict
+        if is_dataclass(tool_call) and not isinstance(tool_call, type):
+            try:
+                return asdict(tool_call)
+            except (TypeError, ValueError) as e:
+                logger.debug(f"Failed to convert dataclass to dict: {e}")
+                return None
+
+        # Otherwise, we can't normalize it
+        logger.debug("Cannot normalize tool call object: %s", tool_call, exc_info=True)
+        return None
+
     def _create_replacement_response(
         self,
         original_response: Any,
@@ -342,12 +401,13 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         original_tool_call: dict[str, Any],
         reaction_metadata: dict[str, Any] | None = None,
     ) -> Any:
-        """Create a replacement response with the steering content.
+        """Create a replacement response with steering content.
 
         Args:
             original_response: The original response object
             replacement_content: The replacement content from the handler
             original_tool_call: The original tool call that was swallowed
+            reaction_metadata: Additional metadata from the handler reaction
 
         Returns:
             A new response object with the replacement content
@@ -356,7 +416,10 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         if hasattr(original_response, "content"):
             # Create a new ProcessedResponse with the replacement content
             original_metadata = getattr(original_response, "metadata", {}) or {}
-            merged_metadata: dict[str, Any] = dict(original_metadata)
+            # Handle case where metadata might be a mock or non-dict
+            merged_metadata: dict[str, Any] = (
+                dict(original_metadata) if isinstance(original_metadata, dict) else {}
+            )
 
             if reaction_metadata:
                 existing_reactor_metadata = {}
@@ -386,94 +449,3 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         # If it's a raw dict/string, return the replacement content
         return replacement_content
-
-    def _normalize_tool_call(self, tool_call: Any) -> dict[str, Any] | None:
-        """Normalize a tool call entry from metadata into a dictionary.
-
-        Args:
-            tool_call: The tool call object to normalize
-
-        Returns:
-            The normalized tool call as a dictionary, or None if it cannot be normalized
-        """
-        # If already a dict, return as-is
-        if isinstance(tool_call, dict):
-            return tool_call
-
-        # Handle dataclass objects
-        if is_dataclass(tool_call):
-            try:
-                return asdict(tool_call)  # type: ignore[arg-type]
-            except TypeError as e:
-                logger.debug(
-                    "Failed to convert dataclass tool call to dict: %s",
-                    e,
-                    exc_info=True,
-                )
-                return None
-
-        # Try common conversion methods in order of preference
-        conversion_methods = ["model_dump", "dict", "to_dict"]
-        for method_name in conversion_methods:
-            if hasattr(tool_call, method_name):
-                converter = getattr(tool_call, method_name)
-                if callable(converter):
-                    try:
-                        result = converter()
-                        if isinstance(result, dict):
-                            return result
-                        logger.debug(
-                            "Tool call conversion using %s returned non-dict type: %s",
-                            method_name,
-                            type(result),
-                        )
-                    except Exception as e:
-                        logger.debug(
-                            "Failed to normalize tool call using %s: %s",
-                            method_name,
-                            e,
-                            exc_info=True,
-                        )
-                        continue
-
-        logger.debug(
-            "Skipping unsupported tool call type from metadata: %s (%s)",
-            type(tool_call),
-            tool_call,
-        )
-        return None
-
-    def set_enabled(self, enabled: bool) -> None:
-        """Enable or disable the middleware.
-
-        Args:
-            enabled: Whether to enable the middleware
-        """
-        self._enabled = enabled
-        logger.info(
-            f"Tool call reactor middleware {'enabled' if enabled else 'disabled'}"
-        )
-
-    def get_registered_handlers(self) -> list[str]:
-        """Get the names of registered handlers.
-
-        Returns:
-            List of handler names
-        """
-        return self._tool_call_reactor.get_registered_handlers()
-
-    async def register_handler(self, handler: Any) -> None:
-        """Register a new handler with the reactor.
-
-        Args:
-            handler: The handler to register
-        """
-        await self._tool_call_reactor.register_handler(handler)
-
-    async def unregister_handler(self, handler_name: str) -> None:
-        """Unregister a handler from the reactor.
-
-        Args:
-            handler_name: The name of the handler to unregister
-        """
-        await self._tool_call_reactor.unregister_handler(handler_name)

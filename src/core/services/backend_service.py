@@ -541,6 +541,215 @@ class BackendService(IBackendService):
 
         return request
 
+    def _apply_uri_parameters(
+        self,
+        request: ChatRequest,
+        uri_params: dict[str, Any],
+        backend_type: str,
+        session: Any | None = None,
+    ) -> ChatRequest:
+        """Apply URI parameters to request using parameter resolution service.
+
+        This method resolves parameters from multiple sources with precedence:
+        1. Session commands (highest priority)
+        2. URI parameters
+        3. Request headers
+        4. Configuration file (lowest priority)
+
+        Args:
+            request: The chat completion request
+            uri_params: Parameters extracted from model string URI
+            backend_type: Backend type for logging context
+            session: Session object (for session command overrides)
+
+        Returns:
+            The updated request with resolved parameters applied
+        """
+        # Early return if no URI parameters to apply
+        if not uri_params:
+            return request
+
+        try:
+            # Import validation and resolution services
+            from src.core.services.parameter_resolution_service import (
+                ParameterResolutionService,
+            )
+            from src.core.services.uri_parameter_validator import (
+                URIParameterValidator,
+            )
+
+            # Validate and normalize URI parameters
+            try:
+                validator = URIParameterValidator()
+                normalized_uri_params, validation_errors = (
+                    validator.validate_and_normalize(uri_params)
+                )
+
+                # Log validation errors if any
+                if validation_errors:
+                    logger.warning(
+                        f"URI parameter validation errors for {backend_type}: {', '.join(validation_errors)}. "
+                        f"Invalid parameters will be excluded from the request."
+                    )
+            except Exception as validation_error:
+                # If validation itself fails, log error and continue without URI params
+                logger.error(
+                    f"Failed to validate URI parameters for {backend_type}: {validation_error}. "
+                    f"Continuing without URI parameters."
+                )
+                return request
+
+            # Extract parameters from other sources
+            # 1. Config parameters (from backend config or app config)
+            config_params: dict[str, Any] = {}
+            try:
+                from src.core.config.app_config import AppConfig
+
+                app_config = cast(AppConfig, self._config)
+                backend_config = app_config.backends.get(backend_type)
+                if backend_config:
+                    # Extract temperature and reasoning_effort from backend config if available
+                    if (
+                        hasattr(backend_config, "temperature")
+                        and backend_config.temperature is not None
+                    ):
+                        config_params["temperature"] = backend_config.temperature
+                    if (
+                        hasattr(backend_config, "reasoning_effort")
+                        and backend_config.reasoning_effort is not None
+                    ):
+                        config_params["reasoning_effort"] = (
+                            backend_config.reasoning_effort
+                        )
+            except Exception as config_error:
+                logger.debug(
+                    f"Failed to extract config parameters for {backend_type}: {config_error}",
+                    exc_info=True,
+                )
+
+            # 2. Header parameters (from request extra_body or headers)
+            header_params: dict[str, Any] = {}
+            try:
+                if request.extra_body:
+                    # Check for parameters in extra_body that might come from headers
+                    if "temperature" in request.extra_body:
+                        header_params["temperature"] = request.extra_body["temperature"]
+                    if "reasoning_effort" in request.extra_body:
+                        header_params["reasoning_effort"] = request.extra_body[
+                            "reasoning_effort"
+                        ]
+
+                # Also check top-level request fields
+                if hasattr(request, "temperature") and request.temperature is not None:
+                    header_params["temperature"] = request.temperature
+                if (
+                    hasattr(request, "reasoning_effort")
+                    and request.reasoning_effort is not None
+                ):
+                    header_params["reasoning_effort"] = request.reasoning_effort
+            except Exception as header_error:
+                logger.debug(
+                    f"Failed to extract header parameters for {backend_type}: {header_error}",
+                    exc_info=True,
+                )
+
+            # 3. Session parameters (from session reasoning config)
+            session_params: dict[str, Any] = {}
+            if session is not None:
+                try:
+                    reasoning_config = getattr(
+                        session, "get_reasoning_mode", lambda: None
+                    )()
+                    if reasoning_config is not None:
+                        if (
+                            hasattr(reasoning_config, "temperature")
+                            and reasoning_config.temperature is not None
+                        ):
+                            session_params["temperature"] = reasoning_config.temperature
+                        if (
+                            hasattr(reasoning_config, "reasoning_effort")
+                            and reasoning_config.reasoning_effort is not None
+                        ):
+                            session_params["reasoning_effort"] = (
+                                reasoning_config.reasoning_effort
+                            )
+                except Exception as session_error:
+                    logger.debug(
+                        f"Failed to extract session parameters for {backend_type}: {session_error}",
+                        exc_info=True,
+                    )
+
+            # Resolve parameters using ParameterResolutionService
+            try:
+                resolution_service = ParameterResolutionService()
+                resolved = resolution_service.resolve_parameters(
+                    uri_params=normalized_uri_params,
+                    header_params=header_params,
+                    config_params=config_params,
+                    session_params=session_params,
+                    backend=backend_type,
+                )
+            except Exception as resolution_error:
+                # If parameter resolution fails, log error and continue without URI params
+                logger.error(
+                    f"Failed to resolve parameters for {backend_type}: {resolution_error}. "
+                    f"Continuing without URI parameters."
+                )
+                return request
+
+            # Apply resolved parameters to request
+            try:
+                resolved_params = resolved.to_dict()
+                if resolved_params:
+                    # Update request with resolved parameters
+                    updates: dict[str, Any] = {}
+
+                    # Apply temperature
+                    if "temperature" in resolved_params:
+                        updates["temperature"] = resolved_params["temperature"]
+
+                    # Apply reasoning_effort
+                    if "reasoning_effort" in resolved_params:
+                        updates["reasoning_effort"] = resolved_params[
+                            "reasoning_effort"
+                        ]
+
+                    # Also update extra_body to ensure parameters are passed through
+                    if request.extra_body:
+                        extra_body = dict(request.extra_body)
+                    else:
+                        extra_body = {}
+
+                    extra_body.update(resolved_params)
+                    updates["extra_body"] = extra_body
+
+                    # Apply updates to request
+                    request = request.model_copy(update=updates)
+
+                    # Emit debug logs showing effective parameter values and sources
+                    debug_info = resolved.get_debug_info()
+                    if debug_info:
+                        logger.debug(
+                            f"Applied URI parameters to request for {backend_type}: {debug_info}"
+                        )
+            except Exception as apply_error:
+                # If applying parameters fails, log error and return original request
+                logger.error(
+                    f"Failed to apply resolved parameters to request for {backend_type}: {apply_error}. "
+                    f"Continuing with original request."
+                )
+                return request
+
+        except Exception as outer_error:
+            # Catch-all for any unexpected errors in URI parameter application
+            logger.error(
+                f"Unexpected error applying URI parameters to request for {backend_type}: {outer_error}. "
+                f"Continuing with original request.",
+                exc_info=True,
+            )
+
+        return request
+
     def _get_failover_plan(
         self, model: str, backend_type: str
     ) -> list[tuple[str, str]]:
@@ -576,8 +785,10 @@ class BackendService(IBackendService):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion"""
-        # Resolve backend type and effective model
-        backend_type, effective_model = await self._resolve_backend_and_model(request)
+        # Resolve backend type, effective model, and URI parameters
+        backend_type, effective_model, uri_params = (
+            await self._resolve_backend_and_model(request)
+        )
 
         # Ensure the request payload reflects the resolved backend and model.
         request = self._synchronize_request_with_target(
@@ -714,6 +925,18 @@ class BackendService(IBackendService):
             domain_request = self._backend_config_service.apply_backend_config(
                 domain_request, backend_type, cast(AppConfig, self._config)
             )
+
+            # Apply URI parameters with precedence resolution
+            if uri_params:
+                try:
+                    domain_request = self._apply_uri_parameters(
+                        domain_request, uri_params, backend_type, session
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to apply URI parameters",
+                        exc_info=True,
+                    )
 
             try:
                 app_config_typed: AppConfig = cast(AppConfig, self._config)
@@ -1288,8 +1511,10 @@ class BackendService(IBackendService):
 
         return count
 
-    async def _resolve_backend_and_model(self, request: ChatRequest) -> tuple[str, str]:
-        """Resolve backend type and effective model from request and session"""
+    async def _resolve_backend_and_model(
+        self, request: ChatRequest
+    ) -> tuple[str, str, dict[str, Any]]:
+        """Resolve backend type, effective model, and URI parameters from request and session"""
         session_id = (
             request.extra_body.get("session_id") if request.extra_body else None
         )
@@ -1328,13 +1553,23 @@ class BackendService(IBackendService):
         # Apply model aliases BEFORE parsing backend from model name
         effective_model = self._apply_model_aliases(effective_model)
 
+        # Parse model string with URI parameters
+        uri_params: dict[str, Any] = {}
         if not backend_type:
-            from src.core.domain.model_utils import parse_model_backend
+            from src.core.domain.model_utils import parse_model_with_params
 
-            parsed_backend, parsed_model = parse_model_backend(
+            parsed_backend, parsed_model, uri_params = parse_model_with_params(
                 effective_model, default_backend
             )
             backend_type = parsed_backend
+            effective_model = parsed_model
+        else:
+            # Backend type is already set (from session or extra_body)
+            # Still need to parse URI parameters from the model string
+            from src.core.domain.model_utils import parse_model_with_params
+
+            # Parse with empty default backend since we already have backend_type
+            _, parsed_model, uri_params = parse_model_with_params(effective_model, "")
             effective_model = parsed_model
 
         # Apply static_route override if configured
@@ -1360,7 +1595,7 @@ class BackendService(IBackendService):
                 )
                 effective_model = static_route
 
-        return backend_type, effective_model
+        return backend_type, effective_model, uri_params
 
     def _synchronize_request_with_target(
         self, request: ChatRequest, backend_type: str, effective_model: str

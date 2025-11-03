@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import time
+import uuid
 from typing import Any
 
 from fastapi import HTTPException
@@ -14,7 +17,9 @@ from src.core.common.exceptions import (
     RateLimitExceededError,
 )
 from src.core.domain.model_utils import parse_model_backend
+from src.core.domain.responses import StreamingResponseHandle
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
@@ -419,9 +424,133 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 )
 
         # Call parent implementation with potentially corrected URL
-        return await super()._handle_streaming_response(
+        base_handle = await super()._handle_streaming_response(
             url, payload, headers, session_id, stream_format
         )
+
+        # Post-process streaming iterator to normalize ZAI attempt_completion output
+        if isinstance(base_handle, StreamingResponseHandle):
+
+            async def _zai_stream_wrapper():
+                collected_content: list[str] = []
+                sanitized_emitted = False
+
+                async for chunk in base_handle.iterator:
+                    parsed_json: dict[str, Any] | None = None
+                    chunk_content = chunk.content
+
+                    if isinstance(chunk_content, bytes):
+                        try:
+                            chunk_str = chunk_content.decode("utf-8")
+                        except UnicodeDecodeError:
+                            chunk_str = None
+                    elif isinstance(chunk_content, str):
+                        chunk_str = chunk_content
+                    else:
+                        chunk_str = None
+
+                    if (
+                        chunk_str
+                        and chunk_str.startswith("data: ")
+                        and '"model": "glm-4.6"' in chunk_str
+                    ):
+                        try:
+                            parsed_json = json.loads(chunk_str[len("data: ") :])
+                        except json.JSONDecodeError:
+                            parsed_json = None
+
+                    if parsed_json:
+                        choices = parsed_json.get("choices") or []
+                        if choices:
+                            delta = choices[0].get("delta") or {}
+                            content_piece = delta.get("content")
+                            if isinstance(content_piece, str):
+                                collected_content.append(content_piece)
+
+                            finish_reason = choices[0].get("finish_reason")
+                            if (
+                                finish_reason == "stop"
+                                and not sanitized_emitted
+                                and collected_content
+                            ):
+                                sanitized_text = self._extract_attempt_result(
+                                    "".join(collected_content)
+                                )
+                                if sanitized_text:
+                                    synthetic_chunk = (
+                                        self._build_synthetic_stream_chunk(
+                                            sanitized_text,
+                                            parsed_json.get("model") or "glm-4.6",
+                                        )
+                                    )
+                                    yield synthetic_chunk
+                                    sanitized_emitted = True
+
+                    yield chunk
+
+                # Safety: emit sanitized chunk even if finish_reason missing
+                if not sanitized_emitted and collected_content:
+                    sanitized_text = self._extract_attempt_result(
+                        "".join(collected_content)
+                    )
+                    if sanitized_text:
+                        synthetic_chunk = self._build_synthetic_stream_chunk(
+                            sanitized_text, "glm-4.6"
+                        )
+                        yield synthetic_chunk
+
+            handle = StreamingResponseHandle(
+                iterator=_zai_stream_wrapper(),
+                cancel_callback=base_handle.cancel_callback,
+                headers=base_handle.headers,
+            )
+
+        else:
+            handle = base_handle
+
+        return handle
+
+    @staticmethod
+    def _extract_attempt_result(raw_text: str) -> str:
+        """Extract the textual result from an attempt_completion XML payload."""
+        import re
+
+        if not raw_text:
+            return ""
+
+        match = re.search(
+            r"<attempt_completion>.*?<result>(?P<body>.*)</result>.*?</attempt_completion>",
+            raw_text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        if not match:
+            return ""
+
+        body = match.group("body")
+        body = body.strip()
+        return body
+
+    @staticmethod
+    def _build_synthetic_stream_chunk(content: str, model: str) -> ProcessedResponse:
+        """Create a synthetic SSE chunk that delivers plain assistant content."""
+        payload = {
+            "id": f"hybrid-sanitized-{uuid.uuid4().hex}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "content": content,
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+        payload_str = json.dumps(payload, ensure_ascii=False)
+        return ProcessedResponse(content=f"data: {payload_str}\n\n")
 
     def _extract_mcp_tool_calls_from_messages(self, messages: list[Any]) -> list[Any]:
         """Extract MCP tool calls from message content and convert to tool_calls format.

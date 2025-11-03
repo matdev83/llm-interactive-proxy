@@ -58,7 +58,7 @@ class StubBackendService:
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.calls.append((request.model, stream))
 
-        if request.model == "MiniMax-M2":
+        if request.model in ("MiniMax-M2", "minimax:MiniMax-M2"):
             return StreamingResponseEnvelope(
                 content=self._stream(self.reasoning_chunks)
             )
@@ -214,7 +214,7 @@ async def test_hybrid_streaming_exposes_reasoning_before_execution() -> None:
     assert isinstance(execution_chunk.content, str)
     assert "Answer" in execution_chunk.content
 
-    assert backend_service.calls == [("MiniMax-M2", True)]
+    assert backend_service.calls == [("minimax:MiniMax-M2", True)]
     assert backend_factory.calls == ["zai-coding-plan"]
 
 
@@ -271,9 +271,9 @@ async def test_hybrid_non_streaming_merges_reasoning_into_response() -> None:
     final_content = response.content
     assert isinstance(final_content, dict)
 
-    message_content = final_content["choices"][0]["message"]["content"]
-    assert "<think>" in message_content
-    assert "Here is the solution." in message_content
+    message = final_content["choices"][0]["message"]
+    assert message.get("content") == "Here is the solution."
+    assert "<think>" in message.get("reasoning", "")
 
-    assert backend_service.calls == [("MiniMax-M2", True)]
+    assert backend_service.calls == [("minimax:MiniMax-M2", True)]
     assert backend_factory.calls == ["zai-coding-plan"]

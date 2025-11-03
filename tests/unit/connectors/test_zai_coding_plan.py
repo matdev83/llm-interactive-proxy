@@ -1,20 +1,23 @@
+import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from httpx import AsyncClient
 
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
-from httpx import AsyncClient
+
 from src.connectors.openai import OpenAIConnector
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
 from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseHandle
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.translation_service import TranslationService
 
 
@@ -233,3 +236,78 @@ async def test_chat_completions_unknown_model_raises_backend_error(
 
     assert exc_info.value.status_code == 400
     assert "Unknown Model" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_streaming_attempt_completion_emits_sanitized_chunk(
+    backend: ZaiCodingPlanBackend,
+):
+    async def original_stream():
+        payloads = [
+            {
+                "id": "chunk-1",
+                "model": "glm-4.6",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": "<attempt_completion>\n<result>Success",
+                        },
+                    }
+                ],
+            },
+            {
+                "id": "chunk-1",
+                "model": "glm-4.6",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "content": " case resolved</result></attempt_completion>",
+                        },
+                    }
+                ],
+            },
+            {
+                "id": "chunk-1",
+                "model": "glm-4.6",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": ""},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        ]
+
+        for payload in payloads:
+            yield ProcessedResponse(content=f"data: {json.dumps(payload)}\n\n")
+
+    mock_handle = StreamingResponseHandle(
+        iterator=original_stream(), cancel_callback=AsyncMock(), headers={}
+    )
+
+    with patch.object(
+        OpenAIConnector,
+        "_handle_streaming_response",
+        AsyncMock(return_value=mock_handle),
+    ):
+        wrapped_handle = await backend._handle_streaming_response(
+            url="https://api.z.ai/api/coding/paas/v4/chat/completions",
+            payload={"model": "glm-4.6"},
+            headers={},
+            session_id="session-1",
+            stream_format="sse",
+        )
+
+    collected = []
+    async for chunk in wrapped_handle.iterator:
+        if isinstance(chunk.content, str) and chunk.content.startswith("data: "):
+            data = json.loads(chunk.content[len("data: ") :])
+            delta = data.get("choices", [{}])[0].get("delta", {})
+            if data.get("id", "").startswith("hybrid-sanitized-"):
+                collected.append(delta.get("content"))
+
+    assert collected == ["Success case resolved"]

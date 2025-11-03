@@ -79,6 +79,7 @@ graph TD
 - [Tool Access Control](#tool-access-control)
 - [Supported APIs (Front-Ends) and Providers (Back-Ends)](#supported-apis-front-ends-and-providers-back-ends)
 - [Gemini Backends Overview](#gemini-backends-overview)
+- [Hybrid Backend](#hybrid-backend)
 - [Quick Start](#quick-start)
 - [Using It Day-To-Day](#using-it-day-to-day)
 - [Dangerous Command Protection](#dangerous-command-protection)
@@ -588,6 +589,7 @@ git filter-branch --prune-empty
 
 ### Control & Ergonomics
 
+- **URI Model Parameters**: Specify model parameters directly in model strings using query syntax (e.g., `model?temperature=0.5&reasoning_effort=high`)
 - **Model Name Rewrites**: Powerful regex-based model name transformation with configurable rules and precedence
 - In-chat switching: change back-end and model on the fly with `!/backend(...)` and `!/model(...)`
 - Force model override: static CLI parameter (`--force-model`) to override all client-requested models without modifying client code
@@ -628,6 +630,7 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
 | `minimax` | Minimax | `MINIMAX_API_KEY` | Minimax AI models (OpenAI-compatible) |
 | `qwen-oauth` | Alibaba Qwen | Local `oauth_creds.json` | Qwen CLI OAuth; OpenAI-compatible endpoint |
+| `hybrid` | Virtual (orchestrates two models) | Inherits from reasoning/execution backends | Two-phase approach: reasoning model + execution model |
 
 For detailed OpenAI Codex backend configuration (capabilities, renderer overrides,
 prompt and tool schema providers) see [`docs/openai_codex.md`](docs/openai_codex.md).
@@ -704,6 +707,124 @@ python -m src.core.cli --default-backend gemini-cli-acp
 # Change project directory during conversation with slash command
 !/project-dir(/path/to/another/project)
 ```
+
+## Hybrid Backend
+
+The hybrid backend is a powerful virtual backend that orchestrates two sequential LLM API calls to enhance response quality. It captures reasoning output from a "reasoning model" and uses that output to augment the prompt sent to an "execution model". This enables leveraging the reasoning capabilities of one model (e.g., a model with strong chain-of-thought abilities) to improve the output of another model (e.g., a faster or more specialized model).
+
+### Key Benefits
+
+- **Cost/Performance Optimization**: Use expensive reasoning models (o1-preview, DeepSeek-R1, MiniMax-M2) only for reasoning capture, then leverage faster/cheaper execution models for final output generation
+- **Specialization Leverage**: Combine the reasoning strength of one model with the execution capabilities of another (e.g., o1's reasoning + GPT-4's code generation)
+- **Enhanced Context**: Execution models receive high-quality chain-of-thought reasoning as context, improving output quality similar to few-shot prompting but more dynamic
+- **Transparency**: Reasoning output provides insight into problem-solving approach, which can guide execution models toward better solutions
+- **Flexibility**: Per-request execution model selection allows experimentation with different model combinations for different use cases
+
+### How It Works
+
+The hybrid backend follows a two-phase approach:
+
+1. **Reasoning Phase**: Calls the reasoning model with maximum reasoning effort to capture high-quality chain-of-thought output. The proxy detects when reasoning is complete (via explicit tags like `</think>`, `</thinking>`, or finish_reason) and cancels the request to save costs.
+
+2. **Execution Phase**: Augments the original prompt with the captured reasoning and calls the execution model with reasoning disabled. The execution model receives the reasoning as context (via system message or user message prefix, depending on model capabilities) and generates the final response.
+
+### Model Specification Format
+
+Specify both reasoning and execution models in a single request using the format:
+
+```
+hybrid:[reasoning-backend:reasoning-model,execution-backend:execution-model]
+```
+
+### Examples
+
+**Basic Hybrid Request (Same Backend)**:
+
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hybrid:[openai:o1-preview,openai:gpt-4]",
+    "messages": [{"role": "user", "content": "Explain quantum computing"}],
+    "stream": true
+  }'
+```
+
+**Cross-Backend Hybrid Request**:
+
+```bash
+# Use MiniMax for reasoning, Qwen for execution
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+    "messages": [{"role": "user", "content": "Write a Python function to parse JSON"}],
+    "stream": true
+  }'
+```
+
+**With URI Parameters** (different parameters for each model):
+
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hybrid:[openai:gpt-4?temperature=0.9,anthropic:claude-3?temperature=0.1]",
+    "messages": [{"role": "user", "content": "Write a creative story"}]
+  }'
+```
+
+### Configuration
+
+The hybrid backend is enabled by default. To disable it:
+
+**CLI Flag**:
+```bash
+python -m src.core.cli --disable-hybrid-backend
+```
+
+**Environment Variable**:
+```bash
+export DISABLE_HYBRID_BACKEND=true
+python -m src.core.cli
+```
+
+**Config File** (`config.yaml`):
+```yaml
+disable_hybrid_backend: true
+```
+
+### Reasoning Detection
+
+The hybrid backend uses a priority-based detection strategy to identify when reasoning is complete:
+
+1. **Explicit Closing Tags** (Primary): `</think>`, `</thinking>`, `</reason>`, `</reasoning>`
+2. **finish_reason** (Secondary): Response metadata indicating natural completion
+3. **Content Transition Markers** (Tertiary): Phrases like "therefore,", "in conclusion,", etc.
+4. **Safety Limits** (Fallback): Token/character limits to prevent runaway captures
+
+### Adaptive Reasoning Injection
+
+The hybrid backend uses an adaptive placement strategy based on model capabilities:
+
+- **System Message Support** (OpenAI, Anthropic): Reasoning is injected as a system message with `<thinking>` tags
+- **No System Message Support** (Gemini, others): Reasoning is prepended to the first user message with `<reasoning>` tags
+
+### Error Handling
+
+The hybrid backend provides clear error messages with phase indicators:
+
+- **Invalid Format**: Returns HTTP 400 with format explanation and examples
+- **Reasoning Phase Failure**: Returns HTTP 502 with "reasoning phase failed" indicator
+- **Execution Phase Failure**: Returns HTTP 502 with "execution phase failed" indicator and reasoning output length
+
+### Use Cases
+
+- **Complex Problem Solving**: Use o1-preview for deep reasoning, then GPT-4 for clear explanation
+- **Code Generation**: Use DeepSeek-R1 for algorithm design, then specialized coding model for implementation
+- **Creative Writing**: Use high-temperature reasoning model for ideation, then low-temperature execution model for polished output
+- **Cost Optimization**: Use expensive reasoning models sparingly, then cheaper execution models for bulk generation
+- **Multi-Language**: Use reasoning model in one language, execution model in another for translation tasks
 
 ## Quick Start
 
@@ -1069,6 +1190,166 @@ authentications reset the counter immediately.
 ### Advanced Wire Capture Documentation
 
 For detailed information about wire capture formats, migration between versions, and processing examples, see [docs/wire_capture_formats.md](docs/wire_capture_formats.md).
+
+## URI Model Parameters
+
+The URI Model Parameters feature allows you to specify model parameters directly in the model string using URL query parameter syntax. This provides explicit per-request control over model behavior without modifying configuration files or headers.
+
+### Key Features
+
+- **Inline Parameter Specification**: Append parameters to model strings using URI syntax (e.g., `backend:model?temperature=0.5`)
+- **Multiple Parameters**: Support for multiple parameters in a single model string (e.g., `?temperature=0.5&reasoning_effort=high`)
+- **Hybrid Backend Support**: Apply different parameters to reasoning and execution models independently
+- **Clear Precedence**: URI parameters override config and headers but respect interactive session commands
+- **Graceful Error Handling**: Invalid parameters are logged but don't break requests
+
+### Supported Parameters
+
+- **temperature**: Controls randomness in model outputs (0.0-2.0)
+- **reasoning_effort**: Controls computational effort for reasoning models (low/medium/high)
+
+### Basic Usage
+
+**Simple Model with Temperature:**
+```
+openai:gpt-4?temperature=0.5
+```
+
+**Multiple Parameters:**
+```
+anthropic:claude-3?temperature=0.7&reasoning_effort=high
+```
+
+**Complex Model Path:**
+```
+openrouter:anthropic/claude-3-haiku:beta?temperature=0.3&reasoning_effort=medium
+```
+
+**Hybrid Backend (Independent Parameters):**
+```
+hybrid:[openai:gpt-4?temperature=0.8,anthropic:claude-3?temperature=0.3]
+```
+
+### Parameter Precedence
+
+Parameters are resolved from multiple sources with the following precedence (highest to lowest):
+
+1. **Interactive Session Commands** (highest priority) - `!/temperature(0.5)`
+2. **URI Parameters** - `model?temperature=0.5`
+3. **Request Headers** - `X-Temperature: 0.5`
+4. **Configuration File** (lowest priority) - `config.yaml`
+
+When the same parameter is specified in multiple sources, the higher priority source wins. This allows you to:
+- Set defaults in config files
+- Override per-request with URI parameters
+- Override dynamically with session commands
+
+### Examples
+
+**Override Config Temperature:**
+```yaml
+# config.yaml
+model_defaults:
+  openai:gpt-4:
+    temperature: 0.8
+```
+```bash
+# Request with URI parameter overrides config
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai:gpt-4?temperature=0.3",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+# Effective temperature: 0.3 (URI overrides config)
+```
+
+**Hybrid Backend with Different Temperatures:**
+```bash
+# Use high temperature for creative reasoning, low for precise execution
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "hybrid:[openai:gpt-4?temperature=0.9,anthropic:claude-3?temperature=0.1]",
+    "messages": [{"role": "user", "content": "Write a creative story"}]
+  }'
+```
+
+**Session Command Override:**
+```bash
+# Start with URI parameter
+model: openai:gpt-4?temperature=0.5
+
+# Override with session command (takes precedence)
+!/temperature(0.8)
+
+# Effective temperature: 0.8 (session command wins)
+```
+
+### Validation and Error Handling
+
+The proxy validates URI parameters and handles errors gracefully:
+
+**Valid Parameter:**
+```
+openai:gpt-4?temperature=0.5
+# ✓ Parsed and applied
+```
+
+**Invalid Value:**
+```
+openai:gpt-4?temperature=3.5
+# ✗ Logged as error: "temperature: 3.5 above maximum value (2.0)"
+# Request continues with default/config temperature
+```
+
+**Unknown Parameter:**
+```
+openai:gpt-4?unknown_param=value
+# ⚠ Logged as warning: "Unknown URI parameter 'unknown_param'"
+# Request continues, parameter ignored
+```
+
+**Malformed Query String:**
+```
+openai:gpt-4?invalid
+# ⚠ Logged as warning: "Malformed URI query string"
+# Request continues without URI parameters
+```
+
+### Debug Logging
+
+When debug logging is enabled, the proxy provides detailed information about parameter resolution:
+
+```
+DEBUG: Parsed URI parameters from model string 'openai:gpt-4?temperature=0.5': {'temperature': 0.5}
+DEBUG: Parameter resolution for openai:
+  temperature: 0.5 (source: uri, overrode: config=0.8)
+  reasoning_effort: high (source: session)
+```
+
+This helps you understand:
+- Which parameters were parsed from the URI
+- The effective value of each parameter
+- Which source provided each parameter
+- Which sources were overridden
+
+### Integration with Other Features
+
+URI parameters work seamlessly with other proxy features:
+
+- **Model Name Rewrites**: Applied after model name rewriting
+- **Failover Routes**: Parameters are preserved during failover
+- **Planning Phase Overrides**: URI parameters can be overridden by planning phase settings
+- **Wire Capture**: URI parameters are captured in request metadata
+
+### Best Practices
+
+1. **Use URI Parameters for Per-Request Control**: When you need different parameters for specific requests
+2. **Use Config for Defaults**: Set baseline parameters in config files
+3. **Use Session Commands for Interactive Tuning**: Adjust parameters during development/debugging
+4. **Validate in Development**: Test parameter values in development before using in production
+5. **Monitor Logs**: Check debug logs to verify parameter resolution is working as expected
 
 ## Model Name Rewrites
 

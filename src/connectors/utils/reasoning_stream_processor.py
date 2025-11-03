@@ -8,6 +8,7 @@ to identify when the reasoning phase ends and extract the reasoning content.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -81,12 +82,20 @@ class ReasoningStreamProcessor:
             "tokens_estimated": 0,
             "chars_captured": 0,
         }
+        raw_chunks: list[ProcessedResponse] = []
+        tool_call_accumulator: dict[str, dict[str, Any]] = {}
+        tool_call_order: list[str] = []
+        tool_call_index_map: dict[int, str] = {}
 
         try:
             async for processed_response in response_stream:
                 detection_metadata["chunks_processed"] += 1
+                raw_chunks.append(processed_response)
 
                 raw_content = processed_response.content
+                streaming_chunk = None
+                with contextlib.suppress(Exception):
+                    streaming_chunk = StreamingContent.from_raw(processed_response)
                 chunk = self._normalize_chunk(raw_content)
                 if chunk is None:
                     if logger.isEnabledFor(logging.DEBUG):
@@ -164,6 +173,14 @@ class ReasoningStreamProcessor:
                 if content:
                     accumulated_content += content
                     detection_metadata["chars_captured"] = len(accumulated_content)
+
+                self._extract_tool_calls_from_chunk(
+                    chunk,
+                    tool_call_accumulator,
+                    tool_call_order,
+                    tool_call_index_map,
+                    streaming_chunk.metadata if streaming_chunk else None,
+                )
 
                 # Estimate tokens
                 tokens = self.estimate_tokens(accumulated_content)
@@ -276,6 +293,10 @@ class ReasoningStreamProcessor:
         # Extract reasoning text from captured chunks
         reasoning_text = self.extract_reasoning_content(chunks)
         reasoning_complete = detection_metadata["method"] is not None
+        detection_metadata["tool_calls"] = [
+            tool_call_accumulator[call_id] for call_id in tool_call_order
+        ]
+        detection_metadata["raw_chunks"] = raw_chunks
 
         return reasoning_text, reasoning_complete, detection_metadata
 
@@ -540,3 +561,151 @@ class ReasoningStreamProcessor:
         """
         # Simple heuristic: ~4 chars per token
         return len(text) // 4
+
+    def _extract_tool_calls_from_chunk(
+        self,
+        chunk: dict[str, Any],
+        accumulator: dict[str, dict[str, Any]],
+        order: list[str],
+        index_map: dict[int, str],
+        streaming_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Collect tool call fragments from a parsed chunk."""
+
+        if not isinstance(chunk, dict):
+            return
+
+        if streaming_metadata:
+            metadata_calls = streaming_metadata.get("tool_calls")
+            if isinstance(metadata_calls, list):
+                for tool_call in metadata_calls:
+                    self._merge_tool_call(tool_call, accumulator, order, index_map)
+
+        self._extract_tool_calls_from_container(chunk, accumulator, order, index_map)
+
+        choices = chunk.get("choices", [])
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            for key in ("delta", "message"):
+                container = choice.get(key)
+                if isinstance(container, dict):
+                    self._extract_tool_calls_from_container(
+                        container, accumulator, order, index_map
+                    )
+
+    def _extract_tool_calls_from_container(
+        self,
+        container: dict[str, Any],
+        accumulator: dict[str, dict[str, Any]],
+        order: list[str],
+        index_map: dict[int, str],
+    ) -> None:
+        """Inspect a container for tool call information."""
+
+        tool_calls = container.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for tool_call in tool_calls:
+                self._merge_tool_call(tool_call, accumulator, order, index_map)
+
+        single_tool_call = container.get("tool_call")
+        if isinstance(single_tool_call, dict):
+            self._merge_tool_call(single_tool_call, accumulator, order, index_map)
+
+        function_call = container.get("function_call")
+        if isinstance(function_call, dict):
+            derived = {
+                "id": container.get("id"),
+                "index": container.get("index"),
+                "type": "function",
+                "function": function_call,
+            }
+            self._merge_tool_call(derived, accumulator, order, index_map)
+
+    def _merge_tool_call(
+        self,
+        tool_call: Any,
+        accumulator: dict[str, dict[str, Any]],
+        order: list[str],
+        index_map: dict[int, str],
+    ) -> None:
+        """Merge tool call fragments into a consolidated structure."""
+
+        if not isinstance(tool_call, dict):
+            return
+
+        call_id = tool_call.get("id") or tool_call.get("tool_call_id")
+        index = tool_call.get("index")
+
+        if index is not None:
+            try:
+                index_int = int(index)
+            except (TypeError, ValueError):
+                index_int = None
+            else:
+                index = index_int
+        if index is not None:
+            if call_id:
+                index_map.setdefault(index, call_id)
+            else:
+                call_id = index_map.get(index)
+
+        if call_id is None:
+            function = tool_call.get("function") or tool_call.get("function_call")
+            name = None
+            if isinstance(function, dict):
+                name = function.get("name")
+            if name:
+                call_id = name
+
+        if call_id is None:
+            if index is not None:
+                call_id = index_map.setdefault(index, f"tool_call_{index}")
+            else:
+                call_id = f"tool_call_{len(order)}"
+
+        existing = accumulator.get(call_id)
+        if existing is None:
+            existing = {
+                "id": call_id,
+                "type": tool_call.get("type") or "function",
+            }
+            accumulator[call_id] = existing
+            order.append(call_id)
+            if index is not None:
+                index_map[index] = call_id
+        else:
+            if index is not None:
+                index_map.setdefault(index, call_id)
+            if tool_call.get("type") and not existing.get("type"):
+                existing["type"] = tool_call["type"]
+
+        incoming_function = tool_call.get("function")
+        if isinstance(incoming_function, dict):
+            func = existing.setdefault("function", {})
+            if incoming_function.get("name") and not func.get("name"):
+                func["name"] = incoming_function["name"]
+            arguments = incoming_function.get("arguments")
+            if arguments:
+                func["arguments"] = func.get("arguments", "") + arguments
+
+        incoming_function_call = tool_call.get("function_call")
+        if isinstance(incoming_function_call, dict):
+            func = existing.setdefault("function", {})
+            if incoming_function_call.get("name") and not func.get("name"):
+                func["name"] = incoming_function_call["name"]
+            arguments = incoming_function_call.get("arguments")
+            if arguments:
+                func["arguments"] = func.get("arguments", "") + arguments
+
+        for key, value in tool_call.items():
+            if key in {
+                "id",
+                "tool_call_id",
+                "index",
+                "function",
+                "function_call",
+                "type",
+            }:
+                continue
+            existing.setdefault(key, value)

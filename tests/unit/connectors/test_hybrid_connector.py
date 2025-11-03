@@ -1,17 +1,19 @@
 """Unit tests for hybrid connector core functionality."""
 
+import contextlib
+import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from src.connectors.hybrid import HybridConnector
-from src.connectors.utils.model_capabilities import get_reasoning_tags
+from src.connectors.hybrid import HybridConnector, ReasoningPhaseResult
 from src.core.common.exceptions import (
     BackendError,
     ConfigurationError,
     ServiceResolutionError,
 )
-from src.core.config.app_config import AppConfig
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.config.app_config import AppConfig, BackendSettings
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -22,11 +24,7 @@ def app_config():
     config = AppConfig()
     # Ensure hybrid backend is enabled by default
     if not hasattr(config, "backends"):
-        from types import SimpleNamespace
-
-        config.backends = SimpleNamespace(disable_hybrid_backend=False)
-    else:
-        config.backends.disable_hybrid_backend = False
+        config.backends = BackendSettings(disable_hybrid_backend=False)
     return config
 
 
@@ -49,53 +47,81 @@ class TestHybridModelSpecificationParsing:
         """Test valid format: hybrid:[backend:model,backend:model]."""
         model_spec = "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]"
 
-        reasoning_backend, reasoning_model, execution_backend, execution_model = (
-            hybrid_connector._parse_hybrid_model_spec(model_spec)
-        )
+        (
+            reasoning_backend,
+            reasoning_model,
+            reasoning_params,
+            execution_backend,
+            execution_model,
+            execution_params,
+        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
         assert reasoning_backend == "openai"
         assert reasoning_model == "gpt-4"
+        assert reasoning_params == {}
         assert execution_backend == "openai"
         assert execution_model == "gpt-3.5-turbo"
+        assert execution_params == {}
 
     def test_valid_format_without_hybrid_prefix(self, hybrid_connector):
         """Test valid format without 'hybrid:' prefix."""
         model_spec = "[openai:gpt-4,anthropic:claude-3]"
 
-        reasoning_backend, reasoning_model, execution_backend, execution_model = (
-            hybrid_connector._parse_hybrid_model_spec(model_spec)
-        )
+        (
+            reasoning_backend,
+            reasoning_model,
+            reasoning_params,
+            execution_backend,
+            execution_model,
+            execution_params,
+        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
         assert reasoning_backend == "openai"
         assert reasoning_model == "gpt-4"
+        assert reasoning_params == {}
         assert execution_backend == "anthropic"
         assert execution_model == "claude-3"
+        assert execution_params == {}
 
     def test_valid_example_minimax_qwen(self, hybrid_connector):
         """Test valid example: hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]."""
         model_spec = "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]"
 
-        reasoning_backend, reasoning_model, execution_backend, execution_model = (
-            hybrid_connector._parse_hybrid_model_spec(model_spec)
-        )
+        (
+            reasoning_backend,
+            reasoning_model,
+            reasoning_params,
+            execution_backend,
+            execution_model,
+            execution_params,
+        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
         assert reasoning_backend == "minimax"
         assert reasoning_model == "MiniMax-M2"
+        assert reasoning_params == {}
         assert execution_backend == "qwen-oauth"
         assert execution_model == "qwen3-coder-plus"
+        assert execution_params == {}
 
     def test_valid_format_with_whitespace(self, hybrid_connector):
         """Test valid format with whitespace around components."""
         model_spec = "hybrid:[ openai : gpt-4 , anthropic : claude-3 ]"
 
-        reasoning_backend, reasoning_model, execution_backend, execution_model = (
-            hybrid_connector._parse_hybrid_model_spec(model_spec)
-        )
+        (
+            reasoning_backend,
+            reasoning_model,
+            reasoning_params,
+            execution_backend,
+            execution_model,
+            execution_params,
+        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
         assert reasoning_backend == "openai"
         assert reasoning_model == "gpt-4"
+        assert reasoning_params == {}
         assert execution_backend == "anthropic"
         assert execution_model == "claude-3"
+        assert execution_params == {}
 
     def test_invalid_format_missing_brackets(self, hybrid_connector):
         """Test invalid format: missing brackets."""
@@ -197,8 +223,9 @@ class TestHybridModelSpecificationParsing:
         with pytest.raises(ValueError) as exc_info:
             hybrid_connector._parse_hybrid_model_spec(model_spec)
 
-        assert "Invalid reasoning model specification" in str(exc_info.value)
-        assert "Expected format: backend:model" in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "Invalid hybrid model format" in message
+        assert "Expected exactly 2 models" in message
 
     def test_incomplete_spec_missing_colon_in_execution(self, hybrid_connector):
         """Test incomplete spec: missing colon in execution part."""
@@ -207,7 +234,7 @@ class TestHybridModelSpecificationParsing:
         with pytest.raises(ValueError) as exc_info:
             hybrid_connector._parse_hybrid_model_spec(model_spec)
 
-        assert "Invalid execution model specification" in str(exc_info.value)
+        assert "Incomplete execution model specification" in str(exc_info.value)
 
     def test_edge_case_empty_string(self, hybrid_connector):
         """Test edge case: empty string."""
@@ -234,14 +261,21 @@ class TestHybridModelSpecificationParsing:
             "hybrid:[openai:gpt-4-turbo-preview,anthropic:claude-3-opus-20240229]"
         )
 
-        reasoning_backend, reasoning_model, execution_backend, execution_model = (
-            hybrid_connector._parse_hybrid_model_spec(model_spec)
-        )
+        (
+            reasoning_backend,
+            reasoning_model,
+            reasoning_params,
+            execution_backend,
+            execution_model,
+            execution_params,
+        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
         assert reasoning_backend == "openai"
         assert reasoning_model == "gpt-4-turbo-preview"
+        assert reasoning_params == {}
         assert execution_backend == "anthropic"
         assert execution_model == "claude-3-opus-20240229"
+        assert execution_params == {}
 
     def test_error_message_includes_format_example(self, hybrid_connector):
         """Test that error messages include format examples."""
@@ -309,9 +343,9 @@ class TestAdaptiveMessageAugmentation:
         assert augmented[0]["role"] == "user"
 
         # Reasoning should be prepended to user message
-        assert "<reasoning>" in augmented[0]["content"]
+        assert "<thinking>" in augmented[0]["content"]
         assert reasoning_output in augmented[0]["content"]
-        assert "</reasoning>" in augmented[0]["content"]
+        assert "</thinking>" in augmented[0]["content"]
         assert "Hello" in augmented[0]["content"]
 
         # Reasoning should come before original content
@@ -480,11 +514,27 @@ class TestReasoningExposure:
             "Consider alternatives", "minimax"
         )
 
-        opening_tag, closing_tag = get_reasoning_tags("minimax")
+        assert formatted == "Consider alternatives"
 
-        assert formatted.startswith(opening_tag)
-        assert formatted.endswith(closing_tag)
-        assert "Consider alternatives" in formatted
+    def test_format_reasoning_for_client_normalizes_gemini_tags(self, hybrid_connector):
+        raw = "<reasoning>Outline the approach</reasoning>"
+        formatted = hybrid_connector._format_reasoning_for_client(
+            raw, "gemini-oauth-plan"
+        )
+
+        assert formatted == "Outline the approach"
+
+    def test_format_reasoning_for_client_does_not_double_wrap(self, hybrid_connector):
+        raw = "<think>Existing reasoning</think>"
+        formatted = hybrid_connector._format_reasoning_for_client(raw, "minimax")
+
+        assert formatted == "Existing reasoning"
+
+    def test_format_reasoning_for_model_avoids_double_wrapping(self, hybrid_connector):
+        raw = "<think>Already tagged</think>"
+        formatted = hybrid_connector._format_reasoning_for_model(raw, "qwen-oauth")
+
+        assert formatted == "<thinking>Already tagged</thinking>"
 
     def test_build_reasoning_stream_chunk_contains_metadata(self, hybrid_connector):
         chunk = hybrid_connector._build_reasoning_stream_chunk(
@@ -499,7 +549,39 @@ class TestReasoningExposure:
         }
         assert isinstance(chunk.content, str)
         assert "MiniMax-M2" in chunk.content
-        assert "<think>Plan</think>" in chunk.content
+
+        payload = json.loads(chunk.content.removeprefix("data: ").strip())
+        delta = payload["choices"][0]["delta"]
+        assert delta["reasoning"] == "<think>Plan</think>"
+        assert delta["content"] == ""
+        assert delta["reasoning_content"] == "Plan"
+
+    def test_format_reasoning_for_model_converts_reasoning_tags(self, hybrid_connector):
+        raw = "<reasoning>Plan steps</reasoning>"
+        formatted = hybrid_connector._format_reasoning_for_model(raw, "qwen-oauth")
+
+        assert formatted.startswith("<thinking>")
+        assert formatted.endswith("</thinking>")
+        assert "Plan steps" in formatted
+
+    def test_format_reasoning_for_model_adds_missing_closing(self, hybrid_connector):
+        raw = "<think>Plan without close"
+        formatted = hybrid_connector._format_reasoning_for_model(raw, "qwen-oauth")
+
+        assert formatted.startswith("<thinking>")
+        assert formatted.endswith("</thinking>")
+        assert "Plan without close" in formatted
+
+    def test_build_reasoning_stream_chunk_ignores_empty_reasoning(
+        self, hybrid_connector
+    ):
+        chunk = hybrid_connector._build_reasoning_stream_chunk(
+            "   ",
+            "minimax",
+            "MiniMax-M2",
+        )
+
+        assert chunk is None
 
     @pytest.mark.asyncio
     async def test_prepend_reasoning_chunk_to_stream(self, hybrid_connector):
@@ -526,7 +608,11 @@ class TestReasoningExposure:
                 break
 
         assert chunks
-        assert "<think>Plan</think>" in str(chunks[0].content)
+        first_json = json.loads(str(chunks[0].content).removeprefix("data: ").strip())
+        first_delta = first_json["choices"][0]["delta"]
+        assert first_delta["reasoning"] == "<think>Plan</think>"
+        assert first_delta["reasoning_content"] == "Plan"
+        assert first_delta["content"] == ""
         assert any("Result" in str(chunk.content) for chunk in chunks[1:])
 
     def test_prepend_reasoning_to_non_streaming_text(self, hybrid_connector):
@@ -537,18 +623,49 @@ class TestReasoningExposure:
             "MiniMax-M2",
         )
 
-        opening_tag, _ = get_reasoning_tags("minimax")
+        assert combined == "Final response."
 
-        assert combined.startswith(opening_tag)
-        assert "Final response." in combined
-        assert "<think>Plan</think>" in combined
+    def test_prepend_reasoning_to_non_streaming_choice_message(self, hybrid_connector):
+        content = {
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Final answer."},
+                }
+            ]
+        }
+
+        updated = hybrid_connector._prepend_reasoning_to_non_streaming_content(
+            content,
+            "<think>Plan</think>",
+            "minimax",
+            "MiniMax-M2",
+        )
+
+        assert updated["choices"][0]["message"]["content"] == "Final answer."
+        assert updated["choices"][0]["message"]["reasoning"] == "<think>Plan</think>"
+        assert updated["choices"][0]["message"]["reasoning_content"] == "Plan"
+
+    def test_prepend_reasoning_to_non_streaming_dict_metadata(self, hybrid_connector):
+        content = {"content": "Final answer"}
+
+        updated = hybrid_connector._prepend_reasoning_to_non_streaming_content(
+            content,
+            "<think>Plan</think>",
+            "minimax",
+            "MiniMax-M2",
+        )
+
+        assert updated["content"] == "Final answer"
+        assert updated["metadata"]["reasoning"] == "<think>Plan</think>"
+        assert updated["metadata"]["reasoning_content"] == "Plan"
+        assert updated["metadata"]["reasoning_format"] == "hybrid_injected"
 
 
 class TestIdentityResolution:
     """Tests for backend identity resolution logic."""
 
     def test_backend_identity_preferred(self, hybrid_connector):
-        from types import SimpleNamespace
 
         backend_identity = MagicMock(spec=IAppIdentityConfig)
         request_identity = MagicMock(spec=IAppIdentityConfig)
@@ -562,7 +679,6 @@ class TestIdentityResolution:
         assert resolved is backend_identity
 
     def test_request_identity_fallback(self, hybrid_connector):
-        from types import SimpleNamespace
 
         request_identity = MagicMock(spec=IAppIdentityConfig)
 
@@ -863,3 +979,380 @@ class TestErrorHandling:
 
         assert exc_info.value.code == "reasoning_backend_init_failed"
         assert "failed to initialize reasoning backend" in str(exc_info.value).lower()
+
+
+class TestBackendServiceIntegration:
+    """Test integration with BackendService to prevent model format regression."""
+
+    @pytest.mark.asyncio
+    async def test_reasoning_phase_passes_correct_model_format_to_backend_service(
+        self, app_config
+    ):
+        """Test that reasoning phase passes 'backend:model' format to backend service.
+
+        This test prevents regression of the bug where only the model name was passed,
+        causing backend_service.call_completion to fail parsing the model.
+
+        The bug occurred when:
+        1. Hybrid connector parsed 'hybrid:[minimax:MiniMax-M2,zai:glm-4.6]'
+        2. It extracted reasoning_backend='minimax', reasoning_model='MiniMax-M2'
+        3. But only passed 'MiniMax-M2' to _prepare_backend_request
+        4. backend_service.call_completion couldn't determine the backend
+
+        The fix ensures the full 'minimax:MiniMax-M2' format is passed.
+        """
+        from src.core.domain.chat import CanonicalChatRequest
+
+        # Track what model was passed to _prepare_backend_request
+        captured_model = None
+
+        def mock_prepare_backend_request(
+            self, request_data, target_model, stream, messages=None
+        ):
+            nonlocal captured_model
+            captured_model = target_model
+            # Return a minimal CanonicalChatRequest
+            return CanonicalChatRequest(
+                model=target_model,
+                messages=messages or [],
+                stream=stream,
+            )
+
+        # Create connector with mocked translation service
+        mock_translation_service = Mock()
+        hybrid_connector = HybridConnector(
+            client=Mock(),
+            config=app_config,
+            translation_service=mock_translation_service,
+            backend_registry=Mock(),
+        )
+
+        # Mock the backend service
+        mock_backend_service = AsyncMock()
+        mock_response = StreamingResponseEnvelope(
+            content=AsyncMock(),
+            media_type="text/event-stream",
+        )
+        mock_backend_service.call_completion = AsyncMock(return_value=mock_response)
+
+        # Mock the stream to return some reasoning output
+        async def mock_stream():
+            yield ProcessedResponse(
+                content='data: {"choices":[{"delta":{"content":"<think>reasoning</think>"}}]}\n\n',
+                usage=None,
+                metadata={},
+            )
+            yield ProcessedResponse(
+                content='data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+                usage=None,
+                metadata={},
+            )
+            yield ProcessedResponse(
+                content="data: [DONE]\n\n",
+                usage=None,
+                metadata={},
+            )
+
+        mock_response.content = mock_stream()
+
+        # Patch both the service and the prepare method
+        with (
+            patch(
+                "src.core.di.services.get_required_service",
+                return_value=mock_backend_service,
+            ),
+            patch.object(
+                HybridConnector,
+                "_prepare_backend_request",
+                mock_prepare_backend_request,
+            ),
+            contextlib.suppress(Exception),
+        ):
+            # Execute reasoning phase with a specific backend:model combination
+            await hybrid_connector._execute_reasoning_phase(
+                messages=[{"role": "user", "content": "test"}],
+                reasoning_backend="minimax",
+                reasoning_model="MiniMax-M2",
+                request_data={"model": "minimax:MiniMax-M2", "messages": []},
+                identity=None,
+            )
+        # The critical assertion: the model passed to _prepare_backend_request
+        # should be in 'backend:model' format, not just the model name
+        assert (
+            captured_model is not None
+        ), "_prepare_backend_request should have been called"
+        assert captured_model == "minimax:MiniMax-M2", (
+            f"Model should be 'minimax:MiniMax-M2' (full backend:model format), "
+            f"but got '{captured_model}'. This indicates the bug has been reintroduced. "
+            f"The hybrid connector should pass 'backend:model' format to ensure "
+            f"backend_service.call_completion can correctly identify the backend."
+        )
+
+    @pytest.mark.asyncio
+    async def test_reasoning_phase_model_format_with_different_backends(
+        self, app_config
+    ):
+        """Test that various backend:model combinations are correctly formatted.
+
+        This ensures the fix works for different backend types, not just minimax.
+        """
+        from src.core.domain.chat import CanonicalChatRequest
+
+        test_cases = [
+            ("openai", "gpt-4", "openai:gpt-4"),
+            ("anthropic", "claude-3-opus", "anthropic:claude-3-opus"),
+            ("qwen-oauth", "qwen3-coder-plus", "qwen-oauth:qwen3-coder-plus"),
+            ("zai-coding-plan", "glm-4.6", "zai-coding-plan:glm-4.6"),
+        ]
+
+        for backend, model, expected_format in test_cases:
+            # Track what model was passed
+            captured_model = None
+
+            def mock_prepare_backend_request(
+                self, request_data, target_model, stream, messages=None
+            ):
+                nonlocal captured_model
+                captured_model = target_model
+                return CanonicalChatRequest(
+                    model=target_model,
+                    messages=messages or [],
+                    stream=stream,
+                )
+
+            # Create connector
+            mock_translation_service = Mock()
+            hybrid_connector = HybridConnector(
+                client=Mock(),
+                config=app_config,
+                translation_service=mock_translation_service,
+                backend_registry=Mock(),
+            )
+
+            # Mock the backend service
+            mock_backend_service = AsyncMock()
+            mock_response = StreamingResponseEnvelope(
+                content=AsyncMock(),
+                media_type="text/event-stream",
+            )
+            mock_backend_service.call_completion = AsyncMock(return_value=mock_response)
+
+            # Mock minimal stream
+            async def mock_stream():
+                yield ProcessedResponse(
+                    content='data: {"choices":[{"delta":{"content":"test"}}]}\n\n',
+                    usage=None,
+                    metadata={},
+                )
+
+            mock_response.content = mock_stream()
+
+            with (
+                patch(
+                    "src.core.di.services.get_required_service",
+                    return_value=mock_backend_service,
+                ),
+                patch.object(
+                    HybridConnector,
+                    "_prepare_backend_request",
+                    mock_prepare_backend_request,
+                ),
+                contextlib.suppress(Exception),
+            ):
+                await hybrid_connector._execute_reasoning_phase(
+                    messages=[{"role": "user", "content": "test"}],
+                    reasoning_backend=backend,
+                    reasoning_model=model,
+                    request_data={"model": f"{backend}:{model}", "messages": []},
+                    identity=None,
+                )
+
+            # Verify the model format
+            assert captured_model == expected_format, (
+                f"For backend '{backend}' and model '{model}', "
+                f"expected format '{expected_format}' but got '{captured_model}'"
+            )
+
+    def test_prepare_backend_request_strips_backend_type_from_extra_body(
+        self, app_config
+    ):
+        """Hybrid connector must not leak hybrid backend_type into nested requests."""
+        from src.core.domain.chat import CanonicalChatRequest
+
+        def to_domain_request(payload, _backend):
+            if isinstance(payload, CanonicalChatRequest):
+                return payload
+            if isinstance(payload, dict):
+                return CanonicalChatRequest(
+                    model=payload["model"],
+                    messages=payload.get("messages", []),
+                    stream=payload.get("stream"),
+                    extra_body=payload.get("extra_body"),
+                )
+            return payload
+
+        translation_service = Mock()
+        translation_service.to_domain_request.side_effect = to_domain_request
+
+        connector = HybridConnector(
+            client=Mock(),
+            config=app_config,
+            translation_service=translation_service,
+            backend_registry=Mock(),
+        )
+
+        request_data = {
+            "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+            "messages": [{"role": "user", "content": "test"}],
+            "stream": False,
+            "extra_body": {"session_id": "sess-123", "backend_type": "hybrid"},
+        }
+
+        canonical_request = connector._prepare_backend_request(
+            request_data=request_data,
+            target_model="minimax:MiniMax-M2",
+            stream=True,
+            messages=[{"role": "user", "content": "test"}],
+        )
+
+        assert canonical_request.model == "minimax:MiniMax-M2"
+        assert canonical_request.stream is True
+        assert canonical_request.extra_body is None or (
+            "backend_type" not in canonical_request.extra_body
+            and "session_id" not in canonical_request.extra_body
+            and "model" not in canonical_request.extra_body
+        )
+
+    def test_apply_reasoning_params_drops_hybrid_routing_hints(self, hybrid_connector):
+        """_apply_reasoning_params should strip hybrid routing keys from extra_body."""
+        request_data = {
+            "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+            "messages": [],
+            "extra_body": {
+                "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+                "backend_type": "hybrid",
+                "keep": "true",
+            },
+        }
+
+        updated = hybrid_connector._apply_reasoning_params(
+            request_data=request_data,
+            backend_or_params={"temperature": 0.2},
+        )
+
+        assert isinstance(updated, dict)
+        assert updated["temperature"] == 0.2
+        assert updated["extra_body"] == {"keep": "true", "temperature": 0.2}
+
+
+class TestHybridToolCallShortCircuit:
+    """Tests for scenarios where execution phase is skipped."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_skip_execution_on_tool_call(
+        self, hybrid_connector
+    ) -> None:
+        request_payload = {
+            "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+            "messages": [{"role": "user", "content": "Plan the steps"}],
+            "stream": True,
+        }
+        tool_calls = [
+            {
+                "id": "call_123",
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": '{"path": "src/app.py"}',
+                },
+            }
+        ]
+        reasoning_result = ReasoningPhaseResult(
+            text="   ",
+            complete=True,
+            tool_calls=tool_calls,
+            raw_chunks=[],
+            media_type="text/event-stream",
+            headers=None,
+        )
+
+        with (
+            patch.object(
+                HybridConnector,
+                "_execute_reasoning_phase",
+                AsyncMock(return_value=reasoning_result),
+            ),
+            patch.object(
+                HybridConnector,
+                "_execute_execution_phase",
+                AsyncMock(),
+            ) as execution_mock,
+        ):
+            response = await hybrid_connector.chat_completions(
+                request_payload,
+                processed_messages=request_payload["messages"],
+                effective_model=request_payload["model"],
+            )
+
+        assert isinstance(response, StreamingResponseEnvelope)
+        assert response.content is not None
+        chunks = [chunk async for chunk in response.content]
+        assert chunks, "Expected at least one streamed chunk"
+        payload = json.loads(str(chunks[0].content).removeprefix("data: ").strip())
+        delta = payload["choices"][0]["delta"]
+        assert delta["tool_calls"] == tool_calls
+        assert delta["content"] == ""
+        execution_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_skip_execution_on_tool_call(
+        self, hybrid_connector
+    ) -> None:
+        request_payload = {
+            "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+            "messages": [{"role": "user", "content": "Plan the steps"}],
+            "stream": False,
+        }
+        tool_calls = [
+            {
+                "id": "call_456",
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": '{"path": "tests/test_file.py"}',
+                },
+            }
+        ]
+        reasoning_result = ReasoningPhaseResult(
+            text="",
+            complete=True,
+            tool_calls=tool_calls,
+            raw_chunks=[],
+            media_type=None,
+            headers=None,
+        )
+
+        with (
+            patch.object(
+                HybridConnector,
+                "_execute_reasoning_phase",
+                AsyncMock(return_value=reasoning_result),
+            ),
+            patch.object(
+                HybridConnector,
+                "_execute_execution_phase",
+                AsyncMock(),
+            ) as execution_mock,
+        ):
+            response = await hybrid_connector.chat_completions(
+                request_payload,
+                processed_messages=request_payload["messages"],
+                effective_model=request_payload["model"],
+            )
+
+        assert isinstance(response, ResponseEnvelope)
+        choice = response.content["choices"][0]
+        assert choice["message"]["tool_calls"] == tool_calls
+        assert choice["message"]["content"] == ""
+        assert choice["finish_reason"] == "tool_calls"
+        execution_mock.assert_not_called()

@@ -96,6 +96,7 @@ async def test_call_completion_applies_cooldown_on_429(
         return_value=(
             backend.backend_type,
             "gemini-cli-oauth-personal:models/gemini-2.5-pro",
+            {},  # uri_params
         )
     )
 

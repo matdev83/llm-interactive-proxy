@@ -88,12 +88,13 @@ class TestStaticRoute:
             messages=[{"role": "user", "content": "test"}],
         )
 
-        backend_type, effective_model = await service._resolve_backend_and_model(
-            request
+        backend_type, effective_model, uri_params = (
+            await service._resolve_backend_and_model(request)
         )
 
         assert effective_model == "gpt-4"
         assert backend_type == "openai"
+        assert uri_params == {}
 
     @pytest.mark.asyncio
     async def test_static_route_overrides_both_backend_and_model(
@@ -121,12 +122,13 @@ class TestStaticRoute:
             messages=[{"role": "user", "content": "test"}],
         )
 
-        backend_type, effective_model = await service._resolve_backend_and_model(
-            request
+        backend_type, effective_model, uri_params = (
+            await service._resolve_backend_and_model(request)
         )
 
         assert backend_type == "gemini-oauth-plan"
         assert effective_model == "gemini-2.5-pro"
+        assert uri_params == {}
 
     @pytest.mark.asyncio
     async def test_static_route_with_backend_prefix_in_request(
@@ -154,12 +156,13 @@ class TestStaticRoute:
             messages=[{"role": "user", "content": "test"}],
         )
 
-        backend_type, effective_model = await service._resolve_backend_and_model(
-            request
+        backend_type, effective_model, uri_params = (
+            await service._resolve_backend_and_model(request)
         )
 
         assert backend_type == "gemini-oauth-plan"
         assert effective_model == "gemini-2.5-pro"
+        assert uri_params == {}
 
     def test_synchronize_request_with_target_updates_extra_body(
         self,

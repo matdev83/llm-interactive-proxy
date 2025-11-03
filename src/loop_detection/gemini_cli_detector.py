@@ -82,7 +82,7 @@ class GeminiCliLoopDetector(ILoopDetector):
         self._is_enabled = True
         self._loop_events: list[LoopDetectionEvent] = []
 
-        logger.info(
+        logger.debug(
             "GeminiCliLoopDetector initialized: chunk_size=%d, threshold=%d, max_history=%d",
             self.content_chunk_size,
             self.content_loop_threshold,

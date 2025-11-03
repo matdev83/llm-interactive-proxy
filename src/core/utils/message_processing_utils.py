@@ -39,10 +39,6 @@ def is_message_processed(message: Any) -> bool:
     else:
         is_processed = bool(getattr(message, _PROCESSING_MARKER, False))
 
-    # Track metrics
-    if is_processed:
-        metrics_service.inc("tool_call.messages.skipped")
-
     return is_processed
 
 
@@ -53,7 +49,7 @@ def mark_message_processed(message: Any) -> None:
     its tool calls have been extracted, repaired, or otherwise processed.
     This marker is used to skip redundant processing of historical messages.
 
-    The marker is added as metadata and does not modify the core message
+    The is added as metadata and does not modify the core message
     structure (role, content, tool_calls, etc.).
 
     Args:
@@ -65,13 +61,56 @@ def mark_message_processed(message: Any) -> None:
         >>> msg["_tool_calls_processed"]
         True
     """
+    # Check if message was already processed before marking
+    was_already_processed = is_message_processed(message)
+
     if isinstance(message, dict):
         message[_PROCESSING_MARKER] = True
     else:
         setattr(message, _PROCESSING_MARKER, True)
 
-    # Track metrics
+    # Only increment counter if this is the first time processing this message
+    if not was_already_processed:
+        metrics_service.inc("tool_call.messages.processed")
+
+
+def increment_processed_counter() -> None:
+    """Increment the counter for messages that were actually processed.
+
+    This function should be called when a message is actually processed
+    (not just marked as processed) to track metrics correctly.
+    """
     metrics_service.inc("tool_call.messages.processed")
+
+
+def increment_skipped_counter() -> None:
+    """Increment the counter for messages that were skipped during processing.
+
+    This function should be called when a message is skipped (already processed)
+    to track metrics correctly.
+    """
+    metrics_service.inc("tool_call.messages.skipped")
+
+
+def process_message_if_needed(message: Any) -> bool:
+    """Process a message if it hasn't been processed before.
+
+    This function checks if a message has already been processed. If not,
+    it marks the message as processed and increments the appropriate counters.
+
+    Args:
+        message: The message to check and potentially process
+
+    Returns:
+        True if the message was already processed (skipped), False if it was processed now
+    """
+    if is_message_processed(message):
+        increment_skipped_counter()
+        return True  # Message was already processed (skipped)
+    else:
+        mark_message_processed(message)
+        increment_processed_counter()
+        return False  # Message was processed now
 
 
 def find_last_assistant_message(messages: list[Any]) -> int | None:

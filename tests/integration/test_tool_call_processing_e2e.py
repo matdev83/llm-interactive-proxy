@@ -14,8 +14,6 @@ from __future__ import annotations
 import json
 import time
 
-import pytest
-
 from src.core.services import metrics_service
 from src.core.utils.message_processing_utils import (
     find_last_assistant_message,
@@ -66,7 +64,12 @@ class TestToolCallProcessingE2E:
                 }
             ],
         }
-        all_messages = historical_messages + [new_message]
+        all_messages = [*historical_messages, new_message]
+
+        # Reset metrics to only count messages processed during this operation
+        with metrics_service._lock:
+            metrics_service._counters.clear()
+            metrics_service._timers.clear()
 
         # Process messages
         processed_count = 0
@@ -74,12 +77,18 @@ class TestToolCallProcessingE2E:
 
         with metrics_service.timer("tool_call.processing.duration"):
             for msg in all_messages:
-                if is_message_processed(msg):
-                    skipped_count += 1
+                # Only process assistant messages that potentially have tool calls
+                if msg.get("role") == "assistant" and "tool_calls" in msg:
+                    if is_message_processed(msg):
+                        skipped_count += 1
+                        metrics_service.inc("tool_call.messages.skipped")
+                    else:
+                        # Simulate processing
+                        processed_count += 1
+                        mark_message_processed(msg)
                 else:
-                    # Simulate processing
-                    processed_count += 1
-                    mark_message_processed(msg)
+                    # User messages, tool responses, etc. don't need tool call processing
+                    continue
 
         # Verify only the new message was processed
         assert processed_count == 1
@@ -170,7 +179,12 @@ class TestToolCallProcessingE2E:
         start_time = time.perf_counter()
         processed = 0
         for msg in messages:
-            if not is_message_processed(msg):
+            # Only process assistant messages that potentially have tool calls
+            if (
+                not is_message_processed(msg)
+                and msg.get("role") == "assistant"
+                and "tool_calls" in msg
+            ):
                 # Simulate processing work
                 _ = json.dumps(msg)
                 processed += 1
@@ -296,12 +310,17 @@ class TestToolCallProcessingE2E:
         for msg in messages[:15]:
             mark_message_processed(msg)
 
-        # Process all messages
+        # Reset metrics to only count messages processed during this operation
+        with metrics_service._lock:
+            metrics_service._counters.clear()
+
+        # Track skipped messages
         for msg in messages:
             if is_message_processed(msg):
-                pass  # Skip
+                metrics_service.inc("tool_call.messages.skipped")
             else:
-                mark_message_processed(msg)
+                # Process new messages
+                mark_message_processed(msg)  # This will increment processed counter
 
         # Verify metrics
         processed = metrics_service.get("tool_call.messages.processed")
@@ -320,12 +339,16 @@ class TestToolCallProcessingE2E:
                 mark_message_processed(msg)
             messages.append(msg)
 
-        # Process messages
+        # Reset metrics to only count messages processed during this operation
+        with metrics_service._lock:
+            metrics_service._counters.clear()
+
+        # Process messages and track metrics
         for msg in messages:
             if is_message_processed(msg):
-                pass
+                metrics_service.inc("tool_call.messages.skipped")
             else:
-                mark_message_processed(msg)
+                mark_message_processed(msg)  # This will increment processed counter
 
         # Calculate skip rate
         processed = metrics_service.get("tool_call.messages.processed")

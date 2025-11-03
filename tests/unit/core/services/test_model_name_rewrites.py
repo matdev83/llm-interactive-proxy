@@ -251,7 +251,7 @@ class TestModelNameRewrites:
             model="gpt-4-turbo", messages=[ChatMessage(role="user", content="Hello")]
         )
 
-        backend_type, effective_model = (
+        backend_type, effective_model, uri_params = (
             await backend_service_with_aliases._resolve_backend_and_model(request)
         )
 
@@ -260,6 +260,7 @@ class TestModelNameRewrites:
             effective_model == "openai/gpt-4-turbo"
         )  # After parsing backend:model format
         assert backend_type == "openrouter"
+        assert uri_params == {}
 
     @pytest.mark.asyncio
     async def test_resolve_backend_and_model_static_route_precedence(self):
@@ -291,13 +292,14 @@ class TestModelNameRewrites:
             model="any-model", messages=[ChatMessage(role="user", content="Hello")]
         )
 
-        backend_type, effective_model = (
+        backend_type, effective_model, uri_params = (
             await backend_service._resolve_backend_and_model(request)
         )
 
         # Static route should override alias rules
         assert backend_type == "forced-backend"
         assert effective_model == "forced-model"
+        assert uri_params == {}
 
     def test_config_validation_valid_rules(self):
         """Test that valid model alias rules can be configured."""

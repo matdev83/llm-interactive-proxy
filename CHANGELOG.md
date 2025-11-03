@@ -1,5 +1,36 @@
 # Changelog
 
+## [2025-11-03]
+
+### Added
+
+- **Hybrid Backend**: Virtual backend that orchestrates two sequential LLM API calls to enhance response quality
+  - **Two-Phase Approach**: Captures reasoning output from a "reasoning model" and uses it to augment the prompt sent to an "execution model"
+  - **Cost/Performance Optimization**: Use expensive reasoning models (o1-preview, DeepSeek-R1, MiniMax-M2) only for reasoning capture, then leverage faster/cheaper execution models for final output
+  - **Specialization Leverage**: Combine the reasoning strength of one model with the execution capabilities of another (e.g., o1's reasoning + GPT-4's code generation)
+  - **Model Specification Format**: `hybrid:[reasoning-backend:reasoning-model,execution-backend:execution-model]`
+  - **Cross-Backend Support**: Mix and match models from different providers (e.g., MiniMax for reasoning, Qwen for execution)
+  - **Intelligent Reasoning Detection**: Priority-based detection using explicit tags (`</think>`, `</thinking>`), finish_reason, and content markers
+  - **Adaptive Reasoning Injection**: Automatically uses system messages or user message prefixes based on model capabilities
+  - **Request Cancellation**: Automatically cancels reasoning model request after capturing reasoning to save costs
+  - **Reasoning Parameter Overrides**: Automatically applies maximum reasoning effort for reasoning phase and disables reasoning for execution phase
+  - **URI Parameter Support**: Apply different parameters to reasoning and execution models independently (e.g., `hybrid:[openai:gpt-4?temperature=0.9,anthropic:claude-3?temperature=0.1]`)
+  - **Configuration Options**: Enabled by default, can be disabled via `--disable-hybrid-backend` CLI flag, `DISABLE_HYBRID_BACKEND` environment variable, or config file
+  - **Comprehensive Error Handling**: Clear error messages with phase indicators (reasoning vs execution) and format examples
+  - **Streaming Support**: Full streaming support for execution phase responses
+  - **Response Filtering**: Reasoning output is excluded from final response and tool calls
+  - **Comprehensive Testing**: Unit tests for model parsing, message augmentation, reasoning detection, and error handling
+  - **Documentation**: Complete user-facing documentation in README.md with examples and use cases
+  - **Files Created**:
+    - `src/connectors/hybrid.py` - Main hybrid backend connector implementation
+    - `src/connectors/utils/reasoning_stream_processor.py` - Reasoning stream capture and detection utility
+    - `src/connectors/utils/model_capabilities.py` - Model capabilities and reasoning parameters registry
+    - `tests/unit/connectors/test_hybrid.py` - Comprehensive unit tests for hybrid connector
+    - `tests/unit/connectors/test_reasoning_stream_processor.py` - Unit tests for reasoning stream processor
+    - `.kiro/specs/hybrid-backend/requirements.md` - Feature requirements specification
+    - `.kiro/specs/hybrid-backend/design.md` - Detailed design document
+    - `.kiro/specs/hybrid-backend/tasks.md` - Implementation task breakdown
+
 ## [2025-10-31]
 
 
