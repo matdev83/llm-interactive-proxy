@@ -115,6 +115,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--reasoning-injection-probability",
+        "--reasoning_injection_probability",  # Accept both formats
         dest="reasoning_injection_probability",
         type=float,
         help="Probability of using the reasoning model in the hybrid backend (0.0 to 1.0)",

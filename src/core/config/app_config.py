@@ -905,36 +905,6 @@ class AppConfig(DomainModel, IConfig):
                 path="disable_health_checks",
                 resolution=resolution,
             ),
-            "backends": {
-                "default_backend": _get_env_value(
-                    env,
-                    "LLM_BACKEND",
-                    "openai",
-                    path="backends.default_backend",
-                    resolution=resolution,
-                ),
-                "disable_gemini_oauth_fallback": _env_to_bool(
-                    "DISABLE_GEMINI_OAUTH_FALLBACK",
-                    False,
-                    env,
-                    path="backends.disable_gemini_oauth_fallback",
-                    resolution=resolution,
-                ),
-                "disable_hybrid_backend": _env_to_bool(
-                    "DISABLE_HYBRID_BACKEND",
-                    False,
-                    env,
-                    path="backends.disable_hybrid_backend",
-                    resolution=resolution,
-                ),
-                "reasoning_injection_probability": _env_to_float(
-                    "REASONING_INJECTION_PROBABILITY",
-                    1.0,
-                    env,
-                    path="backends.reasoning_injection_probability",
-                    resolution=resolution,
-                ),
-            },
             "host": _get_env_value(
                 env,
                 "APP_HOST",

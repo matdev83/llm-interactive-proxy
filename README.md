@@ -942,6 +942,34 @@ python -m src.core.cli
 disable_hybrid_backend: true
 ```
 
+#### Probabilistic Reasoning
+
+The hybrid backend can be configured to use the reasoning model probabilistically for each request. This is controlled by the `reasoning_injection_probability` parameter, a float value between 0.0 and 1.0.
+
+- **0.0**: The reasoning model will never be used.
+- **1.0**: The reasoning model will always be used (default).
+- **0.5**: The reasoning model will be used for approximately 50% of requests.
+
+This allows for a trade-off between response quality and cost/latency.
+
+**Configuration (precedence: CLI > Environment > YAML)**:
+
+- **CLI Flag**:
+  ```bash
+  --reasoning-injection-probability 0.5
+  ```
+
+- **Environment Variable**:
+  ```bash
+  export REASONING_INJECTION_PROBABILITY=0.5
+  ```
+
+- **YAML Configuration** (`config.yaml`):
+  ```yaml
+  backends:
+    reasoning_injection_probability: 0.5
+  ```
+
 ### Reasoning Detection
 
 The hybrid backend uses a priority-based detection strategy to identify when reasoning is complete:

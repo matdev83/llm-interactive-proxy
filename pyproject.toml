@@ -97,7 +97,7 @@ package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n 7 --dist=loadfile -r fE -m 'not integration'"
+addopts = "--asyncio-mode=auto --junit-xml=test-results.xml -W ignore --max-worker-restart=3 -n 7 --dist=loadfile -r fE -m 'not integration and not slow'"
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "INFO"
@@ -128,6 +128,7 @@ filterwarnings = [
 # To run backend tests, use: pytest -m backend
 # To run DI tests, use: pytest -m di
 # To run tests without global mock, use: pytest -m no_global_mock
+# To run slow tests, use: pytest -m slow
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "unit: marks tests as unit tests",
@@ -144,6 +145,7 @@ markers = [
     "loop_detection: marks tests related to loop detection",
     "multimodal: marks tests related to multimodal content",
     "quality: Tests that check code quality (linting, formatting)",
+    "slow: marks tests that are slow to run and should be excluded by default",
 ]
 
 [tool.mdformat]
