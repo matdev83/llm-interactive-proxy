@@ -75,11 +75,11 @@ class URIParameterValidator:
             try:
                 # Type conversion and validation
                 normalized_value: float | str
-                if param_type == float:
+                if param_type is float:
                     normalized_value = self._validate_float_param(
                         param_name, param_value, rules
                     )
-                elif param_type == str:
+                elif param_type is str:
                     normalized_value = self._validate_string_param(
                         param_name, param_value, rules
                     )

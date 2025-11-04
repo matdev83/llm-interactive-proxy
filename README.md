@@ -118,6 +118,7 @@ graph TD
     - `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX="<pattern>"`
     - `DISABLE_GEMINI_OAUTH_FALLBACK=true|false` (default: false) prevents Gemini OAuth connectors from automatically falling back to `gemini-2.5-flash` when the primary model is rate-limited.
   - **YAML** (`config.yaml`):
+
     ```yaml
     edit_precision:
       enabled: true
@@ -126,6 +127,7 @@ graph TD
       override_top_p: false
       exclude_agents_regex: null
     ```
+
   - **Model-Specific Overrides**: Optionally configure per-model-family temperature overrides in `config/edit_precision_model_temperatures.yaml` (see Edit-Precision Tuning Examples section)
 - **Model Name Rewrites (NEW)**: Dynamically rewrite model names using powerful regex-based rules. Route all GPT requests to OpenRouter, replace specific models with alternatives, or create catch-all fallbacks - all configurable via CLI, environment variables, or config files.
 - **Planning-Phase Strong Model Overrides (NEW)**: Optionally route the first part of a session to a stronger model and override its parameters (e.g., temperature, top_p, reasoning effort, thinking budget) to maximize planning quality; automatically switch back to the default model after a set number of turns or file writes.
@@ -151,6 +153,7 @@ The proxy includes an intelligent conversation assessment system that monitors c
 ### Configuration
 
 **CLI Arguments**:
+
 ```bash
 --enable-llm-assessment                    # Enable the assessment system
 --llm-assessment-backend openai            # Backend to use for assessment
@@ -161,6 +164,7 @@ The proxy includes an intelligent conversation assessment system that monitors c
 ```
 
 **Environment Variables**:
+
 ```bash
 export LLM_ASSESSMENT_ENABLED=true
 export LLM_ASSESSMENT_BACKEND=openai
@@ -171,6 +175,7 @@ export LLM_ASSESSMENT_HISTORY_WINDOW=20
 ```
 
 **YAML Configuration**:
+
 ```yaml
 llm_assessment:
   enabled: true
@@ -230,6 +235,7 @@ The proxy provides comprehensive tool access control, allowing you to define whi
 Tool access policies are configured in the `tool_call_reactor_config.yaml` file under the `access_policies` section:
 
 **CLI Arguments**:
+
 ```bash
 --allowed-tools "read_.*,list_.*"      # Global allowed tool patterns
 --blocked-tools "delete_.*,rm_.*"      # Global blocked tool patterns
@@ -237,6 +243,7 @@ Tool access policies are configured in the `tool_call_reactor_config.yaml` file 
 ```
 
 Example usage:
+
 ```bash
 python -m src.core.cli \
   --allowed-tools "read_.*,list_.*,search_.*" \
@@ -245,6 +252,7 @@ python -m src.core.cli \
 ```
 
 **YAML Configuration**:
+
 ```yaml
 session:
   tool_call_reactor:
@@ -304,6 +312,7 @@ session:
 ### Use Cases
 
 **Security and Safety**:
+
 ```yaml
 # Prevent destructive file operations
 - name: prevent_destructive_ops
@@ -318,6 +327,7 @@ session:
 ```
 
 **Read-Only Mode for Production**:
+
 ```yaml
 # Allow only read operations in production
 - name: production_readonly
@@ -333,6 +343,7 @@ session:
 ```
 
 **Model-Specific Restrictions**:
+
 ```yaml
 # Restrict specific models to safe tools only
 - name: restrict_experimental_model
@@ -345,6 +356,7 @@ session:
 ```
 
 **Agent-Based Access Control**:
+
 ```yaml
 # Different tools for different agents
 - name: junior_agent_restrictions
@@ -391,21 +403,25 @@ Metadata is also included in `request.extra_body["tool_access"]` and response me
 ### Troubleshooting
 
 **Tool definitions not being filtered**:
+
 - Verify `tool_call_reactor.enabled: true` in configuration
 - Check that your `model_pattern` matches the actual model name (use `.*` for all models)
 - Review logs for policy loading errors during startup
 
 **Tool calls not being blocked**:
+
 - Ensure the Tool Access Control Handler is registered (check startup logs)
 - Verify your patterns match the tool names exactly (patterns are case-insensitive)
 - Check policy priority - higher priority policies override lower ones
 
 **Regex pattern errors**:
+
 - Test your regex patterns with a regex validator
 - Escape special characters: `\.`, `\(`, `\)`, `\[`, `\]`, etc.
 - Use `.*` for wildcard matching, not just `*`
 
 **Performance issues**:
+
 - Limit the number of policies (recommend <20 for optimal performance)
 - Use specific patterns instead of complex regex when possible
 - Monitor policy evaluation time in debug logs
@@ -424,12 +440,14 @@ Metadata is also included in `request.extra_body["tool_access"]` and response me
 Some models from less known vendors produce `<think>` tags inside plain message body instead of using standard reasoning/thinking token separation. This results in reasoning content being visible to users as part of the response.
 
 ### Problem Example
+
 ```
 Model output: "<think>Let me analyze this step by step...</think>Here's the answer: 42."
 User sees: "<think>Let me analyze this step by step...</think>Here's the answer: 42."
 ```
 
 ### Solution
+
 The think tags fix feature detects and corrects such improperly marked reasoning streams:
 
 ```
@@ -441,17 +459,20 @@ Developer access: "Let me analyze this step by step..." (in reasoning field/meta
 ### Configuration
 
 Enable via CLI flag:
+
 ```bash
 python -m src.core.cli --fix-think-tags
 ```
 
 Enable via environment variable:
+
 ```bash
 export FIX_THINK_TAGS_ENABLED=true
 export FIX_THINK_TAGS_STREAMING_BUFFER_SIZE=4096  # Optional: buffer size for streaming
 ```
 
 Enable via config file:
+
 ```yaml
 session:
   fix_think_tags_enabled: true
@@ -463,7 +484,7 @@ session:
 - **Universal Backend Support**: Works with all connectors (OpenAI, Anthropic, Gemini, custom backends)
 - **Streaming Support**: Handles think tags split across multiple streaming chunks with session-based buffering
 - **Reasoning Preservation**: Preserves reasoning content in appropriate fields instead of discarding it
-- **Multiple Response Formats**: 
+- **Multiple Response Formats**:
   - OpenAI-style: Adds `reasoning` field to message
   - Dict responses: Adds reasoning to metadata
   - ProcessedResponse: Adds reasoning to metadata
@@ -473,6 +494,7 @@ session:
 ### Client Integration
 
 Web UI example:
+
 ```javascript
 // Show clean response with optional reasoning
 if (response.message.reasoning) {
@@ -482,6 +504,7 @@ displayMainResponse(response.message.content);
 ```
 
 API client example:
+
 ```python
 # Handle reasoning appropriately
 if response.metadata.get("reasoning"):
@@ -511,12 +534,15 @@ The proxy includes built-in protection against dangerous git commands that could
 **Configuration (precedence: CLI > Environment > Config File)**:
 
 **CLI Flags**:
+
 - `--disable-dangerous-git-commands-protection` to disable protection (overwrites config file and environment variable)
 
 **Environment Variables**:
+
 - `DANGEROUS_COMMAND_PREVENTION_ENABLED=true|false` (default: true)
 
 **Config File** (`config.yaml`):
+
 ```yaml
 session:
   dangerous_command_prevention_enabled: true
@@ -543,6 +569,7 @@ python -m src.core.cli
 ### Behavior
 
 When a dangerous git command is detected, the proxy:
+
 1. Blocks the tool call execution
 2. Returns a descriptive steering message explaining why the command was blocked
 3. Logs the blocked attempt for debugging and security auditing
@@ -579,12 +606,15 @@ The proxy includes file access sandboxing to prevent LLM agents from modifying f
 **Configuration (precedence: CLI > Environment > Config File)**:
 
 **CLI Flags**:
+
 - `--enable-sandboxing` to enable file access sandboxing
 
 **Environment Variables**:
+
 - `ENABLE_SANDBOXING=true|false` (default: false)
 
 **Config File** (`config.yaml`):
+
 ```yaml
 sandboxing:
   enabled: true
@@ -615,6 +645,7 @@ When sandboxing is enabled and a project root is detected:
 4. **Audit Logging**: Logs all blocked operations with session ID, tool name, and attempted path
 
 **Example blocked operation**:
+
 ```
 Tool: write_file
 Path: /etc/hosts
@@ -837,12 +868,14 @@ The hybrid backend is a powerful virtual backend that orchestrates two sequentia
 The hybrid backend has been tested with several model combinations with varying degrees of success:
 
 **✅ Tested and Promising:**
+
 - **Reasoning**: MiniMax-M2
 - **Execution**: Qwen3-Coder-Plus
 - **Model String**: `hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]`
 - **Status**: Results are promising but not yet production-grade
 
 **⚠️ Tested with Limited Success:**
+
 - Other model combinations have been tested but did not show great success
 
 **Recommendation**: If you're interested in testing this experimental feature, use the model string `hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]` as it has shown the most promise in testing.
@@ -927,17 +960,20 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 The hybrid backend is enabled by default. To disable it:
 
 **CLI Flag**:
+
 ```bash
 python -m src.core.cli --disable-hybrid-backend
 ```
 
 **Environment Variable**:
+
 ```bash
 export DISABLE_HYBRID_BACKEND=true
 python -m src.core.cli
 ```
 
 **Config File** (`config.yaml`):
+
 ```yaml
 disable_hybrid_backend: true
 ```
@@ -955,16 +991,19 @@ This allows for a trade-off between response quality and cost/latency.
 **Configuration (precedence: CLI > Environment > YAML)**:
 
 - **CLI Flag**:
+
   ```bash
   --reasoning-injection-probability 0.5
   ```
 
 - **Environment Variable**:
+
   ```bash
   export REASONING_INJECTION_PROBABILITY=0.5
   ```
 
 - **YAML Configuration** (`config.yaml`):
+
   ```yaml
   backends:
     reasoning_injection_probability: 0.5
@@ -980,16 +1019,19 @@ The hybrid backend can be configured to repeat messages in the execution phase f
 **Configuration (precedence: CLI > Environment > YAML)**:
 
 - **CLI Flag**:
+
   ```bash
   --hybrid-backend-repeat-messages
   ```
 
 - **Environment Variable**:
+
   ```bash
   export HYBRID_BACKEND_REPEAT_MESSAGES=true
   ```
 
 - **YAML Configuration** (`config.yaml`):
+
   ```yaml
   backends:
     hybrid_backend_repeat_messages: true
@@ -1450,21 +1492,25 @@ The URI Model Parameters feature allows you to specify model parameters directly
 ### Basic Usage
 
 **Simple Model with Temperature:**
+
 ```
 openai:gpt-4?temperature=0.5
 ```
 
 **Multiple Parameters:**
+
 ```
 anthropic:claude-3?temperature=0.7&reasoning_effort=high
 ```
 
 **Complex Model Path:**
+
 ```
 openrouter:anthropic/claude-3-haiku:beta?temperature=0.3&reasoning_effort=medium
 ```
 
 **Hybrid Backend (Independent Parameters):**
+
 ```
 hybrid:[openai:gpt-4?temperature=0.8,anthropic:claude-3?temperature=0.3]
 ```
@@ -1479,6 +1525,7 @@ Parameters are resolved from multiple sources with the following precedence (hig
 4. **Configuration File** (lowest priority) - `config.yaml`
 
 When the same parameter is specified in multiple sources, the higher priority source wins. This allows you to:
+
 - Set defaults in config files
 - Override per-request with URI parameters
 - Override dynamically with session commands
@@ -1486,12 +1533,14 @@ When the same parameter is specified in multiple sources, the higher priority so
 ### Examples
 
 **Override Config Temperature:**
+
 ```yaml
 # config.yaml
 model_defaults:
   openai:gpt-4:
     temperature: 0.8
 ```
+
 ```bash
 # Request with URI parameter overrides config
 curl -X POST http://localhost:8000/v1/chat/completions \
@@ -1504,6 +1553,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 ```
 
 **Hybrid Backend with Different Temperatures:**
+
 ```bash
 # Use high temperature for creative reasoning, low for precise execution
 curl -X POST http://localhost:8000/v1/chat/completions \
@@ -1515,6 +1565,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 ```
 
 **Session Command Override:**
+
 ```bash
 # Start with URI parameter
 model: openai:gpt-4?temperature=0.5
@@ -1530,12 +1581,14 @@ model: openai:gpt-4?temperature=0.5
 The proxy validates URI parameters and handles errors gracefully:
 
 **Valid Parameter:**
+
 ```
 openai:gpt-4?temperature=0.5
 # ✓ Parsed and applied
 ```
 
 **Invalid Value:**
+
 ```
 openai:gpt-4?temperature=3.5
 # ✗ Logged as error: "temperature: 3.5 above maximum value (2.0)"
@@ -1543,6 +1596,7 @@ openai:gpt-4?temperature=3.5
 ```
 
 **Unknown Parameter:**
+
 ```
 openai:gpt-4?unknown_param=value
 # ⚠ Logged as warning: "Unknown URI parameter 'unknown_param'"
@@ -1550,6 +1604,7 @@ openai:gpt-4?unknown_param=value
 ```
 
 **Malformed Query String:**
+
 ```
 openai:gpt-4?invalid
 # ⚠ Logged as warning: "Malformed URI query string"
@@ -1568,6 +1623,7 @@ DEBUG: Parameter resolution for openai:
 ```
 
 This helps you understand:
+
 - Which parameters were parsed from the URI
 - The effective value of each parameter
 - Which source provided each parameter
@@ -1607,6 +1663,7 @@ The Model Name Rewrites feature provides a powerful, rule-based system for dynam
 Model aliases can be configured through three sources with the following precedence order:
 
 **1. CLI Parameters (Highest Precedence)**
+
 ```bash
 # Single alias
 --model-alias "^gpt-(.*)=openrouter:openai/gpt-\1"
@@ -1618,6 +1675,7 @@ Model aliases can be configured through three sources with the following precede
 ```
 
 **2. Environment Variables (Medium Precedence)**
+
 ```bash
 export MODEL_ALIASES='[
   {"pattern": "^gpt-(.*)", "replacement": "openrouter:openai/gpt-\\1"},
@@ -1627,6 +1685,7 @@ export MODEL_ALIASES='[
 ```
 
 **3. Config File (Lowest Precedence)**
+
 ```yaml
 model_aliases:
   # Static replacement for specific model
@@ -1652,6 +1711,7 @@ model_aliases:
 ### Common Use Cases
 
 **Route All GPT Models to OpenRouter:**
+
 ```yaml
 model_aliases:
   - pattern: "^gpt-(.*)"
@@ -1659,6 +1719,7 @@ model_aliases:
 ```
 
 **Replace Expensive Models with Cheaper Alternatives:**
+
 ```yaml
 model_aliases:
   - pattern: "^gpt-4o$"
@@ -1668,6 +1729,7 @@ model_aliases:
 ```
 
 **Create Environment-Specific Routing:**
+
 ```bash
 # Development environment - use free models
 export MODEL_ALIASES='[
@@ -1682,6 +1744,7 @@ export MODEL_ALIASES='[
 ```
 
 **Override for Specific Applications:**
+
 ```bash
 # Force a specific application to use your preferred model
 ./my-app | llm-proxy --model-alias ".*=my-backend:my-preferred-model"
@@ -1708,6 +1771,7 @@ The proxy provides robust error handling for model aliases:
 ## Optional Capabilities (Short List)
 
 ### Pytest Output Compression
+
 ### Planning-Phase Strong Model Overrides
 
 Use a more capable "strong" model for the early planning phase of a session, then switch back to your default model once execution starts. This helps ensure high-quality initial analysis and planning without paying strong-model costs for the whole session.
@@ -1726,6 +1790,7 @@ Use a more capable "strong" model for the early planning phase of a session, the
 
 - **Configuration (precedence: CLI > Env > YAML)**:
   - YAML (`config.yaml`):
+
     ```yaml
     session:
       planning_phase:
@@ -1739,6 +1804,7 @@ Use a more capable "strong" model for the early planning phase of a session, the
           reasoning_effort: "high"
           thinking_budget: 8000
     ```
+
   - Environment variables:
     - `PLANNING_PHASE_ENABLED=true|false`
     - `PLANNING_PHASE_STRONG_MODEL=backend:model` (e.g., `openai:gpt-4o`)
@@ -1759,6 +1825,7 @@ Use a more capable "strong" model for the early planning phase of a session, the
     - `--planning-phase-thinking-budget TOKENS`
 
 - **Usage example**:
+
   ```bash
   python -m src.core.cli \
     --default-backend openai \
@@ -1773,10 +1840,10 @@ Use a more capable "strong" model for the early planning phase of a session, the
   ```
 
 Notes:
+
 - If the current model already equals the strong model, no override is applied.
 - After switching back, requests use whatever the normal routing would select.
 - File-write detection reuses the Tool Call Reactor; no duplicate detection logic.
-
 
 ### Planning-Phase Strong Model Overrides
 
@@ -1914,6 +1981,7 @@ This feature is disabled by default and must be explicitly enabled:
   - `--enable-pytest-context-saving`: Enable pytest context saving for the current session
 
 - **YAML Configuration** (`config.yaml`):
+
   ```yaml
   session:
     tool_call_reactor:
@@ -2223,6 +2291,7 @@ model_patterns:
 ```
 
 When edit-precision mode activates:
+
 1. Model name is checked against patterns (case-insensitive substring match)
 2. First matching pattern's temperature is used
 3. If no match, `default_temperature` is used

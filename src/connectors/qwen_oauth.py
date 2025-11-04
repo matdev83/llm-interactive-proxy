@@ -1087,9 +1087,8 @@ class QwenOAuthConnector(OpenAIConnector):
         # Handle reasoning_effort by appending " /think" to the last user message
         # Append by default unless explicitly set to "low"
         reasoning_effort = None
-        if hasattr(request_data, "reasoning_effort"):
-            reasoning_effort = request_data.reasoning_effort
-        elif isinstance(request_data, dict):
+        reasoning_effort = getattr(request_data, "reasoning_effort", None)
+        if reasoning_effort is None and isinstance(request_data, dict):
             reasoning_effort = request_data.get("reasoning_effort")
 
         # Append " /think" unless reasoning_effort is explicitly "low"

@@ -2,8 +2,69 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.common.exceptions import BackendError
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+
+
+@pytest.mark.asyncio
+async def test_code_assist_empty_response_preserves_backend_error():
+    mock_client = AsyncMock()
+    mock_config = MagicMock()
+    mock_translation_service = MagicMock()
+
+    connector = GeminiOAuthPlanConnector(
+        client=mock_client,
+        config=mock_config,
+        translation_service=mock_translation_service,
+    )
+
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
+    connector._oauth_credentials = {"access_token": "fake_token"}
+    connector._refresh_token_if_needed = AsyncMock(return_value=True)
+    connector._discover_project_id = AsyncMock(return_value="fake_project")
+
+    mock_translation_service.from_domain_to_gemini_request.return_value = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": "Hello"}],
+            }
+        ]
+    }
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, list[dict[str, object]]]:
+            return {"candidates": []}
+
+    fake_response = FakeResponse()
+
+    mock_auth_session = MagicMock()
+    mock_auth_session.headers = {}
+    mock_auth_session.request.return_value = fake_response
+
+    request = CanonicalChatRequest(
+        model="gemini-2.5-pro",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    with (
+        patch(
+            "google.auth.transport.requests.AuthorizedSession",
+            return_value=mock_auth_session,
+        ),
+        pytest.raises(BackendError) as excinfo,
+    ):
+        await connector._chat_completions_code_assist(
+            request_data=request,
+            processed_messages=[ChatMessage(role="user", content="Hello")],
+            effective_model="gemini-2.5-pro",
+        )
+
+    assert excinfo.value.code == "empty_response"
 
 
 @pytest.mark.asyncio

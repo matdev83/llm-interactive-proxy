@@ -11,7 +11,7 @@ import logging
 import pytest
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ToolCall
+from src.core.domain.chat import FunctionCall, ToolCall
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.session import Session, SessionState
 from src.core.services.session_service_impl import SessionService
@@ -66,7 +66,7 @@ async def test_pytest_compression_end_to_end_with_real_execution():
     tool_call = ToolCall(
         id="call_pytest_test_123",
         type="function",
-        function={"name": "bash", "arguments": json.dumps(pytest_cmd)},
+        function=FunctionCall(name="bash", arguments=json.dumps(pytest_cmd)),
     )
 
     logger.info(
@@ -100,7 +100,7 @@ async def test_pytest_compression_end_to_end_with_real_execution():
     # Note: The reactor service returns None because the handler doesn't swallow the tool call,
     # it just sets the compression state. This is the correct behavior.
     assert (
-        updated_session.state.compress_next_tool_call_reply == True
+        updated_session.state.compress_next_tool_call_reply
     ), "Compression state should be set to True"
 
     # Act - Phase 2: Create mock command result with real pytest output
@@ -314,7 +314,7 @@ async def test_pytest_compression_state_machine_flow():
     await session_service.update_session(session)
 
     # Verify initial state
-    assert session.state.compress_next_tool_call_reply == False
+    assert not session.state.compress_next_tool_call_reply
 
     # Act - Process pytest tool call
     from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
@@ -344,7 +344,7 @@ async def test_pytest_compression_state_machine_flow():
 
     # Assert - State should be set
     updated_session = await session_service.get_session(session_id)
-    assert updated_session.state.compress_next_tool_call_reply == True
+    assert updated_session.state.compress_next_tool_call_reply
     # Note: The reactor service returns None because the handler doesn't swallow the tool call,
     # it just sets the compression state. This is the correct behavior.
     logger.info(

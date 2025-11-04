@@ -679,7 +679,7 @@ class OpenAIConnector(LLMBackend):
                 await response.aclose()
 
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
-            async def text_generator() -> AsyncGenerator[str, None]:
+            async def text_generator() -> AsyncGenerator[dict[Any, Any] | Any, None]:
                 async def iter_sse_messages() -> AsyncGenerator[str, None]:
                     buffer = ""
                     separator = "\n\n"

@@ -1870,9 +1870,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 openai_response = self._extract_generated_text_from_response(
                     response_json
                 )
+            except BackendError:
+                # Preserve backend-specific error codes/details for graceful handling
+                raise
             except Exception as e:
-                logger.error(f"Failed to process API response: {e}", exc_info=True)
-                raise BackendError(f"Failed to process API response: {e}")
+                message = f"Failed to process API response: {e}"
+                logger.error(message, exc_info=True)
+                raise BackendError(
+                    message=message,
+                    backend_name=self.backend_type,
+                    code="gemini_response_processing_failed",
+                    details={"inner_error": str(e)},
+                ) from e
 
             # Calculate usage (best effort)
             encoding = tiktoken.get_encoding("cl100k_base")
@@ -2899,10 +2908,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             logger.debug(f"Model {model} probe {state.probe_success_count}/2 succeeded")
 
-        except Exception as e:
-            # Probe failed, reset success count
+        except BackendError as error:
             state.probe_success_count = 0
-            logger.debug(f"Model {model} recovery probe failed: {e}")
+            log_message = (
+                f"Model {model} recovery probe failed with backend error: {error}"
+            )
+            if self._is_rate_limit_like_error(error):
+                logger.info(log_message)
+            else:
+                logger.warning(log_message)
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            state.probe_success_count = 0
+            logger.warning(
+                "Model %s recovery probe encountered unexpected error: %s",
+                model,
+                exc,
+            )
 
         return False
 

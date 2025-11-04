@@ -15,7 +15,7 @@ class TestLoopDetector:
         config = InternalLoopDetectionConfig(enabled=True, buffer_size=1024)
         detector = LoopDetector(config=config)
 
-        assert detector.is_enabled() == True
+        assert detector.is_enabled()
         assert detector.config.buffer_size == 1024
 
     def test_detector_disabled(self) -> None:
@@ -82,6 +82,7 @@ class TestLoopDetector:
 
         # Reset and ensure a non-whitelisted pattern still triggers detection.
         detector.reset()
+        event = None  # Initialize event to ensure it's bound
         for idx in range(config.content_loop_threshold):
             event = detector.process_chunk("abc")
             if idx < config.content_loop_threshold - 1:
@@ -128,13 +129,13 @@ class TestLoopDetector:
         config = InternalLoopDetectionConfig(enabled=True)
         detector = LoopDetector(config=config)
 
-        assert detector.is_enabled() == True
+        assert detector.is_enabled()
 
         detector.disable()
-        assert detector.is_enabled() == False
+        assert not detector.is_enabled()
 
         detector.enable()
-        assert detector.is_enabled() == True
+        assert detector.is_enabled()
 
     def test_detector_stats(self) -> None:
         """Test that detector statistics are correct."""
@@ -143,7 +144,7 @@ class TestLoopDetector:
 
         stats = detector.get_stats()
 
-        assert stats["is_active"] == True
+        assert stats["is_active"]
         # Note: total_processed and buffer_size are not directly in stats dict
         # They're tracked separately in the detector
         assert stats["config"]["buffer_size"] == 512

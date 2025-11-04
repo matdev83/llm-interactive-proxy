@@ -105,7 +105,7 @@ def test_apply_cli_args_updates_configuration(
     assert os.environ.get("COMMAND_PREFIX") is None
     assert os.environ.get("FORCE_CONTEXT_WINDOW") is None
     assert os.environ.get("THINKING_BUDGET") == str(
-        config.session.planning_phase.overrides.get("thinking_budget", 0)
+        (config.session.planning_phase.overrides or {}).get("thinking_budget", 0)
     )
     assert os.environ.get("LLM_BACKEND") == config.backends.default_backend
     assert [(alias.pattern, alias.replacement) for alias in config.model_aliases] == [
@@ -205,7 +205,8 @@ def test_main_passes_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(cli_v2._cli_module, "main", fake_main)
 
-    build_fn = lambda config: config
+    def build_fn(config):
+        return config
 
     cli_main(argv=["--help"], build_app_fn=build_fn)
 

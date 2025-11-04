@@ -2,7 +2,6 @@ import os
 import shutil
 import tempfile
 import unittest
-from types import SimpleNamespace
 
 from src.core.config.app_config import RewritingConfig
 from src.core.domain.replacement_rule import ReplacementMode
@@ -151,7 +150,7 @@ class TestContentRewriterService(unittest.TestCase):
                                     self.test_config_dir, ignore_errors=True
                                 )
                             )
-                        except:
+                        except Exception:
                             pass
 
     def test_load_rules(self):
@@ -248,7 +247,9 @@ class TestContentRewriterService(unittest.TestCase):
         ) as handle:
             handle.write("rewritten custom reply")
 
-        app_config = SimpleNamespace(
+        from src.core.config.app_config import AppConfig
+
+        app_config = AppConfig(
             rewriting=RewritingConfig(enabled=True, config_path=alternate_dir)
         )
 
