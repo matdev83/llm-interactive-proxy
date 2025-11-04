@@ -152,12 +152,31 @@ class ChatController:
         if content is None:
             return ""
 
+        # Handle basic string types first (most common case)
         if isinstance(content, str):
             return content
 
+        # Handle bytes and bytearray types
         if isinstance(content, bytes | bytearray):
             return content.decode("utf-8", errors="ignore")
 
+        # Handle objects with text attribute using explicit type checking
+        # We need to be careful here to avoid type checker issues with subclasses
+        has_text_attr = hasattr(content, "text")
+        if has_text_attr:
+            # Use getattr with a default to avoid type checker issues
+            try:
+                text_attr = getattr(content, "text", None)
+                if text_attr is not None:
+                    if isinstance(text_attr, str):
+                        return text_attr
+                    if isinstance(text_attr, bytes | bytearray):
+                        return text_attr.decode("utf-8", errors="ignore")
+            except Exception:
+                # If we can't access the text attribute, continue with other processing
+                pass
+
+        # Handle objects with model_dump method
         if hasattr(content, "model_dump"):
             try:
                 dumped = content.model_dump()
@@ -168,6 +187,7 @@ class ChatController:
                     dumped, _depth + 1
                 )
 
+        # Handle dictionary objects
         if isinstance(content, dict):
             text_value = content.get("text")
             if isinstance(text_value, str):
@@ -192,6 +212,8 @@ class ChatController:
                     return f"[Circular reference detected at depth {_depth}]"
                 return error_message or str(content)
 
+        # Handle sequences (lists and tuples)
+        # Check if it's a sequence but not a string/bytes/bytearray to avoid conflicts
         if isinstance(content, list | tuple) and not isinstance(
             content, str | bytes | bytearray
         ):
@@ -204,13 +226,7 @@ class ChatController:
                     parts.append(text_part)
             return "\n\n".join(parts)
 
-        if hasattr(content, "text"):
-            text_attr = content.text
-            if isinstance(text_attr, str):
-                return text_attr
-            if isinstance(text_attr, bytes | bytearray):
-                return text_attr.decode("utf-8", errors="ignore")
-
+        # Fallback to string representation
         return str(content)
 
     async def handle_chat_completion(
