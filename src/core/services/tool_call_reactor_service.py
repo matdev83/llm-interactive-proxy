@@ -50,12 +50,31 @@ class ToolCallReactorService(IToolCallReactor):
         self._handlers: dict[str, IToolCallHandler] = {}
         self._history_tracker = history_tracker
         self._lock = asyncio.Lock()
+        self._sorted_handlers: tuple[IToolCallHandler, ...] | None = None
         self._session_aliases: dict[str, str] = {}
 
         # Telemetry counters for tool access control
-        self._tool_definitions_filtered_count = 0
-        self._tool_calls_blocked_count = 0
-        self._tool_calls_allowed_count = 0
+        self._tool_definitions_filtered_count: int = 0
+        self._tool_calls_blocked_count: int = 0
+        self._tool_calls_allowed_count: int = 0
+
+    def _invalidate_sorted_handlers(self) -> None:
+        """Invalidate cached handler ordering."""
+
+        self._sorted_handlers = None
+
+    def _get_sorted_handlers(self) -> tuple[IToolCallHandler, ...]:
+        """Return handlers sorted by priority, caching the result."""
+
+        if self._sorted_handlers is None:
+            self._sorted_handlers = tuple(
+                sorted(
+                    self._handlers.values(),
+                    key=lambda h: h.priority,
+                    reverse=True,
+                )
+            )
+        return self._sorted_handlers
 
     def register_handler_sync(self, handler: IToolCallHandler) -> None:
         """Register a tool call handler synchronously.
@@ -76,6 +95,7 @@ class ToolCallReactorService(IToolCallReactor):
             )
 
         self._handlers[handler.name] = handler
+        self._invalidate_sorted_handlers()
         logger.info(f"Registered tool call handler synchronously: {handler.name}")
 
     async def register_handler(self, handler: IToolCallHandler) -> None:
@@ -94,6 +114,7 @@ class ToolCallReactorService(IToolCallReactor):
                 )
 
             self._handlers[handler.name] = handler
+            self._invalidate_sorted_handlers()
             logger.info(f"Registered tool call handler: {handler.name}")
 
     async def unregister_handler(self, handler_name: str) -> None:
@@ -112,6 +133,7 @@ class ToolCallReactorService(IToolCallReactor):
                 )
 
             del self._handlers[handler_name]
+            self._invalidate_sorted_handlers()
             logger.info(f"Unregistered tool call handler: {handler_name}")
 
     async def process_tool_call(
@@ -162,11 +184,7 @@ class ToolCallReactorService(IToolCallReactor):
             )
 
         # Get handlers sorted by priority (highest first)
-        handlers = sorted(
-            self._handlers.values(),
-            key=lambda h: h.priority,
-            reverse=True,
-        )
+        handlers = self._get_sorted_handlers()
 
         # Process through handlers
         for handler in handlers:
