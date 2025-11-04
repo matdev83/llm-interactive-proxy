@@ -8,6 +8,7 @@ through parameter resolution to backend application.
 from __future__ import annotations
 
 import json
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -126,6 +127,16 @@ class TestURIParameterParsing:
         assert model == "anthropic/claude-3-haiku:beta"
         assert params == {"temperature": "0.3", "reasoning_effort": "medium"}
 
+    def test_parse_model_with_sampling_parameters(self) -> None:
+        """Test parsing model string including top_p and top_k parameters."""
+        backend, model, params = parse_model_with_params(
+            "openrouter:gpt-4?top_p=0.9&top_k=40"
+        )
+
+        assert backend == "openrouter"
+        assert model == "gpt-4"
+        assert params == {"top_p": "0.9", "top_k": "40"}
+
 
 class TestURIParameterValidation:
     """Test URI parameter validation and normalization."""
@@ -168,6 +179,16 @@ class TestURIParameterValidation:
         assert normalized == {}
         assert len(errors) == 1
         assert "reasoning_effort" in errors[0]
+
+    def test_validate_sampling_parameters(self) -> None:
+        """Test validation of top_p and top_k parameters."""
+        validator = URIParameterValidator()
+        normalized, errors = validator.validate_and_normalize(
+            {"top_p": "0.95", "top_k": "40"}
+        )
+
+        assert normalized == {"top_p": 0.95, "top_k": 40}
+        assert errors == []
 
     def test_validate_unknown_parameter_warning(
         self, caplog: pytest.LogCaptureFixture
@@ -240,6 +261,23 @@ class TestParameterResolution:
         assert resolved.temperature is not None
         assert resolved.temperature.value == 0.8
         assert resolved.temperature.source == "session"
+
+    def test_top_parameters_resolution(self) -> None:
+        """Test precedence resolution for top_p and top_k parameters."""
+        service = ParameterResolutionService()
+        resolved = service.resolve_parameters(
+            config_params={"top_p": 0.2, "top_k": 10},
+            uri_params={"top_p": 0.7, "top_k": 25},
+            session_params={"top_k": 40},
+            backend="test-backend",
+        )
+
+        assert resolved.top_p is not None
+        assert resolved.top_p.value == 0.7
+        assert resolved.top_p.source == "uri"
+        assert resolved.top_k is not None
+        assert resolved.top_k.value == 40
+        assert resolved.top_k.source == "session"
 
     def test_resolution_with_missing_sources(self) -> None:
         """Test parameter resolution when some sources are missing."""
@@ -320,6 +358,46 @@ class TestEndToEndURIParameterFlow:
         assert payload["temperature"] == 0.5
 
     @pytest.mark.asyncio
+    async def test_openrouter_with_uri_sampling_parameters(
+        self,
+        backend_factory: BackendFactory,
+        sample_request: ChatRequest,
+        mock_app_config: AppConfig,
+        mock_http_client: MockHTTPClient,
+    ) -> None:
+        """Test OpenRouter flow with top_p and top_k URI parameters."""
+        backend = backend_factory.create_backend("openrouter", mock_app_config)
+        await backend.initialize(
+            api_key="test-key",
+            openrouter_headers_provider=lambda key, name: {
+                "Authorization": f"Bearer {key}"
+            },
+            key_name="openrouter",
+        )
+
+        _, model_name, uri_params = parse_model_with_params(
+            "openrouter:gpt-4?top_p=0.95&top_k=40"
+        )
+
+        validator = URIParameterValidator()
+        normalized_params, errors = validator.validate_and_normalize(uri_params)
+        assert errors == []
+
+        request_data = sample_request.model_copy(update=normalized_params)
+
+        await backend.chat_completions(
+            request_data=request_data,
+            processed_messages=request_data.messages,
+            effective_model=model_name,
+        )
+
+        sent_request = mock_http_client.sent_request
+        assert sent_request is not None
+        payload = json.loads(sent_request.content)
+        assert payload.get("top_p") == 0.95
+        assert payload.get("top_k") == 40
+
+    @pytest.mark.asyncio
     async def test_anthropic_with_uri_reasoning_effort(
         self,
         backend_factory: BackendFactory,
@@ -357,6 +435,45 @@ class TestEndToEndURIParameterFlow:
         payload = json.loads(sent_request.content)
         assert "reasoning_effort" in payload
         assert payload["reasoning_effort"] == "high"
+
+    @pytest.mark.asyncio
+    async def test_gemini_with_uri_sampling_parameters(
+        self,
+        backend_factory: BackendFactory,
+        sample_request: ChatRequest,
+        mock_app_config: AppConfig,
+        mock_http_client: MockHTTPClient,
+    ) -> None:
+        """Test Gemini flow with top_p and top_k URI parameters."""
+        backend = backend_factory.create_backend("gemini", mock_app_config)
+        await backend.initialize(
+            api_key="test-gemini-key",
+            key_name="gemini",
+            gemini_api_base_url="https://generativelanguage.googleapis.com",
+        )
+
+        _, model_name, uri_params = parse_model_with_params(
+            "gemini:models/gemini-pro?top_p=0.85&top_k=32"
+        )
+
+        validator = URIParameterValidator()
+        normalized_params, errors = validator.validate_and_normalize(uri_params)
+        assert errors == []
+
+        request_data = sample_request.model_copy(update=normalized_params)
+
+        await backend.chat_completions(
+            request_data=request_data,
+            processed_messages=request_data.messages,
+            effective_model=model_name,
+        )
+
+        sent_request = mock_http_client.sent_request
+        assert sent_request is not None
+        payload = json.loads(sent_request.content)
+        generation_config = payload.get("generationConfig", {})
+        assert generation_config.get("topP") == 0.85
+        assert generation_config.get("topK") == 32
 
     @pytest.mark.asyncio
     async def test_parameter_override_precedence_full_chain(
@@ -482,6 +599,7 @@ class TestHybridBackendURIParameters:
         """Test hybrid backend request with URI parameters on both reasoning and execution models."""
         # Create hybrid backend
         hybrid_backend = backend_factory.create_backend("hybrid", mock_app_config)
+        hybrid_backend = cast(HybridConnector, hybrid_backend)
 
         # Mock the sub-backends
         mock_reasoning_backend = AsyncMock()
@@ -515,9 +633,7 @@ class TestHybridBackendURIParameters:
         )
 
         # Parse hybrid model spec with URI parameters
-        model_spec = (
-            "hybrid:[openai:gpt-4?temperature=0.8,anthropic:claude-3?temperature=0.3]"
-        )
+        model_spec = "hybrid:[openai:gpt-4?temperature=0.8&top_p=0.9,anthropic:claude-3?temperature=0.3&top_k=40]"
 
         # Test parsing
         (
@@ -531,11 +647,11 @@ class TestHybridBackendURIParameters:
 
         assert reasoning_backend_type == "openai"
         assert reasoning_model == "gpt-4"
-        assert reasoning_params == {"temperature": "0.8"}
+        assert reasoning_params == {"temperature": "0.8", "top_p": "0.9"}
 
         assert execution_backend_type == "anthropic"
         assert execution_model == "claude-3"
-        assert execution_params == {"temperature": "0.3"}
+        assert execution_params == {"temperature": "0.3", "top_k": "40"}
 
     @pytest.mark.asyncio
     async def test_hybrid_backend_with_reasoning_effort_warning(

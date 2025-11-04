@@ -31,6 +31,8 @@ class ResolvedParameters:
 
     temperature: ParameterSource | None = None
     reasoning_effort: ParameterSource | None = None
+    top_p: ParameterSource | None = None
+    top_k: ParameterSource | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -52,6 +54,12 @@ class ResolvedParameters:
 
         if self.temperature is not None:
             result["temperature"] = self.temperature.value
+
+        if self.top_p is not None:
+            result["top_p"] = self.top_p.value
+
+        if self.top_k is not None:
+            result["top_k"] = self.top_k.value
 
         if self.reasoning_effort is not None:
             result["reasoning_effort"] = self.reasoning_effort.value
@@ -86,6 +94,18 @@ class ResolvedParameters:
                 "source": self.temperature.source,
             }
 
+        if self.top_p is not None:
+            result["top_p"] = {
+                "effective_value": self.top_p.value,
+                "source": self.top_p.source,
+            }
+
+        if self.top_k is not None:
+            result["top_k"] = {
+                "effective_value": self.top_k.value,
+                "source": self.top_k.source,
+            }
+
         if self.reasoning_effort is not None:
             result["reasoning_effort"] = {
                 "effective_value": self.reasoning_effort.value,
@@ -110,7 +130,12 @@ class ParameterResolutionService:
     """
 
     # Supported parameter names
-    SUPPORTED_PARAMETERS = ["temperature", "reasoning_effort"]
+    SUPPORTED_PARAMETERS = [
+        "temperature",
+        "top_p",
+        "top_k",
+        "reasoning_effort",
+    ]
 
     def resolve_parameters(
         self,
@@ -158,25 +183,16 @@ class ParameterResolutionService:
         # Resolve each parameter with precedence
         resolved = ResolvedParameters()
 
-        # Resolve temperature
-        resolved.temperature = self._resolve_single_parameter(
-            "temperature",
-            uri_params,
-            header_params,
-            config_params,
-            session_params,
-            overridden_sources,
-        )
-
-        # Resolve reasoning_effort
-        resolved.reasoning_effort = self._resolve_single_parameter(
-            "reasoning_effort",
-            uri_params,
-            header_params,
-            config_params,
-            session_params,
-            overridden_sources,
-        )
+        for param_name in self.SUPPORTED_PARAMETERS:
+            resolved_value = self._resolve_single_parameter(
+                param_name,
+                uri_params,
+                header_params,
+                config_params,
+                session_params,
+                overridden_sources,
+            )
+            setattr(resolved, param_name, resolved_value)
 
         # Emit debug logs
         self._log_resolution_debug(backend, resolved, overridden_sources)

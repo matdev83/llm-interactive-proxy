@@ -395,6 +395,12 @@ class BackendService(IBackendService):
             ):
                 _apply_numeric_update("top_p", reasoning_config.top_p)
 
+            if (
+                hasattr(reasoning_config, "top_k")
+                and reasoning_config.top_k is not None
+            ):
+                _apply_numeric_update("top_k", reasoning_config.top_k)
+
             # Apply reasoning_effort if set (for OpenAI reasoning models)
             if (
                 hasattr(reasoning_config, "reasoning_effort")
@@ -436,6 +442,8 @@ class BackendService(IBackendService):
                             )
                         if overrides.get("top_p") is not None:
                             _apply_numeric_update("top_p", overrides.get("top_p"))
+                        if overrides.get("top_k") is not None:
+                            _apply_numeric_update("top_k", overrides.get("top_k"))
                         if overrides.get("reasoning_effort") is not None:
                             updates["reasoning_effort"] = overrides.get(
                                 "reasoning_effort"
@@ -570,6 +578,56 @@ class BackendService(IBackendService):
             return request
 
         try:
+
+            def _coerce_parameter(name: str, value: Any) -> Any | None:
+                """Coerce parameter values into canonical types."""
+
+                if value is None:
+                    return None
+
+                try:
+                    if name in {"temperature", "top_p"}:
+                        return float(value)
+                    if name == "top_k":
+                        if isinstance(value, float):
+                            if not value.is_integer():
+                                raise ValueError(f"{value!r} is not an integer value")
+                            return int(value)
+                        if isinstance(value, int):
+                            return value
+
+                        string_value = str(value).strip()
+                        float_value = float(string_value)
+                        if not float_value.is_integer():
+                            raise ValueError(f"{value!r} is not an integer value")
+                        return int(float_value)
+                    if name == "reasoning_effort":
+                        return str(value)
+                except (TypeError, ValueError) as exc:
+                    logger.debug(
+                        "Failed to coerce URI parameter %s=%r for backend %s: %s",
+                        name,
+                        value,
+                        backend_type,
+                        exc,
+                        exc_info=True,
+                    )
+                    return None
+
+                return value
+
+            def _assign_param(target: dict[str, Any], name: str, value: Any) -> None:
+                coerced = _coerce_parameter(name, value)
+                if coerced is not None:
+                    target[name] = coerced
+
+            def _assign_from_obj(target: dict[str, Any], obj: Any, name: str) -> None:
+                if obj is None:
+                    return
+                value = getattr(obj, name, None)
+                if value is not None:
+                    _assign_param(target, name, value)
+
             # Import validation and resolution services
             from src.core.services.parameter_resolution_service import (
                 ParameterResolutionService,
@@ -608,19 +666,26 @@ class BackendService(IBackendService):
                 app_config = cast(AppConfig, self._config)
                 backend_config = app_config.backends.get(backend_type)
                 if backend_config:
-                    # Extract temperature and reasoning_effort from backend config if available
-                    if (
-                        hasattr(backend_config, "temperature")
-                        and backend_config.temperature is not None
+                    for param_name in (
+                        "temperature",
+                        "top_p",
+                        "top_k",
+                        "reasoning_effort",
                     ):
-                        config_params["temperature"] = backend_config.temperature
-                    if (
-                        hasattr(backend_config, "reasoning_effort")
-                        and backend_config.reasoning_effort is not None
-                    ):
-                        config_params["reasoning_effort"] = (
-                            backend_config.reasoning_effort
-                        )
+                        _assign_from_obj(config_params, backend_config, param_name)
+
+                    extra_cfg = getattr(backend_config, "extra", None)
+                    if isinstance(extra_cfg, dict):
+                        for param_name in (
+                            "temperature",
+                            "top_p",
+                            "top_k",
+                            "reasoning_effort",
+                        ):
+                            if param_name in extra_cfg:
+                                _assign_param(
+                                    config_params, param_name, extra_cfg[param_name]
+                                )
             except Exception as config_error:
                 logger.debug(
                     f"Failed to extract config parameters for {backend_type}: {config_error}",
@@ -632,21 +697,29 @@ class BackendService(IBackendService):
             try:
                 if request.extra_body:
                     # Check for parameters in extra_body that might come from headers
-                    if "temperature" in request.extra_body:
-                        header_params["temperature"] = request.extra_body["temperature"]
-                    if "reasoning_effort" in request.extra_body:
-                        header_params["reasoning_effort"] = request.extra_body[
-                            "reasoning_effort"
-                        ]
+                    for param_name in (
+                        "temperature",
+                        "top_p",
+                        "top_k",
+                        "reasoning_effort",
+                    ):
+                        if param_name in request.extra_body:
+                            _assign_param(
+                                header_params,
+                                param_name,
+                                request.extra_body[param_name],
+                            )
 
                 # Also check top-level request fields
-                if hasattr(request, "temperature") and request.temperature is not None:
-                    header_params["temperature"] = request.temperature
-                if (
-                    hasattr(request, "reasoning_effort")
-                    and request.reasoning_effort is not None
+                for param_name in (
+                    "temperature",
+                    "top_p",
+                    "top_k",
+                    "reasoning_effort",
                 ):
-                    header_params["reasoning_effort"] = request.reasoning_effort
+                    value = getattr(request, param_name, None)
+                    if value is not None:
+                        _assign_param(header_params, param_name, value)
             except Exception as header_error:
                 logger.debug(
                     f"Failed to extract header parameters for {backend_type}: {header_error}",
@@ -661,17 +734,14 @@ class BackendService(IBackendService):
                         session, "get_reasoning_mode", lambda: None
                     )()
                     if reasoning_config is not None:
-                        if (
-                            hasattr(reasoning_config, "temperature")
-                            and reasoning_config.temperature is not None
+                        for param_name in (
+                            "temperature",
+                            "top_p",
+                            "top_k",
+                            "reasoning_effort",
                         ):
-                            session_params["temperature"] = reasoning_config.temperature
-                        if (
-                            hasattr(reasoning_config, "reasoning_effort")
-                            and reasoning_config.reasoning_effort is not None
-                        ):
-                            session_params["reasoning_effort"] = (
-                                reasoning_config.reasoning_effort
+                            _assign_from_obj(
+                                session_params, reasoning_config, param_name
                             )
                 except Exception as session_error:
                     logger.debug(
@@ -707,6 +777,12 @@ class BackendService(IBackendService):
                     # Apply temperature
                     if "temperature" in resolved_params:
                         updates["temperature"] = resolved_params["temperature"]
+
+                    if "top_p" in resolved_params:
+                        updates["top_p"] = resolved_params["top_p"]
+
+                    if "top_k" in resolved_params:
+                        updates["top_k"] = resolved_params["top_k"]
 
                     # Apply reasoning_effort
                     if "reasoning_effort" in resolved_params:

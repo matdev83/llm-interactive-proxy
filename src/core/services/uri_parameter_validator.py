@@ -29,6 +29,17 @@ class URIParameterValidator:
             "allowed": ["low", "medium", "high"],
             "description": "Controls computational effort for reasoning",
         },
+        "top_p": {
+            "type": float,
+            "min": 0.0,
+            "max": 1.0,
+            "description": "Controls nucleus sampling probability mass",
+        },
+        "top_k": {
+            "type": int,
+            "min": 1,
+            "description": "Controls top-k sampling candidate count",
+        },
     }
 
     def validate_and_normalize(
@@ -49,6 +60,9 @@ class URIParameterValidator:
             >>> validator = URIParameterValidator()
             >>> validator.validate_and_normalize({"temperature": "0.5"})
             ({"temperature": 0.5}, [])
+
+            >>> validator.validate_and_normalize({"top_p": "0.9", "top_k": "40"})
+            ({"top_p": 0.9, "top_k": 40}, [])
 
             >>> validator.validate_and_normalize({"temperature": "3.5"})
             ({}, ["temperature: 3.5 out of valid range (0.0-2.0)"])
@@ -81,6 +95,10 @@ class URIParameterValidator:
                     )
                 elif param_type is str:
                     normalized_value = self._validate_string_param(
+                        param_name, param_value, rules
+                    )
+                elif param_type is int:
+                    normalized_value = self._validate_int_param(
                         param_name, param_value, rules
                     )
                 else:
@@ -142,6 +160,41 @@ class URIParameterValidator:
             raise ValueError(f"{float_value} above maximum value ({max_val})")
 
         return float_value
+
+    def _validate_int_param(
+        self, param_name: str, param_value: Any, rules: dict[str, Any]
+    ) -> int:
+        """Validate and convert an integer parameter."""
+
+        try:
+            if isinstance(param_value, float):
+                if not param_value.is_integer():
+                    raise ValueError(f"must be a whole number, got '{param_value}'")
+                int_value = int(param_value)
+            elif isinstance(param_value, int):
+                int_value = param_value
+            else:
+                # Attempt to parse from string-like representations
+                string_value = str(param_value).strip()
+                float_value = float(string_value)
+                if not float_value.is_integer():
+                    raise ValueError(f"must be a whole number, got '{param_value}'")
+                int_value = int(float_value)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"must be a whole number, got '{param_value}' ({type(param_value).__name__})"
+            ) from exc
+
+        min_val = rules.get("min")
+        max_val = rules.get("max")
+
+        if min_val is not None and int_value < int(min_val):
+            raise ValueError(f"{int_value} below minimum value ({min_val})")
+
+        if max_val is not None and int_value > int(max_val):
+            raise ValueError(f"{int_value} above maximum value ({max_val})")
+
+        return int_value
 
     def _validate_string_param(
         self, param_name: str, param_value: Any, rules: dict[str, Any]

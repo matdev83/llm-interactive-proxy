@@ -98,6 +98,94 @@ class TestURIParameterValidator:
         assert errors == []
 
     # ========================================================================
+    # top_p Validation Tests
+    # ========================================================================
+
+    def test_top_p_valid_mid_range(self, validator):
+        """Test top_p validation within valid range."""
+        params = {"top_p": "0.75"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {"top_p": 0.75}
+        assert errors == []
+
+    def test_top_p_valid_bounds(self, validator):
+        """Test top_p validation at bounds 0.0 and 1.0."""
+        normalized_low, errors_low = validator.validate_and_normalize({"top_p": "0"})
+        normalized_high, errors_high = validator.validate_and_normalize({"top_p": "1"})
+
+        assert normalized_low == {"top_p": 0.0}
+        assert errors_low == []
+        assert normalized_high == {"top_p": 1.0}
+        assert errors_high == []
+
+    def test_top_p_out_of_range(self, validator):
+        """Test top_p validation outside valid range."""
+        params = {"top_p": "1.001"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {}
+        assert len(errors) == 1
+        assert "top_p" in errors[0]
+
+    def test_top_p_negative(self, validator):
+        """Test top_p validation with negative value."""
+        params = {"top_p": "-0.1"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {}
+        assert len(errors) == 1
+        assert "top_p" in errors[0]
+
+    def test_top_p_invalid_type(self, validator):
+        """Test top_p validation with invalid type."""
+        params = {"top_p": "invalid"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {}
+        assert len(errors) == 1
+        assert "top_p" in errors[0]
+
+    # ========================================================================
+    # top_k Validation Tests
+    # ========================================================================
+
+    def test_top_k_valid_integer(self, validator):
+        """Test top_k validation with integer-like value."""
+        params = {"top_k": "40"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {"top_k": 40}
+        assert errors == []
+
+    def test_top_k_invalid_zero(self, validator):
+        """Test top_k validation rejects zero."""
+        params = {"top_k": "0"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {}
+        assert len(errors) == 1
+        assert "top_k" in errors[0]
+
+    def test_top_k_invalid_fraction(self, validator):
+        """Test top_k validation rejects non-integer numeric values."""
+        params = {"top_k": "3.14"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {}
+        assert len(errors) == 1
+        assert "top_k" in errors[0]
+
+    def test_top_k_invalid_type(self, validator):
+        """Test top_k validation with non-numeric string."""
+        params = {"top_k": "ten"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {}
+        assert len(errors) == 1
+        assert "top_k" in errors[0]
+
+    # ========================================================================
     # Reasoning Effort Validation Tests
     # ========================================================================
 
@@ -203,10 +291,20 @@ class TestURIParameterValidator:
 
     def test_normalization_multiple_valid_parameters(self, validator):
         """Test normalization of multiple valid parameters."""
-        params = {"temperature": "0.8", "reasoning_effort": "medium"}
+        params = {
+            "temperature": "0.8",
+            "reasoning_effort": "medium",
+            "top_p": "0.9",
+            "top_k": "50",
+        }
         normalized, errors = validator.validate_and_normalize(params)
 
-        assert normalized == {"temperature": 0.8, "reasoning_effort": "medium"}
+        assert normalized == {
+            "temperature": 0.8,
+            "reasoning_effort": "medium",
+            "top_p": 0.9,
+            "top_k": 50,
+        }
         assert errors == []
 
     def test_normalization_type_conversion(self, validator):
@@ -323,10 +421,20 @@ class TestURIParameterValidator:
 
     def test_realistic_uri_parameters(self, validator):
         """Test validation with realistic URI parameter combinations."""
-        params = {"temperature": "0.7", "reasoning_effort": "medium"}
+        params = {
+            "temperature": "0.7",
+            "reasoning_effort": "medium",
+            "top_p": "0.95",
+            "top_k": "40",
+        }
         normalized, errors = validator.validate_and_normalize(params)
 
-        assert normalized == {"temperature": 0.7, "reasoning_effort": "medium"}
+        assert normalized == {
+            "temperature": 0.7,
+            "reasoning_effort": "medium",
+            "top_p": 0.95,
+            "top_k": 40,
+        }
         assert errors == []
 
     def test_partial_validation_success(self, validator):

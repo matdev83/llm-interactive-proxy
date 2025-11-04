@@ -12,7 +12,10 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
-from src.core.common.exceptions import BackendError, ServiceUnavailableError
+from src.core.common.exceptions import (
+    BackendError,
+    ServiceUnavailableError,
+)
 from src.core.config.app_config import AppConfig  # Added
 from src.core.domain.chat import (
     ChatRequest,

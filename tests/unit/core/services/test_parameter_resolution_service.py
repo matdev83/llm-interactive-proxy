@@ -39,18 +39,27 @@ class TestResolvedParameters:
 
         assert params.temperature is None
         assert params.reasoning_effort is None
+        assert params.top_p is None
+        assert params.top_k is None
 
     def test_resolved_parameters_creation_with_values(self):
         """Test creating ResolvedParameters with values."""
         temp_source = ParameterSource(value=0.5, source="uri")
         effort_source = ParameterSource(value="high", source="session")
+        top_p_source = ParameterSource(value=0.9, source="config")
+        top_k_source = ParameterSource(value=42, source="header")
 
         params = ResolvedParameters(
-            temperature=temp_source, reasoning_effort=effort_source
+            temperature=temp_source,
+            reasoning_effort=effort_source,
+            top_p=top_p_source,
+            top_k=top_k_source,
         )
 
         assert params.temperature == temp_source
         assert params.reasoning_effort == effort_source
+        assert params.top_p == top_p_source
+        assert params.top_k == top_k_source
 
     def test_to_dict_empty(self):
         """Test to_dict with no parameters."""
@@ -82,6 +91,16 @@ class TestResolvedParameters:
         result = params.to_dict()
 
         assert result == {"temperature": 0.7, "reasoning_effort": "medium"}
+
+    def test_to_dict_with_top_parameters(self):
+        """Test to_dict with top_p and top_k parameters."""
+        params = ResolvedParameters(
+            top_p=ParameterSource(0.92, "uri"),
+            top_k=ParameterSource(32, "session"),
+        )
+        result = params.to_dict()
+
+        assert result == {"top_p": 0.92, "top_k": 32}
 
     def test_get_debug_info_empty(self):
         """Test get_debug_info with no parameters."""
@@ -121,6 +140,21 @@ class TestResolvedParameters:
         assert debug_info["temperature"]["source"] == "config"
         assert debug_info["reasoning_effort"]["effective_value"] == "low"
         assert debug_info["reasoning_effort"]["source"] == "header"
+
+    def test_get_debug_info_with_top_parameters(self):
+        """Test get_debug_info includes top_p and top_k entries."""
+        params = ResolvedParameters(
+            top_p=ParameterSource(0.85, "uri"),
+            top_k=ParameterSource(16, "session"),
+        )
+        debug_info = params.get_debug_info()
+
+        assert "top_p" in debug_info
+        assert debug_info["top_p"]["effective_value"] == 0.85
+        assert debug_info["top_p"]["source"] == "uri"
+        assert "top_k" in debug_info
+        assert debug_info["top_k"]["effective_value"] == 16
+        assert debug_info["top_k"]["source"] == "session"
 
 
 class TestParameterResolutionService:
@@ -240,6 +274,31 @@ class TestParameterResolutionService:
         assert result.reasoning_effort.value == "high"
         assert result.reasoning_effort.source == "session"
 
+    def test_precedence_top_p_all_sources(self, service):
+        """Test precedence handling for top_p across all sources."""
+        result = service.resolve_parameters(
+            config_params={"top_p": 0.2},
+            header_params={"top_p": 0.4},
+            uri_params={"top_p": 0.6},
+            session_params={"top_p": 0.8},
+        )
+
+        assert result.top_p is not None
+        assert result.top_p.value == 0.8
+        assert result.top_p.source == "session"
+
+    def test_precedence_top_k_uri_overrides(self, service):
+        """Test precedence for top_k where URI overrides config/header."""
+        result = service.resolve_parameters(
+            config_params={"top_k": 16},
+            header_params={"top_k": 24},
+            uri_params={"top_k": 32},
+        )
+
+        assert result.top_k is not None
+        assert result.top_k.value == 32
+        assert result.top_k.source == "uri"
+
     # ========================================================================
     # Source Tracking Tests
     # ========================================================================
@@ -282,6 +341,21 @@ class TestParameterResolutionService:
         assert result.temperature.source == "config"
         assert result.reasoning_effort.source == "uri"
 
+    def test_source_tracking_top_parameters(self, service):
+        """Test source tracking for top_p and top_k parameters."""
+        result = service.resolve_parameters(
+            config_params={"top_p": 0.2, "top_k": 16},
+            session_params={"top_k": 64},
+            uri_params={"top_p": 0.9},
+        )
+
+        assert result.top_p is not None
+        assert result.top_p.source == "uri"
+        assert result.top_p.value == 0.9
+        assert result.top_k is not None
+        assert result.top_k.source == "session"
+        assert result.top_k.value == 64
+
     # ========================================================================
     # Debug Output Tests
     # ========================================================================
@@ -308,6 +382,19 @@ class TestParameterResolutionService:
         assert "Parameter resolution for anthropic:claude" in caplog.text
         assert "temperature: 0.5" in caplog.text
         assert "reasoning_effort: high" in caplog.text
+
+    def test_debug_output_includes_top_parameters(self, service, caplog):
+        """Test debug logging includes top_p and top_k values."""
+        with caplog.at_level(logging.DEBUG):
+            _result = service.resolve_parameters(
+                uri_params={"top_p": 0.9},
+                header_params={"top_k": 24},
+                backend="test:debug",
+            )
+
+        assert "Parameter resolution for test:debug" in caplog.text
+        assert "top_p: 0.9" in caplog.text
+        assert "top_k: 24" in caplog.text
 
     def test_debug_output_shows_overridden_sources(self, service, caplog):
         """Test that debug output shows overridden sources."""
@@ -374,6 +461,8 @@ class TestParameterResolutionService:
 
         assert result.temperature is None
         assert result.reasoning_effort is None
+        assert result.top_p is None
+        assert result.top_k is None
 
     def test_missing_session_params(self, service):
         """Test resolution when session params are missing."""
@@ -542,7 +631,9 @@ class TestParameterResolutionService:
         assert hasattr(service, "SUPPORTED_PARAMETERS")
         assert "temperature" in service.SUPPORTED_PARAMETERS
         assert "reasoning_effort" in service.SUPPORTED_PARAMETERS
-        assert len(service.SUPPORTED_PARAMETERS) == 2
+        assert "top_p" in service.SUPPORTED_PARAMETERS
+        assert "top_k" in service.SUPPORTED_PARAMETERS
+        assert len(service.SUPPORTED_PARAMETERS) == 4
 
     # ========================================================================
     # Integration-like Tests
