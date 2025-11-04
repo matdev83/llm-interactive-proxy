@@ -749,6 +749,25 @@ class BackendService(IBackendService):
                         exc_info=True,
                     )
 
+            # Apply one-shot overrides from edit-precision middleware with highest precedence
+            try:
+                extra_body = getattr(request, "extra_body", None)
+                if isinstance(extra_body, dict) and extra_body.get(
+                    "_edit_precision_mode"
+                ):
+                    if getattr(request, "temperature", None) is not None:
+                        session_params["temperature"] = request.temperature
+                    if getattr(request, "top_p", None) is not None:
+                        session_params["top_p"] = request.top_p
+                    if getattr(request, "top_k", None) is not None:
+                        session_params["top_k"] = request.top_k
+            except Exception as edit_precision_error:
+                logger.debug(
+                    "Failed to apply edit-precision overrides to session parameters: %s",
+                    edit_precision_error,
+                    exc_info=True,
+                )
+
             # Resolve parameters using ParameterResolutionService
             try:
                 resolution_service = ParameterResolutionService()

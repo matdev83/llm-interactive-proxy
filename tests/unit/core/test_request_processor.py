@@ -531,6 +531,87 @@ async def test_request_processor_disables_hybrid_reasoning_after_flag() -> None:
 
 
 @pytest.mark.asyncio
+async def test_request_processor_applies_edit_precision_temperature_override() -> None:
+    """Ensure URI temperature is overridden on the next request after an edit failure."""
+
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session = AsyncMock(id="test-session", agent="roo")
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+
+    from unittest.mock import MagicMock
+
+    from src.core.config.app_config import AppConfig, EditPrecisionConfig
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    app_config = AppConfig(
+        edit_precision=EditPrecisionConfig(
+            enabled=True,
+            temperature=0.0,
+            min_top_p=0.2,
+            override_top_p=True,
+        )
+    )
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+    app_state_store: dict[str, Any] = {
+        "app_config": app_config,
+        "edit_precision_pending": {"test-session": 1},
+        "edit_precision_hybrid_reasoning_disabled": {"test-session": True},
+        "edit_precision_hybrid_reasoning_active": {"test-session": {"timestamp": 0.0}},
+    }
+
+    def get_setting_side_effect(key: str, default: Any | None = None) -> Any:
+        return app_state_store.get(key, default)
+
+    def set_setting_side_effect(key: str, value: Any) -> None:
+        app_state_store[key] = value
+
+    mock_app_state.get_setting.side_effect = get_setting_side_effect
+    mock_app_state.set_setting.side_effect = set_setting_side_effect
+    mock_app_state.get_command_prefix.return_value = "!/"
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+        app_state=mock_app_state,
+    )
+
+    request_data = ChatRequest(
+        model="hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus?temperature=0.6]",
+        messages=[ChatMessage(role="user", content="diff_error happened")],
+        temperature=0.7,
+        top_p=0.9,
+        extra_body={"hybrid_reasoning_probability": 0.6},
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("OK")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    await processor.process_request(MockRequestContext(), request_data)
+
+    sent_request = backend_request_manager.process_backend_request.call_args[0][0]
+    assert sent_request.temperature == pytest.approx(0.0)
+    assert sent_request.top_p == pytest.approx(0.2)
+    assert app_state_store.get("edit_precision_hybrid_reasoning_disabled", {}) == {}
+
+
+@pytest.mark.asyncio
 async def test_request_processor_respects_exclude_agents_regex() -> None:
     """Ensure exclusion regex disables precision overrides for matching agents."""
     # Arrange
