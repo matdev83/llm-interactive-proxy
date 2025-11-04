@@ -1,9 +1,14 @@
 from unittest.mock import AsyncMock
+import json
 
 import pytest
 from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
+from src.core.domain.responses import ProcessedResponse
 from src.core.interfaces.command_processor_interface import ICommandProcessor
-from src.core.interfaces.tool_call_reactor_interface import IToolCallReactor
+from src.core.interfaces.tool_call_reactor_interface import (
+    IToolCallReactor,
+    ToolCallReactionResult,
+)
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 
 
@@ -237,3 +242,51 @@ async def test_middleware_no_duplicate_reactor_executions(
 
     # Reactor should only be called once
     mock_tool_call_reactor.process_tool_call.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_with_tool_calls_swallowed_empty_string(
+    tool_call_reactor_middleware: ToolCallReactorMiddleware,
+    mock_tool_call_reactor: AsyncMock,
+) -> None:
+    """Handlers should be able to swallow with an empty replacement payload."""
+
+    tool_call_response = {
+        "choices": [
+            {
+                "message": {
+                    "tool_calls": [
+                        {
+                            "id": "call_124",
+                            "type": "function",
+                            "function": {
+                                "name": "test_tool",
+                                "arguments": '{"arg": "value"}',
+                            },
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    response = ProcessedResponse(content=json.dumps(tool_call_response))
+
+    swallow_result = ToolCallReactionResult(
+        should_swallow=True,
+        replacement_response="",
+        metadata={"handler": "test_handler"},
+    )
+
+    mock_tool_call_reactor.process_tool_call.return_value = swallow_result
+
+    result = await tool_call_reactor_middleware.process(
+        response=response,
+        session_id="test_session",
+        context={"backend_name": "test", "model_name": "test"},
+    )
+
+    assert isinstance(result, ProcessedResponse)
+    assert result.content == ""
+    assert result.metadata["tool_call_swallowed"] is True
+    assert result.metadata["tool_call_reactor"]["handler"] == "test_handler"
