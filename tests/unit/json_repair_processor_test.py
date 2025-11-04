@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from src.core.common.exceptions import ValidationError
 from src.core.ports.streaming import StreamingContent
-from src.core.services.json_repair_service import JsonRepairService
+from src.core.services.json_repair_service import JsonRepairResult, JsonRepairService
 from src.core.services.streaming.json_repair_processor import JsonRepairProcessor
 
 
@@ -18,8 +18,8 @@ class FailingJsonRepairService(JsonRepairService):
         json_string: str,
         schema: dict[str, Any] | None = None,
         strict: bool = False,
-    ) -> dict[str, Any] | None:
-        return None
+    ) -> JsonRepairResult:
+        return JsonRepairResult(success=False, content=None)
 
 
 class RaisingValidationService(JsonRepairService):
@@ -30,11 +30,11 @@ class RaisingValidationService(JsonRepairService):
         json_string: str,
         schema: dict[str, Any] | None = None,
         strict: bool = False,
-    ) -> dict[str, Any] | None:
+    ) -> JsonRepairResult:
         raise ValidationError(message="invalid", details={})
 
 
-def test_json_repair_processor_flushes_raw_buffer_when_repair_returns_none() -> None:
+def test_json_repair_processor_flushes_raw_buffer_when_repair_fails() -> None:
     processor = JsonRepairProcessor(
         repair_service=FailingJsonRepairService(),
         buffer_cap_bytes=1024,

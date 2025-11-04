@@ -874,7 +874,7 @@ class AppConfig(DomainModel, IConfig):
         Returns:
             AppConfig instance
         """
-        env: Mapping[str, str] = environ or os.environ
+        env: Mapping[str, str] = os.environ if environ is None else environ
 
         # Build configuration from environment
         config: dict[str, Any] = {
@@ -1951,7 +1951,7 @@ def load_config(
     Returns:
         AppConfig instance
     """
-    env = environ or os.environ
+    env = os.environ if environ is None else environ
     res = resolution or ParameterResolution()
 
     config_data: dict[str, Any] = AppConfig().model_dump()

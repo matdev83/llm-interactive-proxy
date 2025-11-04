@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.connectors.base import LLMBackend
 from src.connectors.minimax import MinimaxConnector
 from src.core.config.app_config import AppConfig
 
@@ -82,8 +83,6 @@ class TestMinimaxConnector:
 
     async def test_inherits_from_llm_backend(self):
         """Test that MinimaxConnector inherits from LLMBackend."""
-        from src.connectors.base import LLMBackend
-
         assert issubclass(MinimaxConnector, LLMBackend)
 
 

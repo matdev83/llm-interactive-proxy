@@ -18,7 +18,6 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
-from src.connectors.base import LLMBackend
 from src.core.common.exceptions import (
     AuthenticationError,
     ServiceResolutionError,
@@ -40,6 +39,8 @@ from src.core.interfaces.response_processor_interface import (
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
+
+from .base import LLMBackend
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
