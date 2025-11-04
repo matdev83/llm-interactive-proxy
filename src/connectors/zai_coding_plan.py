@@ -72,8 +72,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         # For backward compatibility with tests
         self.anthropic_api_base_url = self.api_base_url
 
-        # ZAI supports up to 128K output tokens (plan-specific defaults may be lower)
-        self._max_tokens_limit = 131072  # 128K hard ceiling
+        # ZAI supports up to 200K output tokens (plan-specific defaults may be lower)
+        self._max_tokens_limit = 200000  # 200K hard ceiling
         self._default_max_tokens = 8192
 
         # Refresh the advertised model list from the provider (falls back to defaults on failure)
@@ -728,7 +728,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         if hasattr(request_data, "max_tokens") and request_data.max_tokens is not None:
             requested_max_tokens = request_data.max_tokens
             if requested_max_tokens > 0:
-                # Clamp to valid range (1K minimum, 128K maximum)
+                # Clamp to valid range (1K minimum, 200K maximum)
                 if requested_max_tokens < 1024:
                     payload["max_tokens"] = 1024
                 elif requested_max_tokens > self._max_tokens_limit:

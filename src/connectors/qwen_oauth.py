@@ -238,6 +238,44 @@ class QwenOAuthConnector(OpenAIConnector):
                 exc_info=True,
             )
 
+    async def _prepare_payload(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+    ) -> dict[str, Any]:
+        """Ensure sampling parameters are forwarded to the Qwen API payload."""
+
+        payload = await super()._prepare_payload(
+            request_data, processed_messages, effective_model
+        )
+
+        def _extract_param(name: str) -> Any | None:
+            value = getattr(request_data, name, None)
+            if value is None and isinstance(request_data, dict):
+                value = request_data.get(name)
+            if value is None:
+                extra_body = getattr(request_data, "extra_body", None)
+                if isinstance(extra_body, dict):
+                    value = extra_body.get(name)
+            return value
+
+        top_p = _extract_param("top_p")
+        if top_p is not None:
+            try:
+                payload["top_p"] = float(top_p)
+            except (TypeError, ValueError):
+                logger.debug("Ignoring non-numeric top_p value: %r", top_p)
+
+        top_k = _extract_param("top_k")
+        if top_k is not None:
+            try:
+                payload["top_k"] = int(top_k)
+            except (TypeError, ValueError):
+                logger.debug("Ignoring non-integer top_k value: %r", top_k)
+
+        return payload
+
     async def _poll_for_new_token(self, max_wait_seconds: float | None = None) -> bool:
         """Poll the credential file for an updated token after CLI refresh."""
         if not self._is_token_expired():

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -124,6 +125,10 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
             matched_pattern = "__file_edit_tool_failure__"
 
         if matched_pattern is not None:
+            active_disable_map = self._load_session_flag_map(
+                "edit_precision_hybrid_reasoning_active"
+            )
+
             # Set pending flag for this session (one-shot)
             pending_map = self._app_state.get_setting("edit_precision_pending", {})
             try:
@@ -137,6 +142,15 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
 
             key = session_id or ""
             if key:
+                if active_disable_map.get(key):
+                    # We already flagged this response; still update stream tracking
+                    self._update_stream_tracking(key, context, out)
+                    self._logger.debug(
+                        "Edit-precision: session %s already has hybrid reasoning disable flag",
+                        key,
+                    )
+                    return out
+
                 response_type = ""
                 try:
                     response_type = str((context or {}).get("response_type") or "")
@@ -164,6 +178,12 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 elif response_type != "stream":
                     self._last_stream_ids.pop(key, None)
                 self._app_state.set_setting("edit_precision_pending", pending_map)
+
+                # Mark hybrid reasoning disable active until consumed by request processor
+                active_disable_map[key] = {"timestamp": time.time()}
+                self._app_state.set_setting(
+                    "edit_precision_hybrid_reasoning_active", active_disable_map
+                )
 
                 # NEW: Set flag to disable hybrid reasoning for next request in this session
                 hybrid_reasoning_disabled_map = self._app_state.get_setting(
@@ -208,6 +228,32 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     )
         return out
 
+    def _update_stream_tracking(
+        self,
+        session_id: str,
+        context: dict[str, Any] | None,
+        response: ProcessedResponse,
+    ) -> None:
+        response_type = ""
+        try:
+            response_type = str((context or {}).get("response_type") or "")
+        except Exception:
+            response_type = ""
+
+        stream_id = ""
+        if response_type == "stream":
+            try:
+                metadata = getattr(response, "metadata", {}) or {}
+                stream_id = str(
+                    metadata.get("stream_id") or (context or {}).get("stream_id") or ""
+                )
+            except Exception:
+                stream_id = ""
+            if stream_id:
+                self._last_stream_ids[session_id] = stream_id
+        elif response_type != "stream":
+            self._last_stream_ids.pop(session_id, None)
+
     def _extract_text_from_metadata(self, metadata: Any) -> list[str]:
         if not isinstance(metadata, dict):
             return []
@@ -238,6 +284,18 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
             texts.append(self._prepare_text_snippet(result_text))
 
         return texts
+
+    def _load_session_flag_map(self, setting_name: str) -> dict[str, Any]:
+        try:
+            stored = self._app_state.get_setting(setting_name, {})
+            if isinstance(stored, dict):
+                return dict(stored)
+            if isinstance(stored, list):
+                # Support legacy list storage by converting to dict with True values
+                return {str(item): {"legacy": True} for item in stored}
+        except Exception:
+            pass
+        return {}
 
     def _has_file_edit_failure(self, metadata: Any) -> bool:
         if not isinstance(metadata, dict):

@@ -13,6 +13,7 @@ from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import (
+    AuthenticationError,
     BackendError,
     ServiceUnavailableError,
 )
@@ -415,7 +416,7 @@ class GeminiBackend(LLMBackend):
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
         openrouter_api_base_url: str | None = None,
-        openrouter_headers_provider: Callable[[str, str], dict[str, str]] | None = None,
+        openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
         key_name: str | None = None,
         api_key: str | None = None,
         project: str | None = None,
@@ -425,7 +426,12 @@ class GeminiBackend(LLMBackend):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Resolve base configuration
         base_api_url, headers = await self._resolve_gemini_api_config(
-            gemini_api_base_url, openrouter_api_base_url, api_key, **kwargs
+            gemini_api_base_url,
+            openrouter_api_base_url,
+            api_key,
+            openrouter_headers_provider=openrouter_headers_provider,
+            key_name=key_name,
+            **kwargs,
         )
         if identity:
             headers.update(identity.get_resolved_headers(None))
@@ -530,11 +536,31 @@ class GeminiBackend(LLMBackend):
             model_url, payload, headers, effective_model
         )
 
+    def _build_openrouter_header_context(self) -> dict[str, str]:
+        referer = "http://localhost:8000"
+        title = "InterceptorProxy"
+
+        identity = getattr(self.config, "identity", None)
+        if identity is not None:
+            referer = (
+                getattr(getattr(identity, "url", None), "default_value", referer)
+                or referer
+            )
+            title = (
+                getattr(getattr(identity, "title", None), "default_value", title)
+                or title
+            )
+
+        return {"app_site_url": referer, "app_x_title": title}
+
     async def _resolve_gemini_api_config(
         self,
         gemini_api_base_url: str | None,
         openrouter_api_base_url: str | None,
         api_key: str | None,
+        *,
+        openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
+        key_name: str | None = None,
         **kwargs: Any,
     ) -> tuple[str, dict[str, str]]:
         # Prefer explicit params, then kwargs, then instance attributes set during initialize
@@ -550,12 +576,77 @@ class GeminiBackend(LLMBackend):
                 status_code=500,
                 detail="Gemini API base URL and API key must be provided.",
             )
-        key_name_to_use = (
-            kwargs.get("key_name")
-            or getattr(self, "key_name", None)
-            or "x-goog-api-key"
+        normalized_base = base.rstrip("/")
+
+        # Only use OpenRouter mode if the chosen base is actually OpenRouter
+        # OpenRouter mode should only be enabled when the resolved base URL is different
+        # from the default Gemini API base URL, indicating we're actually routing to OpenRouter
+        gemini_default_base = "https://generativelanguage.googleapis.com"
+        using_openrouter = (
+            openrouter_api_base_url is not None
+            and normalized_base != gemini_default_base.rstrip("/")
         )
-        return base.rstrip("/"), ensure_loop_guard_header({key_name_to_use: key})
+
+        headers: dict[str, str]
+        if using_openrouter:
+            headers = {}
+            provided_headers: dict[str, str] | None = None
+
+            if openrouter_headers_provider is not None:
+                errors: list[Exception] = []
+
+                if key_name is not None:
+                    try:
+                        candidate = openrouter_headers_provider(key_name, key)
+                    except (AttributeError, TypeError) as exc:
+                        errors.append(exc)
+                    else:
+                        if candidate:
+                            provided_headers = dict(candidate)
+
+                if provided_headers is None:
+                    context = self._build_openrouter_header_context()
+                    try:
+                        candidate = openrouter_headers_provider(context, key)
+                    except Exception as exc:  # pragma: no cover - defensive guard
+                        if errors and logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "OpenRouter headers provider rejected key_name input: %s",
+                                errors[-1],
+                                exc_info=True,
+                            )
+                        raise AuthenticationError(
+                            message="OpenRouter headers provider failed to produce headers.",
+                            code="missing_credentials",
+                        ) from exc
+                    else:
+                        provided_headers = dict(candidate)
+
+            if provided_headers is None:
+                context = self._build_openrouter_header_context()
+                provided_headers = {
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": context["app_site_url"],
+                    "X-Title": context["app_x_title"],
+                }
+
+            headers.update(provided_headers)
+            context = self._build_openrouter_header_context()
+            headers.setdefault("Authorization", f"Bearer {key}")
+            headers.setdefault("Content-Type", "application/json")
+            headers.setdefault("HTTP-Referer", context["app_site_url"])
+            headers.setdefault("X-Title", context["app_x_title"])
+        else:
+            key_name_to_use = (
+                key_name
+                or kwargs.get("key_name")
+                or getattr(self, "key_name", None)
+                or "x-goog-api-key"
+            )
+            headers = {key_name_to_use: key}
+
+        return normalized_base, ensure_loop_guard_header(headers)
 
     def _apply_generation_config(
         self, payload: dict[str, Any], request_data: ChatRequest

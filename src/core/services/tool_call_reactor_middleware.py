@@ -210,17 +210,10 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             tool_arguments_raw = function_payload.get("arguments", {})
             tool_arguments: Any = {}
             if isinstance(tool_arguments_raw, str):
-                parsed_args: Any | None = None
-                try:
-                    # Attempt to repair the JSON before loading
-                    repaired_arguments = repair_json(tool_arguments_raw)
-                    parsed_args = json.loads(repaired_arguments)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    logger.warning(
-                        "Could not parse tool arguments after repair: %s",
-                        tool_arguments_raw,
-                        exc_info=True,
-                    )
+                parsed_args, repair_outcome = self._attempt_parse_tool_arguments(
+                    tool_arguments_raw
+                )
+                self._record_argument_repair_outcome(repair_outcome)
 
                 if parsed_args is None:
                     # Preserve the original value so downstream handlers still
@@ -311,6 +304,58 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             enabled: Whether the middleware should be enabled.
         """
         self._enabled = enabled
+
+    def _attempt_parse_tool_arguments(
+        self, raw_arguments: str
+    ) -> tuple[Any | None, str]:
+        """Attempt to parse tool arguments string with repair and relaxed fallback."""
+        repair_outcome = "failed"
+        candidates: list[str] = []
+        last_error: Exception | None = None
+
+        try:
+            repaired = repair_json(raw_arguments)
+            if isinstance(repaired, str):
+                candidates.append(repaired)
+        except Exception:
+            # Best-effort repair; fall back to original string
+            pass
+
+        if raw_arguments not in candidates:
+            candidates.append(raw_arguments)
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+                repair_outcome = "success"
+                return parsed, repair_outcome
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                last_error = exc
+                try:
+                    parsed_relaxed = json.loads(candidate, strict=False)
+                    repair_outcome = "recovered"
+                    return parsed_relaxed, repair_outcome
+                except (json.JSONDecodeError, TypeError, ValueError) as relaxed_exc:
+                    last_error = relaxed_exc
+                    continue
+
+        if last_error is not None:
+            logger.warning(
+                "Could not parse tool arguments after repair attempts: %s",
+                last_error,
+                exc_info=True,
+            )
+        else:
+            logger.warning("Could not parse tool arguments after repair attempts")
+        return None, repair_outcome
+
+    def _record_argument_repair_outcome(self, outcome: str) -> None:
+        """Forward argument repair telemetry to the underlying reactor if supported."""
+        recorder = getattr(
+            self._tool_call_reactor, "record_tool_argument_repair_outcome", None
+        )
+        if callable(recorder):
+            recorder(outcome)
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content.

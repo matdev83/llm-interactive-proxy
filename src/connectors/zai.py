@@ -2,6 +2,7 @@
 ZAI connector for Zhipu AI's GLM models
 """
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,9 @@ from .openai import OpenAIConnector
 
 if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
+
+
+logger = logging.getLogger(__name__)
 
 
 class ZAIConnector(OpenAIConnector):
@@ -134,14 +138,38 @@ class ZAIConnector(OpenAIConnector):
         effective_model: str,
     ) -> dict[str, Any]:
         """
-        Prepare payload for ZAI backend with 128K max_tokens support.
+        Prepare payload for ZAI backend with 200K max_tokens support.
 
-        ZAI backend supports up to 128K output tokens. This method ensures
+        ZAI backend supports up to 200K output tokens. This method ensures
         max_tokens is set appropriately based on client request.
         """
         payload = await super()._prepare_payload(
             request_data, processed_messages, effective_model
         )
+
+        def _extract_param(name: str) -> Any | None:
+            value = getattr(request_data, name, None)
+            if value is None and isinstance(request_data, dict):
+                value = request_data.get(name)
+            if value is None:
+                extra_body = getattr(request_data, "extra_body", None)
+                if isinstance(extra_body, dict):
+                    value = extra_body.get(name)
+            return value
+
+        top_p = _extract_param("top_p")
+        if top_p is not None:
+            try:
+                payload["top_p"] = float(top_p)
+            except (TypeError, ValueError):
+                logger.debug("Ignoring non-numeric top_p value for ZAI: %r", top_p)
+
+        top_k = _extract_param("top_k")
+        if top_k is not None:
+            try:
+                payload["top_k"] = int(top_k)
+            except (TypeError, ValueError):
+                logger.debug("Ignoring non-integer top_k value for ZAI: %r", top_k)
 
         # ZAI currently breaks tool calling when reasoning is enabled. The upstream
         # service does not support the OpenAI reasoning payload, so strip any
@@ -149,20 +177,20 @@ class ZAIConnector(OpenAIConnector):
         payload.pop("reasoning", None)
         payload.pop("reasoning_effort", None)
 
-        # ZAI backend supports up to 128K output tokens
+        # ZAI backend supports up to 200K output tokens
         # Override max_tokens only if client explicitly set a valid positive value
         requested_max_tokens = getattr(request_data, "max_tokens", None)
 
         if requested_max_tokens is not None and requested_max_tokens > 0:
             # Client explicitly requested a value - validate and clamp to valid range
             # Only enforce maximum limit, allow any positive value as minimum
-            if requested_max_tokens > 131072:  # 128K
-                payload["max_tokens"] = 131072
+            if requested_max_tokens > 200000:  # 200K
+                payload["max_tokens"] = 200000
             else:
                 payload["max_tokens"] = requested_max_tokens
         else:
             # No explicit request or invalid value (None, 0, negative) - use ZAI's max
-            payload["max_tokens"] = 131072  # 128K default for ZAI
+            payload["max_tokens"] = 200000  # 200K default for ZAI
 
         return payload
 

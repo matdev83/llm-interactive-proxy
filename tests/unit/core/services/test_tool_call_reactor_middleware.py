@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
@@ -290,3 +290,41 @@ async def test_process_with_tool_calls_swallowed_empty_string(
     assert result.content == ""
     assert result.metadata["tool_call_swallowed"] is True
     assert result.metadata["tool_call_reactor"]["handler"] == "test_handler"
+
+
+@pytest.mark.asyncio
+async def test_middleware_repairs_multiline_json_and_records_telemetry() -> None:
+    """Ensure multiline JSON arguments are parsed via relaxed mode and telemetry is recorded."""
+
+    class ReactorDouble:
+        def __init__(self) -> None:
+            self.process_tool_call = AsyncMock()
+            self.record_tool_argument_repair_outcome = MagicMock()
+
+        def get_registered_handlers(self) -> list[str]:
+            return []
+
+    reactor = ReactorDouble()
+    middleware = ToolCallReactorMiddleware(tool_call_reactor=reactor)
+
+    patch_arguments = '{\n  "file_path": "example.txt",\n  "patch_content": "<<<<<<< SEARCH\nline\n=======\\nother\n>>>>>>> REPLACE"\n}'
+    tool_call = ToolCall(
+        id="call_123",
+        function=FunctionCall(name="patch_file", arguments=patch_arguments),
+        type="function",
+    )
+    message = ChatMessage(role="assistant", tool_calls=[tool_call])
+
+    await middleware.process(
+        response=message,
+        session_id="session-telemetry",
+        context={"session_id": "session-telemetry"},
+    )
+
+    assert reactor.process_tool_call.called
+    context_arg = reactor.process_tool_call.call_args[0][0]
+    assert isinstance(context_arg.tool_arguments, dict)
+    assert "patch_content" in context_arg.tool_arguments
+    reactor.record_tool_argument_repair_outcome.assert_called()
+    outcome = reactor.record_tool_argument_repair_outcome.call_args[0][0]
+    assert outcome in {"success", "recovered"}

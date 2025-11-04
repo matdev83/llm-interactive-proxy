@@ -57,6 +57,11 @@ class ToolCallReactorService(IToolCallReactor):
         self._tool_definitions_filtered_count: int = 0
         self._tool_calls_blocked_count: int = 0
         self._tool_calls_allowed_count: int = 0
+        self._tool_argument_repair_stats: dict[str, int] = {
+            "success": 0,
+            "recovered": 0,
+            "failed": 0,
+        }
 
     def _invalidate_sorted_handlers(self) -> None:
         """Invalidate cached handler ordering."""
@@ -259,6 +264,16 @@ class ToolCallReactorService(IToolCallReactor):
             "tool_calls_blocked": self._tool_calls_blocked_count,
             "tool_calls_allowed": self._tool_calls_allowed_count,
         }
+
+    def record_tool_argument_repair_outcome(self, outcome: str) -> None:
+        """Record telemetry for tool argument repair attempts."""
+        if outcome not in self._tool_argument_repair_stats:
+            return
+        self._tool_argument_repair_stats[outcome] += 1
+
+    def get_tool_argument_repair_stats(self) -> dict[str, int]:
+        """Return a snapshot of tool argument repair telemetry counters."""
+        return dict(self._tool_argument_repair_stats)
 
     @classmethod
     def _snapshot_tool_arguments(cls, arguments: Any) -> Any:

@@ -470,17 +470,22 @@ async def test_request_processor_disables_hybrid_reasoning_after_flag() -> None:
         )
     )
 
-    def get_setting_side_effect(key: str, default: Any | None = None) -> Any:
-        if key == "app_config":
-            return app_config
-        if key == "edit_precision_pending":
-            return {}
-        if key == "edit_precision_hybrid_reasoning_disabled":
-            return {"test-session": True}
-        return default
-
     mock_app_state = MagicMock(spec=IApplicationState)
+    app_state_store: dict[str, Any] = {
+        "app_config": app_config,
+        "edit_precision_pending": {},
+        "edit_precision_hybrid_reasoning_disabled": {"test-session": True},
+        "edit_precision_hybrid_reasoning_active": {"test-session": {"timestamp": 0.0}},
+    }
+
+    def get_setting_side_effect(key: str, default: Any | None = None) -> Any:
+        return app_state_store.get(key, default)
+
+    def set_setting_side_effect(key: str, value: Any) -> None:
+        app_state_store[key] = value
+
     mock_app_state.get_setting.side_effect = get_setting_side_effect
+    mock_app_state.set_setting.side_effect = set_setting_side_effect
     mock_app_state.get_command_prefix.return_value = "!/"
 
     processor = RequestProcessor(
@@ -519,6 +524,9 @@ async def test_request_processor_disables_hybrid_reasoning_after_flag() -> None:
     assert meta.get("applied_hybrid_reasoning_probability") == 0.0
     mock_app_state.set_setting.assert_any_call(
         "edit_precision_hybrid_reasoning_disabled", {}
+    )
+    mock_app_state.set_setting.assert_any_call(
+        "edit_precision_hybrid_reasoning_active", {}
     )
 
 

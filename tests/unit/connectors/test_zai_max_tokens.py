@@ -52,8 +52,8 @@ async def zai_coding_plan_backend(mock_client, mock_translation_service):
 class TestZaiCodingPlanMaxTokens:
     """Test max_tokens handling in ZaiCodingPlanBackend."""
 
-    async def test_default_max_tokens_is_128k(self, zai_coding_plan_backend):
-        """When no max_tokens is specified, should default to 128K."""
+    async def test_default_max_tokens_is_200k(self, zai_coding_plan_backend):
+        """When no max_tokens is specified, should default to 200K."""
         request = ChatRequest(
             model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
@@ -65,7 +65,7 @@ class TestZaiCodingPlanMaxTokens:
         assert "max_tokens" not in payload  # provider default
 
     async def test_zero_max_tokens_uses_default(self, zai_coding_plan_backend):
-        """When max_tokens is 0, should use default 128K."""
+        """When max_tokens is 0, should use default 200K."""
         request = ChatRequest(
             model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
@@ -77,7 +77,7 @@ class TestZaiCodingPlanMaxTokens:
         assert payload["max_tokens"] == 8192  # fallback default
 
     async def test_negative_max_tokens_uses_default(self, zai_coding_plan_backend):
-        """When max_tokens is negative, should use default 128K."""
+        """When max_tokens is negative, should use default 200K."""
         request = ChatRequest(
             model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
@@ -115,7 +115,7 @@ class TestZaiCodingPlanMaxTokens:
         assert payload["max_tokens"] == 1024  # Minimum 1K
 
     async def test_max_tokens_above_maximum_is_clamped(self, zai_coding_plan_backend):
-        """When max_tokens exceeds 128K, should be clamped to 128K."""
+        """When max_tokens exceeds 200K, should be clamped to 200K."""
         request = ChatRequest(
             model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
@@ -124,7 +124,7 @@ class TestZaiCodingPlanMaxTokens:
 
         payload = await zai_coding_plan_backend._prepare_payload(request)
 
-        assert payload["max_tokens"] == 131072  # Maximum 128K
+        assert payload["max_tokens"] == 200000  # Maximum 200K
 
     async def test_max_tokens_at_boundaries(self, zai_coding_plan_backend):
         """Test max_tokens at exact boundary values."""
@@ -141,7 +141,7 @@ class TestZaiCodingPlanMaxTokens:
         request = ChatRequest(
             model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
-            max_tokens=131072,
+            max_tokens=200000,
         )
         payload = await zai_coding_plan_backend._prepare_payload(request)
-        assert payload["max_tokens"] == 131072
+        assert payload["max_tokens"] == 200000

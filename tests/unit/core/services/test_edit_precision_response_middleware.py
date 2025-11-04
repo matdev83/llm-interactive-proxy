@@ -60,6 +60,48 @@ async def test_streaming_processor_applies_middleware_and_sets_pending(
     pending = app_state.get_setting("edit_precision_pending", {})
     assert isinstance(pending, dict)
     assert pending.get("stream-abc", 0) >= 1
+    active_flags = app_state.get_setting("edit_precision_hybrid_reasoning_active", {})
+    assert "stream-abc" in active_flags
+
+
+@pytest.mark.asyncio
+async def test_streaming_duplicate_without_stream_id_only_flags_once(
+    app_state: ApplicationStateService,
+) -> None:
+    mw = EditPrecisionResponseMiddleware(app_state)
+    processor = MiddlewareApplicationProcessor([mw], app_state=app_state)
+
+    session_id = "stream-no-id"
+    first_chunk = StreamingContent(
+        content="... diff_error ...",
+        metadata={"session_id": session_id},
+    )
+    second_chunk = StreamingContent(
+        content="... diff_error again ...",
+        metadata={"session_id": session_id},
+    )
+
+    await processor.process(first_chunk)
+    await processor.process(second_chunk)
+
+    pending = app_state.get_setting("edit_precision_pending", {})
+    assert pending.get(session_id, 0) == 1
+
+    # Clear active flag to simulate the RequestProcessor consuming it
+    active_flags = app_state.get_setting("edit_precision_hybrid_reasoning_active", {})
+    assert session_id in active_flags
+    active_flags.pop(session_id, None)
+    app_state.set_setting("edit_precision_hybrid_reasoning_active", active_flags)
+
+    # Third chunk should trigger again after the active flag is cleared
+    third_chunk = StreamingContent(
+        content="... diff_error final ...",
+        metadata={"session_id": session_id},
+    )
+    await processor.process(third_chunk)
+
+    pending_after = app_state.get_setting("edit_precision_pending", {})
+    assert pending_after.get(session_id, 0) == 2
 
 
 @pytest.mark.asyncio
@@ -84,6 +126,12 @@ async def test_streaming_processor_only_increments_once_per_stream(
 
     pending_once = app_state.get_setting("edit_precision_pending", {})
     assert pending_once.get(session_id, 0) == 1
+    active_flags = app_state.get_setting("edit_precision_hybrid_reasoning_active", {})
+    assert session_id in active_flags
+
+    # Simulate the RequestProcessor consuming the flag between streams
+    active_flags.pop(session_id, None)
+    app_state.set_setting("edit_precision_hybrid_reasoning_active", active_flags)
 
     third_chunk = StreamingContent(
         content="... diff_error final ...",

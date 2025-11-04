@@ -634,6 +634,7 @@ class RequestProcessor(IRequestProcessor):
                                     "edit_precision_hybrid_reasoning_disabled",
                                     hybrid_disabled_map,
                                 )
+                                self._clear_active_hybrid_disable_flag(session_id)
                             logger.info(
                                 f"Hybrid reasoning disabled for session {session_id} due to edit failure",
                                 extra={"session_id": session_id},
@@ -836,6 +837,31 @@ class RequestProcessor(IRequestProcessor):
                 )
 
         return backend_response
+
+    def _clear_active_hybrid_disable_flag(self, session_id: str) -> None:
+        """Remove the active hybrid disable marker for the given session if present."""
+        if self._app_state is None:
+            return
+
+        try:
+            active_map = self._app_state.get_setting(
+                "edit_precision_hybrid_reasoning_active", {}
+            )
+            if not isinstance(active_map, dict) or session_id not in active_map:
+                return
+
+            updated_map = dict(active_map)
+            updated_map.pop(session_id, None)
+            self._app_state.set_setting(
+                "edit_precision_hybrid_reasoning_active", updated_map
+            )
+        except Exception as exc:
+            logger.debug(
+                "Failed to clear active hybrid disable marker for session %s: %s",
+                session_id,
+                exc,
+                exc_info=True,
+            )
 
     def _apply_hybrid_reasoning_override(
         self,
