@@ -970,6 +970,67 @@ This allows for a trade-off between response quality and cost/latency.
     reasoning_injection_probability: 0.5
   ```
 
+#### Message Repetition Control
+
+The hybrid backend can be configured to repeat messages in the execution phase for better context preservation. This is controlled by the `hybrid_backend_repeat_messages` flag.
+
+- **Default**: Not set (messages are not repeated by default)
+- **When enabled**: The original user message is repeated along with the reasoning output in the execution phase
+
+**Configuration (precedence: CLI > Environment > YAML)**:
+
+- **CLI Flag**:
+  ```bash
+  --hybrid-backend-repeat-messages
+  ```
+
+- **Environment Variable**:
+  ```bash
+  export HYBRID_BACKEND_REPEAT_MESSAGES=true
+  ```
+
+- **YAML Configuration** (`config.yaml`):
+  ```yaml
+  backends:
+    hybrid_backend_repeat_messages: true
+  ```
+
+### Troubleshooting Hybrid Backend Issues
+
+If you encounter issues with the hybrid backend, you can experiment with these two parameters to tweak your hybrid setup:
+
+#### Recommended Starting Point for Experimentation
+
+For users experiencing problems with hybrid backend performance or reliability, try these settings as a starting point:
+
+```bash
+# Start with 50% reasoning probability and message repetition enabled
+python -m src.core.cli \
+  --reasoning-injection-probability 0.5 \
+  --hybrid-backend-repeat-messages
+```
+
+#### Parameter Adjustment Guidelines
+
+1. **`--reasoning-injection-probability` (Default: 1.0)**
+   - **Use Case**: Control how often the reasoning model is used
+   - **Lower values (0.3-0.7)**: Reduces cost and latency, good for experimentation
+   - **Higher values (0.8-1.0)**: Maximum quality, higher cost
+   - **Recommended starting point**: `0.5` (50% chance) for balancing quality and cost
+
+2. **`--hybrid-backend-repeat-messages` (Default: Not set)**
+   - **Use Case**: Improve context preservation in execution phase
+   - **When enabled**: Helps execution models maintain better context from original requests
+   - **When to use**: If execution model seems to lose context or produce incomplete responses
+   - **When to disable**: If responses become redundant or verbose
+
+#### Common Issues and Solutions
+
+- **Execution model ignores reasoning**: Try enabling `--hybrid-backend-repeat-messages`
+- **High costs/latency**: Reduce `--reasoning-injection-probability` to 0.3-0.5
+- **Inconsistent quality**: Start with `--reasoning-injection-probability 0.5` and adjust based on results
+- **Context loss**: Enable `--hybrid-backend-repeat-messages` to preserve original request context
+
 ### Reasoning Detection
 
 The hybrid backend uses a priority-based detection strategy to identify when reasoning is complete:
@@ -1035,7 +1096,9 @@ Useful flags
 - `--strict-command-detection` to enable strict command detection (only process commands on last non-blank line)
 - `--enable-pytest-compression` to enable pytest output compression
 - `--enable-pytest-context-saving` to enable automatic addition of `-r fE` and `-q` flags to pytest commands
-- `--fix-think-tags` to enable correction of improperly formatted `<think>` tags in model responses
+- `--fix-think-tags` to enable correction of improperly formatted `</think>` tags in model responses
+- `--hybrid-backend-repeat-messages` to enable message repetition in hybrid backend execution phase
+- `--reasoning-injection-probability VALUE` to set probability (0.0-1.0) of using reasoning model in hybrid backend (default: 1.0)
 - `--enable-edit-precision` / `--disable-edit-precision` to control automated edit-precision tuning
 - `--edit-precision-temperature TEMP` to set target temperature for edit failures (default: 0.1)
 - `--edit-precision-min-top-p FLOAT` to set minimum top_p for edit failures (default: 0.3)
