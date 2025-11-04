@@ -2,8 +2,6 @@
 
 ## [2025-11-04]
 
-### Added
-
 - **Hybrid Backend Repeat Messages Feature**: New configuration option to repeat reasoning output as an artificial message in the session
   - **New Configuration Option**: `--hybrid-backend-repeat-messages` CLI flag and `HYBRID_BACKEND_REPEAT_MESSAGES` environment variable to enable the feature
   - **Artificial Message Injection**: When enabled, reasoning output is added as an artificial assistant message in the conversation history
@@ -22,7 +20,6 @@
   - **Testing**: Updated unit tests to cover new tool schema and translation functionality
 
 ## [2025-10-31]
-
 
 - **XML Tool Call Format Support**: Added support for XML tool call format in ToolCallRepairService
   - XML pattern detection and parsing for Kilo MCP tools
@@ -44,8 +41,6 @@
 
 ## [2025-10-23]
 
-### Added
-
 - **Intelligent Session Management**: Autonomous session continuity detection via message history fingerprinting
   - **Context Loss Prevention**: Eliminates session loss for stateless clients (e.g., Kilo Code, Cursor) that don't send session IDs
   - **Message History Fingerprinting**: Computes stable hashes from conversation sequences to detect continuity
@@ -65,8 +60,6 @@
 
 ## [2025-01-21]
 
-### Added
-
 - **LLM Assessment System**: Intelligent conversation quality monitoring inspired by Google's gemini-cli
   - Automatically detects unproductive patterns like repetitive tool calls and cognitive loops
   - Event-driven assessment triggers after configurable turn thresholds (default: 30 turns)
@@ -77,7 +70,7 @@
   - Graceful degradation - assessment failures never break main conversation flow
   - Complete documentation in README.md with configuration examples and use cases
 
-# 2025-10-17 - Gemini OAuth Backend Refactoring
+## 2025-10-17 - Gemini OAuth Backend Refactoring
 
 - **Refactor**: Split `gemini-oauth-personal` backend into two specialized backends for different use cases
   - **New Backend**: `gemini-oauth-free` for free-tier Gemini API usage with appropriate quotas and limits
@@ -86,7 +79,7 @@
   - **Migration**: Existing configurations automatically redirect to appropriate backend based on authentication type
   - **Testing**: Comprehensive test suites created for both new backends with full coverage of OAuth flows and API interactions
 
-# 2025-10-16 - Command Pipeline Policy & Regression Coverage
+## 2025-10-16 - Command Pipeline Policy & Regression Coverage
 
 - **Dependency Injection**: Command services now require explicit `ICommandPolicyService`
   and `ICommandStateService` instances. `CommandStage` wires the policy/state helpers,
@@ -287,8 +280,6 @@
   - Removed redundant imports and cleaned up test code structure
 
 - **Maintenance**: Various code quality improvements including import organization, unused import removal, and code formatting consistency
-
-# Changelog
 
 ## 2025-10-01 - Refactor: Translation Service and Gemini Request Counting
 

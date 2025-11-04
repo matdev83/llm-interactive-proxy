@@ -94,6 +94,7 @@ logging:
 
 backends:
   default_backend: "openai"
+  # hybrid_backend_repeat_messages: false  # Set to true to repeat reasoning output as an artificial message in the session
 
   openai:
     # API key set via OPENROUTER_API_KEY environment variable
@@ -114,7 +115,7 @@ backends:
     timeout: 150
 
   gemini:
-    # API key set via GEMINI_API_KEY environment variable
+    # GEMINI_API_KEY environment variable
     timeout: 120
 
   qwen_oauth:
@@ -140,10 +141,10 @@ model_defaults:
 # Failover routes
 failover_routes:
   default:
-    policy: "ordered"
-    elements:
-      - "openai:gpt-4"
-      - "openrouter:anthropic/claude-3-opus-20240229"
+   policy: "ordered"
+   elements:
+     - "openai:gpt-4"
+     - "openrouter:anthropic/claude-3-opus-20240229"
 
 # Model name rewrite rules (optional)
 # These rules allow you to dynamically rewrite model names before they are processed

@@ -21,6 +21,10 @@ DEFAULT_REQUEST_PATTERNS: list[str] = [
     r"old_string\s+not\s+found\s+in\s+content",
     r"old_string\s+appears\s+multiple\s+times\s+in\s+the\s+content",
     r"patch\s+contains\s+fuzzy\s+matches\s+\(fuzz\s+level:\s*\d+\)",
+    r"Missing\s+value\s+for\s+required\s+parameter\s+'diff'",
+    r"Special\s+marker\s+'>>>>>>>(?:[^']*)'\s+found",
+    r"Unexpected\s+end\s+of\s+sequence:\s+Expected\s+'>>>>>>>\s*REPLACE'\s+was\s+not\s+found",
+    r"The\s+tool\s+execution\s+failed\s+with\s+the\s+following\s+error",
 ]
 
 DEFAULT_RESPONSE_PATTERNS: list[str] = [

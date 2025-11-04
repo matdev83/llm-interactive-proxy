@@ -130,6 +130,8 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 # Expect a dict[str, int]
                 if not isinstance(pending_map, dict):
                     pending_map = {}
+                else:
+                    pending_map = dict(pending_map)
             except Exception:
                 pending_map = {}
 
@@ -162,6 +164,28 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 elif response_type != "stream":
                     self._last_stream_ids.pop(key, None)
                 self._app_state.set_setting("edit_precision_pending", pending_map)
+
+                # NEW: Set flag to disable hybrid reasoning for next request in this session
+                hybrid_reasoning_disabled_map = self._app_state.get_setting(
+                    "edit_precision_hybrid_reasoning_disabled", {}
+                )
+                try:
+                    if not isinstance(hybrid_reasoning_disabled_map, dict):
+                        hybrid_reasoning_disabled_map = {}
+                    else:
+                        hybrid_reasoning_disabled_map = dict(
+                            hybrid_reasoning_disabled_map
+                        )
+                except Exception:
+                    hybrid_reasoning_disabled_map = {}
+
+                # Mark that hybrid reasoning should be disabled for next request
+                hybrid_reasoning_disabled_map[key] = True
+                self._app_state.set_setting(
+                    "edit_precision_hybrid_reasoning_disabled",
+                    hybrid_reasoning_disabled_map,
+                )
+
                 # Best-effort logging; do not let logging failures affect flow
                 try:
                     response_type = (
@@ -173,6 +197,10 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                         matched_pattern,
                         pending_map.get(key, 0),
                         response_type,
+                    )
+                    self._logger.info(
+                        "Hybrid reasoning disabled for next request in session %s due to edit failure",
+                        key,
                     )
                 except Exception as e:
                     self._logger.debug(

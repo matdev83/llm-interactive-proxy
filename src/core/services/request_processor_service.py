@@ -518,6 +518,7 @@ class RequestProcessor(IRequestProcessor):
                 exclude_agents_regex: str | None = None
                 cfg_override_top_p = False
                 cfg_target_top_k: int | None = None
+                app_config = None
                 if self._app_state is not None:
                     try:
                         app_config = self._app_state.get_setting("app_config")
@@ -552,6 +553,7 @@ class RequestProcessor(IRequestProcessor):
                         cfg_min_top_p = None
                         cfg_target_top_k = None
                         exclude_agents_regex = None
+                        app_config = None
 
                 # Respect agent exclusion regex if configured
                 if (
@@ -611,6 +613,38 @@ class RequestProcessor(IRequestProcessor):
                         "Could not resolve edit_precision_pending: %s", e, exc_info=True
                     )
 
+                # NEW: Check if hybrid reasoning should be disabled for this session
+                hybrid_reasoning_disabled = False
+                try:
+                    hybrid_disabled_map = (
+                        self._app_state.get_setting(
+                            "edit_precision_hybrid_reasoning_disabled"
+                        )
+                        if self._app_state is not None
+                        else None
+                    )
+                    if isinstance(hybrid_disabled_map, dict):
+                        hybrid_disabled_map = dict(hybrid_disabled_map)
+                        if session_id in hybrid_disabled_map:
+                            hybrid_reasoning_disabled = True
+                            # Remove the flag so it's only used for this request
+                            del hybrid_disabled_map[session_id]
+                            if self._app_state is not None:
+                                self._app_state.set_setting(
+                                    "edit_precision_hybrid_reasoning_disabled",
+                                    hybrid_disabled_map,
+                                )
+                            logger.info(
+                                f"Hybrid reasoning disabled for session {session_id} due to edit failure",
+                                extra={"session_id": session_id},
+                            )
+                except (AttributeError, TypeError, ValueError) as e:
+                    logger.debug(
+                        "Could not resolve hybrid reasoning disabled flag: %s",
+                        e,
+                        exc_info=True,
+                    )
+
                 if cfg_enabled:
                     edit_precision = EditPrecisionTuningMiddleware(
                         target_temperature=cfg_temp,
@@ -634,6 +668,13 @@ class RequestProcessor(IRequestProcessor):
                             "session_id": session_id,
                             "agent": getattr(session, "agent", None),
                         },
+                    )
+
+                if hybrid_reasoning_disabled and backend_request is not None:
+                    backend_request = self._apply_hybrid_reasoning_override(
+                        backend_request,
+                        session_id,
+                        app_config,
                     )
             except (AttributeError, TypeError, ValueError):
                 # Never block on precision tuning; proceed with original request
@@ -795,6 +836,97 @@ class RequestProcessor(IRequestProcessor):
                 )
 
         return backend_response
+
+    def _apply_hybrid_reasoning_override(
+        self,
+        backend_request: ChatRequest,
+        session_id: str,
+        app_config: Any | None,
+    ) -> ChatRequest:
+        """Temporarily disable hybrid reasoning for the given request if applicable."""
+
+        try:
+            model_name = str(getattr(backend_request, "model", "") or "")
+        except Exception:
+            model_name = ""
+
+        if not model_name.lower().startswith("hybrid:"):
+            return backend_request
+
+        extra_body_attr = getattr(backend_request, "extra_body", None)
+        extra_body: dict[str, Any] = (
+            extra_body_attr.copy() if isinstance(extra_body_attr, dict) else {}
+        )
+
+        # Respect existing override if one is already forcing a low probability
+        existing_override = extra_body.get("_temp_hybrid_reasoning_probability")
+        if existing_override is not None:
+            try:
+                if float(existing_override) <= 0.0:
+                    return backend_request
+            except (TypeError, ValueError):
+                pass
+
+        base_probability = self._resolve_hybrid_reasoning_probability(
+            extra_body_attr if isinstance(extra_body_attr, dict) else None,
+            app_config,
+        )
+
+        if base_probability is not None and base_probability <= 0.0:
+            return backend_request
+
+        meta = extra_body.get("_edit_precision_meta")
+        if not isinstance(meta, dict):
+            meta = {}
+            extra_body["_edit_precision_meta"] = meta
+
+        if base_probability is not None:
+            meta.setdefault(
+                "original_hybrid_reasoning_probability", float(base_probability)
+            )
+        meta["applied_hybrid_reasoning_probability"] = 0.0
+        meta["hybrid_reasoning_override_source"] = "response_pending"
+
+        extra_body["_temp_hybrid_reasoning_probability"] = 0.0
+
+        base_display = base_probability if base_probability is not None else "unknown"
+        logger.info(
+            "Hybrid reasoning probability override applied; session_id=%s base=%s -> 0.0",
+            session_id,
+            base_display,
+        )
+
+        return backend_request.model_copy(update={"extra_body": extra_body})
+
+    def _resolve_hybrid_reasoning_probability(
+        self,
+        extra_body: dict[str, Any] | None,
+        app_config: Any | None,
+    ) -> float | None:
+        """Resolve the baseline hybrid reasoning probability for logging/telemetry."""
+
+        if isinstance(extra_body, dict):
+            for key in (
+                "hybrid_reasoning_probability",
+                "hybrid_reasoning_probability_override",
+            ):
+                value = extra_body.get(key)
+                if value is not None:
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        continue
+
+        if app_config is not None:
+            try:
+                backends_cfg = getattr(app_config, "backends", None)
+                value = getattr(backends_cfg, "reasoning_injection_probability", None)
+                if value is not None:
+                    return float(value)
+            except (AttributeError, TypeError, ValueError):
+                return None
+
+        return None
 
     def _should_process_command_only(self, command_result: ProcessedResult) -> bool:
         """Determine if we should process command result without backend call."""

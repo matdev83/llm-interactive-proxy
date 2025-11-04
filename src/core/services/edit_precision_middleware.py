@@ -112,13 +112,23 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
             }
         )
 
+        # NEW: For hybrid backend, also set temporary reasoning probability to 0.0
+        # Check if this is a hybrid model request
+        model_name = getattr(request, "model", "")
+        if model_name and str(model_name).lower().startswith("hybrid:"):
+            # Set temporary hybrid reasoning probability to 0 to disable reasoning for this request
+            extra_body["_temp_hybrid_reasoning_probability"] = 0.0
+            self._logger.info(
+                f"Hybrid reasoning probability temporarily set to 0.0 for model {model_name} due to edit precision trigger"
+            )
+
         # Best-effort logging; do not let logging failures affect flow
         try:
             session_id = ""
             if context and isinstance(context, dict):
                 session_id = str(context.get("session_id", ""))
             self._logger.info(
-                "Edit-precision overrides applied; session_id=%s force_apply=%s temp:%s->%s top_p:%s->%s top_k:%s->%s one_shot=True",
+                "Edit-precision overrides applied; session_id=%s force_apply=%s temp:%s->%s top_p:%s->%s top_k:%s->%s one_shot=True meta=%s",
                 session_id,
                 bool(self._force_apply),
                 request.temperature,
@@ -127,6 +137,7 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                 new_top_p,
                 getattr(request, "top_k", None),
                 new_top_k,
+                extra_body.get("_edit_precision_meta", {}),
             )
         except Exception as e:
             self._logger.debug(

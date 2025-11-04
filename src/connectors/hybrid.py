@@ -1833,12 +1833,33 @@ class HybridConnector(LLMBackend):
         has_reasoning_content = False
         reasoning_time = 0.0
 
-        # Decide whether to use the reasoning model
-        use_reasoning = (
-            random.random() < self.config.backends.reasoning_injection_probability
-        )
+        # Check for temporary reasoning injection probability override from edit precision middleware
+        temp_reasoning_probability = None
+        if isinstance(request_data, dict):
+            extra_body = request_data.get("extra_body", {})
+        else:
+            extra_body = getattr(request_data, "extra_body", {})
+            if extra_body is None:
+                extra_body = {}
+
+        # Check if edit precision middleware has set a temporary override
+        temp_prob_override = extra_body.get("_temp_hybrid_reasoning_probability")
+        if temp_prob_override is not None:
+            temp_reasoning_probability = float(temp_prob_override)
+            # Log that we're using a temporary override
+            logger.info(
+                f"Using temporary reasoning injection probability override: {temp_reasoning_probability} for session",
+                extra={"session_id": session_id},
+            )
+        else:
+            temp_reasoning_probability = (
+                self.config.backends.reasoning_injection_probability
+            )
+
+        # Decide whether to use the reasoning model with the (potentially overridden) probability
+        use_reasoning = random.random() < temp_reasoning_probability
         logger.info(
-            f"Reasoning model injection decision: {'USE' if use_reasoning else 'SKIP'}"
+            f"Reasoning model injection decision: {'USE' if use_reasoning else 'SKIP'}, probability={temp_reasoning_probability}"
         )
 
         if use_reasoning:
