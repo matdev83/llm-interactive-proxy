@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # type: ignore[unreachable]
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -59,6 +60,77 @@ async def validation_exception_handler(
     )
 
 
+def _merge_details_with_extras(
+    details: Any | None,
+    extras: dict[str, Any],
+) -> Any | None:
+    """Merge extras into details, handling various detail types."""
+    if not extras:
+        return details
+    if details is None:
+        return extras
+    elif isinstance(details, Mapping):
+        return {**extras, **details}
+    else:
+        return {"value": details, "extras": extras}
+
+
+def _normalize_http_exception_detail(
+    detail: Any,
+) -> tuple[str, str, Any | None]:
+    """Extract a stable message/type/details triple from HTTPException detail.
+
+    Handles three cases:
+    1. FastAPI-style payloads with nested "error" structure
+    2. Generic mappings with message/type/details at top level
+       - Extra fields are merged into details (details takes precedence)
+    3. Fallback: Any non-mapping value is stringified
+
+    Args:
+        detail: The detail payload from HTTPException
+
+    Returns:
+        Tuple of (message, type, details) where extras are merged into details
+    """
+
+    default_type = "HttpError"
+    if isinstance(detail, Mapping):
+        # Handle FastAPI-style payloads where the detail already contains an
+        # ``error`` structure with message/type/details fields.
+        nested_error = detail.get("error")
+        if isinstance(nested_error, Mapping):
+            message = nested_error.get("message")
+            error_type = nested_error.get("type", default_type)
+            details = nested_error.get("details")
+            extras = {k: v for k, v in detail.items() if k != "error"}
+            details = _merge_details_with_extras(details, extras)
+            if message is None:
+                message = str({k: v for k, v in detail.items() if k != "error"})
+            return str(message), str(error_type), details
+
+        # Generic mapping: look for common keys first.
+        message = detail.get("message")
+        error_type = detail.get("type", default_type)
+        details = detail.get("details")
+
+        # Preserve any remaining fields as part of the details payload so that
+        # callers do not lose structured context.
+        extras = {
+            key: value
+            for key, value in detail.items()
+            if key not in {"message", "type", "details"}
+        }
+        details = _merge_details_with_extras(details, extras)
+
+        if message is None:
+            message = str({k: v for k, v in detail.items() if k != "details"})
+
+        return str(message), str(error_type), details
+
+    # Fallback: treat the detail as a simple string payload.
+    return str(detail), default_type, None
+
+
 async def http_exception_handler(request: Request, exc: HTTPException) -> Response:
     """Handle FastAPI HTTP exceptions.
 
@@ -76,6 +148,16 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
     if request.url.path.endswith("/chat/completions"):
         is_chat_completions = True
 
+    message, error_type, extra_details = _normalize_http_exception_detail(exc.detail)
+
+    error_payload: dict[str, Any] = {
+        "message": message,
+        "type": error_type,
+        "status_code": exc.status_code,
+    }
+    if extra_details is not None:
+        error_payload["details"] = extra_details
+
     if is_chat_completions:
         # Return OpenAI-compatible error response with choices for chat completions
         import time
@@ -90,27 +172,19 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": f"Error: {exc.detail!s}",
+                        "content": f"Error: {message}",
                     },
                     "finish_reason": "error",
                 }
             ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "error": {
-                "message": str(exc.detail),
-                "type": "HttpError",
-                "status_code": exc.status_code,
-            },
+            "error": error_payload,
         }
     else:
         # Standard error response for non-chat completions endpoints
         content = {
             "detail": {
-                "error": {
-                    "message": str(exc.detail),
-                    "type": "HttpError",
-                    "status_code": exc.status_code,
-                }
+                "error": error_payload,
             }
         }
 
