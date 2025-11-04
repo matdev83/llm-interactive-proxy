@@ -30,6 +30,8 @@ class StreamingResponseLike(Protocol):
     def media_type(self) -> str: ...
 
 
+from src.constants import MAX_RECENT_USAGE_RECORDS
+from src.core.common.usage_limits import normalize_recent_usage_limit
 from src.core.domain.usage_data import UsageData
 from src.core.domain.usage_stats import ModelUsageStats, UsageStatsResponse
 from src.core.interfaces.repositories_interface import IUsageRepository
@@ -341,11 +343,37 @@ class UsageTrackingService(IUsageTrackingService):
         Returns:
             List of usage data entities
         """
+        try:
+            requested_limit = int(limit)
+        except (TypeError, ValueError):
+            requested_limit = 0
+
+        normalized_limit = normalize_recent_usage_limit(requested_limit)
+
+        if normalized_limit == 0:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Recent usage requested with limit=%s; returning empty result",
+                    limit,
+                )
+            return []
+
+        if normalized_limit < requested_limit and logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Recent usage limit clamped from %s to %s (max=%s)",
+                limit,
+                normalized_limit,
+                MAX_RECENT_USAGE_RECORDS,
+            )
+
         if session_id:
             data = await self._repository.get_by_session_id(session_id)
         else:
             data = await self._repository.get_all()
 
         # Sort by timestamp (newest first) and limit
+        if not data:
+            return []
+
         sorted_data = sorted(data, key=lambda x: x.timestamp, reverse=True)
-        return sorted_data[:limit]
+        return sorted_data[:normalized_limit]
