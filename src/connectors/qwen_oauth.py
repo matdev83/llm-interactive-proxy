@@ -1346,5 +1346,20 @@ class QwenOAuthConnector(OpenAIConnector):
         with contextlib.suppress(Exception):
             self._stop_file_watching()
 
+        process = self._cli_refresh_process
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            except Exception:
+                # interpreter shutdown
+                pass
+            finally:
+                self._cli_refresh_process = None
+
 
 backend_registry.register_backend("qwen-oauth", QwenOAuthConnector)

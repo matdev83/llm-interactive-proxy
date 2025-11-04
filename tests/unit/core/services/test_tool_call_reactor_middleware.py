@@ -1,5 +1,5 @@
-from unittest.mock import AsyncMock
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
