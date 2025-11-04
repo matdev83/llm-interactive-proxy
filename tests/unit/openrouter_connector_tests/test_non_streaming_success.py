@@ -34,6 +34,11 @@ def mock_get_openrouter_headers(_: str, api_key: str) -> dict[str, str]:
 async def openrouter_backend_fixture():
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
+        from src.core.di.services import get_service_collection, register_core_services
+
+        # Ensure core services are registered before creating the backend
+        service_collection = get_service_collection()
+        register_core_services(service_collection)
 
         config = AppConfig()
         backend = OpenRouterBackend(client=client, config=config)
