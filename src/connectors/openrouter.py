@@ -10,6 +10,7 @@ from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
+    ConfigurationError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
@@ -92,9 +93,24 @@ class OpenRouterBackend(OpenAIConnector):
             try:
                 result = provider(*args)
             except (AttributeError, TypeError) as exc:
+                logger.error(
+                    "OpenRouter headers provider call failed with attribute/type error",
+                    exc_info=True,
+                )
+                errors.append(exc)
+                return None
+            except (ValueError, KeyError, IndexError) as exc:
+                logger.error(
+                    "OpenRouter headers provider call failed with data error",
+                    exc_info=True,
+                )
                 errors.append(exc)
                 return None
             except Exception as exc:
+                logger.error(
+                    "OpenRouter headers provider call failed with unexpected error",
+                    exc_info=True,
+                )
                 errors.append(exc)
                 return None
 
@@ -150,12 +166,27 @@ class OpenRouterBackend(OpenAIConnector):
         if identity is not None:
             try:
                 identity_headers = identity.get_resolved_headers(None)
-            except Exception:
-                identity_headers = {}
-            else:
                 identity_headers = dict(identity_headers)
-            if identity_headers:
-                headers.update(identity_headers)
+                if identity_headers:
+                    headers.update(identity_headers)
+            except (AttributeError, TypeError, ValueError) as exc:
+                logger.error(
+                    "Failed to resolve identity headers in get_headers()",
+                    exc_info=True,
+                )
+                raise ConfigurationError(
+                    message="Failed to resolve identity configuration",
+                    details={"identity_error": str(exc)},
+                ) from exc
+            except Exception as exc:
+                logger.error(
+                    "Unexpected error resolving identity headers in get_headers()",
+                    exc_info=True,
+                )
+                raise ConfigurationError(
+                    message="Unexpected error resolving identity configuration",
+                    details={"unexpected_error": str(exc)},
+                ) from exc
         logger.info(
             f"OpenRouter headers: Authorization: Bearer {self.api_key[:20]}..., HTTP-Referer: {headers.get('HTTP-Referer', 'NOT_SET')}, X-Title: {headers.get('X-Title', 'NOT_SET')}"
         )
@@ -259,6 +290,16 @@ class OpenRouterBackend(OpenAIConnector):
                     headers_override = dict(self._resolve_headers_from_provider())
                 except AuthenticationError:
                     headers_override = None
+                except Exception as exc:
+                    logger.error(
+                        "Unexpected error resolving headers from provider in chat_completions()",
+                        exc_info=True,
+                    )
+                    raise BackendError(
+                        message="Failed to resolve headers from provider",
+                        backend_name="openrouter",
+                        details={"provider_error": str(exc)},
+                    ) from exc
 
             if headers_override is None:
                 headers_override = {}
@@ -269,10 +310,26 @@ class OpenRouterBackend(OpenAIConnector):
             if identity is not None:
                 try:
                     identity_headers = identity.get_resolved_headers(None)
-                except Exception:
-                    identity_headers = {}
-                if identity_headers:
-                    headers_override.update(identity_headers)
+                    if identity_headers:
+                        headers_override.update(identity_headers)
+                except (AttributeError, TypeError, ValueError) as exc:
+                    logger.error(
+                        "Failed to resolve identity headers in chat_completions()",
+                        exc_info=True,
+                    )
+                    raise ConfigurationError(
+                        message="Failed to resolve identity configuration",
+                        details={"identity_error": str(exc)},
+                    ) from exc
+                except Exception as exc:
+                    logger.error(
+                        "Unexpected error resolving identity headers in chat_completions()",
+                        exc_info=True,
+                    )
+                    raise ConfigurationError(
+                        message="Unexpected error resolving identity configuration",
+                        details={"unexpected_error": str(exc)},
+                    ) from exc
 
             if not headers_override:
                 headers_override = None
