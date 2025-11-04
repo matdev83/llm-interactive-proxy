@@ -96,40 +96,50 @@ def parse_model_with_params(
     uri_params: dict[str, Any] = {}
 
     try:
-        # Split at '?' to separate model string from query parameters
-        if "?" in model:
-            base_model, query_string = model.split("?", 1)
+        base_model = model
+        query_string = ""
 
-            # Parse query string using urllib.parse.parse_qs
-            # parse_qs returns dict[str, list[str]] by default
-            if query_string:
-                try:
-                    parsed_params = parse_qs(query_string, keep_blank_values=False)
+        # Special handling for hybrid model syntax, e.g., hybrid:[...model?params]
+        if model.startswith("hybrid:[") and model.endswith("]") and "?" in model:
+            question_mark_pos = model.rfind("?")
+            # Ensure '?' is inside the brackets before splitting
+            if question_mark_pos > model.find("["):
+                base_model = model[:question_mark_pos] + "]"
+                query_string = model[question_mark_pos + 1 : -1]  # Exclude '?' and ']'
+        # Standard syntax: backend:model?params
+        elif "?" in model:
+            parts = model.split("?", 1)
+            base_model = parts[0]
+            if len(parts) > 1:
+                query_string = parts[1]
 
-                    # Convert single-value lists to scalar values for convenience
-                    # e.g., {"temperature": ["0.5"]} -> {"temperature": "0.5"}
-                    for key, value_list in parsed_params.items():
-                        if len(value_list) == 1:
-                            uri_params[key] = value_list[0]
-                        else:
-                            # Multiple values for same parameter - use the last one
-                            uri_params[key] = value_list[-1]
-                            logger.debug(
-                                f"Multiple values for parameter '{key}': {value_list}, using last value: {value_list[-1]}"
-                            )
+        # Parse query string if it exists
+        if query_string:
+            try:
+                parsed_params = parse_qs(query_string, keep_blank_values=False)
 
-                    logger.debug(
-                        f"Parsed URI parameters from model string '{model}': {uri_params}"
-                    )
-                except Exception as parse_error:
-                    # Log warning for malformed query string but continue
-                    logger.warning(
-                        f"Malformed URI query string in model '{model}': {parse_error}. "
-                        f"Continuing without URI parameters."
-                    )
-                    uri_params = {}
-        else:
-            base_model = model
+                # Convert single-value lists to scalar values for convenience
+                # e.g., {"temperature": ["0.5"]} -> {"temperature": "0.5"}
+                for key, value_list in parsed_params.items():
+                    if len(value_list) == 1:
+                        uri_params[key] = value_list[0]
+                    else:
+                        # Multiple values for same parameter - use the last one
+                        uri_params[key] = value_list[-1]
+                        logger.debug(
+                            f"Multiple values for parameter '{key}': {value_list}, using last value: {value_list[-1]}"
+                        )
+
+                logger.debug(
+                    f"Parsed URI parameters from model string '{model}': {uri_params}"
+                )
+            except Exception as parse_error:
+                # Log warning for malformed query string but continue
+                logger.warning(
+                    f"Malformed URI query string in model '{model}': {parse_error}. "
+                    f"Continuing without URI parameters."
+                )
+                uri_params = {}
 
         # Parse the base model string (without query parameters) using existing function
         backend_type, model_name = parse_model_backend(base_model, default_backend)
