@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import httpx
@@ -262,6 +263,46 @@ class TestRequestFlowIntegration:
                 "metadata",
                 "cached",
             ]
+
+    @pytest.mark.asyncio
+    async def test_translate_kilo_tool_adds_tool_call_metadata(
+        self, codex_connector_compat_enabled: OpenAICodexConnector
+    ):
+        """Ensure translator adds tool call metadata for Codex execution."""
+
+        if codex_connector_compat_enabled._kilo_tool_translator is None:
+            from src.connectors._openai_codex_kilo_tool_translator import (
+                KiloToolTranslator,
+            )
+
+            session_service = getattr(
+                codex_connector_compat_enabled, "_session_service", None
+            )
+            codex_connector_compat_enabled._kilo_tool_translator = KiloToolTranslator(
+                codex_connector_compat_enabled, session_service
+            )
+
+        message: dict[str, Any] = {
+            "role": "assistant",
+            "content": '<read_file path="src/app.py" />',
+        }
+
+        tools = await codex_connector_compat_enabled._translate_kilo_tools(
+            message, message["content"], "session_tool_calls"
+        )
+
+        tool_calls = message.get("tool_calls")
+        assert tool_calls and len(tool_calls) == 1
+        tool_call = tool_calls[0]
+        assert tool_call["function"]["name"] == "read_file"
+
+        arguments = json.loads(tool_call["function"]["arguments"])
+        assert arguments["path"] == "src/app.py"
+        assert arguments["file_path"] == "src/app.py"
+
+        codex_tools = tools["codex_tools"]
+        assert len(codex_tools) == 1
+        assert codex_tools[0]["call_id"] == tool_call["id"]
 
     @pytest.mark.asyncio
     async def test_request_flow_with_non_kilocode_client(

@@ -54,6 +54,7 @@
 --gemini-api-key
 --help
 --host
+--hybrid-backend-repeat-messages
 --llm-assessment-confidence-threshold
 --llm-assessment-history-window
 --llm-assessment-model

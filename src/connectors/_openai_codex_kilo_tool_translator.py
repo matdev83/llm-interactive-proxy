@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import time
 import traceback
 from typing import TYPE_CHECKING, Any
@@ -238,6 +239,8 @@ class KiloToolTranslator:
             )
 
         arguments["path"] = parsed.arguments["path"]
+        # Provide legacy alias used by some Codex tool schemas
+        arguments["file_path"] = parsed.arguments["path"]
 
         # Optional: start_line and end_line
         if "start_line" in parsed.arguments:
@@ -266,6 +269,7 @@ class KiloToolTranslator:
 
         # Required: path (defaults to "." if not provided)
         arguments["path"] = parsed.arguments.get("path", ".")
+        arguments["dir_path"] = arguments["path"]
 
         # Optional: recursive flag (map to depth parameter)
         if "recursive" in parsed.arguments:
@@ -302,16 +306,34 @@ class KiloToolTranslator:
                 missing_parameters=["command"],
             )
 
-        command = parsed.arguments["command"]
+        command_value = parsed.arguments["command"]
 
-        # Convert command string to argument array
-        # For now, we'll pass the command as a single string
-        # The shell tool should handle this appropriately
-        arguments["command"] = command
+        # Convert command string to argument array compatible with Codex shell tool
+        if isinstance(command_value, str):
+            try:
+                command_parts = shlex.split(command_value)
+            except ValueError:
+                command_parts = [command_value]
+        elif isinstance(command_value, list | tuple):
+            command_parts = [str(part) for part in command_value]
+        else:
+            command_parts = [str(command_value)]
+
+        if not command_parts:
+            raise create_parameter_validation_error(
+                tool_name="execute_command",
+                message="Command could not be parsed into arguments",
+                original_xml=parsed.raw_xml,
+                invalid_parameters={"command": "Unable to parse command value"},
+            )
+
+        arguments["command"] = command_parts
 
         # Optional: working_dir
         if "working_dir" in parsed.arguments:
-            arguments["working_dir"] = parsed.arguments["working_dir"]
+            workdir_value = parsed.arguments["working_dir"]
+            arguments["workdir"] = workdir_value
+            arguments["working_dir"] = workdir_value
 
         # Optional: timeout
         if "timeout" in parsed.arguments:

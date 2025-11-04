@@ -583,6 +583,7 @@ class BackendSettings(DomainModel):
     )
     disable_gemini_oauth_fallback: bool = False
     disable_hybrid_backend: bool = False
+    hybrid_backend_repeat_messages: bool = False
     reasoning_injection_probability: float = Field(
         default=1.0,
         ge=0.0,
@@ -1566,6 +1567,13 @@ class AppConfig(DomainModel, IConfig):
                 False,
                 env,
                 path="backends.disable_hybrid_backend",
+                resolution=resolution,
+            ),
+            "hybrid_backend_repeat_messages": _env_to_bool(
+                "HYBRID_BACKEND_REPEAT_MESSAGES",
+                False,
+                env,
+                path="backends.hybrid_backend_repeat_messages",
                 resolution=resolution,
             ),
             "reasoning_injection_probability": _env_to_float(

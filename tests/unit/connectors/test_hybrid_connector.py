@@ -498,6 +498,37 @@ class TestAdaptiveMessageAugmentation:
         # Augmented messages should contain the reasoning
         assert len(augmented) > len(messages)
 
+    def test_repeat_reasoning_as_artificial_message(self, app_config):
+        """Test that reasoning is repeated as an artificial message when enabled."""
+        # Enable the feature in the config
+        app_config.backends.hybrid_backend_repeat_messages = True
+
+        hybrid_connector = HybridConnector(
+            client=Mock(),
+            config=app_config,
+            translation_service=Mock(),
+            backend_registry=Mock(),
+        )
+
+        messages = [{"role": "user", "content": "Hello"}]
+        reasoning_output = "This is my reasoning"
+
+        augmented = hybrid_connector._augment_messages(
+            messages, reasoning_output, "openai"
+        )
+
+        # Should have system message, user message, and artificial assistant message
+        assert len(augmented) == 3
+        assert augmented[0]["role"] == "system"
+        assert "Consider this reasoning" in augmented[0]["content"]
+        assert reasoning_output in augmented[0]["content"]
+
+        assert augmented[1]["role"] == "user"
+        assert augmented[1]["content"] == "Hello"
+
+        assert augmented[2]["role"] == "assistant"
+        assert reasoning_output in augmented[2]["content"]
+
 
 class TestReasoningExposure:
     """Tests for exposing reasoning output to clients."""

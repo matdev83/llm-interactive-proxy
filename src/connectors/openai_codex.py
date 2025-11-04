@@ -253,6 +253,118 @@ class OpenAICodexConnector(OpenAIConnector):
     CODEX_PROMPT_RESOURCE_NAME = "gpt_5_codex_prompt.md"
     CODEX_ORIGINATOR = "codex_cli_rs"
     CODEX_VERSION_HEADER = "0.0.0"
+    _CODEX_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+        "read_file": {
+            "type": "function",
+            "name": "read_file",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file from the project workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to the file to read",
+                        },
+                        "file_path": {
+                            "type": "string",
+                            "description": "Alias for path maintained for compatibility",
+                        },
+                        "start_line": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Optional starting line (0-indexed)",
+                        },
+                        "end_line": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Optional ending line (exclusive, 0-indexed)",
+                        },
+                    },
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "list_dir": {
+            "type": "function",
+            "name": "list_dir",
+            "function": {
+                "name": "list_dir",
+                "description": "List files in a directory within the workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Directory path to list",
+                        },
+                        "dir_path": {
+                            "type": "string",
+                            "description": "Alias for path maintained for compatibility",
+                        },
+                        "recursive": {
+                            "type": "boolean",
+                            "description": "Whether to list directories recursively",
+                        },
+                        "depth": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Maximum recursion depth when recursive is true",
+                        },
+                    },
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "grep_files": {
+            "type": "function",
+            "name": "grep_files",
+            "function": {
+                "name": "grep_files",
+                "description": "Search across files in the workspace using a pattern.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {
+                            "type": "string",
+                            "description": "Search pattern or query",
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Optional base path for the search",
+                        },
+                        "include": {
+                            "type": "string",
+                            "description": "Glob pattern to include specific files",
+                        },
+                        "exclude": {
+                            "type": "string",
+                            "description": "Glob pattern to exclude files",
+                        },
+                        "recursive": {
+                            "type": "boolean",
+                            "description": "Whether to search recursively",
+                        },
+                        "case_sensitive": {
+                            "type": "boolean",
+                            "description": "Whether the pattern is case-sensitive",
+                        },
+                    },
+                    "required": ["pattern"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    }
+
+    @classmethod
+    def _get_codex_tool_schema(cls, tool_name: str) -> dict[str, Any] | None:
+        """Return a deep copy of the registered Codex tool schema, if available."""
+        schema = cls._CODEX_TOOL_SCHEMAS.get(tool_name)
+        return deepcopy(schema) if schema else None
 
     @classmethod
     @lru_cache(maxsize=1)
@@ -893,7 +1005,7 @@ class OpenAICodexConnector(OpenAIConnector):
         This is a fallback when dynamic tool discovery is not available.
         In a full implementation, this should be replaced with actual tool discovery.
         """
-        return [
+        tools: list[dict[str, Any]] = [
             {
                 "type": "function",
                 "name": "shell",
@@ -960,6 +1072,13 @@ class OpenAICodexConnector(OpenAIConnector):
                 },
             },
         ]
+
+        for tool_name in ("read_file", "list_dir", "grep_files"):
+            schema = self._get_codex_tool_schema(tool_name)
+            if schema:
+                tools.append(schema)
+
+        return tools
 
     async def _discover_available_tools(self) -> list[dict[str, Any]]:
         """Dynamically discover available tools from the Codex backend.
@@ -1715,11 +1834,15 @@ class OpenAICodexConnector(OpenAIConnector):
         return cleaned
 
     async def _translate_kilo_tools(
-        self, message_content: str, session_id: str
+        self,
+        message: Any,
+        message_content: str,
+        session_id: str,
     ) -> dict[str, list[dict[str, Any]]]:
         """Parse and translate KiloCode tool invocations.
 
         Args:
+            message: Message container that may be mutated with tool call metadata
             message_content: Message content containing XML tool invocations
             session_id: Session ID for telemetry
 
@@ -1734,6 +1857,12 @@ class OpenAICodexConnector(OpenAIConnector):
 
         if not self._kilo_tool_translator:
             return result
+
+        message_role = ""
+        if isinstance(message, Mapping):
+            role_value = message.get("role")
+            if isinstance(role_value, str):
+                message_role = role_value.lower()
 
         # Parse XML to find all tool invocations
         try:
@@ -1758,6 +1887,40 @@ class OpenAICodexConnector(OpenAIConnector):
                 if translation_result:
                     tool_name, arguments = translation_result
                     duration_ms = (time.time() - start_time) * 1000
+                    call_id: str | None = None
+                    arguments_json: str | None = None
+
+                    if message_role == "assistant":
+                        call_id = f"call_{uuid.uuid4().hex[:16]}"
+                        payload_arguments: dict[str, Any]
+                        if isinstance(arguments, dict):
+                            payload_arguments = arguments
+                        else:
+                            payload_arguments = {}
+                        try:
+                            arguments_json = json.dumps(payload_arguments)
+                        except (TypeError, ValueError):
+                            arguments_json = json.dumps({})
+
+                        tool_call_entry = {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": arguments_json,
+                            },
+                        }
+
+                        if isinstance(message, dict):
+                            message.setdefault("tool_calls", []).append(tool_call_entry)
+                        else:
+                            existing_calls = getattr(message, "tool_calls", None)
+                            if existing_calls is None:
+                                existing_calls = []
+                            if isinstance(existing_calls, list):
+                                existing_calls.append(tool_call_entry)
+                                with contextlib.suppress(Exception):
+                                    message.tool_calls = existing_calls
 
                     # Determine execution mode based on tool name prefix
                     if tool_name.startswith(
@@ -1787,14 +1950,17 @@ class OpenAICodexConnector(OpenAIConnector):
                         )
                     else:
                         execution_mode = "codex"
-                        result["codex_tools"].append(
-                            {
-                                "name": tool_name,
-                                "arguments": arguments,
-                                "original_xml": parsed.raw_xml,
-                                "canonical_name": parsed.canonical_name,
-                            }
-                        )
+                        codex_entry: dict[str, Any] = {
+                            "name": tool_name,
+                            "arguments": arguments,
+                            "original_xml": parsed.raw_xml,
+                            "canonical_name": parsed.canonical_name,
+                        }
+                        if call_id:
+                            codex_entry["call_id"] = call_id
+                        if arguments_json is not None:
+                            codex_entry["arguments_json"] = arguments_json
+                        result["codex_tools"].append(codex_entry)
 
                     logger.debug(
                         "Translated tool %s to %s (mode: %s, duration: %.2fms)",
@@ -2351,7 +2517,9 @@ class OpenAICodexConnector(OpenAIConnector):
                 if isinstance(content, str) and "<" in content and ">" in content:
                     # Translate tools using the new method
                     try:
-                        tools = await self._translate_kilo_tools(content, session_id)
+                        tools = await self._translate_kilo_tools(
+                            message, content, session_id
+                        )
                         # Merge results
                         translated_tools["codex_tools"].extend(tools["codex_tools"])
                         translated_tools["proxy_tools"].extend(tools["proxy_tools"])
@@ -2448,37 +2616,35 @@ class OpenAICodexConnector(OpenAIConnector):
 
         # Add translated Codex-side tools to payload
         if is_kilocode and translated_tools["codex_tools"]:
-            # Ensure tools array exists in payload
-            if "tools" not in payload:
-                payload["tools"] = []
+            payload_tools = payload.get("tools")
+            if not isinstance(payload_tools, list):
+                payload_tools = []
+                payload["tools"] = payload_tools
 
-            # Add each translated tool to the payload
+            existing_names: set[str] = set()
+            for entry in payload_tools:
+                if isinstance(entry, dict):
+                    function_def = entry.get("function", {})
+                    name_value = (
+                        function_def.get("name")
+                        if isinstance(function_def, dict)
+                        else None
+                    )
+                    if isinstance(name_value, str):
+                        existing_names.add(name_value)
+
             for tool in translated_tools["codex_tools"]:
-                tool_name = tool["name"]
-                tool_args = tool["arguments"]
-
-                # Create tool schema for Codex
-                tool_schema = {
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,
-                        "parameters": tool_args,
-                    },
-                }
-
-                # Check if tool already exists in payload
-                existing_tool = next(
-                    (
-                        t
-                        for t in payload["tools"]
-                        if t.get("function", {}).get("name") == tool_name
-                    ),
-                    None,
-                )
-
-                if not existing_tool:
-                    payload["tools"].append(tool_schema)
-                    logger.debug("Added Codex-side tool %s to payload", tool_name)
+                schema = self._get_codex_tool_schema(tool["name"])
+                if not schema:
+                    continue
+                schema_name = schema.get("function", {}).get("name")
+                if not isinstance(schema_name, str):
+                    continue
+                if schema_name in existing_names:
+                    continue
+                payload_tools.append(schema)
+                existing_names.add(schema_name)
+                logger.debug("Added Codex-side tool %s to payload", schema_name)
         if logger.isEnabledFor(logging.DEBUG):
             try:
                 logger.debug(

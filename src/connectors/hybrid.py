@@ -646,15 +646,25 @@ class HybridConnector(LLMBackend):
         if self._supports_system_messages(execution_backend):
             # Primary strategy: inject as system message
             logger.debug(f"Using system message injection for {execution_backend}")
-            return self._inject_as_system_message(
+            augmented_messages = self._inject_as_system_message(
                 messages, reasoning_output, execution_backend
             )
         else:
             # Fallback strategy: inject to user message
             logger.debug(f"Using user message prefix injection for {execution_backend}")
-            return self._inject_to_user_message(
+            augmented_messages = self._inject_to_user_message(
                 messages, reasoning_output, execution_backend
             )
+
+        if self.config.backends.hybrid_backend_repeat_messages:
+            formatted_reasoning = self._format_reasoning_for_model(
+                reasoning_output, execution_backend
+            )
+            if formatted_reasoning:
+                augmented_messages.append(
+                    {"role": "assistant", "content": formatted_reasoning}
+                )
+        return augmented_messages
 
     def _strip_reasoning_tags(self, content: str) -> str:
         """Strip reasoning tags from content.

@@ -114,6 +114,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Disable the hybrid backend (enabled by default)",
     )
     parser.add_argument(
+        "--hybrid-backend-repeat-messages",
+        dest="hybrid_backend_repeat_messages",
+        action="store_true",
+        help="If set, repeat reasoning output as an artificial message in the session",
+    )
+    parser.add_argument(
         "--reasoning-injection-probability",
         "--reasoning_injection_probability",  # Accept both formats
         dest="reasoning_injection_probability",
@@ -883,6 +889,16 @@ def apply_cli_args(
             "backends.disable_hybrid_backend",
             True,
             "--disable-hybrid-backend",
+        )
+
+    if getattr(args, "hybrid_backend_repeat_messages", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["hybrid_backend_repeat_messages"] = True
+        os.environ["HYBRID_BACKEND_REPEAT_MESSAGES"] = "1"
+        record_cli(
+            "backends.hybrid_backend_repeat_messages",
+            True,
+            "--hybrid-backend-repeat-messages",
         )
 
     if getattr(args, "reasoning_injection_probability", None) is not None:

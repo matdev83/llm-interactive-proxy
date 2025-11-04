@@ -37,6 +37,7 @@ class TestTranslateReadFile:
         tool_name, arguments = result
         assert tool_name == "read_file"
         assert arguments["path"] == "src/main.py"
+        assert arguments["file_path"] == "src/main.py"
         assert "start_line" not in arguments
         assert "end_line" not in arguments
 
@@ -55,6 +56,7 @@ class TestTranslateReadFile:
         tool_name, arguments = result
         assert tool_name == "read_file"
         assert arguments["path"] == "src/utils.py"
+        assert arguments["file_path"] == "src/utils.py"
         assert arguments["start_line"] == 10
         assert arguments["end_line"] == 20
 
@@ -69,6 +71,7 @@ class TestTranslateReadFile:
         tool_name, arguments = result
         assert tool_name == "read_file"
         assert arguments["path"] == "config/settings.yaml"
+        assert arguments["file_path"] == "config/settings.yaml"
 
     @pytest.mark.asyncio
     async def test_translate_read_file_nested_path(self, translator):
@@ -81,6 +84,7 @@ class TestTranslateReadFile:
         tool_name, arguments = result
         assert tool_name == "read_file"
         assert arguments["path"] == "tests/test_file.py"
+        assert arguments["file_path"] == "tests/test_file.py"
 
     @pytest.mark.asyncio
     async def test_translate_read_file_with_relative_path(self, translator):
@@ -93,6 +97,7 @@ class TestTranslateReadFile:
         tool_name, arguments = result
         assert tool_name == "read_file"
         assert arguments["path"] == "../parent/file.txt"
+        assert arguments["file_path"] == "../parent/file.txt"
 
     @pytest.mark.asyncio
     async def test_translate_read_file_with_absolute_path(self, translator):
@@ -105,6 +110,7 @@ class TestTranslateReadFile:
         tool_name, arguments = result
         assert tool_name == "read_file"
         assert arguments["path"] == "/usr/local/bin/script.sh"
+        assert arguments["file_path"] == "/usr/local/bin/script.sh"
 
 
 class TestTranslateListFiles:
@@ -121,6 +127,7 @@ class TestTranslateListFiles:
         tool_name, arguments = result
         assert tool_name == "list_dir"
         assert arguments["path"] == "src/"
+        assert arguments["dir_path"] == "src/"
         assert "depth" not in arguments
 
     @pytest.mark.asyncio
@@ -134,6 +141,7 @@ class TestTranslateListFiles:
         tool_name, arguments = result
         assert tool_name == "list_dir"
         assert arguments["path"] == "src/"
+        assert arguments["dir_path"] == "src/"
         assert arguments["depth"] == 3  # Default depth for recursive
 
     @pytest.mark.asyncio
@@ -147,6 +155,7 @@ class TestTranslateListFiles:
         tool_name, arguments = result
         assert tool_name == "list_dir"
         assert arguments["path"] == "src/"
+        assert arguments["dir_path"] == "src/"
         assert "depth" not in arguments
 
     @pytest.mark.asyncio
@@ -164,6 +173,7 @@ class TestTranslateListFiles:
         tool_name, arguments = result
         assert tool_name == "list_dir"
         assert arguments["path"] == "src/"
+        assert arguments["dir_path"] == "src/"
         assert arguments["depth"] == 5
 
     @pytest.mark.asyncio
@@ -177,6 +187,7 @@ class TestTranslateListFiles:
         tool_name, arguments = result
         assert tool_name == "list_dir"
         assert arguments["path"] == "."
+        assert arguments["dir_path"] == "."
 
     @pytest.mark.asyncio
     async def test_translate_list_files_nested_tags(self, translator):
@@ -192,6 +203,7 @@ class TestTranslateListFiles:
         tool_name, arguments = result
         assert tool_name == "list_dir"
         assert arguments["path"] == "tests/"
+        assert arguments["dir_path"] == "tests/"
         assert arguments["depth"] == 3
 
 
@@ -208,7 +220,7 @@ class TestTranslateExecuteCommand:
         assert result is not None
         tool_name, arguments = result
         assert tool_name == "shell"
-        assert arguments["command"] == "ls -la"
+        assert arguments["command"] == ["ls", "-la"]
         assert "working_dir" not in arguments
         assert "timeout" not in arguments
 
@@ -222,7 +234,8 @@ class TestTranslateExecuteCommand:
         assert result is not None
         tool_name, arguments = result
         assert tool_name == "shell"
-        assert arguments["command"] == "npm test"
+        assert arguments["command"] == ["npm", "test"]
+        assert arguments["workdir"] == "/app/frontend"
         assert arguments["working_dir"] == "/app/frontend"
 
     @pytest.mark.asyncio
@@ -238,7 +251,7 @@ class TestTranslateExecuteCommand:
         assert result is not None
         tool_name, arguments = result
         assert tool_name == "shell"
-        assert arguments["command"] == "python script.py"
+        assert arguments["command"] == ["python", "script.py"]
         assert arguments["timeout"] == 30
 
     @pytest.mark.asyncio
@@ -255,7 +268,8 @@ class TestTranslateExecuteCommand:
         assert result is not None
         tool_name, arguments = result
         assert tool_name == "shell"
-        assert arguments["command"] == "cargo build --release"
+        assert arguments["command"] == ["cargo", "build", "--release"]
+        assert arguments["workdir"] == "/home/user/project"
         assert arguments["working_dir"] == "/home/user/project"
         assert arguments["timeout"] == 120
 
@@ -269,7 +283,17 @@ class TestTranslateExecuteCommand:
         assert result is not None
         tool_name, arguments = result
         assert tool_name == "shell"
-        assert arguments["command"] == "git log --oneline --graph --all | head -n 20"
+        assert arguments["command"] == [
+            "git",
+            "log",
+            "--oneline",
+            "--graph",
+            "--all",
+            "|",
+            "head",
+            "-n",
+            "20",
+        ]
 
     @pytest.mark.asyncio
     async def test_translate_execute_command_with_quotes(self, translator):
@@ -281,7 +305,7 @@ class TestTranslateExecuteCommand:
         assert result is not None
         tool_name, arguments = result
         assert tool_name == "shell"
-        assert arguments["command"] == 'echo "Hello, World!"'
+        assert arguments["command"] == ["echo", "Hello, World!"]
 
 
 class TestResultFormatting:

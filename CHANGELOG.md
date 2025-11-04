@@ -1,35 +1,25 @@
 # Changelog
 
-## [2025-11-03]
+## [2025-11-04]
 
 ### Added
 
-- **Hybrid Backend**: Virtual backend that orchestrates two sequential LLM API calls to enhance response quality
-  - **Two-Phase Approach**: Captures reasoning output from a "reasoning model" and uses it to augment the prompt sent to an "execution model"
-  - **Cost/Performance Optimization**: Use expensive reasoning models (o1-preview, DeepSeek-R1, MiniMax-M2) only for reasoning capture, then leverage faster/cheaper execution models for final output
-  - **Specialization Leverage**: Combine the reasoning strength of one model with the execution capabilities of another (e.g., o1's reasoning + GPT-4's code generation)
-  - **Model Specification Format**: `hybrid:[reasoning-backend:reasoning-model,execution-backend:execution-model]`
-  - **Cross-Backend Support**: Mix and match models from different providers (e.g., MiniMax for reasoning, Qwen for execution)
-  - **Intelligent Reasoning Detection**: Priority-based detection using explicit tags (`</think>`, `</thinking>`), finish_reason, and content markers
-  - **Adaptive Reasoning Injection**: Automatically uses system messages or user message prefixes based on model capabilities
-  - **Request Cancellation**: Automatically cancels reasoning model request after capturing reasoning to save costs
-  - **Reasoning Parameter Overrides**: Automatically applies maximum reasoning effort for reasoning phase and disables reasoning for execution phase
-  - **URI Parameter Support**: Apply different parameters to reasoning and execution models independently (e.g., `hybrid:[openai:gpt-4?temperature=0.9,anthropic:claude-3?temperature=0.1]`)
-  - **Configuration Options**: Enabled by default, can be disabled via `--disable-hybrid-backend` CLI flag, `DISABLE_HYBRID_BACKEND` environment variable, or config file
-  - **Comprehensive Error Handling**: Clear error messages with phase indicators (reasoning vs execution) and format examples
-  - **Streaming Support**: Full streaming support for execution phase responses
-  - **Response Filtering**: Reasoning output is excluded from final response and tool calls
-  - **Comprehensive Testing**: Unit tests for model parsing, message augmentation, reasoning detection, and error handling
-  - **Documentation**: Complete user-facing documentation in README.md with examples and use cases
-  - **Files Created**:
-    - `src/connectors/hybrid.py` - Main hybrid backend connector implementation
-    - `src/connectors/utils/reasoning_stream_processor.py` - Reasoning stream capture and detection utility
-    - `src/connectors/utils/model_capabilities.py` - Model capabilities and reasoning parameters registry
-    - `tests/unit/connectors/test_hybrid.py` - Comprehensive unit tests for hybrid connector
-    - `tests/unit/connectors/test_reasoning_stream_processor.py` - Unit tests for reasoning stream processor
-    - `.kiro/specs/hybrid-backend/requirements.md` - Feature requirements specification
-    - `.kiro/specs/hybrid-backend/design.md` - Detailed design document
-    - `.kiro/specs/hybrid-backend/tasks.md` - Implementation task breakdown
+- **Hybrid Backend Repeat Messages Feature**: New configuration option to repeat reasoning output as an artificial message in the session
+  - **New Configuration Option**: `--hybrid-backend-repeat-messages` CLI flag and `HYBRID_BACKEND_REPEAT_MESSAGES` environment variable to enable the feature
+  - **Artificial Message Injection**: When enabled, reasoning output is added as an artificial assistant message in the conversation history
+  - **Enhanced Context**: Provides better context continuity by making reasoning visible to the execution model as a separate message
+  - **Configuration**: Can be enabled/disabled via `backends.hybrid_backend_repeat_messages` in config files
+  - **Testing**: Comprehensive unit tests added to verify the message repetition functionality
+
+- **OpenAI Codex Connector Improvements**: Enhanced tool schema handling and Kilo tool translation capabilities
+  - **Tool Schema Registry**: Added comprehensive schemas for `read_file`, `list_dir`, and `grep_files` tools with proper parameter validation
+  - **Enhanced Tool Translation**: Improved Kilo tool translation with tool call ID generation and argument JSON serialization
+  - **Command Parsing**: Enhanced shell command parsing using `shlex.split()` for better argument handling and cross-platform compatibility
+  - **Parameter Aliases**: Added legacy parameter aliases (`file_path`, `dir_path`) for backward compatibility with existing tool schemas
+  - **Tool Call Metadata**: Added proper tool call metadata injection for assistant messages containing XML tool invocations
+  - **Schema Validation**: Improved tool schema validation and duplicate prevention in payload construction
+  - **Working Directory Handling**: Fixed working directory parameter mapping with both `workdir` and `working_dir` aliases
+  - **Testing**: Updated unit tests to cover new tool schema and translation functionality
 
 ## [2025-10-31]
 
