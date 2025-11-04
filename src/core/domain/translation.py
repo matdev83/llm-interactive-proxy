@@ -6,6 +6,8 @@ import mimetypes
 import os
 from typing import Any, cast
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 _MAX_SANITIZE_DEPTH = 100
 
 from src.core.domain.base_translator import BaseTranslator
@@ -1349,15 +1351,17 @@ class Translation(BaseTranslator):
 
         # Basic validation for essential keys
         if "id" not in chunk or "choices" not in chunk:
-            if logger.isEnabledFor(logging.DEBUG):
+            if logger.isEnabledFor(TRACE_LEVEL):
                 try:
-                    logger.debug(
+                    logger.log(
+                        TRACE_LEVEL,
                         "OpenAI stream chunk missing id/choices: %s",
                         json.dumps(chunk)[:500],
                     )
                 except Exception:
-                    logger.debug(
-                        "OpenAI stream chunk missing id/choices (non-serializable)"
+                    logger.log(
+                        TRACE_LEVEL,
+                        "OpenAI stream chunk missing id/choices (non-serializable)",
                     )
             return {"error": "Invalid chunk: missing 'id' or 'choices'"}
 
@@ -1488,15 +1492,17 @@ class Translation(BaseTranslator):
             else ""
         )
 
-        if logger.isEnabledFor(logging.DEBUG):
+        if logger.isEnabledFor(TRACE_LEVEL):
             try:
-                logger.debug(
+                logger.log(
+                    TRACE_LEVEL,
                     "Responses event type=%s payload=%s",
                     event_type or "<none>",
                     json.dumps(chunk)[:400],
                 )
             except Exception:
-                logger.debug(
+                logger.log(
+                    TRACE_LEVEL,
                     "Responses event type=%s payload=<non-serializable>",
                     event_type or "<none>",
                 )
@@ -1612,14 +1618,18 @@ class Translation(BaseTranslator):
             item = chunk.get("item") or {}
             item_type = item.get("type")
 
-            if logger.isEnabledFor(logging.DEBUG):
+            if logger.isEnabledFor(TRACE_LEVEL):
                 try:
-                    logger.debug(
+                    logger.log(
+                        TRACE_LEVEL,
                         "Responses output_item.done item=%s",
                         json.dumps(item)[:400],
                     )
                 except Exception:
-                    logger.debug("Responses output_item.done item=<non-serializable>")
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Responses output_item.done item=<non-serializable>",
+                    )
 
             if item_type == "message":
                 text = _extract_text(item.get("content", []))

@@ -33,6 +33,7 @@ from src.connectors.utils.model_capabilities import (
 from src.connectors.utils.reasoning_stream_processor import (
     ReasoningStreamProcessor,
 )
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -1696,6 +1697,64 @@ class HybridConnector(LLMBackend):
                 },
             ) from e
 
+    @staticmethod
+    def _extract_message_role(message: Any) -> str | None:
+        """Best-effort extraction of a message role."""
+
+        role = getattr(message, "role", None)
+        if isinstance(role, str) and role:
+            return role
+
+        if isinstance(message, dict):
+            role_value = message.get("role")
+            return role_value if isinstance(role_value, str) else None
+
+        if hasattr(message, "model_dump") and callable(message.model_dump):
+            try:
+                dumped = message.model_dump()
+                role_value = dumped.get("role")
+                if isinstance(role_value, str):
+                    return role_value
+            except Exception:
+                return None
+
+        if hasattr(message, "get") and callable(message.get):
+            try:
+                role_value = message.get("role")
+                if isinstance(role_value, str):
+                    return role_value
+            except Exception:
+                return None
+
+        return None
+
+    def _is_first_user_turn(
+        self,
+        processed_messages: list[Any] | None,
+        request_messages: list[Any] | None,
+    ) -> bool:
+        """Determine whether the current request represents the first user turn."""
+
+        messages_to_check: list[Any] = []
+        if processed_messages:
+            messages_to_check = list(processed_messages)
+        elif request_messages:
+            messages_to_check = list(request_messages)
+
+        if not messages_to_check:
+            # No prior context available; treat as first turn to err on the side of reasoning.
+            return True
+
+        for message in messages_to_check:
+            role = self._extract_message_role(message)
+            if not role:
+                continue
+            normalized_role = role.strip().lower()
+            if normalized_role in {"assistant", "tool", "function"}:
+                return False
+
+        return True
+
     async def chat_completions(
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
@@ -1856,11 +1915,30 @@ class HybridConnector(LLMBackend):
                 self.config.backends.reasoning_injection_probability
             )
 
-        # Decide whether to use the reasoning model with the (potentially overridden) probability
-        use_reasoning = random.random() < temp_reasoning_probability
-        logger.info(
-            f"Reasoning model injection decision: {'USE' if use_reasoning else 'SKIP'}, probability={temp_reasoning_probability}"
+        raw_request_messages = request_dict.get("messages")
+        request_messages: list[Any] | None = None
+        if isinstance(raw_request_messages, list):
+            request_messages = raw_request_messages
+
+        is_first_turn = self._is_first_user_turn(
+            processed_messages=processed_messages, request_messages=request_messages
         )
+
+        if is_first_turn:
+            use_reasoning = True
+            logger.info(
+                "Reasoning model injection decision: FORCE (first user turn), probability=%s",
+                temp_reasoning_probability,
+            )
+        else:
+            random_draw = random.random()
+            use_reasoning = random_draw < temp_reasoning_probability
+            logger.info(
+                "Reasoning model injection decision: %s, probability=%s, draw=%.4f",
+                "USE" if use_reasoning else "SKIP",
+                temp_reasoning_probability,
+                random_draw,
+            )
 
         if use_reasoning:
             try:
@@ -1993,14 +2071,16 @@ class HybridConnector(LLMBackend):
 
             # Phase 4: Filter reasoning tags from response
             if isinstance(response, StreamingResponseEnvelope):
-                logger.debug(
-                    "Filtering reasoning tags from streaming response",
-                    extra={
-                        "session_id": session_id,
-                        "execution_backend": execution_backend,
-                        "execution_model": execution_model,
-                    },
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Filtering reasoning tags from streaming response",
+                        extra={
+                            "session_id": session_id,
+                            "execution_backend": execution_backend,
+                            "execution_model": execution_model,
+                        },
+                    )
                 response = await self._filter_response_stream(response)
                 response = self._prepend_reasoning_chunk_to_stream(
                     response,

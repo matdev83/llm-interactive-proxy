@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.app.controllers.request_processor_resolver import (
     resolve_request_processor,
 )
@@ -74,12 +75,14 @@ class ChatController:
             try:
                 service = svc_provider.get_service(key)
             except Exception as exc:  # pragma: no cover - diagnostic fallback
-                logger.debug(
-                    "Translation service lookup failed for %s: %s",
-                    getattr(key, "__name__", repr(key)),
-                    exc,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Translation service lookup failed for %s: %s",
+                        getattr(key, "__name__", repr(key)),
+                        exc,
+                        exc_info=True,
+                    )
                 return None
             if service is None:
                 return None
@@ -98,9 +101,13 @@ class ChatController:
 
             global_provider = get_service_provider()
         except Exception as exc:  # pragma: no cover - diagnostic fallback
-            logger.debug(
-                "Global TranslationService resolution failed: %s", exc, exc_info=True
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Global TranslationService resolution failed: %s",
+                    exc,
+                    exc_info=True,
+                )
         else:
             if global_provider is not provider:
                 resolved = _try_get(global_provider, cast(type, ITranslationService))
@@ -121,10 +128,12 @@ class ChatController:
             try:
                 set_service_provider(fallback_provider)
             except Exception:  # pragma: no cover - diagnostic fallback
-                logger.debug(
-                    "Failed to update global provider during translation resolution",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Failed to update global provider during translation resolution",
+                        exc_info=True,
+                    )
 
             resolved = _try_get(fallback_provider, cast(type, ITranslationService))
             if resolved is not None:
@@ -257,12 +266,14 @@ class ChatController:
                     rendered_preview = preview.decode("utf-8", errors="replace")
                 except Exception:
                     rendered_preview = repr(preview)
-                logger.debug(
-                    "Incoming /chat/completions raw request (len=%d): %s%s",
-                    len(raw_body_bytes),
-                    rendered_preview,
-                    "..." if len(raw_body_bytes) > len(preview) else "",
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Incoming /chat/completions raw request (len=%d): %s%s",
+                        len(raw_body_bytes),
+                        rendered_preview,
+                        "..." if len(raw_body_bytes) > len(preview) else "",
+                    )
 
             logger.info(
                 f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
@@ -378,9 +389,12 @@ class ChatController:
                     # Convert domain response to FastAPI response
                     return domain_response_to_fastapi(domain_resp)
                 except Exception as _e:  # On any failure, fall back to default path
-                    logger.debug(
-                        f"ZAI delegation fallback due to error: {_e}", exc_info=True
-                    )
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            f"ZAI delegation fallback due to error: {_e}",
+                            exc_info=True,
+                        )
 
             # Convert FastAPI Request to RequestContext and process via core processor
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
@@ -406,7 +420,12 @@ class ChatController:
                         raw_body=raw_body_bytes or None,
                     )
                 except Exception:
-                    logger.debug("Wire capture (inbound request) failed", exc_info=True)
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Wire capture (inbound request) failed",
+                            exc_info=True,
+                        )
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, domain_request)

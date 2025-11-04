@@ -66,15 +66,21 @@ async def test_hybrid_connector_uses_reasoning_when_probability_is_high(
         )
     )
 
+    conversation = [
+        ChatMessage(role="system", content="You are helpful."),
+        ChatMessage(role="user", content="Hello"),
+        ChatMessage(role="assistant", content="Hi there!"),
+        ChatMessage(role="user", content="Follow-up"),
+    ]
     request = CanonicalChatRequest(
         model="hybrid:[test:test,test:test]",
-        messages=[ChatMessage(role="user", content="Hello")],
+        messages=conversation,
     )
 
     # Act
     await hybrid_connector.chat_completions(
         request_data=request,
-        processed_messages=[],
+        processed_messages=conversation,
         effective_model="hybrid:[test:test,test:test]",
     )
 
@@ -118,15 +124,21 @@ async def test_hybrid_connector_skips_reasoning_when_probability_is_low(
         )
     )
 
+    conversation = [
+        ChatMessage(role="system", content="You are helpful."),
+        ChatMessage(role="user", content="Hello"),
+        ChatMessage(role="assistant", content="Hi there!"),
+        ChatMessage(role="user", content="Follow-up"),
+    ]
     request = CanonicalChatRequest(
         model="hybrid:[test:test,test:test]",
-        messages=[ChatMessage(role="user", content="Hello")],
+        messages=conversation,
     )
 
     # Act
     await hybrid_connector.chat_completions(
         request_data=request,
-        processed_messages=[],
+        processed_messages=conversation,
         effective_model="hybrid:[test:test,test:test]",
     )
 
@@ -170,15 +182,21 @@ async def test_hybrid_connector_skips_reasoning_with_zero_probability(
         )
     )
 
+    conversation = [
+        ChatMessage(role="system", content="You are helpful."),
+        ChatMessage(role="user", content="Hello"),
+        ChatMessage(role="assistant", content="Hi there!"),
+        ChatMessage(role="user", content="Follow-up"),
+    ]
     request = CanonicalChatRequest(
         model="hybrid:[test:test,test:test]",
-        messages=[ChatMessage(role="user", content="Hello")],
+        messages=conversation,
     )
 
     # Act
     await hybrid_connector.chat_completions(
         request_data=request,
-        processed_messages=[],
+        processed_messages=conversation,
         effective_model="hybrid:[test:test,test:test]",
     )
 
@@ -278,14 +296,14 @@ async def test_hybrid_connector_updates_probability_at_runtime(
         )
     )
 
-    request = CanonicalChatRequest(
+    initial_request = CanonicalChatRequest(
         model="hybrid:[test:test,test:test]",
         messages=[ChatMessage(role="user", content="Hello")],
     )
 
     # Act 1: Call with 100% probability
     await hybrid_connector.chat_completions(
-        request_data=request,
+        request_data=initial_request,
         processed_messages=[],
         effective_model="hybrid:[test:test,test:test]",
     )
@@ -299,9 +317,20 @@ async def test_hybrid_connector_updates_probability_at_runtime(
     hybrid_connector._execute_reasoning_phase.reset_mock()
     hybrid_connector._execute_execution_phase.reset_mock()
 
+    conversation = [
+        ChatMessage(role="system", content="You are helpful."),
+        ChatMessage(role="user", content="Initial question"),
+        ChatMessage(role="assistant", content="Initial reply"),
+        ChatMessage(role="user", content="Second question"),
+    ]
+    follow_up_request = CanonicalChatRequest(
+        model="hybrid:[test:test,test:test]",
+        messages=conversation,
+    )
+
     # Act 2: Call with 0% probability
     await hybrid_connector.chat_completions(
-        request_data=request,
+        request_data=follow_up_request,
         processed_messages=[],
         effective_model="hybrid:[test:test,test:test]",
     )
@@ -309,3 +338,117 @@ async def test_hybrid_connector_updates_probability_at_runtime(
     # Assert 2: Reasoning phase should be skipped
     hybrid_connector._execute_reasoning_phase.assert_not_called()
     hybrid_connector._execute_execution_phase.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("random.random", return_value=0.99)
+async def test_hybrid_connector_forces_reasoning_on_first_message(
+    mock_random,
+    mock_client,
+    mock_config,
+    mock_translation_service,
+    mock_backend_registry,
+):
+    """
+    Ensure that the first user turn always triggers reasoning regardless of probability.
+    """
+    # Arrange
+    mock_config.backends.reasoning_injection_probability = 0.0
+    hybrid_connector = HybridConnector(
+        client=mock_client,
+        config=mock_config,
+        translation_service=mock_translation_service,
+        backend_registry=mock_backend_registry,
+    )
+    hybrid_connector._execute_reasoning_phase = AsyncMock(
+        return_value=MagicMock(text="reasoning", tool_calls=[])
+    )
+    hybrid_connector._execute_execution_phase = AsyncMock(
+        return_value=ResponseEnvelope(content={})
+    )
+    hybrid_connector._parse_hybrid_model_spec = MagicMock(
+        return_value=(
+            "reasoning_backend",
+            "reasoning_model",
+            {},
+            "exec_backend",
+            "exec_model",
+            {},
+        )
+    )
+
+    request = CanonicalChatRequest(
+        model="hybrid:[test:test,test:test]",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    # Act
+    await hybrid_connector.chat_completions(
+        request_data=request,
+        processed_messages=[],
+        effective_model="hybrid:[test:test,test:test]",
+    )
+
+    # Assert
+    hybrid_connector._execute_reasoning_phase.assert_called_once()
+    hybrid_connector._execute_execution_phase.assert_called_once()
+    mock_random.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("random.random", return_value=0.9)
+async def test_hybrid_connector_uses_probability_after_first_message(
+    mock_random,
+    mock_client,
+    mock_config,
+    mock_translation_service,
+    mock_backend_registry,
+):
+    """
+    Verify that probability-based selection resumes after the initial user turn.
+    """
+    # Arrange
+    mock_config.backends.reasoning_injection_probability = 0.5
+    hybrid_connector = HybridConnector(
+        client=mock_client,
+        config=mock_config,
+        translation_service=mock_translation_service,
+        backend_registry=mock_backend_registry,
+    )
+    hybrid_connector._execute_reasoning_phase = AsyncMock()
+    hybrid_connector._execute_execution_phase = AsyncMock(
+        return_value=ResponseEnvelope(content={})
+    )
+    hybrid_connector._parse_hybrid_model_spec = MagicMock(
+        return_value=(
+            "reasoning_backend",
+            "reasoning_model",
+            {},
+            "exec_backend",
+            "exec_model",
+            {},
+        )
+    )
+
+    conversation = [
+        ChatMessage(role="system", content="You are helpful."),
+        ChatMessage(role="user", content="First question"),
+        ChatMessage(role="assistant", content="First answer"),
+        ChatMessage(role="user", content="Second question"),
+    ]
+    request = CanonicalChatRequest(
+        model="hybrid:[test:test,test:test]",
+        messages=conversation,
+    )
+
+    # Act
+    await hybrid_connector.chat_completions(
+        request_data=request,
+        processed_messages=conversation,
+        effective_model="hybrid:[test:test,test:test]",
+    )
+
+    # Assert
+    hybrid_connector._execute_reasoning_phase.assert_not_called()
+    hybrid_connector._execute_execution_phase.assert_called_once()
+    mock_random.assert_called_once()

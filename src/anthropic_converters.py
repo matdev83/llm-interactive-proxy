@@ -5,6 +5,8 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 logger = logging.getLogger(__name__)
 
 from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
@@ -401,7 +403,10 @@ async def openai_stream_to_anthropic_stream(
     message_started = False
     finish_reason_sent = False
     active_tool_call_index = -1
-    logger.debug("Starting stateful OpenAI to Anthropic stream conversion.")
+    if logger.isEnabledFor(TRACE_LEVEL):
+        logger.log(
+            TRACE_LEVEL, "Starting stateful OpenAI to Anthropic stream conversion."
+        )
 
     buffer = ""
 
@@ -442,10 +447,14 @@ async def openai_stream_to_anthropic_stream(
         stripped_payload = payload_str.strip()
 
         if stripped_payload == "[DONE]":
-            logger.debug("Received [DONE] marker.")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(TRACE_LEVEL, "Received [DONE] marker.")
             if active_tool_call_index != -1:
                 stop_block = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
-                logger.debug(f"YIELDING content_block_stop: {stop_block!r}")
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL, f"YIELDING content_block_stop: {stop_block!r}"
+                    )
                 events.append(stop_block)
                 active_tool_call_index = -1
             if not finish_reason_sent:
@@ -456,25 +465,31 @@ async def openai_stream_to_anthropic_stream(
                 final_delta_event = (
                     f"event: message_delta\ndata: {json.dumps(final_delta)}\n\n"
                 )
-                logger.debug(
-                    f"YIELDING message_delta (end_turn): {final_delta_event!r}"
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        f"YIELDING message_delta (end_turn): {final_delta_event!r}",
+                    )
                 events.append(final_delta_event)
                 finish_reason_sent = True
             stop_event = 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
-            logger.debug(f"YIELDING message_stop: {stop_event!r}")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(TRACE_LEVEL, f"YIELDING message_stop: {stop_event!r}")
             events.append(stop_event)
-            logger.debug("Stream conversion complete.")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(TRACE_LEVEL, "Stream conversion complete.")
             return True, events
 
         try:
             openai_chunk = json.loads(stripped_payload)
         except (json.JSONDecodeError, IndexError) as exc:
-            logger.debug(f"Skipping chunk due to parsing error: {exc}")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(TRACE_LEVEL, f"Skipping chunk due to parsing error: {exc}")
             return False, events
 
         choices = openai_chunk.get("choices", [])
-        logger.debug(f"PARSED_CHUNK: {openai_chunk}")
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(TRACE_LEVEL, f"PARSED_CHUNK: {openai_chunk}")
 
         if not choices:
             usage = openai_chunk.get("usage")
@@ -488,7 +503,8 @@ async def openai_stream_to_anthropic_stream(
                     },
                 }
                 usage_event = f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
-                logger.debug(f"YIELDING usage delta: {usage_event!r}")
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(TRACE_LEVEL, f"YIELDING usage delta: {usage_event!r}")
                 events.append(usage_event)
             return False, events
 
@@ -508,7 +524,8 @@ async def openai_stream_to_anthropic_stream(
             }
             start_payload = {"type": "message_start", "message": message_payload}
             start_event = f"event: message_start\ndata: {json.dumps(start_payload)}\n\n"
-            logger.debug(f"YIELDING message_start: {start_event!r}")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(TRACE_LEVEL, f"YIELDING message_start: {start_event!r}")
             events.append(start_event)
             message_started = True
 
@@ -517,9 +534,11 @@ async def openai_stream_to_anthropic_stream(
                 if tool_call.get("id"):
                     if active_tool_call_index != -1:
                         stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
-                        logger.debug(
-                            f"YIELDING content_block_stop (new tool): {stop_block_event!r}"
-                        )
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                f"YIELDING content_block_stop (new tool): {stop_block_event!r}",
+                            )
                         events.append(stop_block_event)
                     active_tool_call_index = tool_call["index"]
                     start_block = {
@@ -533,9 +552,11 @@ async def openai_stream_to_anthropic_stream(
                         },
                     }
                     start_block_event = f"event: content_block_start\ndata: {json.dumps(start_block)}\n\n"
-                    logger.debug(
-                        f"YIELDING content_block_start (tool): {start_block_event!r}"
-                    )
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            f"YIELDING content_block_start (tool): {start_block_event!r}",
+                        )
                     events.append(start_block_event)
 
                 if tool_call.get("function", {}).get("arguments"):
@@ -548,15 +569,21 @@ async def openai_stream_to_anthropic_stream(
                         },
                     }
                     args_delta_event = f"event: content_block_delta\ndata: {json.dumps(args_delta)}\n\n"
-                    logger.debug(f"YIELDING input_json_delta: {args_delta_event!r}")
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            f"YIELDING input_json_delta: {args_delta_event!r}",
+                        )
                     events.append(args_delta_event)
 
         if delta.get("content"):
             if active_tool_call_index != -1:
                 stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
-                logger.debug(
-                    f"YIELDING content_block_stop (text): {stop_block_event!r}"
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        f"YIELDING content_block_stop (text): {stop_block_event!r}",
+                    )
                 events.append(stop_block_event)
                 active_tool_call_index = -1
             content_payload = {
@@ -570,15 +597,18 @@ async def openai_stream_to_anthropic_stream(
             content_event = (
                 f"event: content_block_delta\ndata: {json.dumps(content_payload)}\n\n"
             )
-            logger.debug(f"YIELDING text_delta: {content_event!r}")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(TRACE_LEVEL, f"YIELDING text_delta: {content_event!r}")
             events.append(content_event)
 
         if choice.get("finish_reason"):
             if active_tool_call_index != -1:
                 stop_block_event = f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{active_tool_call_index}}}\n\n'
-                logger.debug(
-                    f"YIELDING content_block_stop (finish): {stop_block_event!r}"
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        f"YIELDING content_block_stop (finish): {stop_block_event!r}",
+                    )
                 events.append(stop_block_event)
                 active_tool_call_index = -1
             finish_payload = {
@@ -589,7 +619,10 @@ async def openai_stream_to_anthropic_stream(
             finish_event = (
                 f"event: message_delta\ndata: {json.dumps(finish_payload)}\n\n"
             )
-            logger.debug(f"YIELDING message_delta (finish): {finish_event!r}")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL, f"YIELDING message_delta (finish): {finish_event!r}"
+                )
             events.append(finish_event)
             finish_reason_sent = True
 
@@ -597,16 +630,22 @@ async def openai_stream_to_anthropic_stream(
 
     async for chunk_bytes in chunk_generator:
         if chunk_bytes is None:
-            logger.debug("Received None chunk; skipping.")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(TRACE_LEVEL, "Received None chunk; skipping.")
             continue
 
         try:
             chunk_data = chunk_bytes.decode("utf-8")
         except UnicodeDecodeError:
             chunk_data = chunk_bytes.decode("utf-8", errors="ignore")
-            logger.debug("Chunk contained invalid UTF-8; decoded with replacement.")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Chunk contained invalid UTF-8; decoded with replacement.",
+                )
 
-        logger.debug(f"RAW_CHUNK: {chunk_data!r}")
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(TRACE_LEVEL, f"RAW_CHUNK: {chunk_data!r}")
 
         normalized_chunk = chunk_data.replace("\r\n", "\n")
         buffer += normalized_chunk
@@ -631,7 +670,8 @@ async def openai_stream_to_anthropic_stream(
 
     # Always send a final message_stop event if the stream ended unexpectedly
     final_stop_event = 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
-    logger.debug(f"YIELDING final message_stop: {final_stop_event!r}")
+    if logger.isEnabledFor(TRACE_LEVEL):
+        logger.log(TRACE_LEVEL, f"YIELDING final message_stop: {final_stop_event!r}")
     yield final_stop_event
 
 

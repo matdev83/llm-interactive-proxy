@@ -76,7 +76,7 @@ session:
 
 # Logging
 logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"  # TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL
   request_logging: false
   response_logging: false
   log_file: null  # Optional log file path

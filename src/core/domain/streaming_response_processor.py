@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.ports.streaming import IStreamProcessor, StreamingContent
 
 logger = logging.getLogger(__name__)
@@ -96,9 +97,11 @@ class LoopDetectionProcessor(IStreamProcessor):
         # Process the content for loop detection
         # Ensure content is a string for loop detector
         content_str = content.content
-        logger.debug(
-            f"LoopDetectionProcessor processing chunk for session {session_id}: '{content_str[:50]}...' (length: {len(content_str)})"
-        )
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                f"LoopDetectionProcessor processing chunk for session {session_id}: '{content_str[:50]}...' (length: {len(content_str)})",
+            )
         detection_event = loop_detector.process_chunk(content_str)
 
         # Clean up detector when stream is done
