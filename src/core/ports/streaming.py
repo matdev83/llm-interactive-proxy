@@ -46,6 +46,8 @@ class StreamingContent:
         """Whether this chunk contains no actual content."""
         if self.content:
             return False
+        if self.metadata.get("role") == "tool":
+            return False
         tool_calls = self.metadata.get("tool_calls")
         if isinstance(tool_calls, list) and tool_calls:
             return False
@@ -70,7 +72,30 @@ class StreamingContent:
             return b"data: [DONE]\n\n"
 
         # Simplified serialization for streaming
-        data = {"choices": [{"delta": {"content": self.content}}]}
+        delta: dict[str, Any] = {}
+
+        role = self.metadata.get("role")
+        if isinstance(role, str) and role:
+            delta["role"] = role
+
+        tool_call_id = self.metadata.get("tool_call_id")
+        if isinstance(tool_call_id, str) and tool_call_id:
+            delta["tool_call_id"] = tool_call_id
+
+        tool_calls = self.metadata.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            delta["tool_calls"] = tool_calls
+
+        if self.content is not None:
+            delta["content"] = self.content
+
+        data = {"choices": [{"delta": delta}]}
+
+        finish_reason = self.metadata.get("finish_reason")
+        if finish_reason is not None:
+            data["choices"][0]["finish_reason"] = finish_reason
+        else:
+            data["choices"][0]["finish_reason"] = None
 
         # Add metadata if available
         for key in ["id", "model", "created"]:

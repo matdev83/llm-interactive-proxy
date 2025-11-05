@@ -459,6 +459,8 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         """
         # If the original response has a content attribute, create a new ProcessedResponse
         if hasattr(original_response, "content"):
+            original_content = getattr(original_response, "content", None)
+
             # Create a new ProcessedResponse with the replacement content
             original_metadata = getattr(original_response, "metadata", {}) or {}
             # Handle case where metadata might be a mock or non-dict
@@ -477,11 +479,37 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     **reaction_metadata,
                 }
 
+            swallowed_tool_calls: list[dict[str, Any]] = []
+            existing_tool_calls = merged_metadata.get("tool_calls")
+            if isinstance(existing_tool_calls, list):
+                for tc in existing_tool_calls:
+                    if isinstance(tc, dict):
+                        swallowed_tool_calls.append(dict(tc))
+            if "tool_calls" in merged_metadata:
+                merged_metadata.pop("tool_calls", None)
+
+            tool_call_id = None
+            tool_name = None
+            if isinstance(original_tool_call, dict):
+                tool_call_id = original_tool_call.get("id")
+                function_payload = original_tool_call.get("function")
+                if isinstance(function_payload, dict):
+                    tool_name = function_payload.get("name")
+
             merged_metadata.update(
                 {
                     "tool_call_swallowed": True,
                     "original_tool_call": original_tool_call,
                     "replacement_provided": True,
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "finish_reason": "stop",
+                    "tool_name": tool_name,
+                    "steering_message": replacement_content,
+                    "swallowed_tool_calls": swallowed_tool_calls,
+                    "swallowed_original_content": (
+                        original_content if isinstance(original_content, str) else None
+                    ),
                 }
             )
 

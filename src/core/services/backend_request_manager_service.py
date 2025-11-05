@@ -6,6 +6,7 @@ This module provides the implementation of the backend request manager interface
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator, Iterable
 from typing import Any, cast
@@ -301,6 +302,19 @@ class BackendRequestManager(IBackendRequestManager):
                                 processed_response.metadata
                             )
 
+                    if (
+                        backend_response.metadata
+                        and backend_response.metadata.get("tool_call_swallowed")
+                        and not (backend_request.extra_body or {}).get(
+                            "_tool_call_reactor_retry"
+                        )
+                    ):
+                        retry_response = await self._retry_after_tool_swallow(
+                            backend_request, backend_response, session_id, context
+                        )
+                        if retry_response is not None:
+                            return retry_response
+
                     return backend_response
                 except EmptyResponseRetryError as e:
                     logger.info(
@@ -339,6 +353,141 @@ class BackendRequestManager(IBackendRequestManager):
             return await self._backend_processor.process_backend_request(
                 request=retry_request, session_id=session_id, context=context
             )
+
+    async def _retry_after_tool_swallow(
+        self,
+        original_request: ChatRequest,
+        backend_response: ResponseEnvelope,
+        session_id: str,
+        context: Any,
+        *,
+        is_streaming: bool = False,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope | None:
+        """Attempt to re-run the request after a swallowed tool call."""
+
+        metadata = backend_response.metadata or {}
+        steering_message = metadata.get("steering_message")
+        if not steering_message:
+            return None
+
+        swallowed_calls = metadata.get("swallowed_tool_calls")
+        original_content = metadata.get("swallowed_original_content")
+
+        extra_body = dict(original_request.extra_body or {})
+        extra_body["_tool_call_reactor_retry"] = True
+
+        summary_parts: list[str] = []
+        if isinstance(original_content, str) and original_content.strip():
+            summary_parts.append(original_content.strip())
+
+        if isinstance(swallowed_calls, list) and swallowed_calls:
+            descriptions: list[str] = []
+            for raw_call in swallowed_calls:
+                if not isinstance(raw_call, dict):
+                    continue
+                function_payload = raw_call.get("function")
+                name = None
+                if isinstance(function_payload, dict):
+                    name = function_payload.get("name")
+                if not name:
+                    name = raw_call.get("type", "function")
+                arguments = None
+                if isinstance(function_payload, dict):
+                    arguments = function_payload.get("arguments")
+                arg_summary = ""
+                if arguments is not None:
+                    try:
+                        arg_summary = json.dumps(arguments, ensure_ascii=False)
+                    except Exception:
+                        arg_summary = str(arguments)
+                descriptions.append(f"name={name} arguments={arg_summary}".strip())
+            if descriptions:
+                summary_parts.append(
+                    "Blocked tool call details:\n" + "\n".join(descriptions)
+                )
+
+        if not summary_parts:
+            summary_parts.append(
+                "A previous assistant response attempted a tool call that was blocked by the proxy."
+            )
+
+        proxy_prompt = "[Proxy Notice]\n" + "\n\n".join(summary_parts)
+        if steering_message:
+            proxy_prompt += "\n\n" + str(steering_message)
+
+        system_message = ChatMessage(role="system", content=proxy_prompt)
+        new_messages = list(original_request.messages) + [system_message]
+
+        retry_request = original_request.model_copy(
+            update={"messages": new_messages, "extra_body": extra_body}
+        )
+
+        try:
+            retry_response = await self._backend_processor.process_backend_request(
+                request=retry_request, session_id=session_id, context=context
+            )
+        except Exception as exc:
+            logger.warning(
+                "Tool call reactor retry failed for session %s: %s",
+                session_id,
+                exc,
+                exc_info=True,
+            )
+            return backend_response
+
+        if (
+            not is_streaming
+            and isinstance(retry_response, ResponseEnvelope)
+            and not retry_request.stream
+        ):
+            try:
+                middleware_context = {
+                    "original_request": retry_request,
+                    "backend_response": retry_response,
+                }
+                processed_retry = await self._response_processor.process_response(
+                    retry_response.content,
+                    session_id,
+                    middleware_context,
+                )
+                if hasattr(processed_retry, "content"):
+                    retry_response.content = processed_retry.content
+                    if (
+                        hasattr(processed_retry, "metadata")
+                        and processed_retry.metadata
+                    ):
+                        if retry_response.metadata is None:
+                            retry_response.metadata = {}
+                        retry_response.metadata.update(processed_retry.metadata)
+                return retry_response
+            except Exception as exc:
+                logger.warning(
+                    "Processing retry response failed for session %s: %s",
+                    session_id,
+                    exc,
+                    exc_info=True,
+                )
+                return backend_response
+
+        if is_streaming:
+
+            async def _single_chunk_stream() -> AsyncIterator[ProcessedResponse]:
+                if (
+                    isinstance(retry_response, StreamingResponseEnvelope)
+                    and retry_response.content is not None
+                ):
+                    async for item in retry_response.content:
+                        yield item
+                        return
+                yield ProcessedResponse(
+                    content=getattr(retry_response, "content", ""),
+                    metadata=getattr(retry_response, "metadata", {}),
+                )
+
+            return StreamingResponseEnvelope(content=_single_chunk_stream())
+
+        # Streaming retries are not currently supported; fall back to original response
+        return backend_response
 
     async def _process_streaming_response(
         self,
@@ -403,8 +552,37 @@ class BackendRequestManager(IBackendRequestManager):
                     yield chunk
 
         async def monitored_stream() -> AsyncIterator[ProcessedResponse]:
+            swallowed_detected = False
+
             async for chunk in combined_stream():
                 text_fragment = self._extract_text_from_chunk(chunk)
+                metadata = (
+                    getattr(chunk, "metadata", {}) if hasattr(chunk, "metadata") else {}
+                )
+
+                if metadata.get("tool_call_swallowed") and not swallowed_detected:
+                    swallowed_detected = True
+                    logger.info(
+                        "Detected swallowed tool call during streaming for session %s; retrying with steering context",
+                        session_id,
+                    )
+                    retry_response = await self._retry_after_tool_swallow(
+                        original_request,
+                        ResponseEnvelope(content=text_fragment, metadata=metadata),
+                        session_id,
+                        context,
+                        is_streaming=True,
+                    )
+                    if isinstance(retry_response, StreamingResponseEnvelope):
+                        async for retry_chunk in retry_response.content or []:
+                            yield retry_chunk
+                    else:
+                        yield ProcessedResponse(
+                            content=getattr(retry_response, "content", ""),
+                            metadata=getattr(retry_response, "metadata", {}),
+                        )
+                    return
+
                 if text_fragment:
                     event = loop_detector.process_chunk(text_fragment)
                 else:

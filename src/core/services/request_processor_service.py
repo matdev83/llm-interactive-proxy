@@ -28,8 +28,11 @@ from src.core.services.project_directory_resolution_service import (
 
 _TRUNCATED_ARTIFACT_PREFIX = "<system-reminder> CRITICAL: This output was truncated."
 _TRUNCATED_ARTIFACT_PATH_RE = re.compile(r"saved to ([A-Za-z]:\\[^\s]+)", re.IGNORECASE)
+_EXPANDED_ARTIFACT_PREFIX = "<system-reminder> Extracted artifact from "
 _ARTIFACT_MAX_LINES = 120
 _ARTIFACT_MAX_CHARS = 6000
+_COMPRESSED_ARTIFACT_MAX_LINES = 40
+_COMPRESSED_ARTIFACT_MAX_CHARS = 1500
 
 logger = logging.getLogger(__name__)
 
@@ -147,9 +150,9 @@ class RequestProcessor(IRequestProcessor):
             await self._session_manager.record_command_in_session(
                 request_data, session_id
             )
-        return await self._response_manager.process_command_result(
-            command_result, session
-        )
+            return await self._response_manager.process_command_result(
+                command_result, session
+            )
 
         # Prepare backend request
         backend_request = await self._backend_request_manager.prepare_backend_request(
@@ -1001,28 +1004,35 @@ class RequestProcessor(IRequestProcessor):
         if not messages:
             return
 
-        normalized_messages: list[Any] = []
+        normalized_messages: list[Any] = list(messages)
         changed = False
 
-        for raw_message in messages:
+        tail_indices = self._identify_trailing_tool_indices(messages)
+        tail_index_set = set(tail_indices)
+
+        # First, compress previously expanded previews outside the current tool batch
+        for idx, raw_message in enumerate(messages):
+            if idx in tail_index_set:
+                continue
+            message, altered = self._compress_existing_artifact_preview(raw_message)
+            if altered:
+                normalized_messages[idx] = message
+                changed = True
+
+        # Then expand truncated outputs for the most recent tool batch
+        for idx in tail_indices:
+            raw_message = normalized_messages[idx]
             message, altered = self._normalize_tool_message(raw_message)
-            normalized_messages.append(message)
-            changed = changed or altered
+            if altered:
+                normalized_messages[idx] = message
+                changed = True
 
         if changed:
             command_result.modified_messages = normalized_messages
 
     def _normalize_tool_message(self, raw_message: Any) -> tuple[Any, bool]:
         """Return tool message with expanded artifact content when possible."""
-        role = None
-        content = None
-
-        if isinstance(raw_message, dict):
-            role = raw_message.get("role")
-            content = raw_message.get("content")
-        else:
-            role = getattr(raw_message, "role", None)
-            content = getattr(raw_message, "content", None)
+        role, content = self._get_message_role_and_content(raw_message)
 
         if role != "tool":
             return raw_message, False
@@ -1045,6 +1055,39 @@ class RequestProcessor(IRequestProcessor):
             return raw_message, True
         except Exception:
             return raw_message, False
+
+    def _compress_existing_artifact_preview(self, raw_message: Any) -> tuple[Any, bool]:
+        """Trim previously expanded artifact previews to keep history compact."""
+        role, content = self._get_message_role_and_content(raw_message)
+        if role != "tool" or not isinstance(content, str):
+            return raw_message, False
+
+        if not content.startswith(_EXPANDED_ARTIFACT_PREFIX):
+            return raw_message, False
+
+        summary = self._build_artifact_summary(content)
+        if summary is None:
+            return raw_message, False
+
+        if isinstance(raw_message, dict):
+            updated = dict(raw_message)
+            updated["content"] = summary
+            return updated, True
+
+        if hasattr(raw_message, "model_copy"):
+            return raw_message.model_copy(update={"content": summary}), True
+
+        try:
+            raw_message.content = summary  # type: ignore[attr-defined]
+            return raw_message, True
+        except Exception:
+            return raw_message, False
+
+    def _get_message_role_and_content(self, raw_message: Any) -> tuple[Any, Any]:
+        """Extract role and content from dicts or objects uniformly."""
+        if isinstance(raw_message, dict):
+            return raw_message.get("role"), raw_message.get("content")
+        return getattr(raw_message, "role", None), getattr(raw_message, "content", None)
 
     def _extract_truncated_artifact_preview(self, content: Any) -> str | None:
         """Extract and truncate the artifact referenced by the tool output."""
@@ -1115,3 +1158,79 @@ class RequestProcessor(IRequestProcessor):
             preview += "\n"
 
         return preview
+
+    def _identify_trailing_tool_indices(self, messages: list[Any]) -> list[int]:
+        """Return indices of contiguous trailing tool messages."""
+        indices: list[int] = []
+        for index in range(len(messages) - 1, -1, -1):
+            role, content = self._get_message_role_and_content(messages[index])
+            if role != "tool":
+                break
+            indices.append(index)
+        indices.reverse()
+        return indices
+
+    def _build_artifact_summary(self, content: str) -> str | None:
+        """Create a compact summary placeholder for an expanded artifact preview."""
+        raw_path = self._extract_path_from_expanded_preview(content)
+        header_path = raw_path or "the previous artifact"
+        header = (
+            f"<system-reminder> Artifact preview trimmed to preserve context: {header_path}. "
+            "Use the read command with this path if additional detail is required.\n\n"
+        )
+
+        _, body = self._split_expanded_artifact_preview(content)
+        snippet, truncated = self._build_compressed_preview(body)
+        if not snippet:
+            return header.rstrip()
+
+        if truncated and not snippet.endswith("\n"):
+            snippet += "\n"
+        if truncated:
+            snippet += "[... additional content omitted ...]"
+
+        return header + snippet
+
+    def _extract_path_from_expanded_preview(self, content: str) -> str | None:
+        """Parse the artifact path from an expanded preview string."""
+        if not content.startswith(_EXPANDED_ARTIFACT_PREFIX):
+            return None
+        remainder = content[len(_EXPANDED_ARTIFACT_PREFIX) :]
+        marker = ". Showing limited preview"
+        marker_index = remainder.find(marker)
+        if marker_index == -1:
+            return None
+        return remainder[:marker_index].strip()
+
+    def _split_expanded_artifact_preview(self, content: str) -> tuple[str, str]:
+        """Split expanded artifact preview into header and body segments."""
+        if not isinstance(content, str):
+            return "", ""
+
+        double_newline = "\n\n"
+        parts = content.split(double_newline, 1)
+        if len(parts) == 2:
+            return parts[0] + double_newline, parts[1]
+        newline_index = content.find("\n")
+        if newline_index == -1:
+            return content, ""
+        return content[: newline_index + 1], content[newline_index + 1 :]
+
+    def _build_compressed_preview(self, text: str) -> tuple[str, bool]:
+        """Return aggressively truncated preview text with truncation flag."""
+        if not text:
+            return "", False
+
+        lines = text.splitlines()
+        truncated = False
+        if len(lines) > _COMPRESSED_ARTIFACT_MAX_LINES:
+            lines = lines[:_COMPRESSED_ARTIFACT_MAX_LINES]
+            truncated = True
+
+        preview = "\n".join(lines)
+
+        if len(preview) > _COMPRESSED_ARTIFACT_MAX_CHARS:
+            preview = preview[:_COMPRESSED_ARTIFACT_MAX_CHARS]
+            truncated = True
+
+        return preview, truncated

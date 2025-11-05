@@ -523,6 +523,73 @@ class ChatController:
 
                             return response.model_dump()
 
+                    if metadata and isinstance(metadata, dict):
+                        meta_role = metadata.get("role")
+                        if meta_role == "tool":
+                            import time as _time
+                            import uuid as _uuid
+
+                            tool_call_id = metadata.get("tool_call_id")
+                            finish_reason = metadata.get("finish_reason") or "stop"
+
+                            model_name = str(
+                                metadata.get("model")
+                                or getattr(domain_request, "model", "gpt-4")
+                            )
+                            response_id = str(
+                                metadata.get("id")
+                                or f"chatcmpl-{_uuid.uuid4().hex[:16]}"
+                            )
+                            created_ts = metadata.get("created")
+                            if isinstance(created_ts, int | float):
+                                created_val = int(created_ts)
+                            else:
+                                created_val = int(_time.time())
+
+                            message_metadata = {
+                                k: v
+                                for k, v in metadata.items()
+                                if k
+                                not in {
+                                    "role",
+                                    "tool_call_id",
+                                    "finish_reason",
+                                    "model",
+                                    "id",
+                                    "created",
+                                }
+                            }
+                            if not message_metadata:
+                                message_metadata = None  # type: ignore[assignment]
+
+                            message = ChatCompletionChoiceMessage(
+                                role="tool",
+                                content=str(content or ""),
+                                tool_call_id=(
+                                    str(tool_call_id) if tool_call_id else None
+                                ),
+                                metadata=message_metadata,
+                            )
+
+                            choice = ChatCompletionChoice(
+                                index=0,
+                                message=message,
+                                finish_reason=finish_reason,
+                            )
+
+                            response = ChatResponse(
+                                id=response_id,
+                                created=created_val,
+                                model=model_name,
+                                choices=[choice],
+                                usage=cast(
+                                    "dict[str, Any] | None",
+                                    metadata.get("usage"),
+                                ),
+                            )
+
+                            return response.model_dump()
+
                     # Check if content is a JSON string of tool calls (common backend response format)
                     if isinstance(content, str):
                         try:

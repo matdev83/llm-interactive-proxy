@@ -288,8 +288,20 @@ async def test_process_with_tool_calls_swallowed_empty_string(
 
     assert isinstance(result, ProcessedResponse)
     assert result.content == ""
+
+    # Simulate streaming chunk scenario
+    stream_chunk = ProcessedResponse(
+        content="",
+        metadata=result.metadata.copy(),
+    )
+    assert stream_chunk.metadata.get("tool_call_swallowed") is True
+    assert stream_chunk.metadata.get("steering_message") == ""
     assert result.metadata["tool_call_swallowed"] is True
     assert result.metadata["tool_call_reactor"]["handler"] == "test_handler"
+    assert result.metadata["role"] == "tool"
+    assert result.metadata["tool_call_id"] == "call_124"
+    assert result.metadata["steering_message"] == ""
+    assert isinstance(result.metadata["swallowed_tool_calls"], list)
 
 
 @pytest.mark.asyncio

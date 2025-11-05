@@ -214,6 +214,7 @@ class ChatCompletionChoiceMessage(DomainModel):
     role: str
     content: str | None = None
     tool_calls: list[ToolCall] | None = None
+    tool_call_id: str | None = None
     metadata: dict[str, Any] | None = None
 
 
