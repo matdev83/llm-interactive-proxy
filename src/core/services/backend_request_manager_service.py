@@ -7,6 +7,7 @@ This module provides the implementation of the backend request manager interface
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator, Iterable
 from typing import Any, cast
 
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 class BackendRequestManager(IBackendRequestManager):
     """Implementation of the backend request manager."""
+
+    _STREAM_RECOVERY_PROMPT = "The previous response was empty, please try again."
+    _MAX_EMPTY_STREAM_RETRIES = 1
 
     def __init__(
         self,
@@ -342,80 +346,81 @@ class BackendRequestManager(IBackendRequestManager):
         original_request: ChatRequest,
         session_id: str,
         context: RequestContext,
+        retry_depth: int = 0,
     ) -> StreamingResponseEnvelope:
         """
         Processes a streaming response, checking for an empty stream and
         triggering a retry with a recovery prompt if necessary.
         """
-        is_empty = True
-        first_chunk = None
+        if retry_depth > self._MAX_EMPTY_STREAM_RETRIES:
+            logger.warning(
+                "Maximum empty stream recovery attempts reached for session %s",
+                session_id,
+            )
+            return await self._build_fallback_stream(
+                stream_envelope=stream_envelope,
+                session_id=session_id,
+                reason="Empty streaming response after maximum retries",
+            )
+
         original_stream = stream_envelope.content
-
-        async def new_stream_generator():
-            nonlocal is_empty, first_chunk
-            if original_stream is None:
-                return
-
-            try:
-                first_chunk = await original_stream.__anext__()
-                is_empty = False
-                yield first_chunk
-                async for chunk in original_stream:
-                    yield chunk
-            except StopAsyncIteration:
-                # This is where we handle an empty stream
-                pass
-
-        # We need a way to "peek" at the stream.
-        # The new_stream_generator will be consumed. We need a "re-peekable" version.
-        peeking_stream = new_stream_generator()
-
-        try:
-            # This call will consume the first item of peeking_stream
-            await peeking_stream.__anext__()
-            is_empty = False
-        except StopAsyncIteration:
-            is_empty = True
-
-        if is_empty:
-            # Stream is empty, trigger retry
-            logger.info("Empty stream detected, retrying with recovery prompt.")
-            recovery_prompt = "The previous response was empty, please try again."
-            retry_request = await self._create_retry_request(
-                original_request, recovery_prompt
-            )
-            retry_response = await self._backend_processor.process_backend_request(
-                request=retry_request, session_id=session_id, context=context
+        if original_stream is None:
+            return await self._retry_stream_with_recovery(
+                reason="Streaming response had no content iterator.",
+                stream_envelope=stream_envelope,
+                original_request=original_request,
+                session_id=session_id,
+                context=context,
+                retry_depth=retry_depth,
             )
 
-            if isinstance(retry_response, StreamingResponseEnvelope):
-                return retry_response
-            else:
-                # If the retry did not return a stream, we need to adapt it.
-                async def single_item_stream():
-                    yield ProcessedResponse(content=retry_response.content)
+        prefetched_chunks: list[ProcessedResponse | bytes] = []
+        has_text = False
+        has_tool_calls = False
+        stream_consumed_without_data = False
 
-                return StreamingResponseEnvelope(
-                    content=single_item_stream(),
-                    media_type=stream_envelope.media_type,
-                    headers=stream_envelope.headers,
-                    cancel_callback=stream_envelope.cancel_callback,
-                )
+        async for chunk in original_stream:
+            prefetched_chunks.append(chunk)
+            if not has_text:
+                text_fragment = self._extract_text_from_chunk(chunk)
+                if text_fragment and text_fragment.strip():
+                    has_text = True
+            if not has_tool_calls and self._chunk_contains_tool_call(chunk):
+                has_tool_calls = True
+            if has_text or has_tool_calls:
+                break
+        else:
+            stream_consumed_without_data = True
 
-        # If not empty, we need to reconstruct the stream.
-        # The peeking_stream has been consumed by one item.
-        # We need to create a new stream that yields the first_chunk and then the rest of the original_stream.
-        async def combined_stream():
-            # Yield the first chunk that we peeked at
-            if first_chunk is not None:
-                yield first_chunk
-            # Yield the rest of the items from the original stream
-            if original_stream:
-                async for chunk in original_stream:
-                    yield chunk
+        if stream_consumed_without_data and not has_tool_calls:
+            return await self._retry_stream_with_recovery(
+                reason="Streaming response contained no text or tool calls; retrying with recovery prompt.",
+                stream_envelope=stream_envelope,
+                original_request=original_request,
+                session_id=session_id,
+                context=context,
+                retry_depth=retry_depth,
+            )
+
+        if not prefetched_chunks:
+            return await self._retry_stream_with_recovery(
+                reason="Streaming response yielded no chunks.",
+                stream_envelope=stream_envelope,
+                original_request=original_request,
+                session_id=session_id,
+                context=context,
+                retry_depth=retry_depth,
+            )
 
         cancel_callback = stream_envelope.cancel_callback
         loop_detector = self._create_loop_detector()
+
+        async def combined_stream():
+            for buffered in prefetched_chunks:
+                yield buffered
+            if original_stream:
+                async for chunk in original_stream:
+                    yield chunk
 
         async def monitored_stream() -> AsyncIterator[ProcessedResponse]:
             async for chunk in combined_stream():
@@ -484,6 +489,55 @@ class BackendRequestManager(IBackendRequestManager):
         # Preserve tools and other fields while appending the recovery message
         return original_request.model_copy(update={"messages": retry_messages})
 
+    async def _retry_stream_with_recovery(
+        self,
+        reason: str,
+        stream_envelope: StreamingResponseEnvelope,
+        original_request: ChatRequest,
+        session_id: str,
+        context: RequestContext,
+        retry_depth: int,
+    ) -> StreamingResponseEnvelope:
+        if retry_depth >= self._MAX_EMPTY_STREAM_RETRIES:
+            logger.warning(
+                "%s Maximum recovery attempts reached for session %s",
+                reason,
+                session_id,
+            )
+            return await self._build_fallback_stream(
+                stream_envelope=stream_envelope,
+                session_id=session_id,
+                reason=reason,
+            )
+
+        logger.info("%s", reason)
+        recovery_prompt = self._STREAM_RECOVERY_PROMPT
+        retry_request = await self._create_retry_request(
+            original_request, recovery_prompt
+        )
+        retry_response = await self._backend_processor.process_backend_request(
+            request=retry_request, session_id=session_id, context=context
+        )
+
+        if isinstance(retry_response, StreamingResponseEnvelope):
+            return await self._process_streaming_response(
+                retry_response,
+                retry_request,
+                session_id,
+                context,
+                retry_depth=retry_depth + 1,
+            )
+
+        async def single_item_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=retry_response.content)
+
+        return StreamingResponseEnvelope(
+            content=single_item_stream(),
+            media_type=stream_envelope.media_type,
+            headers=stream_envelope.headers,
+            cancel_callback=stream_envelope.cancel_callback,
+        )
+
     def _create_loop_detector(self) -> ILoopDetector:
         """Create or resolve a loop detector instance for streaming inspection."""
         try:
@@ -502,6 +556,36 @@ class BackendRequestManager(IBackendRequestManager):
         fallback = HybridLoopDetector()
         fallback.reset()
         return fallback
+
+    @staticmethod
+    def _chunk_contains_tool_call(chunk: ProcessedResponse | bytes) -> bool:
+        import json
+
+        if isinstance(chunk, ProcessedResponse):
+            if chunk.metadata and chunk.metadata.get("tool_calls"):
+                return True
+            candidate = chunk.content
+        elif isinstance(chunk, bytes):
+            try:
+                decoded = chunk.decode("utf-8")
+                candidate = json.loads(decoded)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return False
+        else:
+            candidate = None
+
+        if isinstance(candidate, dict):
+            choices = candidate.get("choices")
+            if isinstance(choices, list) and choices:
+                choice = choices[0]
+                if isinstance(choice, dict):
+                    delta = choice.get("delta")
+                    if isinstance(delta, dict) and delta.get("tool_calls"):
+                        return True
+                    message = choice.get("message")
+                    if isinstance(message, dict) and message.get("tool_calls"):
+                        return True
+        return False
 
     @staticmethod
     def _extract_text_from_chunk(chunk: ProcessedResponse | bytes) -> str:
@@ -577,3 +661,53 @@ class BackendRequestManager(IBackendRequestManager):
                             if isinstance(msg_content, str):
                                 return msg_content
         return ""
+
+    async def _build_fallback_stream(
+        self,
+        stream_envelope: StreamingResponseEnvelope,
+        session_id: str,
+        reason: str,
+    ) -> StreamingResponseEnvelope:
+        """Generate a synthetic assistant response when recovery fails."""
+        logger.warning(
+            "Returning fallback assistant message for session %s: %s",
+            session_id,
+            reason,
+        )
+
+        payload = {
+            "id": "proxy-empty-response-retry",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "proxy-empty-response",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "content": (
+                            "Proxy notice: the upstream model returned no content "
+                            "after multiple attempts. Please retry or adjust your request."
+                        ),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        async def fallback_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content=payload,
+                metadata={
+                    "proxy_generated": True,
+                    "empty_response_recovery_failed": True,
+                    "recovery_reason": reason,
+                },
+            )
+
+        return StreamingResponseEnvelope(
+            content=fallback_stream(),
+            media_type=stream_envelope.media_type,
+            headers=stream_envelope.headers,
+            cancel_callback=stream_envelope.cancel_callback,
+        )
