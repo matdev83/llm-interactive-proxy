@@ -121,8 +121,10 @@ class ReasoningStreamProcessor:
                     try:
                         logger.log(
                             TRACE_LEVEL,
-                            "Reasoning stream chunk parsed: %s",
-                            json.dumps(chunk)[:500],
+                            "Reasoning stream chunk parsed: id=%s, model=%s, choices=%d",
+                            chunk.get("id"),
+                            chunk.get("model"),
+                            len(chunk.get("choices", [])),
                         )
                     except Exception:
                         logger.log(

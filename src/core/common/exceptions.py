@@ -186,6 +186,18 @@ class ParsingError(LLMProxyError):
         super().__init__(message, details, status_code=422, **kwargs)
 
 
+class AngelVerificationError(LLMProxyError):
+    """Raised when Angel verification cannot complete."""
+
+    def __init__(
+        self,
+        message: str = "Angel verification failed",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, status_code=500, **kwargs)
+
+
 # Additional exceptions referenced across the codebase
 
 

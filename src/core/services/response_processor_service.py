@@ -95,9 +95,9 @@ class ResponseProcessor(IResponseProcessor):
         """
         try:
             from src.core.di.services import get_service_provider
-            from src.core.domain.chat import ChatMessage, ChatRequest
+            from src.core.domain.chat import ChatRequest
             from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.services.angel_service import STEERING_TEMPLATE, AngelService
+            from src.core.services.angel_service import AngelService
 
             if not self._angel_service:
                 # Resolve angel model spec from app_state config
@@ -120,71 +120,58 @@ class ResponseProcessor(IResponseProcessor):
 
             svc: AngelService = self._angel_service
 
-            # Build Angel request messages
-            if isinstance(original_request, ChatRequest):
-                messages = svc.build_verification_messages(original_request, content)
-                backend_str, model, params = svc.parse_model()
+            if not isinstance(original_request, ChatRequest):
+                return {"action": "pass"}
 
-                # Submit to backend
-                provider = get_service_provider()
-                backend_service: IBackendService = provider.get_required_service(
-                    cast(type, IBackendService)
-                )
-                angel_req = ChatRequest(
-                    model=f"{backend_str}:{model}",
-                    messages=messages,
-                    max_tokens=original_request.max_tokens or 512,
-                    stream=False,
-                )
-                # Apply optional params
-                if isinstance(params, dict):
-                    angel_req = angel_req.model_copy(update={**params})
+            verification_request = svc.build_verification_request(
+                original_request, content
+            )
 
-                angel_response = await backend_service.chat_completions(
-                    angel_req, stream=False, allow_failover=True, context=None
-                )
-                angel_text = ""
-                if hasattr(angel_response, "content"):
-                    angel_text = (
-                        angel_response.content
-                        if isinstance(angel_response.content, str)
-                        else str(angel_response.content)
-                    )
+            provider = get_service_provider()
+            backend_service: IBackendService = provider.get_required_service(
+                cast(type, IBackendService)
+            )
 
-                decision = svc.parse_angel_output(angel_text)
-                if decision.decision == "pass":
-                    return {"action": "pass"}
-                steering_msg = decision.steering_message or ""
+            def _extract_text(payload: Any) -> str:
+                if payload is None:
+                    return ""
+                value = getattr(payload, "content", payload)
+                if isinstance(value, str):
+                    return value
+                if isinstance(value, bytes):
+                    try:
+                        return value.decode("utf-8")
+                    except Exception:
+                        return value.decode("utf-8", errors="ignore")
+                return str(value)
 
-                # Build steering message, re-run main model
-                steering_text = STEERING_TEMPLATE.replace(
-                    "{angels_steering_message}", steering_msg
-                )
-                steering_system = ChatMessage(role="system", content=steering_text)
-                corrected_req = original_request.model_copy(
-                    update={
-                        "messages": [*list(original_request.messages), steering_system]
-                    }
-                )
+            angel_response = await backend_service.chat_completions(
+                verification_request, stream=False, allow_failover=True, context=None
+            )
+            angel_text = _extract_text(angel_response)
 
-                corrected_response = await backend_service.chat_completions(
-                    corrected_req, stream=False, allow_failover=True, context=None
-                )
-                corrected_text = (
-                    corrected_response.content
-                    if hasattr(corrected_response, "content")
-                    else ""
-                )
+            decision = svc.parse_angel_output(angel_text)
+            if decision.decision == "pass":
+                return {"action": "pass"}
 
-                # Detect override marker
-                cleaned = svc.strip_override_marker(str(corrected_text or ""))
-                if cleaned.strip() != str(corrected_text or "").strip():
-                    # Override requested -> return original content
-                    return {"action": "pass"}
+            steering_msg = (decision.steering_message or "").strip()
+            if not steering_msg:
+                return {"action": "pass"}
 
-                return {"action": "steer", "corrected_content": cleaned}
-            # If original_request is not a ChatRequest, return pass
-            return {"action": "pass"}
+            correction_request = svc.build_correction_request(
+                original_request, content, steering_msg
+            )
+
+            corrected_response = await backend_service.chat_completions(
+                correction_request, stream=False, allow_failover=True, context=None
+            )
+            corrected_text = _extract_text(corrected_response)
+
+            if svc.has_override_marker(corrected_text):
+                return {"action": "pass"}
+
+            cleaned = svc.strip_override_marker(corrected_text)
+            return {"action": "steer", "corrected_content": cleaned}
         except Exception:
             logger.debug("Angel verification internal error", exc_info=True)
             return None

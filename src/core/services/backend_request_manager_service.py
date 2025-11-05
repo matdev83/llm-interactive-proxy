@@ -563,6 +563,17 @@ class BackendRequestManager(IBackendRequestManager):
                 retry_depth=retry_depth,
             )
 
+        angel_model_spec: str | None = None
+        try:
+            app_state = getattr(context, "app_state", None)
+            if app_state is not None:
+                cfg = app_state.get_setting("app_config")
+                angel_model_spec = getattr(
+                    getattr(cfg, "session", None), "angel_model", None
+                )
+        except Exception:
+            angel_model_spec = None
+
         cancel_callback = stream_envelope.cancel_callback
         loop_detector = self._create_loop_detector()
         original_extra_body = getattr(original_request, "extra_body", None)
@@ -673,8 +684,131 @@ class BackendRequestManager(IBackendRequestManager):
 
                 yield chunk  # type: ignore[return-value]
 
+        async def angel_guarded_stream() -> AsyncIterator[ProcessedResponse]:
+            buffered_chunks: list[ProcessedResponse] = []
+            text_fragments: list[str] = []
+
+            async for chunk in monitored_stream():
+                if isinstance(chunk, ProcessedResponse):
+                    buffered_chunks.append(chunk)
+                    text_piece = self._extract_text_from_chunk(chunk)
+                else:
+                    text_piece = self._extract_text_from_chunk(chunk)
+                    buffered_chunks.append(
+                        ProcessedResponse(
+                            content=text_piece,
+                            metadata=getattr(chunk, "metadata", {}),
+                        )
+                    )
+
+                if text_piece:
+                    text_fragments.append(text_piece)
+
+            if not buffered_chunks:
+                return
+
+            if not angel_model_spec or not isinstance(original_request, ChatRequest):
+                for buffered in buffered_chunks:
+                    yield buffered
+                return
+
+            try:
+                from src.core.di.services import get_service_provider
+                from src.core.interfaces.backend_service_interface import (
+                    IBackendService,
+                )
+                from src.core.services.angel_service import AngelService
+            except Exception:
+                for buffered in buffered_chunks:
+                    yield buffered
+                return
+
+            angel_service = AngelService(angel_model_spec or "")
+            if not angel_service.is_enabled():
+                for buffered in buffered_chunks:
+                    yield buffered
+                return
+
+            combined_text = "".join(text_fragments)
+            if not combined_text.strip():
+                for buffered in buffered_chunks:
+                    yield buffered
+                return
+
+            def _extract_text(payload: Any) -> str:
+                if payload is None:
+                    return ""
+                value = getattr(payload, "content", payload)
+                if isinstance(value, str):
+                    return value
+                if isinstance(value, bytes):
+                    try:
+                        return value.decode("utf-8")
+                    except Exception:
+                        return value.decode("utf-8", errors="ignore")
+                return str(value)
+
+            try:
+                provider = get_service_provider()
+                backend_service: IBackendService = provider.get_required_service(  # type: ignore[assignment]
+                    cast(type, IBackendService)
+                )
+
+                verification_request = angel_service.build_verification_request(
+                    original_request, combined_text
+                )
+
+                angel_response = await backend_service.chat_completions(
+                    verification_request,
+                    stream=False,
+                    allow_failover=True,
+                    context=None,
+                )
+                angel_text = _extract_text(angel_response)
+
+                decision = angel_service.parse_angel_output(angel_text)
+                steering_msg = (decision.steering_message or "").strip()
+                if decision.decision != "steer" or not steering_msg:
+                    for buffered in buffered_chunks:
+                        yield buffered
+                    return
+
+                correction_request = angel_service.build_correction_request(
+                    original_request, combined_text, steering_msg
+                )
+
+                corrected_response = await backend_service.chat_completions(
+                    correction_request,
+                    stream=False,
+                    allow_failover=True,
+                    context=None,
+                )
+                corrected_text = _extract_text(corrected_response)
+
+                if angel_service.has_override_marker(corrected_text):
+                    for buffered in buffered_chunks:
+                        yield buffered
+                    return
+
+                cleaned = angel_service.strip_override_marker(corrected_text)
+                yield ProcessedResponse(
+                    content=cleaned,
+                    metadata={
+                        "corrected_by_angel": True,
+                        "is_done": True,
+                        "angel_decision": "steer",
+                    },
+                )
+            except Exception:
+                logger.debug(
+                    "Angel streaming verification failed; forwarding original chunks",
+                    exc_info=True,
+                )
+                for buffered in buffered_chunks:
+                    yield buffered
+
         return StreamingResponseEnvelope(
-            content=monitored_stream(),
+            content=angel_guarded_stream(),
             media_type=stream_envelope.media_type,
             headers=stream_envelope.headers,
             cancel_callback=cancel_callback,

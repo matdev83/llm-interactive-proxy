@@ -138,7 +138,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--hybrid-reasoning-force-initial-turns",
         dest="hybrid_reasoning_force_initial_turns",
         type=int,
-        default=1,
+        default=4,
         metavar="N",
         help="Number of turns at the beginning of a new session when reasoning model probability is overridden to 1 (default: 1)",
     )

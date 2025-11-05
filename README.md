@@ -1037,6 +1037,58 @@ The hybrid backend can be configured to repeat messages in the execution phase f
     hybrid_backend_repeat_messages: true
   ```
 
+#### Hybrid Reasoning Parameters
+
+The hybrid backend includes additional parameters to control reasoning behavior and timing:
+
+**`--hybrid-reasoning-force-initial-turns`** (Default: 4)
+
+Controls the number of initial conversation turns where the reasoning model probability is overridden to 1.0, ensuring high-quality reasoning context at the beginning of sessions.
+
+- **Purpose**: Guarantees strong reasoning model output during early conversation stages for better context pre-population
+- **Behavior**: During the first N turns, the reasoning model is always used regardless of the `reasoning_injection_probability` setting
+- **Use Cases**:
+  - **New sessions**: Ensures high-quality reasoning foundation when starting conversations
+  - **Complex tasks**: Provides consistent reasoning for initial problem analysis
+  - **Context building**: Establishes strong reasoning patterns for execution models to follow
+- **Configuration**:
+
+  ```bash
+  # CLI
+  --hybrid-reasoning-force-initial-turns 4
+  
+  # Environment Variable
+  export HYBRID_REASONING_FORCE_INITIAL_TURNS=4
+  
+  # YAML
+  backends:
+    hybrid_reasoning_force_initial_turns: 4
+  ```
+
+**`--hybrid-reasoning-model-timeout`** (Default: 60 seconds)
+
+Sets the timeout duration for reasoning model API calls in hybrid scenarios.
+
+- **Purpose**: Prevents indefinite waiting when reasoning models take too long to complete their reasoning process
+- **Behavior**: If the reasoning model doesn't respond within the specified time, the request is cancelled and execution proceeds without reasoning
+- **Use Cases**:
+  - **Performance control**: Limits maximum latency for reasoning phase
+  - **Cost management**: Prevents runaway API costs from stuck reasoning requests
+  - **Reliability**: Ensures execution phase can proceed even if reasoning fails
+- **Configuration**:
+
+  ```bash
+  # CLI
+  --hybrid-reasoning-model-timeout 60
+  
+  # Environment Variable
+  export HYBRID_REASONING_MODEL_TIMEOUT=60
+  
+  # YAML
+  backends:
+    hybrid_reasoning_model_timeout: 60
+  ```
+
 ### Troubleshooting Hybrid Backend Issues
 
 If you encounter issues with the hybrid backend, you can experiment with these two parameters to tweak your hybrid setup:
@@ -1488,6 +1540,8 @@ The URI Model Parameters feature allows you to specify model parameters directly
 
 - **temperature**: Controls randomness in model outputs (0.0-2.0)
 - **reasoning_effort**: Controls computational effort for reasoning models (low/medium/high)
+- **top_p**: Controls diversity via nucleus sampling (e.g., 0.9)
+- **top_k**: Controls diversity by filtering to the K most likely next tokens (e.g., 40)
 
 ### Basic Usage
 

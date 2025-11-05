@@ -69,12 +69,21 @@ async def test_response_processor_calls_angel_when_configured(monkeypatch) -> No
 
     # Stub backend_service
     class DummyBackendService:
+        def __init__(self) -> None:
+            self.requests: list[Any] = []
+
         async def chat_completions(
             self, request, stream=False, allow_failover=True, context=None
         ):
-            # First call returns steering, second call returns corrected text
-            if any(msg.role == "assistant" for msg in request.messages):
-                # Angel response
+            self.requests.append(request)
+            call_index = len(self.requests)
+
+            if call_index == 1:
+                # Angel verification request
+                assert request.stream is False
+                assert request.model == "openai:gpt-4o-mini"
+                assert request.messages[-1].role == "assistant"
+                assert request.messages[-1].content == "initial"
                 return type(
                     "R",
                     (),
@@ -82,9 +91,15 @@ async def test_response_processor_calls_angel_when_configured(monkeypatch) -> No
                         "content": "\n<angels_steering_message>Fix it</angels_steering_message>\n"
                     },
                 )()
-            else:
-                # Correction response without override
-                return type("R", (), {"content": "Corrected output"})()
+
+            # Correction request
+            assert request.stream is False
+            assert request.model == "openai:gpt-4o-mini"
+            assert request.messages[-2].role == "assistant"
+            assert request.messages[-2].content == "initial"
+            assert request.messages[-1].role == "system"
+            assert "<detected_problem>" in request.messages[-1].content
+            return type("R", (), {"content": "Corrected output"})()
 
     class DummyProvider:
         def get_required_service(self, t):
@@ -137,9 +152,15 @@ async def test_response_processor_keeps_original_on_pass(monkeypatch) -> None:
     call_counter: dict[str, int] = {"count": 0}
 
     class DummyBackendService:
+        def __init__(self) -> None:
+            self.requests: list[Any] = []
+
         async def chat_completions(self, request, *args, **kwargs):
             call_counter["count"] += 1
-            assert any(msg.role == "assistant" for msg in request.messages)
+            self.requests.append(request)
+            assert request.stream is False
+            assert request.model == "openai:gpt-4o-mini"
+            assert request.messages[-1].role == "assistant"
             return type(
                 "R",
                 (),
@@ -199,7 +220,8 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
 
         async def chat_completions(self, request, *args, **kwargs):
             self.calls += 1
-            if any(msg.role == "assistant" for msg in request.messages):
+            if self.calls == 1:
+                assert request.messages[-1].role == "assistant"
                 return type(
                     "R",
                     (),
@@ -207,6 +229,9 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
                         "content": "\n<angels_steering_message>Fix it</angels_steering_message>\n"
                     },
                 )()
+
+            assert request.messages[-2].role == "assistant"
+            assert request.messages[-1].role == "system"
             return type(
                 "R",
                 (),

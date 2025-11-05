@@ -83,3 +83,35 @@ def test_parse_model_with_params(
     assert backend == expected_backend
     assert model == expected_model
     assert params == expected_params
+
+
+def test_build_verification_request_uses_default_backend() -> None:
+    svc = AngelService("gpt-4o-mini?temperature=0.2")
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="Hi")],
+        stream=True,
+    )
+    verification = svc.build_verification_request(request, "Draft reply")
+    assert verification.model == "openai:gpt-4o-mini"
+    assert verification.stream is False
+    assert verification.messages[0].role == "system"
+    assert verification.messages[0].content == ANGEL_PROMPT
+    assert verification.messages[-1].role == "assistant"
+    assert verification.messages[-1].content == "Draft reply"
+
+
+def test_build_correction_request_includes_previous_response() -> None:
+    svc = AngelService("openai:gpt-4o-mini")
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="Hi")],
+        stream=True,
+    )
+    correction = svc.build_correction_request(request, "Bad output", "Fix the solution")
+    assert correction.model == "openai:gpt-4o-mini"
+    assert correction.stream is False
+    assert correction.messages[-2].role == "assistant"
+    assert correction.messages[-2].content == "Bad output"
+    assert correction.messages[-1].role == "system"
+    assert "Fix the solution" in correction.messages[-1].content

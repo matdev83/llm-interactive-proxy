@@ -5,7 +5,7 @@ from typing import Any
 
 from src.core.domain.angel import AngelDecision
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.model_utils import parse_model_with_params
+from src.core.domain.model_utils import parse_model_backend, parse_model_with_params
 
 ANGEL_PROMPT = (
     "You are now an `Angel`, an agentic coding session verification assistant. Your role is to monitor the progress of the session and check if remote model executing it is making a progress and not making some obvious errors. You are here to ensure a great user experience, that is to automatically detect and correct all misbehaviors before they even reach the user.\n"
@@ -54,7 +54,7 @@ class AngelService:
     )
 
     def __init__(self, model_spec: str | None) -> None:
-        self._model_spec = model_spec or ""
+        self._model_spec = (model_spec or "").strip()
 
     def is_enabled(self) -> bool:
         return bool(self._model_spec and self._model_spec.strip())
@@ -65,19 +65,94 @@ class AngelService:
         )
         return backend, model, params
 
+    @staticmethod
+    def _compose_model_identifier(backend: str, model: str) -> str:
+        return f"{backend}:{model}" if backend else model
+
+    @staticmethod
+    def _normalize_assistant_content(assistant_response: Any) -> str:
+        if assistant_response is None:
+            return ""
+        if isinstance(assistant_response, str):
+            return assistant_response
+        return str(assistant_response)
+
+    def _resolve_model_for_request(
+        self, original_request: ChatRequest | None
+    ) -> tuple[str, str, dict[str, Any]]:
+        default_backend = ""
+        if original_request is not None:
+            try:
+                default_backend, _ = parse_model_backend(original_request.model)
+            except Exception:
+                default_backend = ""
+        return self.parse_model(default_backend)
+
     def build_verification_messages(
-        self, request: ChatRequest, assistant_response: str | dict
+        self, request: ChatRequest, assistant_response: Any
     ) -> list[ChatMessage]:
         messages = [ChatMessage(role="system", content=ANGEL_PROMPT)]
         # Include full context
         messages.extend(list(request.messages))
         # Attach last assistant response
-        messages.append(ChatMessage(role="assistant", content=assistant_response))  # type: ignore[arg-type]
+        normalized = self._normalize_assistant_content(assistant_response)
+        messages.append(ChatMessage(role="assistant", content=normalized))
         return messages
+
+    def build_verification_request(
+        self, request: ChatRequest, assistant_response: Any
+    ) -> ChatRequest:
+        backend, model, params = self._resolve_model_for_request(request)
+        messages = self.build_verification_messages(request, assistant_response)
+        target_model = self._compose_model_identifier(backend, model)
+
+        verification = request.model_copy(
+            update={
+                "model": target_model,
+                "messages": messages,
+                "stream": False,
+            }
+        )
+
+        if isinstance(params, dict) and params:
+            verification = verification.model_copy(update={**params})
+
+        return verification
+
+    @staticmethod
+    def build_steering_payload(steering_message: str) -> str:
+        steering_text = STEERING_TEMPLATE.replace(
+            "{angels_steering_message}", steering_message
+        )
+        return steering_text
+
+    def build_correction_request(
+        self,
+        request: ChatRequest,
+        assistant_response: Any,
+        steering_message: str,
+    ) -> ChatRequest:
+        normalized_response = self._normalize_assistant_content(assistant_response)
+        steering_text = self.build_steering_payload(steering_message)
+
+        augmented_messages = [
+            *list(request.messages),
+            ChatMessage(role="assistant", content=normalized_response),
+            ChatMessage(role="system", content=steering_text),
+        ]
+
+        return request.model_copy(
+            update={
+                "messages": augmented_messages,
+                "stream": False,
+            }
+        )
 
     def parse_angel_output(self, text: str) -> AngelDecision:
         # Pass decision
-        if "<angels_decision>Pass</angels_decision>" in text:
+        if re.search(
+            r"<angels_decision>\s*Pass\s*</angels_decision>", text, re.IGNORECASE
+        ):
             return AngelDecision(decision="pass")
         # Steering message
         m = re.search(
@@ -90,6 +165,9 @@ class AngelService:
             return AngelDecision(decision="steer", steering_message=msg)
         # Default to pass if no recognizable XML
         return AngelDecision(decision="pass")
+
+    def has_override_marker(self, text: str) -> bool:
+        return bool(self._OVERRIDE_RE.search(text))
 
     def strip_override_marker(self, text: str) -> str:
         return self._OVERRIDE_RE.sub("", text)

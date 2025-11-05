@@ -75,6 +75,10 @@ async def test_streaming_angel_pass_forwards_original(monkeypatch) -> None:
 
         async def chat_completions(self, request, *_, **__):
             self.calls.append("angel")
+            assert request.stream is False
+            assert request.model == "openai:gpt-4o-mini"
+            assert request.messages[-1].role == "assistant"
+            assert request.messages[-1].content == "Hello world"
             return type(
                 "R",
                 (),
@@ -132,8 +136,10 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
             self.calls: list[str] = []
 
         async def chat_completions(self, request, *_, **__):
-            if any(msg.role == "assistant" for msg in request.messages):
+            if not self.calls:
                 self.calls.append("angel")
+                assert request.messages[-1].role == "assistant"
+                assert request.messages[-1].content == "Bad output"
                 return type(
                     "R",
                     (),
@@ -141,7 +147,11 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
                         "content": "\n<angels_steering_message>Be specific</angels_steering_message>\n"
                     },
                 )()
+
             self.calls.append("correction")
+            assert request.messages[-2].role == "assistant"
+            assert request.messages[-2].content == "Bad output"
+            assert request.messages[-1].role == "system"
             return type("R", (), {"content": "Corrected answer"})()
 
     backend_service = DummyBackendService()
@@ -169,4 +179,74 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
         chunks_out.append(str(chunk.content))
 
     assert chunks_out == ["Corrected answer"]
+    assert backend_service.calls == ["angel", "correction"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    manager = BackendRequestManager(backend_processor, response_processor)
+
+    original_request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="Hi")],
+        stream=True,
+    )
+
+    chunks = [
+        ProcessedResponse(content="Draft", metadata={}),
+        ProcessedResponse(content=" reply", metadata={"is_done": True}),
+    ]
+    stream_envelope = StreamingResponseEnvelope(content=_build_stream(chunks))
+
+    class DummyBackendService:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def chat_completions(self, request, *_, **__):
+            if not self.calls:
+                self.calls.append("angel")
+                assert request.messages[-1].role == "assistant"
+                assert request.messages[-1].content == "Draft reply"
+                return type(
+                    "R",
+                    (),
+                    {
+                        "content": "\n<angels_steering_message>Check again</angels_steering_message>\n"
+                    },
+                )()
+
+            self.calls.append("correction")
+            return type(
+                "R",
+                (),
+                {"content": "<override_angel>True</override_angel>"},
+            )()
+
+    backend_service = DummyBackendService()
+
+    class DummyProvider:
+        def get_required_service(self, _t):
+            return backend_service
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider",
+        lambda: DummyProvider(),
+        raising=False,
+    )
+
+    context = _make_context(_DummyAppState("openai:gpt-4o-mini"))
+
+    result = await manager._process_streaming_response(
+        stream_envelope, original_request, "session-override", context
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.content is not None
+    recovered: list[str] = []
+    async for chunk in result.content:
+        recovered.append(str(chunk.content))
+
+    assert recovered == ["Draft", " reply"]
     assert backend_service.calls == ["angel", "correction"]

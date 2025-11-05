@@ -214,6 +214,7 @@ class TestBackendServiceTargeted:
         mock_session.state.backend_config.backend_type = "openai"
         mock_session.state.backend_config.model = "gpt-4"
         mock_session.state.backend_config.interactive_mode = False
+        mock_session.history = []  # Ensure history has a len()
 
         with (
             patch.object(

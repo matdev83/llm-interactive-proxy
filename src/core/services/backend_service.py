@@ -1049,6 +1049,12 @@ class BackendService(IBackendService):
                         if backend_config_from_app and backend_config_from_app.identity
                         else app_config_typed.identity
                     )
+
+                # Populate session turn count if session is available
+                if session and hasattr(session, "history"):
+                    identity = identity.model_copy(
+                        update={"session_turn_count": len(session.history)}
+                    )
                 # Wire-capture: capture outbound payload pre-call (best-effort)
                 try:
                     if self._wire_capture and self._wire_capture.enabled():

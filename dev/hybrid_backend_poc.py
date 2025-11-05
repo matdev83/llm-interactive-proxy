@@ -113,11 +113,10 @@ def detect_reasoning_end(chunk: dict, accumulated_content: str) -> tuple[bool, s
     ]
 
     for marker in transition_markers:
-        if marker in content_lower:
+        if marker in content_lower and len(accumulated_content) > 1000:
             # Only trigger if we have substantial content (avoid premature cancellation)
-            if len(accumulated_content) > 1000:
-                print_info("  ⚠️  Detected transition marker", marker, Colors.YELLOW)
-                return True, f"transition_marker:{marker}"
+            print_info("  ⚠️  Detected transition marker", marker, Colors.YELLOW)
+            return True, f"transition_marker:{marker}"
 
     return False, ""
 
@@ -165,56 +164,56 @@ async def call_reasoning_model(prompt: str) -> str:
 
     print(f"\n{Colors.GREEN}Streaming reasoning output:{Colors.END}\n")
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        async with client.stream(
+    async with (
+        httpx.AsyncClient(timeout=TIMEOUT) as client,
+        client.stream(
             "POST",
             f"{PROXY_BASE_URL}/chat/completions",
             json=request_payload,
             headers={"Content-Type": "application/json"},
-        ) as response:
+        ) as response,
+    ):
 
-            if response.status_code != 200:
-                error_text = await response.aread()
-                raise Exception(
-                    f"Reasoning model request failed: {response.status_code} - {error_text.decode()}"
+        if response.status_code != 200:
+            error_text = await response.aread()
+            raise Exception(
+                f"Reasoning model request failed: {response.status_code} - {error_text.decode()}"
+            )
+
+        print_info("Response Status", str(response.status_code), Colors.GREEN)
+        print(f"\n{Colors.GREEN}{'─' * 80}{Colors.END}")
+
+        chunk_count = 0
+        async for chunk in parse_sse_stream(response):
+            captured_chunks.append(chunk)
+            chunk_count += 1
+
+            # Extract and display content
+            choices = chunk.get("choices", [])
+            for choice in choices:
+                delta = choice.get("delta", {})
+                content = delta.get("content", "")
+                if content:
+                    accumulated_content += content
+                    print(f"{Colors.GREEN}{content}{Colors.END}", end="", flush=True)
+
+            # Check if reasoning is complete (with accumulated content)
+            is_complete, method = detect_reasoning_end(chunk, accumulated_content)
+            if is_complete:
+                reasoning_complete = True
+                detection_method = method
+                print(
+                    f"\n\n{Colors.YELLOW}🛑 Reasoning phase detected as complete!{Colors.END}"
                 )
+                print_info("Detection method", detection_method, Colors.YELLOW)
+                print_info("Chunks captured", str(chunk_count), Colors.YELLOW)
 
-            print_info("Response Status", str(response.status_code), Colors.GREEN)
-            print(f"\n{Colors.GREEN}{'─' * 80}{Colors.END}")
+                # Cancel the stream
+                await response.aclose()
+                print_info("Stream cancelled", "✓", Colors.YELLOW)
+                break
 
-            chunk_count = 0
-            async for chunk in parse_sse_stream(response):
-                captured_chunks.append(chunk)
-                chunk_count += 1
-
-                # Extract and display content
-                choices = chunk.get("choices", [])
-                for choice in choices:
-                    delta = choice.get("delta", {})
-                    content = delta.get("content", "")
-                    if content:
-                        accumulated_content += content
-                        print(
-                            f"{Colors.GREEN}{content}{Colors.END}", end="", flush=True
-                        )
-
-                # Check if reasoning is complete (with accumulated content)
-                is_complete, method = detect_reasoning_end(chunk, accumulated_content)
-                if is_complete:
-                    reasoning_complete = True
-                    detection_method = method
-                    print(
-                        f"\n\n{Colors.YELLOW}🛑 Reasoning phase detected as complete!{Colors.END}"
-                    )
-                    print_info("Detection method", detection_method, Colors.YELLOW)
-                    print_info("Chunks captured", str(chunk_count), Colors.YELLOW)
-
-                    # Cancel the stream
-                    await response.aclose()
-                    print_info("Stream cancelled", "✓", Colors.YELLOW)
-                    break
-
-            print(f"\n{Colors.GREEN}{'─' * 80}{Colors.END}\n")
+        print(f"\n{Colors.GREEN}{'─' * 80}{Colors.END}\n")
 
     # Extract reasoning content
     reasoning_output = extract_reasoning_content(captured_chunks)
@@ -271,35 +270,35 @@ async def call_execution_model(prompt: str, reasoning_output: str) -> str:
 
     response_parts = []
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        async with client.stream(
+    async with (
+        httpx.AsyncClient(timeout=TIMEOUT) as client,
+        client.stream(
             "POST",
             f"{PROXY_BASE_URL}/chat/completions",
             json=request_payload,
             headers={"Content-Type": "application/json"},
-        ) as response:
+        ) as response,
+    ):
 
-            if response.status_code != 200:
-                error_text = await response.aread()
-                raise Exception(
-                    f"Execution model request failed: {response.status_code} - {error_text.decode()}"
-                )
+        if response.status_code != 200:
+            error_text = await response.aread()
+            raise Exception(
+                f"Execution model request failed: {response.status_code} - {error_text.decode()}"
+            )
 
-            print_info("Response Status", str(response.status_code), Colors.GREEN)
-            print(f"\n{Colors.GREEN}{'─' * 80}{Colors.END}")
+        print_info("Response Status", str(response.status_code), Colors.GREEN)
+        print(f"\n{Colors.GREEN}{'─' * 80}{Colors.END}")
 
-            async for chunk in parse_sse_stream(response):
-                choices = chunk.get("choices", [])
-                for choice in choices:
-                    delta = choice.get("delta", {})
-                    content = delta.get("content", "")
-                    if content:
-                        response_parts.append(content)
-                        print(
-                            f"{Colors.GREEN}{content}{Colors.END}", end="", flush=True
-                        )
+        async for chunk in parse_sse_stream(response):
+            choices = chunk.get("choices", [])
+            for choice in choices:
+                delta = choice.get("delta", {})
+                content = delta.get("content", "")
+                if content:
+                    response_parts.append(content)
+                    print(f"{Colors.GREEN}{content}{Colors.END}", end="", flush=True)
 
-            print(f"\n{Colors.GREEN}{'─' * 80}{Colors.END}\n")
+        print(f"\n{Colors.GREEN}{'─' * 80}{Colors.END}\n")
 
     execution_output = "".join(response_parts)
     print_info("Execution output", f"{len(execution_output)} characters", Colors.BLUE)
