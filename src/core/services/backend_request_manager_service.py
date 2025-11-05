@@ -7,6 +7,7 @@ This module provides the implementation of the backend request manager interface
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator, Iterable
 from typing import Any, cast
 
@@ -356,7 +357,11 @@ class BackendRequestManager(IBackendRequestManager):
                 "Maximum empty stream recovery attempts reached for session %s",
                 session_id,
             )
-            return stream_envelope
+            return await self._build_fallback_stream(
+                stream_envelope=stream_envelope,
+                session_id=session_id,
+                reason="Empty streaming response after maximum retries",
+            )
 
         original_stream = stream_envelope.content
         if original_stream is None:
@@ -499,7 +504,11 @@ class BackendRequestManager(IBackendRequestManager):
                 reason,
                 session_id,
             )
-            return stream_envelope
+            return await self._build_fallback_stream(
+                stream_envelope=stream_envelope,
+                session_id=session_id,
+                reason=reason,
+            )
 
         logger.info("%s", reason)
         recovery_prompt = self._STREAM_RECOVERY_PROMPT
@@ -652,3 +661,53 @@ class BackendRequestManager(IBackendRequestManager):
                             if isinstance(msg_content, str):
                                 return msg_content
         return ""
+
+    async def _build_fallback_stream(
+        self,
+        stream_envelope: StreamingResponseEnvelope,
+        session_id: str,
+        reason: str,
+    ) -> StreamingResponseEnvelope:
+        """Generate a synthetic assistant response when recovery fails."""
+        logger.warning(
+            "Returning fallback assistant message for session %s: %s",
+            session_id,
+            reason,
+        )
+
+        payload = {
+            "id": "proxy-empty-response-retry",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "proxy-empty-response",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "content": (
+                            "Proxy notice: the upstream model returned no content "
+                            "after multiple attempts. Please retry or adjust your request."
+                        ),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        async def fallback_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content=payload,
+                metadata={
+                    "proxy_generated": True,
+                    "empty_response_recovery_failed": True,
+                    "recovery_reason": reason,
+                },
+            )
+
+        return StreamingResponseEnvelope(
+            content=fallback_stream(),
+            media_type=stream_envelope.media_type,
+            headers=stream_envelope.headers,
+            cancel_callback=stream_envelope.cancel_callback,
+        )
