@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -136,7 +137,10 @@ class ToolAccessPolicyService:
         self._total_evaluation_time_ms = 0.0
 
         # Policy lookup cache: (model_name, agent) -> AccessPolicy | None
-        self._policy_cache: dict[tuple[str, str | None], AccessPolicy | None] = {}
+        self._policy_cache: OrderedDict[tuple[str, str | None], AccessPolicy | None] = (
+            OrderedDict()
+        )
+        self._policy_cache_size = 128
         self._cache_hits = 0
         self._cache_misses = 0
         self._cache_lock = threading.Lock()
@@ -244,6 +248,7 @@ class ToolAccessPolicyService:
         cache_key = (model_name, agent)
         with self._cache_lock:
             if cache_key in self._policy_cache:
+                self._policy_cache.move_to_end(cache_key)
                 self._cache_hits += 1
                 return self._policy_cache[cache_key]
             self._cache_misses += 1
@@ -260,6 +265,8 @@ class ToolAccessPolicyService:
         # Cache the result
         with self._cache_lock:
             self._policy_cache[cache_key] = selected_policy
+            if len(self._policy_cache) > self._policy_cache_size:
+                self._policy_cache.popitem(last=False)
         return selected_policy
 
     def filter_tool_definitions(
