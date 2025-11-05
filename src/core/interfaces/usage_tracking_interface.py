@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from src.core.domain.usage_data import UsageData
+from src.core.domain.usage_stats import UsageStatsResponse
 
 
 class IUsageTrackingService(abc.ABC):
@@ -44,7 +45,7 @@ class IUsageTrackingService(abc.ABC):
     @abc.abstractmethod
     async def get_usage_stats(
         self, project: str | None = None, days: int = 30
-    ) -> dict[str, Any]:
+    ) -> UsageStatsResponse:
         pass
 
     @abc.abstractmethod

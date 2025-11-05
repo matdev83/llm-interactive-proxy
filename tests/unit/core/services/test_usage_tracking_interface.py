@@ -3,6 +3,7 @@
 import inspect
 from abc import ABC
 
+from src.core.domain.usage_stats import UsageStatsResponse
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 
 
@@ -135,6 +136,13 @@ class TestUsageTrackingInterfaceCompliance:
         # days should be int with default
         days_annotation = annotations["days"]
         assert str(days_annotation) == "int"
+
+        # return type should be UsageStatsResponse
+        return_annotation = annotations["return"]
+        assert (
+            return_annotation is UsageStatsResponse
+            or return_annotation == "UsageStatsResponse"
+        )
 
     def test_get_recent_usage_parameter_annotations(self) -> None:
         """Test that get_recent_usage method has proper parameter annotations."""

@@ -6,11 +6,13 @@ This module provides comprehensive test coverage for the UsageTrackingService im
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from src.constants import MAX_RECENT_USAGE_RECORDS
 from src.core.domain.usage_data import UsageData
+from src.core.domain.usage_stats import UsageStatsResponse
 from src.core.interfaces.repositories_interface import IUsageRepository
 from src.core.services.usage_tracking_service import UsageTrackingService
 
@@ -19,17 +21,17 @@ class TestUsageTrackingService:
     """Tests for UsageTrackingService class."""
 
     @pytest.fixture
-    def mock_repository(self) -> IUsageRepository:
+    def mock_repository(self) -> AsyncMock:
         """Create a mock usage repository."""
         return AsyncMock(spec=IUsageRepository)
 
     @pytest.fixture
-    def service(self, mock_repository: IUsageRepository) -> UsageTrackingService:
+    def service(self, mock_repository) -> UsageTrackingService:
         """Create a UsageTrackingService instance."""
-        return UsageTrackingService(mock_repository)
+        return UsageTrackingService(cast(IUsageRepository, mock_repository))
 
     def test_initialization(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test service initialization."""
         assert service._repository == mock_repository
@@ -37,7 +39,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_basic(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test basic usage tracking."""
         mock_repository.add.return_value = None
@@ -66,7 +68,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_with_none_session_id(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test usage tracking with None session_id."""
         mock_repository.add.return_value = None
@@ -81,7 +83,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_computes_total_tokens(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test that total_tokens is computed when not provided."""
         mock_repository.add.return_value = None
@@ -98,7 +100,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_provided_total_tokens(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test that provided total_tokens is used when given."""
         mock_repository.add.return_value = None
@@ -115,7 +117,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_default_values(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test usage tracking with default values."""
         mock_repository.add.return_value = None
@@ -132,7 +134,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_generates_unique_ids(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test that each usage tracking generates unique IDs."""
         mock_repository.add.return_value = None
@@ -146,7 +148,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_timestamp(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test that usage tracking sets proper timestamps."""
         mock_repository.add.return_value = None
@@ -164,7 +166,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_request_context_manager(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test track_request context manager."""
         mock_repository.add.return_value = None
@@ -187,12 +189,12 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_request_with_kwargs(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test track_request with additional kwargs."""
         mock_repository.add.return_value = None
 
-        kwargs = {"temperature": 0.7, "max_tokens": 100}
+        kwargs: dict[str, Any] = {"temperature": 0.7, "max_tokens": 100}
 
         async with service.track_request(
             model="gpt-4",
@@ -207,7 +209,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_usage_stats(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test getting usage statistics."""
         now = datetime.now(timezone.utc)
@@ -253,7 +255,8 @@ class TestUsageTrackingService:
 
         result = await service.get_usage_stats(project="testproject", days=7)
 
-        assert result == {
+        assert isinstance(result, UsageStatsResponse)
+        assert result.model_dump() == {
             "openai:gpt-4": {
                 "total_tokens": 300,
                 "prompt_tokens": 200,
@@ -266,7 +269,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_usage_stats_defaults(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test getting usage statistics with defaults."""
         now = datetime.now(timezone.utc)
@@ -312,7 +315,8 @@ class TestUsageTrackingService:
 
         result = await service.get_usage_stats()
 
-        assert result == {
+        assert isinstance(result, UsageStatsResponse)
+        assert result.model_dump() == {
             "openai:gpt-4": {
                 "total_tokens": 300,
                 "prompt_tokens": 200,
@@ -325,13 +329,14 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_recent_usage(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test getting recent usage data."""
         mock_usage_data = [
             UsageData(
                 id="1",
                 session_id="session1",
+                project="service-project",
                 model="gpt-4",
                 prompt_tokens=100,
                 completion_tokens=50,
@@ -349,7 +354,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_recent_usage_zero_limit(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Recent usage should return empty results for non-positive limits."""
 
@@ -360,7 +365,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_recent_usage_negative_limit(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Negative limits should be treated as zero to avoid large responses."""
 
@@ -371,10 +376,10 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_recent_usage_defaults(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test getting recent usage with defaults."""
-        mock_usage_data = []
+        mock_usage_data: list[UsageData] = []
         mock_repository.get_all.return_value = mock_usage_data
 
         result = await service.get_recent_usage()
@@ -384,7 +389,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_recent_usage_large_limit_is_clamped(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Large limits should be clamped to protect against excessive workloads."""
 
@@ -392,6 +397,7 @@ class TestUsageTrackingService:
             UsageData(
                 id=str(index),
                 session_id="session",
+                project="bulk",
                 model="model",
                 prompt_tokens=0,
                 completion_tokens=0,
@@ -410,13 +416,14 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_recent_usage_with_session_id(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test getting recent usage filtered by session_id."""
         mock_usage_data = [
             UsageData(
                 id="1",
                 session_id="session1",
+                project="session-project",
                 model="gpt-4",
                 prompt_tokens=50,
                 completion_tokens=25,
@@ -434,7 +441,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_repository_error(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test handling repository errors during usage tracking."""
         mock_repository.add.side_effect = Exception("Repository error")
@@ -444,7 +451,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_usage_stats_repository_error(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test handling repository errors during stats retrieval."""
         mock_repository.get_all.side_effect = Exception("Repository error")
@@ -454,7 +461,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_recent_usage_repository_error(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test handling repository errors during recent usage retrieval."""
         mock_repository.get_all.side_effect = Exception("Repository error")
@@ -464,7 +471,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_request_exception_handling(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test exception handling in track_request context manager."""
         mock_repository.add.return_value = None
@@ -482,7 +489,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_multiple_concurrent_usage_tracking(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test concurrent usage tracking."""
         mock_repository.add.return_value = None
@@ -503,7 +510,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_request_with_complex_messages(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test track_request with complex message structures."""
         mock_repository.add.return_value = None
@@ -531,7 +538,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_large_values(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test usage tracking with large values."""
         mock_repository.add.return_value = None
@@ -551,7 +558,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_zero_values(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test usage tracking with zero values."""
         mock_repository.add.return_value = None
@@ -571,7 +578,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_negative_values(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test usage tracking with negative values (should still work)."""
         mock_repository.add.return_value = None
@@ -591,7 +598,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_request_empty_messages(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test track_request with empty messages."""
         mock_repository.add.return_value = None
@@ -607,13 +614,14 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_usage_stats_edge_cases(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test get_usage_stats with edge cases."""
         # Non-positive day range should fall back to full-history stats
         mock_repository.get_stats.return_value = {}
         result = await service.get_usage_stats(days=0)
-        assert result == {}
+        assert isinstance(result, UsageStatsResponse)
+        assert result.model_dump() == {}
         mock_repository.get_stats.assert_called_once_with(None)
 
         mock_repository.get_stats.reset_mock()
@@ -650,7 +658,8 @@ class TestUsageTrackingService:
 
         result = await service.get_usage_stats(project="")
 
-        assert result == {
+        assert isinstance(result, UsageStatsResponse)
+        assert result.model_dump() == {
             "model-a": {
                 "total_tokens": 15,
                 "prompt_tokens": 10,
@@ -663,7 +672,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_get_recent_usage_edge_cases(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test get_recent_usage with edge cases."""
         # Test with empty session_id (should use get_all)
@@ -680,7 +689,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_special_model_names(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test usage tracking with special model names."""
         mock_repository.add.return_value = None
@@ -700,7 +709,7 @@ class TestUsageTrackingService:
 
     @pytest.mark.asyncio
     async def test_track_usage_unicode_metadata(
-        self, service: UsageTrackingService, mock_repository: IUsageRepository
+        self, service: UsageTrackingService, mock_repository
     ) -> None:
         """Test usage tracking with Unicode metadata."""
         mock_repository.add.return_value = None

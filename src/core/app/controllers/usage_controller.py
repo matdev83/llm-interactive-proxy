@@ -5,12 +5,13 @@ Usage controller for exposing usage tracking endpoints.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query
 
 from src.core.di.services import get_or_build_service_provider
 from src.core.domain.usage_data import UsageData
+from src.core.domain.usage_stats import UsageStatsResponse
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ class UsageController:
 
     async def get_usage_stats(
         self, project: str | None = None, days: int = 30
-    ) -> dict[str, Any]:
+    ) -> UsageStatsResponse:
         """Get usage statistics.
 
         Args:
@@ -39,13 +40,13 @@ class UsageController:
             days: Number of days to include in stats
 
         Returns:
-            Usage statistics dictionary
+            Usage statistics response model
         """
         if not self.usage_service:
-            return {"error": "Usage tracking service not available"}
+            raise RuntimeError("Usage tracking service not available")
 
         result = await self.usage_service.get_usage_stats(project=project, days=days)
-        return result  # type: ignore[no-any-return]
+        return result
 
     async def get_recent_usage(
         self, session_id: str | None = None, limit: int = 100
@@ -68,12 +69,12 @@ class UsageController:
         return result  # type: ignore[no-any-return]
 
 
-@router.get("/stats", response_model=dict[str, Any])
+@router.get("/stats", response_model=UsageStatsResponse)
 async def get_usage_stats(
     project: str | None = Query(None, description="Filter by project name"),
     days: int = Query(30, description="Number of days to include in stats"),
     service_provider: Any = Depends(get_or_build_service_provider),
-) -> dict[str, Any]:
+) -> UsageStatsResponse:
     """Get usage statistics.
 
     Args:
@@ -84,9 +85,12 @@ async def get_usage_stats(
     Returns:
         Usage statistics dictionary
     """
-    usage_service = service_provider.get_required_service(IUsageTrackingService)
+    usage_service = cast(
+        IUsageTrackingService,
+        service_provider.get_required_service(IUsageTrackingService),
+    )
     result = await usage_service.get_usage_stats(project=project, days=days)
-    return result  # type: ignore[no-any-return]
+    return result
 
 
 @router.get("/recent", response_model=list[UsageData])

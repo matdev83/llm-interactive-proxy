@@ -63,6 +63,7 @@ REASONING_PHASE_PARAMS: dict[str, dict[str, Any]] = {
     "_default": {
         # Generic reasoning parameters
         "temperature": 0.7,  # Balanced for reasoning
+        "reasoning_effort": "high",  # Ensure strong reasoning on unknown backends
     },
 }
 
@@ -87,6 +88,7 @@ EXECUTION_PHASE_PARAMS: dict[str, dict[str, Any]] = {
     "_default": {
         # Generic execution parameters
         "temperature": 0.5,  # Lower for consistency
+        "reasoning_effort": "low",  # Minimize reasoning for unknown backends
     },
 }
 

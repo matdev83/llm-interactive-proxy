@@ -274,15 +274,15 @@ class UsageTrackingService(IUsageTrackingService):
 
     async def get_usage_stats(
         self, project: str | None = None, days: int = 30
-    ) -> dict[str, Any]:
-        """Get usage statistics.
+    ) -> UsageStatsResponse:
+        """Get usage statistics aggregated by model.
 
         Args:
             project: Optional project filter
             days: Number of days to include in stats
 
         Returns:
-            Usage statistics dictionary
+            A :class:`UsageStatsResponse` with aggregated usage metrics.
         """
         if days <= 0:
             logger.warning(
@@ -290,7 +290,11 @@ class UsageTrackingService(IUsageTrackingService):
                 "falling back to complete history.",
                 days,
             )
-            return await self._repository.get_stats(project)
+            raw_stats = await self._repository.get_stats(project)
+            stats_response = UsageStatsResponse()
+            for model_name, payload in raw_stats.items():
+                stats_response[model_name] = payload
+            return stats_response
 
         usage_records = await self._repository.get_all()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -329,7 +333,7 @@ class UsageTrackingService(IUsageTrackingService):
                 requests=current_stats.requests + 1,
             )
 
-        return stats.model_dump()
+        return stats
 
     async def get_recent_usage(
         self, session_id: str | None = None, limit: int = 100
