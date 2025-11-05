@@ -37,9 +37,7 @@ def test_expand_truncated_outputs_limits_history_growth(tmp_path: Path) -> None:
         f"{_EXPANDED_ARTIFACT_PREFIX}{raw_prev_path}. Showing limited preview for the language model.\n\n"
         "old preview line"
     )
-    truncated_tail = (
-        f"{_TRUNCATED_ARTIFACT_PREFIX} Additional output saved to {raw_new_path} for later inspection."
-    )
+    truncated_tail = f"{_TRUNCATED_ARTIFACT_PREFIX} Additional output saved to {raw_new_path} for later inspection."
 
     processed = ProcessedResult(
         modified_messages=[

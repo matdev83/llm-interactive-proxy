@@ -55,6 +55,8 @@
 --help
 --host
 --hybrid-backend-repeat-messages
+--hybrid-reasoning-force-initial-turns
+--hybrid-reasoning-model-timeout
 --llm-assessment-confidence-threshold
 --llm-assessment-history-window
 --llm-assessment-model
@@ -81,5 +83,6 @@
 --thinking-budget
 --timeout
 --trusted-ip
+--use-angel-model
 --zai-api-key
 -h

@@ -403,7 +403,12 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             async def new_iterator():
                 response_body = b""
                 async for chunk in response.body_iterator:
-                    response_body += chunk
+                    if isinstance(chunk, str):
+                        response_body += chunk.encode("utf-8")
+                    elif isinstance(chunk, memoryview):
+                        response_body += chunk.tobytes()
+                    else:
+                        response_body += chunk
                 rewritten_body = self.rewriter.rewrite_reply(response_body.decode())
                 yield rewritten_body.encode("utf-8")
 

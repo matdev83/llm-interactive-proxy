@@ -166,7 +166,7 @@ class TestParameterResolutionService:
         return ParameterResolutionService()
 
     # ========================================================================
-    # Precedence Order Tests (session > uri > header > config)
+    # Precedence Order Tests (uri > session > header > config)
     # ========================================================================
 
     def test_precedence_config_only(self, service):
@@ -199,8 +199,8 @@ class TestParameterResolutionService:
         assert result.temperature.value == 0.4
         assert result.temperature.source == "uri"
 
-    def test_precedence_session_overrides_all(self, service):
-        """Test that session parameters override all other sources."""
+    def test_precedence_uri_overrides_all(self, service):
+        """Test that URI parameters override all other sources."""
         result = service.resolve_parameters(
             config_params={"temperature": 0.8},
             header_params={"temperature": 0.6},
@@ -209,8 +209,8 @@ class TestParameterResolutionService:
         )
 
         assert result.temperature is not None
-        assert result.temperature.value == 0.2
-        assert result.temperature.source == "session"
+        assert result.temperature.value == 0.4
+        assert result.temperature.source == "uri"
 
     def test_precedence_reasoning_effort_config_only(self, service):
         """Test reasoning_effort resolution with only config."""
@@ -243,8 +243,8 @@ class TestParameterResolutionService:
         assert result.reasoning_effort.value == "high"
         assert result.reasoning_effort.source == "uri"
 
-    def test_precedence_reasoning_effort_session_overrides_all(self, service):
-        """Test that session reasoning_effort overrides all sources."""
+    def test_precedence_reasoning_effort_uri_overrides_session(self, service):
+        """Test that URI reasoning_effort overrides session and other sources."""
         result = service.resolve_parameters(
             config_params={"reasoning_effort": "low"},
             header_params={"reasoning_effort": "medium"},
@@ -253,8 +253,8 @@ class TestParameterResolutionService:
         )
 
         assert result.reasoning_effort is not None
-        assert result.reasoning_effort.value == "low"
-        assert result.reasoning_effort.source == "session"
+        assert result.reasoning_effort.value == "high"
+        assert result.reasoning_effort.source == "uri"
 
     def test_precedence_mixed_parameters_different_sources(self, service):
         """Test precedence with different parameters from different sources."""
@@ -284,8 +284,8 @@ class TestParameterResolutionService:
         )
 
         assert result.top_p is not None
-        assert result.top_p.value == 0.8
-        assert result.top_p.source == "session"
+        assert result.top_p.value == 0.6
+        assert result.top_p.source == "uri"
 
     def test_precedence_top_k_uri_overrides(self, service):
         """Test precedence for top_k where URI overrides config/header."""
@@ -497,8 +497,8 @@ class TestParameterResolutionService:
         )
 
         # Should still resolve correctly without header params
-        assert result.temperature.value == 0.2
-        assert result.temperature.source == "session"
+        assert result.temperature.value == 0.4
+        assert result.temperature.source == "uri"
 
     def test_missing_config_params(self, service):
         """Test resolution when config params are missing."""
@@ -509,8 +509,8 @@ class TestParameterResolutionService:
         )
 
         # Should still resolve correctly without config params
-        assert result.temperature.value == 0.2
-        assert result.temperature.source == "session"
+        assert result.temperature.value == 0.4
+        assert result.temperature.source == "uri"
 
     def test_missing_multiple_sources(self, service):
         """Test resolution when multiple sources are missing."""
@@ -610,12 +610,12 @@ class TestParameterResolutionService:
                 backend="test:model",
             )
 
-        # Session should be effective, and should show all overridden sources
-        assert "temperature: 0.7" in caplog.text
-        assert "source: session" in caplog.text
+        # URI should be effective and should show all overridden sources
+        assert "temperature: 0.5" in caplog.text
+        assert "source: uri" in caplog.text
         assert "config=0.1" in caplog.text
         assert "header=0.3" in caplog.text
-        assert "uri=0.5" in caplog.text
+        assert "session=0.7" in caplog.text
 
     def test_to_dict_excludes_none_values(self, service):
         """Test that to_dict excludes None values."""
@@ -653,7 +653,7 @@ class TestParameterResolutionService:
         assert result.reasoning_effort.source == "config"
 
     def test_realistic_scenario_session_commands(self, service):
-        """Test realistic scenario with session commands overriding everything."""
+        """Test realistic scenario where URI overrides session commands."""
         result = service.resolve_parameters(
             config_params={"temperature": 0.7},
             header_params={"temperature": 0.8},
@@ -662,8 +662,8 @@ class TestParameterResolutionService:
             backend="anthropic:claude-3",
         )
 
-        assert result.temperature.value == 0.5
-        assert result.temperature.source == "session"
+        assert result.temperature.value == 0.9
+        assert result.temperature.source == "uri"
 
     def test_realistic_scenario_no_overrides(self, service):
         """Test realistic scenario where each source provides unique parameters."""

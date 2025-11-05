@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import HTTPException
@@ -431,7 +432,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         # Post-process streaming iterator to normalize ZAI attempt_completion output
         if isinstance(base_handle, StreamingResponseHandle):
 
-            async def _zai_stream_wrapper():
+            async def _zai_stream_wrapper() -> AsyncGenerator[ProcessedResponse, None]:
                 collected_content: list[str] = []
                 sanitized_emitted = False
 
@@ -746,8 +747,13 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             hasattr(request_data, "temperature")
             and request_data.temperature is not None
         ):
-            payload["temperature"] = request_data.temperature
-            logger.debug(f"Including temperature: {request_data.temperature}")
+            try:
+                payload["temperature"] = float(request_data.temperature)
+                logger.debug(f"Including temperature: {payload['temperature']}")
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"Invalid temperature value '{request_data.temperature}' ignored."
+                )
         if hasattr(request_data, "top_p") and request_data.top_p is not None:
             payload["top_p"] = request_data.top_p
             logger.debug(f"Including top_p: {request_data.top_p}")

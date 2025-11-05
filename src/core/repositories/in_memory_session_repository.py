@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import suppress
 from datetime import datetime, timezone
 
 from src.core.domain.session import Session
@@ -93,10 +94,8 @@ class InMemorySessionRepository(ISessionRepository):
             # Remove from user tracking
             for user_id, session_ids in list(self._user_sessions.items()):
                 if id in session_ids:
-                    try:
+                    with suppress(ValueError):
                         session_ids.remove(id)
-                    except ValueError:
-                        pass  # Already removed, consistent state is the goal
                     if not session_ids:
                         del self._user_sessions[user_id]
 
@@ -109,10 +108,8 @@ class InMemorySessionRepository(ISessionRepository):
             # Remove from client session tracking
             for client_key, session_ids in list(self._client_sessions.items()):
                 if id in session_ids:
-                    try:
+                    with suppress(ValueError):
                         session_ids.remove(id)
-                    except ValueError:
-                        pass  # Already removed
                     if not session_ids:
                         del self._client_sessions[client_key]
 

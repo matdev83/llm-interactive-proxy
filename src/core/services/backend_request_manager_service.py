@@ -416,7 +416,7 @@ class BackendRequestManager(IBackendRequestManager):
             proxy_prompt += "\n\n" + str(steering_message)
 
         system_message = ChatMessage(role="system", content=proxy_prompt)
-        new_messages = list(original_request.messages) + [system_message]
+        new_messages = [*list(original_request.messages), system_message]
 
         retry_request = original_request.model_copy(
             update={"messages": new_messages, "extra_body": extra_body}
@@ -470,14 +470,36 @@ class BackendRequestManager(IBackendRequestManager):
                 return backend_response
 
         if is_streaming:
+            if isinstance(retry_response, StreamingResponseEnvelope):
+                try:
+                    return await self._process_streaming_response(
+                        retry_response,
+                        retry_request,
+                        session_id,
+                        context,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to process streaming retry for session %s: %s",
+                        session_id,
+                        exc,
+                        exc_info=True,
+                    )
 
             async def _single_chunk_stream() -> AsyncIterator[ProcessedResponse]:
-                if (
-                    isinstance(retry_response, StreamingResponseEnvelope)
-                    and retry_response.content is not None
-                ):
-                    async for item in retry_response.content:
-                        yield item
+                if isinstance(retry_response, StreamingResponseEnvelope):
+                    source_stream = retry_response.content
+                else:
+                    source_stream = None
+                if source_stream is not None:
+                    async for item in source_stream:
+                        if isinstance(item, ProcessedResponse):
+                            yield item
+                        else:
+                            yield ProcessedResponse(
+                                content=getattr(item, "content", item),
+                                metadata=getattr(item, "metadata", {}),
+                            )
                         return
                 yield ProcessedResponse(
                     content=getattr(retry_response, "content", ""),
@@ -543,6 +565,12 @@ class BackendRequestManager(IBackendRequestManager):
 
         cancel_callback = stream_envelope.cancel_callback
         loop_detector = self._create_loop_detector()
+        original_extra_body = getattr(original_request, "extra_body", None)
+        reactor_retry_active = False
+        if isinstance(original_extra_body, dict):
+            reactor_retry_active = bool(
+                original_extra_body.get("_tool_call_reactor_retry")
+            )
 
         async def combined_stream():
             for buffered in prefetched_chunks:
@@ -561,6 +589,21 @@ class BackendRequestManager(IBackendRequestManager):
                 )
 
                 if metadata.get("tool_call_swallowed") and not swallowed_detected:
+                    if reactor_retry_active:
+                        logger.debug(
+                            "Tool call swallow detected during retry for session %s; forwarding chunk without additional retry",
+                            session_id,
+                        )
+                        swallowed_detected = True
+                        if isinstance(chunk, ProcessedResponse):
+                            yield chunk
+                        else:
+                            yield ProcessedResponse(
+                                content=text_fragment,
+                                metadata=metadata,
+                            )
+                        continue
+
                     swallowed_detected = True
                     logger.info(
                         "Detected swallowed tool call during streaming for session %s; retrying with steering context",
@@ -574,8 +617,9 @@ class BackendRequestManager(IBackendRequestManager):
                         is_streaming=True,
                     )
                     if isinstance(retry_response, StreamingResponseEnvelope):
-                        async for retry_chunk in retry_response.content or []:
-                            yield retry_chunk
+                        if retry_response.content:
+                            async for retry_chunk in retry_response.content:
+                                yield retry_chunk
                     else:
                         yield ProcessedResponse(
                             content=getattr(retry_response, "content", ""),
@@ -627,7 +671,7 @@ class BackendRequestManager(IBackendRequestManager):
                     )
                     return
 
-                yield chunk
+                yield chunk  # type: ignore[return-value]
 
         return StreamingResponseEnvelope(
             content=monitored_stream(),

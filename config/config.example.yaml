@@ -47,6 +47,13 @@ session:
     max_turns: 10  # Maximum turns before switching back to default model
     max_file_writes: 1  # Maximum file writes before switching back to default model
 
+  # Angel verification model (experimental)
+  # When set, the proxy will submit each assistant response to the Angel model for verification
+  # and may request a correction before delivering to the client.
+  # Format: BACKEND:MODEL with optional URI params, e.g.:
+  #   "openai:gpt-4o-mini?temperature=1&reasoning_effort=high"
+  angel_model: null
+
   # Tool call processing behavior
   # These settings control how tool calls are processed to prevent re-processing of historical messages
   # 

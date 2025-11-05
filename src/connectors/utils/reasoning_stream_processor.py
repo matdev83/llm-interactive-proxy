@@ -14,6 +14,7 @@ import logging
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming import StreamingContent
 
@@ -116,14 +117,18 @@ class ReasoningStreamProcessor:
 
                 chunks.append(chunk)
 
-                if logger.isEnabledFor(logging.DEBUG):
+                if logger.isEnabledFor(TRACE_LEVEL):
                     try:
-                        logger.debug(
+                        logger.log(
+                            TRACE_LEVEL,
                             "Reasoning stream chunk parsed: %s",
                             json.dumps(chunk)[:500],
                         )
                     except Exception:
-                        logger.debug("Reasoning stream chunk parsed (non-serializable)")
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Reasoning stream chunk parsed (non-serializable)",
+                        )
 
                 if (
                     isinstance(chunk, dict)

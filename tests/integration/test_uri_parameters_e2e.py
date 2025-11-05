@@ -234,8 +234,8 @@ class TestParameterResolution:
         assert resolved.temperature.value == 0.5
         assert resolved.temperature.source == "uri"
 
-    def test_session_overrides_uri(self) -> None:
-        """Test that session parameters override URI parameters."""
+    def test_uri_overrides_session(self) -> None:
+        """Test that URI parameters override session parameters."""
         service = ParameterResolutionService()
         resolved = service.resolve_parameters(
             uri_params={"temperature": 0.5},
@@ -244,11 +244,11 @@ class TestParameterResolution:
         )
 
         assert resolved.temperature is not None
-        assert resolved.temperature.value == 0.3
-        assert resolved.temperature.source == "session"
+        assert resolved.temperature.value == 0.5
+        assert resolved.temperature.source == "uri"
 
     def test_full_precedence_chain(self) -> None:
-        """Test complete precedence chain: session > uri > header > config."""
+        """Test complete precedence chain: uri > session > header > config."""
         service = ParameterResolutionService()
         resolved = service.resolve_parameters(
             config_params={"temperature": 0.1},
@@ -259,8 +259,8 @@ class TestParameterResolution:
         )
 
         assert resolved.temperature is not None
-        assert resolved.temperature.value == 0.8
-        assert resolved.temperature.source == "session"
+        assert resolved.temperature.value == 0.5
+        assert resolved.temperature.source == "uri"
 
     def test_top_parameters_resolution(self) -> None:
         """Test precedence resolution for top_p and top_k parameters."""
@@ -276,8 +276,8 @@ class TestParameterResolution:
         assert resolved.top_p.value == 0.7
         assert resolved.top_p.source == "uri"
         assert resolved.top_k is not None
-        assert resolved.top_k.value == 40
-        assert resolved.top_k.source == "session"
+        assert resolved.top_k.value == 25
+        assert resolved.top_k.source == "uri"
 
     def test_resolution_with_missing_sources(self) -> None:
         """Test parameter resolution when some sources are missing."""
@@ -517,10 +517,10 @@ class TestEndToEndURIParameterFlow:
             backend="openrouter",
         )
 
-        # Session should win
+        # URI parameters should win
         assert resolved.temperature is not None
-        assert resolved.temperature.value == 0.8
-        assert resolved.temperature.source == "session"
+        assert resolved.temperature.value == 0.5
+        assert resolved.temperature.source == "uri"
 
         # Apply resolved parameters to request
         final_params = resolved.to_dict()
@@ -533,11 +533,11 @@ class TestEndToEndURIParameterFlow:
             effective_model=model_name,
         )
 
-        # Verify session parameter was applied
+        # Verify URI parameter was applied
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
         payload = json.loads(sent_request.content)
-        assert payload["temperature"] == 0.8
+        assert payload["temperature"] == 0.5
 
     @pytest.mark.asyncio
     async def test_uri_overrides_config_and_headers(
@@ -547,7 +547,7 @@ class TestEndToEndURIParameterFlow:
         mock_app_config: AppConfig,
         mock_http_client: MockHTTPClient,
     ) -> None:
-        """Test that URI parameters override config and headers but not session."""
+        """Test that URI parameters override config and headers when no session overrides are present."""
         backend = backend_factory.create_backend("openrouter", mock_app_config)
         await backend.initialize(
             api_key="test-key",

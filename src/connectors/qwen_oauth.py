@@ -9,11 +9,14 @@ import logging
 import shutil
 import subprocess
 import time
+from collections.abc import AsyncGenerator
 from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -966,7 +969,9 @@ class QwenOAuthConnector(OpenAIConnector):
         # Extract messages for prompt token calculation
         processed_messages = payload.get("messages", [])
 
-        async def deduplicated_iterator_with_usage():
+        async def deduplicated_iterator_with_usage() -> (
+            AsyncGenerator[ProcessedResponse, None]
+        ):
             """Deduplicate streaming chunks and add usage information."""
             # Track recent chunk hashes to detect duplicates
             # Use a sliding window of last N hashes to avoid memory growth
@@ -1000,9 +1005,11 @@ class QwenOAuthConnector(OpenAIConnector):
 
                 # Check if this chunk is a duplicate of a recent chunk
                 if chunk_hash in recent_hashes:
-                    logger.debug(
-                        f"Qwen OAuth: Skipping duplicate chunk (hash: {chunk_hash[:8]}...)"
-                    )
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            f"Qwen OAuth: Skipping duplicate chunk (hash: {chunk_hash[:8]}...)",
+                        )
                     continue
 
                 # Add to recent hashes

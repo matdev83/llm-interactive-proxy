@@ -39,6 +39,7 @@ class IAppIdentityConfig(abc.ABC):
     """Interface for application identity configuration."""
 
     session_id: str | None = None
+    session_turn_count: int = 0
 
     @abc.abstractmethod
     def get_resolved_headers(

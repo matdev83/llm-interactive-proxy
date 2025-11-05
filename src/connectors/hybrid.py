@@ -55,8 +55,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Timeout constants
-REASONING_PHASE_TIMEOUT = 60.0  # seconds
-EXECUTION_PHASE_TIMEOUT = 120.0  # seconds
 
 
 @dataclass
@@ -1234,7 +1232,7 @@ class HybridConnector(LLMBackend):
                         allow_failover=False,
                         context=clean_context,  # Prefer context-enabled call
                     ),
-                    timeout=REASONING_PHASE_TIMEOUT,
+                    timeout=self.config.backends.hybrid_reasoning_model_timeout,
                 )
             except TypeError as exc:
                 # Integration stubs may not accept context; retry without it.
@@ -1246,7 +1244,7 @@ class HybridConnector(LLMBackend):
                         stream=True,
                         allow_failover=False,
                     ),
-                    timeout=REASONING_PHASE_TIMEOUT,
+                    timeout=self.config.backends.hybrid_reasoning_model_timeout,
                 )
 
             # Extract stream from response
@@ -1343,31 +1341,25 @@ class HybridConnector(LLMBackend):
                 },
             ) from e
 
-        except asyncio.TimeoutError as e:
-            # Handle timeout with partial reasoning fallback
+        except asyncio.TimeoutError:
             logger.warning(
-                f"Reasoning phase timeout after {REASONING_PHASE_TIMEOUT}s, "
-                f"attempting to use partial reasoning output",
+                f"Reasoning phase timed out after {self.config.backends.hybrid_reasoning_model_timeout}s. "
+                "Proceeding without reasoning model output.",
                 extra={
                     "phase": "reasoning",
                     "reasoning_backend": reasoning_backend,
                     "reasoning_model": reasoning_model,
-                    "timeout_seconds": REASONING_PHASE_TIMEOUT,
+                    "timeout_seconds": self.config.backends.hybrid_reasoning_model_timeout,
                 },
             )
-
-            # If we have partial reasoning output from the processor, use it
-            # Otherwise, raise the error
-            raise BackendError(
-                message=f"Reasoning phase timeout after {REASONING_PHASE_TIMEOUT}s",
-                code="reasoning_timeout",
-                details={
-                    "phase": "reasoning",
-                    "reasoning_backend": reasoning_backend,
-                    "reasoning_model": reasoning_model,
-                    "timeout_seconds": REASONING_PHASE_TIMEOUT,
-                },
-            ) from e
+            return ReasoningPhaseResult(
+                text="",
+                complete=False,
+                tool_calls=[],
+                raw_chunks=[],
+                media_type=None,
+                headers=None,
+            )
         except BackendError:
             # Re-raise BackendError as-is (already has proper context)
             raise
@@ -1628,7 +1620,7 @@ class HybridConnector(LLMBackend):
                     identity=execution_identity,
                     **kwargs,
                 ),
-                timeout=EXECUTION_PHASE_TIMEOUT,
+                timeout=self.config.backends.hybrid_execution_model_timeout,
             )
 
             logger.info(
@@ -1645,24 +1637,24 @@ class HybridConnector(LLMBackend):
         except asyncio.TimeoutError as e:
             # Handle execution timeout
             logger.error(
-                f"Execution phase timeout after {EXECUTION_PHASE_TIMEOUT}s",
+                f"Execution phase timeout after {self.config.backends.hybrid_execution_model_timeout}s",
                 extra={
                     "phase": "execution",
                     "execution_backend": execution_backend,
                     "execution_model": execution_model,
                     "reasoning_output_length": reasoning_output_length,
-                    "timeout_seconds": EXECUTION_PHASE_TIMEOUT,
+                    "timeout_seconds": self.config.backends.hybrid_execution_model_timeout,
                 },
             )
             raise BackendError(
-                message=f"Execution phase timeout after {EXECUTION_PHASE_TIMEOUT}s",
+                message=f"Execution phase timeout after {self.config.backends.hybrid_execution_model_timeout}s",
                 code="execution_timeout",
                 details={
                     "phase": "execution",
                     "execution_backend": execution_backend,
                     "execution_model": execution_model,
                     "reasoning_output_length": reasoning_output_length,
-                    "timeout_seconds": EXECUTION_PHASE_TIMEOUT,
+                    "timeout_seconds": self.config.backends.hybrid_execution_model_timeout,
                 },
             ) from e
 
@@ -1924,7 +1916,24 @@ class HybridConnector(LLMBackend):
             processed_messages=processed_messages, request_messages=request_messages
         )
 
-        if is_first_turn:
+        # Check if current turn is within the force initial turns window
+        turn_count = getattr(identity, "session_turn_count", None)
+
+        force_reasoning_for_initial_turns = (
+            self.config.backends.hybrid_reasoning_force_initial_turns > 0
+            and turn_count is not None
+            and turn_count <= self.config.backends.hybrid_reasoning_force_initial_turns
+        )
+
+        if force_reasoning_for_initial_turns:
+            use_reasoning = True
+            logger.info(
+                "Reasoning model injection decision: FORCE (within initial turns window), probability=%s, turn=%s/%s",
+                temp_reasoning_probability,
+                turn_count,
+                self.config.backends.hybrid_reasoning_force_initial_turns,
+            )
+        elif is_first_turn:
             use_reasoning = True
             logger.info(
                 "Reasoning model injection decision: FORCE (first user turn), probability=%s",

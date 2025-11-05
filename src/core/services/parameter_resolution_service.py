@@ -120,8 +120,8 @@ class ParameterResolutionService:
     Resolves model parameters from multiple sources with precedence.
 
     Precedence (highest to lowest):
-    1. Interactive session commands (highest priority)
-    2. URI parameters from model string
+    1. URI parameters from the model string
+    2. Interactive session commands
     3. Request headers
     4. Configuration file defaults (lowest priority)
 
@@ -212,8 +212,8 @@ class ParameterResolutionService:
         Resolve a single parameter from all sources with precedence.
 
         Precedence order (highest to lowest):
-        1. session_params
-        2. uri_params
+        1. uri_params
+        2. session_params
         3. header_params
         4. config_params
 
@@ -232,8 +232,8 @@ class ParameterResolutionService:
         sources = [
             ("config", config_params.get(param_name)),
             ("header", header_params.get(param_name)),
-            ("uri", uri_params.get(param_name)),
             ("session", session_params.get(param_name)),
+            ("uri", uri_params.get(param_name)),
         ]
 
         # Find the highest priority source with a value

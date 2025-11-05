@@ -93,9 +93,9 @@ class StreamingContent:
 
         finish_reason = self.metadata.get("finish_reason")
         if finish_reason is not None:
-            data["choices"][0]["finish_reason"] = finish_reason
+            data["choices"][0]["finish_reason"] = finish_reason  # type: ignore[index]
         else:
-            data["choices"][0]["finish_reason"] = None
+            data["choices"][0]["finish_reason"] = None  # type: ignore[index]
 
         # Add metadata if available
         for key in ["id", "model", "created"]:

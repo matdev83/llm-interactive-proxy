@@ -12,6 +12,9 @@ from src.core.interfaces.configuration import IAppIdentityConfig
 class AppIdentityConfig(ValueObject, IAppIdentityConfig):
     """Represents the application's identity settings."""
 
+    session_id: str | None = None
+    session_turn_count: int = 0
+
     title: HeaderConfig = Field(
         default=HeaderConfig(
             default_value="llm-interactive-proxy",

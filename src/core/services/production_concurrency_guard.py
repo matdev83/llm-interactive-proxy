@@ -37,7 +37,7 @@ class ConcurrencyMetrics:
         self.lock_wait_times: list[float] = []
         self._metrics_lock = threading.Lock()
 
-    def record_lock_contention(self, wait_time: float, lock_name: str):
+    def record_lock_contention(self, wait_time: float, lock_name: str) -> None:
         """Record lock contention metrics."""
         with self._metrics_lock:
             self.lock_contention_count += 1

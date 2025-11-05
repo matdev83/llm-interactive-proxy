@@ -470,6 +470,8 @@ class SessionConfig(DomainModel):
     # Tool call processing behavior configuration
     force_reprocess_tool_calls: bool = False
     log_skipped_tool_calls: bool = False
+    # Angel verification model (backend:model with optional URI params)
+    angel_model: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -505,6 +507,13 @@ class SessionConfig(DomainModel):
 
         # Store the dict - Pydantic will convert it to ToolCallReactorConfig
         values["tool_call_reactor"] = reactor_config_dict
+        # Ensure angel_model is either valid string or None
+        angel_model = values.get("angel_model")
+        if angel_model is not None and not isinstance(angel_model, str):
+            try:
+                values["angel_model"] = str(angel_model)
+            except Exception:
+                values["angel_model"] = None
         return values
 
 
@@ -589,6 +598,21 @@ class BackendSettings(DomainModel):
         ge=0.0,
         le=1.0,
         description="Probability of using the reasoning model for a request in the hybrid backend.",
+    )
+    hybrid_reasoning_model_timeout: int = Field(
+        default=60,
+        ge=1,
+        description="Timeout in seconds for the reasoning model call in hybrid scenarios. Defaults to 60.",
+    )
+    hybrid_reasoning_force_initial_turns: int = Field(
+        default=1,
+        ge=0,
+        description="Number of turns at the beginning of a new session when the reasoning model probability is overridden to 1 (100%). Defaults to 1.",
+    )
+    hybrid_execution_model_timeout: int = Field(
+        default=120,
+        ge=1,
+        description="Timeout in seconds for execution model call in hybrid scenarios. Defaults to 120.",
     )
 
     def __init__(self, **data: Any) -> None:
@@ -1256,6 +1280,14 @@ class AppConfig(DomainModel, IConfig):
                 path="session.log_skipped_tool_calls",
                 resolution=resolution,
             ),
+            # Angel verification model selection via env var
+            "angel_model": _get_env_value(
+                env,
+                "ANGEL_MODEL",
+                None,
+                path="session.angel_model",
+                resolution=resolution,
+            ),
         }
 
         config["logging"] = {
@@ -1581,6 +1613,27 @@ class AppConfig(DomainModel, IConfig):
                 1.0,
                 env,
                 path="backends.reasoning_injection_probability",
+                resolution=resolution,
+            ),
+            "hybrid_reasoning_model_timeout": _env_to_int(
+                "HYBRID_REASONING_MODEL_TIMEOUT",
+                60,
+                env,
+                path="backends.hybrid_reasoning_model_timeout",
+                resolution=resolution,
+            ),
+            "hybrid_reasoning_force_initial_turns": _env_to_int(
+                "HYBRID_REASONING_FORCE_INITIAL_TURNS",
+                1,
+                env,
+                path="backends.hybrid_reasoning_force_initial_turns",
+                resolution=resolution,
+            ),
+            "hybrid_execution_model_timeout": _env_to_int(
+                "HYBRID_EXECUTION_MODEL_TIMEOUT",
+                120,
+                env,
+                path="backends.hybrid_execution_model_timeout",
                 resolution=resolution,
             ),
         }

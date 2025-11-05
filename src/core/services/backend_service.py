@@ -749,7 +749,7 @@ class BackendService(IBackendService):
                         exc_info=True,
                     )
 
-            # Apply one-shot overrides from edit-precision middleware with highest precedence
+            # Apply one-shot overrides from edit-precision middleware as session-level overrides
             try:
                 extra_body = getattr(request, "extra_body", None)
                 if isinstance(extra_body, dict) and extra_body.get(

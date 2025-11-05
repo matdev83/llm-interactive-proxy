@@ -56,6 +56,9 @@ class ResponseProcessor(IResponseProcessor):
         self._middleware_application_manager = middleware_application_manager
         self._middleware_list = middleware_list or []
 
+        # Angel feature wiring
+        self._angel_service: Any | None = None
+
         self._stream_normalizer = stream_normalizer
 
         if stream_normalizer is None:
@@ -80,6 +83,111 @@ class ResponseProcessor(IResponseProcessor):
                 self._stream_normalizer = StreamNormalizer(processors)
             else:
                 self._stream_normalizer = None
+
+    async def _apply_angel_verification(
+        self, original_request: Any, content: Any
+    ) -> dict[str, Any] | None:
+        """Apply Angel verification and optionally correction.
+
+        Returns a dict with keys:
+        - action: "pass" | "steer"
+        - corrected_content: str (when action=="steer")
+        """
+        try:
+            from src.core.di.services import get_service_provider
+            from src.core.domain.chat import ChatMessage, ChatRequest
+            from src.core.interfaces.backend_service_interface import IBackendService
+            from src.core.services.angel_service import STEERING_TEMPLATE, AngelService
+
+            if not self._angel_service:
+                # Resolve angel model spec from app_state config
+                model_spec = None
+                try:
+                    cfg = (
+                        self._app_state.get_setting("app_config")
+                        if self._app_state
+                        else None
+                    )
+                    model_spec = getattr(
+                        getattr(cfg, "session", None), "angel_model", None
+                    )
+                except Exception:
+                    model_spec = None
+                angel_svc = AngelService(model_spec or "")
+                if not angel_svc.is_enabled():
+                    return {"action": "pass"}
+                self._angel_service = angel_svc
+
+            svc: AngelService = self._angel_service
+
+            # Build Angel request messages
+            if isinstance(original_request, ChatRequest):
+                messages = svc.build_verification_messages(original_request, content)
+                backend_str, model, params = svc.parse_model()
+
+                # Submit to backend
+                provider = get_service_provider()
+                backend_service: IBackendService = provider.get_required_service(
+                    cast(type, IBackendService)
+                )
+                angel_req = ChatRequest(
+                    model=f"{backend_str}:{model}",
+                    messages=messages,
+                    max_tokens=original_request.max_tokens or 512,
+                    stream=False,
+                )
+                # Apply optional params
+                if isinstance(params, dict):
+                    angel_req = angel_req.model_copy(update={**params})
+
+                angel_response = await backend_service.chat_completions(
+                    angel_req, stream=False, allow_failover=True, context=None
+                )
+                angel_text = ""
+                if hasattr(angel_response, "content"):
+                    angel_text = (
+                        angel_response.content
+                        if isinstance(angel_response.content, str)
+                        else str(angel_response.content)
+                    )
+
+                decision = svc.parse_angel_output(angel_text)
+                if decision.decision == "pass":
+                    return {"action": "pass"}
+                steering_msg = decision.steering_message or ""
+
+                # Build steering message, re-run main model
+                steering_text = STEERING_TEMPLATE.replace(
+                    "{angels_steering_message}", steering_msg
+                )
+                steering_system = ChatMessage(role="system", content=steering_text)
+                corrected_req = original_request.model_copy(
+                    update={
+                        "messages": [*list(original_request.messages), steering_system]
+                    }
+                )
+
+                corrected_response = await backend_service.chat_completions(
+                    corrected_req, stream=False, allow_failover=True, context=None
+                )
+                corrected_text = (
+                    corrected_response.content
+                    if hasattr(corrected_response, "content")
+                    else ""
+                )
+
+                # Detect override marker
+                cleaned = svc.strip_override_marker(str(corrected_text or ""))
+                if cleaned.strip() != str(corrected_text or "").strip():
+                    # Override requested -> return original content
+                    return {"action": "pass"}
+
+                return {"action": "steer", "corrected_content": cleaned}
+            # If original_request is not a ChatRequest, return pass
+            return {"action": "pass"}
+        except Exception:
+            logger.debug("Angel verification internal error", exc_info=True)
+            return None
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:
         """Add a background task to be managed by the processor."""
@@ -144,6 +252,23 @@ class ResponseProcessor(IResponseProcessor):
             processed_response = ProcessedResponse(
                 content=content, usage=usage, metadata=metadata
             )
+
+            # Angel verification for non-streaming responses
+            try:
+                original_request = None
+                if context and isinstance(context, dict):
+                    original_request = context.get("original_request")
+                # Only run when angel is configured in session
+                if original_request is not None:
+                    decision = await self._apply_angel_verification(
+                        original_request, processed_response.content or ""
+                    )
+                    if decision and decision.get("action") == "steer":
+                        corrected = decision.get("corrected_content", "")
+                        processed_response.content = corrected
+            except Exception:
+                # Be conservative: do not break normal flow on Angel errors
+                logger.debug("Angel verification failed; continuing", exc_info=True)
 
             # Apply middleware using the new manager if available
             if self._middleware_application_manager is not None:
@@ -271,6 +396,16 @@ class ResponseProcessor(IResponseProcessor):
                         metadata=metadata,
                         usage=None,
                     )
+                elif isinstance(chunk, ProcessedResponse):
+                    # Preserve metadata supplied by upstream processors
+                    metadata = dict(chunk.metadata or {})
+                    if session_id and "session_id" not in metadata:
+                        metadata["session_id"] = session_id
+                    yield ProcessedResponse(
+                        content=chunk.content,
+                        metadata=metadata,
+                        usage=chunk.usage,
+                    )
                 elif isinstance(chunk, dict) and "choices" in chunk:
                     content = ""
                     if (
@@ -359,19 +494,18 @@ class ResponseProcessor(IResponseProcessor):
                             if processed_chunk.content is not None
                             else ""
                         )
-                        metadata = {
-                            "model": processed_chunk.metadata.get("model"),
-                            "id": processed_chunk.metadata.get("id"),
-                            "created": processed_chunk.metadata.get("created"),
-                            "is_done": processed_chunk.is_done,
-                            "is_cancellation": processed_chunk.is_cancellation,
-                            "tool_calls": processed_chunk.metadata.get("tool_calls"),
-                        }
+                        source_metadata = processed_chunk.metadata or {}
+                        metadata = dict(source_metadata)
                         if session_id:
-                            metadata["session_id"] = session_id
+                            metadata.setdefault("session_id", session_id)
+                        metadata.setdefault("model", source_metadata.get("model"))
+                        metadata.setdefault("id", source_metadata.get("id"))
+                        metadata.setdefault("created", source_metadata.get("created"))
+                        metadata["is_done"] = processed_chunk.is_done
+                        metadata["is_cancellation"] = processed_chunk.is_cancellation
                         yield ProcessedResponse(
                             content=content,
-                            usage=None,  # Usage is typically at the end of the stream
+                            usage=processed_chunk.usage,  # Preserve usage when provided
                             metadata=metadata,
                         )
                     else:

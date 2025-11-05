@@ -16,6 +16,8 @@ def mock_client():
 def mock_config():
     config = MagicMock()
     config.backends.disable_hybrid_backend = False
+    config.backends.hybrid_reasoning_model_timeout = 60
+    config.backends.hybrid_reasoning_force_initial_turns = 1
     return config
 
 

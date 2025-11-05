@@ -126,6 +126,22 @@ def build_cli_parser() -> argparse.ArgumentParser:
         type=float,
         help="Probability of using the reasoning model in the hybrid backend (0.0 to 1.0)",
     )
+    parser.add_argument(
+        "--hybrid-reasoning-model-timeout",
+        dest="hybrid_reasoning_model_timeout",
+        type=int,
+        default=60,
+        metavar="SECONDS",
+        help="Timeout in seconds for the reasoning model call in hybrid scenarios (default: 60)",
+    )
+    parser.add_argument(
+        "--hybrid-reasoning-force-initial-turns",
+        dest="hybrid_reasoning_force_initial_turns",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Number of turns at the beginning of a new session when reasoning model probability is overridden to 1 (default: 1)",
+    )
 
     def validate_model_alias(value: str) -> tuple[str, str]:
         """Validate model alias format: pattern=replacement"""
@@ -154,6 +170,17 @@ def build_cli_parser() -> argparse.ArgumentParser:
         metavar="PATTERN=REPLACEMENT",
         type=validate_model_alias,
         help="Add a model name rewrite rule. Pattern is a regex, replacement can use capture groups (\\1, \\2, etc.). Can be specified multiple times. Example: --model-alias '^gpt-(.*)=openrouter:openai/gpt-\\1'",
+    )
+
+    # Angel verification model (experimental)
+    parser.add_argument(
+        "--use-angel-model",
+        dest="use_angel_model",
+        metavar="BACKEND:MODEL[?params]",
+        help=(
+            "Enable Angel verification with model spec (e.g., "
+            "anthropic:claude-3-5-sonnet?temperature=1&reasoning_effort=high)"
+        ),
     )
 
     # API Keys and URLs
@@ -912,6 +939,34 @@ def apply_cli_args(
             "--reasoning-injection-probability",
         )
 
+    if getattr(args, "hybrid_reasoning_model_timeout", None) is not None:
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["hybrid_reasoning_model_timeout"] = (
+            args.hybrid_reasoning_model_timeout
+        )
+        os.environ["HYBRID_REASONING_MODEL_TIMEOUT"] = str(
+            args.hybrid_reasoning_model_timeout
+        )
+        record_cli(
+            "backends.hybrid_reasoning_model_timeout",
+            args.hybrid_reasoning_model_timeout,
+            "--hybrid-reasoning-model-timeout",
+        )
+
+    if getattr(args, "hybrid_reasoning_force_initial_turns", None) is not None:
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        backend_overrides["hybrid_reasoning_force_initial_turns"] = (
+            args.hybrid_reasoning_force_initial_turns
+        )
+        os.environ["HYBRID_REASONING_FORCE_INITIAL_TURNS"] = str(
+            args.hybrid_reasoning_force_initial_turns
+        )
+        record_cli(
+            "backends.hybrid_reasoning_force_initial_turns",
+            args.hybrid_reasoning_force_initial_turns,
+            "--hybrid-reasoning-force-initial-turns",
+        )
+
     # Model aliases configuration (CLI overrides config file)
     if getattr(args, "model_aliases", None) is not None:
         from src.core.config.app_config import ModelAliasRule
@@ -1070,6 +1125,17 @@ def apply_cli_args(
             "strict_command_detection",
             args.strict_command_detection,
             "--strict-command-detection",
+        )
+
+    # Angel verification model override from CLI
+    if getattr(args, "use_angel_model", None) is not None:
+        session_overrides = cli_overrides.setdefault("session", {})
+        session_overrides["angel_model"] = args.use_angel_model
+        os.environ["ANGEL_MODEL"] = args.use_angel_model
+        record_cli(
+            "session.angel_model",
+            args.use_angel_model,
+            "--use-angel-model",
         )
 
     # Brute force protection configuration (auth_overrides may already exist from earlier setdefault calls)

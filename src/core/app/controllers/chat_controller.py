@@ -574,7 +574,7 @@ class ChatController:
                             choice = ChatCompletionChoice(
                                 index=0,
                                 message=message,
-                                finish_reason=finish_reason,
+                                finish_reason=finish_reason,  # type: ignore[arg-type]
                             )
 
                             response = ChatResponse(
