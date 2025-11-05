@@ -374,32 +374,13 @@ class BackendRequestManager(IBackendRequestManager):
             )
 
         prefetched_chunks: list[ProcessedResponse | bytes] = []
-        has_text = False
-        has_tool_calls = False
-        stream_consumed_without_data = False
 
         async for chunk in original_stream:
             prefetched_chunks.append(chunk)
-            if not has_text:
-                text_fragment = self._extract_text_from_chunk(chunk)
-                if text_fragment and text_fragment.strip():
-                    has_text = True
-            if not has_tool_calls and self._chunk_contains_tool_call(chunk):
-                has_tool_calls = True
-            if has_text or has_tool_calls:
-                break
+            break
         else:
-            stream_consumed_without_data = True
-
-        if stream_consumed_without_data and not has_tool_calls:
-            return await self._retry_stream_with_recovery(
-                reason="Streaming response contained no text or tool calls; retrying with recovery prompt.",
-                stream_envelope=stream_envelope,
-                original_request=original_request,
-                session_id=session_id,
-                context=context,
-                retry_depth=retry_depth,
-            )
+            # Generator produced no data at all
+            pass
 
         if not prefetched_chunks:
             return await self._retry_stream_with_recovery(
@@ -554,36 +535,6 @@ class BackendRequestManager(IBackendRequestManager):
         fallback = HybridLoopDetector()
         fallback.reset()
         return fallback
-
-    @staticmethod
-    def _chunk_contains_tool_call(chunk: ProcessedResponse | bytes) -> bool:
-        import json
-
-        if isinstance(chunk, ProcessedResponse):
-            if chunk.metadata and chunk.metadata.get("tool_calls"):
-                return True
-            candidate = chunk.content
-        elif isinstance(chunk, bytes):
-            try:
-                decoded = chunk.decode("utf-8")
-                candidate = json.loads(decoded)
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                return False
-        else:
-            candidate = None
-
-        if isinstance(candidate, dict):
-            choices = candidate.get("choices")
-            if isinstance(choices, list) and choices:
-                choice = choices[0]
-                if isinstance(choice, dict):
-                    delta = choice.get("delta")
-                    if isinstance(delta, dict) and delta.get("tool_calls"):
-                        return True
-                    message = choice.get("message")
-                    if isinstance(message, dict) and message.get("tool_calls"):
-                        return True
-        return False
 
     @staticmethod
     def _extract_text_from_chunk(chunk: ProcessedResponse | bytes) -> str:
