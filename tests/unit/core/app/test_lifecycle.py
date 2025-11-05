@@ -88,7 +88,7 @@ class _DummySessionService:
     def __init__(self) -> None:
         self.calls: list[int] = []
 
-    async def cleanup_expired_sessions(self, max_age: int) -> int:
+    async def cleanup_expired(self, max_age: int) -> int:
         self.calls.append(max_age)
         return 3
 

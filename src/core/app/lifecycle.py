@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from typing import Any
 
 from fastapi import FastAPI
 
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.interfaces.wire_capture_interface import IWireCapture
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +82,15 @@ class AppLifecycle:
 
     async def _close_connections(self) -> None:
         """Close any remaining connections."""
-        # Any connection cleanup code would go here
+        # Get service provider
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        # Get wire capture service and shut it down
+        wire_capture_service = provider.get_service(IWireCapture)
+        if wire_capture_service and hasattr(wire_capture_service, "shutdown"):
+            await wire_capture_service.shutdown()
 
     async def _session_cleanup_task(self, interval: int, max_age: int) -> None:
         """Background task for cleaning up expired sessions.
@@ -110,10 +120,8 @@ class AppLifecycle:
 
                     # Perform cleanup
                     deleted_count = 0
-                    if hasattr(session_service, "cleanup_expired_sessions"):
-                        deleted_count = await session_service.cleanup_expired_sessions(
-                            max_age
-                        )
+                    with suppress(AttributeError):
+                        deleted_count = await session_service.cleanup_expired(max_age)
 
                     if deleted_count > 0 and logger.isEnabledFor(logging.INFO):
                         logger.info(f"Cleaned up {deleted_count} expired sessions")

@@ -1,15 +1,15 @@
 """State management tests for :mod:`src.loop_detection.gemini_cli_detector`."""
 
-from src.loop_detection.gemini_cli_detector import GeminiCliLoopDetector
+from src.loop_detection.token_window_loop_detector import TokenWindowLoopDetector
 
 
-class TestGeminiCliLoopDetectorState:
+class TestTokenWindowLoopDetectorState:
     """Ensure internal state snapshots remain isolated from mutations."""
 
     def test_save_state_does_not_share_internal_lists(self) -> None:
         """Saving state should produce independent copies of tracked indices."""
 
-        detector = GeminiCliLoopDetector(
+        detector = TokenWindowLoopDetector(
             content_loop_threshold=5,
             content_chunk_size=3,
             max_history_length=100,

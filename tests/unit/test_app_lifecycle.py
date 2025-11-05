@@ -11,7 +11,7 @@ class DummySessionService:
     def __init__(self) -> None:
         self.cleanup_calls: list[int] = []
 
-    async def cleanup_expired_sessions(self, max_age: int) -> int:
+    async def cleanup_expired(self, max_age: int) -> int:
         self.cleanup_calls.append(max_age)
         await asyncio.sleep(0)
         return 2

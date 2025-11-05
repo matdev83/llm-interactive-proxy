@@ -19,7 +19,7 @@ from src.core.interfaces.loop_detector_interface import (
     LoopDetectionResult,
 )
 from src.loop_detection.event import LoopDetectionEvent
-from src.loop_detection.gemini_cli_detector import GeminiCliLoopDetector
+from src.loop_detection.token_window_loop_detector import TokenWindowLoopDetector
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +208,7 @@ class HybridLoopDetector(ILoopDetector):
         """
         # Initialize short pattern detector (gemini-cli)
         short_config = short_detector_config or {}
-        self.short_detector = GeminiCliLoopDetector(
+        self.short_detector = TokenWindowLoopDetector(
             content_loop_threshold=short_config.get("content_loop_threshold", 10),
             content_chunk_size=short_config.get("content_chunk_size", 50),
             max_history_length=short_config.get("max_history_length", 1000),

@@ -1,5 +1,7 @@
 """
-Loop detection implementation ported from Google's gemini-cli.
+Sliding-window loop detector originally ported from the Gemini CLI.
+
+This detector is backend-agnostic and can be used for any streaming LLM output.
 
 This is a direct port of the loop detection algorithm from:
 https://github.com/google/generative-ai-docs/tree/main/gemini-cli
@@ -45,9 +47,9 @@ _MARKDOWN_STRUCTURE_PATTERN = re.compile(
 )
 
 
-class GeminiCliLoopDetector(ILoopDetector):
+class TokenWindowLoopDetector(ILoopDetector):
     """
-    Loop detector ported from Google's gemini-cli.
+    Backend-agnostic loop detector using a sliding token window with markdown-aware resets.
 
     This implementation uses a sliding window approach with intelligent context tracking
     to detect repetitive patterns in LLM responses without manual parameter tuning.
@@ -83,7 +85,7 @@ class GeminiCliLoopDetector(ILoopDetector):
         self._loop_events: list[LoopDetectionEvent] = []
 
         logger.debug(
-            "GeminiCliLoopDetector initialized: chunk_size=%d, threshold=%d, max_history=%d",
+            "TokenWindowLoopDetector initialized: chunk_size=%d, threshold=%d, max_history=%d",
             self.content_chunk_size,
             self.content_loop_threshold,
             self.max_history_length,

@@ -856,9 +856,19 @@ class BufferedWireCapture(IWireCapture):
         if self._flush_task and not self._flush_task.done():
             with contextlib.suppress(Exception):
                 task = self._flush_task
+                # Suppress the 'task was destroyed but it is pending!' message
                 if hasattr(task, "_log_destroy_pending"):
                     cast(Any, task)._log_destroy_pending = False
                 loop = task.get_loop()
-                if not loop.is_closed():
-                    task.cancel()
+                if loop.is_running() and not loop.is_closed():
+                    loop.call_soon_threadsafe(task.cancel)
+                elif not loop.is_closed():
+                    # This is a fallback and might not always work if the loop is closing
+                    loop.run_until_complete(self.shutdown())
+
         self._flush_task = None
+
+    def __del__(self) -> None:
+        """Ensure cleanup is attempted on garbage collection."""
+        if self.enabled():
+            self.force_shutdown_sync()

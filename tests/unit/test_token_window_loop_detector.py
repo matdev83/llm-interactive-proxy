@@ -1,12 +1,12 @@
 """
-Tests for GeminiCliLoopDetector.
+Tests for TokenWindowLoopDetector.
 
 Ported from Google's gemini-cli test suite:
 https://github.com/google/generative-ai-docs/blob/main/gemini-cli/packages/core/src/services/loopDetectionService.test.ts
 """
 
 import pytest
-from src.loop_detection.gemini_cli_detector import GeminiCliLoopDetector
+from src.loop_detection.token_window_loop_detector import TokenWindowLoopDetector
 
 # Constants from the original implementation
 CONTENT_LOOP_THRESHOLD = 10
@@ -36,7 +36,7 @@ class TestContentLoopDetection:
 
     def test_should_not_detect_loop_for_random_content(self):
         """Should not detect a loop for random content."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         for _ in range(1000):
@@ -46,7 +46,7 @@ class TestContentLoopDetection:
 
     def test_should_detect_loop_when_chunk_repeats_consecutively(self):
         """Should detect a loop when a chunk of content repeats consecutively."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -59,7 +59,7 @@ class TestContentLoopDetection:
 
     def test_should_not_detect_loop_if_repetitions_are_far_apart(self):
         """Should not detect a loop if repetitions are very far apart."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -78,7 +78,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_not_detect_loop_inside_code_block(self):
         """Should not detect a loop when repetitive content is inside a code block."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -94,7 +94,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_not_detect_loops_when_content_transitions_into_code_block(self):
         """Should not detect loops when content transitions into a code block."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -115,7 +115,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_skip_loop_detection_when_already_inside_code_block(self):
         """Should skip loop detection when already inside a code block."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         # Start with content that puts us inside a code block
@@ -129,7 +129,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_correctly_track_code_block_state_with_multiple_fences(self):
         """Should correctly track inCodeBlock state with multiple fence transitions."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -156,7 +156,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_detect_loop_when_repetitive_content_is_outside_code_block(self):
         """Should detect a loop when repetitive content is outside a code block."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -173,7 +173,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_handle_content_with_multiple_code_blocks_no_loops(self):
         """Should handle content with multiple code blocks and no loops."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         detector.process_chunk("```\ncode1\n```")
@@ -184,7 +184,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_handle_content_with_mixed_code_blocks_and_looping_text(self):
         """Should handle content with mixed code blocks and looping text."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -201,7 +201,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_not_detect_loop_for_long_code_block_with_repeating_tokens(self):
         """Should not detect a loop for a long code block with some repeating tokens."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeating_tokens = "for (let i = 0; i < 10; i++) { console.log(i); }"
@@ -217,7 +217,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_reset_tracking_when_code_fence_is_found(self):
         """Should reset tracking when a code fence is found."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -235,7 +235,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_reset_tracking_when_table_is_detected(self):
         """Should reset tracking when a table is detected."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -253,7 +253,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_reset_tracking_when_list_item_is_detected(self):
         """Should reset tracking when a list item is detected."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -271,7 +271,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_reset_tracking_when_heading_is_detected(self):
         """Should reset tracking when a heading is detected."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -289,7 +289,7 @@ class TestContentLoopDetectionWithCodeBlocks:
 
     def test_should_reset_tracking_when_blockquote_is_detected(self):
         """Should reset tracking when a blockquote is detected."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
@@ -318,7 +318,7 @@ class TestContentLoopDetectionWithCodeBlocks:
         ]
 
         for idx, list_format in enumerate(list_formats):
-            detector = GeminiCliLoopDetector()
+            detector = TokenWindowLoopDetector()
             detector.reset()
 
             # Build up to near threshold
@@ -348,7 +348,7 @@ class TestContentLoopDetectionWithCodeBlocks:
         ]
 
         for idx, table_format in enumerate(table_formats):
-            detector = GeminiCliLoopDetector()
+            detector = TokenWindowLoopDetector()
             detector.reset()
 
             # Build up to near threshold
@@ -380,7 +380,7 @@ class TestContentLoopDetectionWithCodeBlocks:
         ]
 
         for idx, heading_format in enumerate(heading_formats):
-            detector = GeminiCliLoopDetector()
+            detector = TokenWindowLoopDetector()
             detector.reset()
 
             # Build up to near threshold
@@ -404,7 +404,7 @@ class TestDividerContentDetection:
 
     def test_should_not_detect_loop_for_repeating_divider_content(self):
         """Should not detect a loop for repeating divider-like content."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         divider_content = "-" * CONTENT_CHUNK_SIZE
@@ -415,7 +415,7 @@ class TestDividerContentDetection:
 
     def test_should_not_detect_loop_for_repeating_complex_box_drawing_dividers(self):
         """Should not detect a loop for repeating complex box-drawing dividers."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         detector.reset()
 
         divider_content = "+-" * (CONTENT_CHUNK_SIZE // 2)
@@ -430,7 +430,7 @@ class TestEdgeCases:
 
     def test_should_handle_empty_content(self):
         """Should handle empty content."""
-        detector = GeminiCliLoopDetector()
+        detector = TokenWindowLoopDetector()
         event = detector.process_chunk("")
         assert event is None
 
@@ -453,7 +453,7 @@ class TestOriginalBugPattern:
 
         This is a fundamental limitation of the hash-chunk approach.
         """
-        detector = GeminiCliLoopDetector(max_history_length=5000)
+        detector = TokenWindowLoopDetector(max_history_length=5000)
         detector.reset()
 
         # Test with a shorter pattern that WILL be detected
@@ -477,7 +477,7 @@ class TestOriginalBugPattern:
         The original bug pattern (200 chars) falls into this category.
         This test demonstrates the limitation.
         """
-        detector = GeminiCliLoopDetector(max_history_length=5000)
+        detector = TokenWindowLoopDetector(max_history_length=5000)
         detector.reset()
 
         # Original bug pattern (200 characters, mostly unique)
@@ -513,7 +513,7 @@ Fixtures:
 @pytest.mark.asyncio
 async def test_async_check_for_loops_interface():
     """Test the async check_for_loops interface."""
-    detector = GeminiCliLoopDetector()
+    detector = TokenWindowLoopDetector()
 
     # Test with repeated content
     repeated = "Test pattern " * 50
@@ -525,7 +525,7 @@ async def test_async_check_for_loops_interface():
 
 def test_detector_stats():
     """Test that detector stats are properly maintained."""
-    detector = GeminiCliLoopDetector()
+    detector = TokenWindowLoopDetector()
     stats = detector.get_stats()
 
     assert "is_enabled" in stats
@@ -536,7 +536,7 @@ def test_detector_stats():
 
 def test_enable_disable():
     """Test enable/disable functionality."""
-    detector = GeminiCliLoopDetector()
+    detector = TokenWindowLoopDetector()
 
     assert detector.is_enabled() is True
 
