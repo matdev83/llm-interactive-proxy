@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 from src.core.domain.chat import ChatRequest
@@ -24,6 +25,11 @@ from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.services.project_directory_resolution_service import (
     ProjectDirectoryResolutionService,
 )
+
+_TRUNCATED_ARTIFACT_PREFIX = "<system-reminder> CRITICAL: This output was truncated."
+_TRUNCATED_ARTIFACT_PATH_RE = re.compile(r"saved to ([A-Za-z]:\\[^\s]+)", re.IGNORECASE)
+_ARTIFACT_MAX_LINES = 120
+_ARTIFACT_MAX_CHARS = 6000
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +120,8 @@ class RequestProcessor(IRequestProcessor):
             f"command_results={len(command_result.command_results) if hasattr(command_result.command_results, '__len__') else 0}"
         )
 
+        self._expand_truncated_tool_outputs(command_result)
+
         # Special handling: Cline agent expects tool_calls for proxy commands
         try:
             if (
@@ -139,9 +147,9 @@ class RequestProcessor(IRequestProcessor):
             await self._session_manager.record_command_in_session(
                 request_data, session_id
             )
-            return await self._response_manager.process_command_result(
-                command_result, session
-            )
+        return await self._response_manager.process_command_result(
+            command_result, session
+        )
 
         # Prepare backend request
         backend_request = await self._backend_request_manager.prepare_backend_request(
@@ -986,3 +994,124 @@ class RequestProcessor(IRequestProcessor):
         return await self._command_processor.process_messages(
             request_data.messages, session_id, context
         )
+
+    def _expand_truncated_tool_outputs(self, command_result: ProcessedResult) -> None:
+        """Expand truncated tool outputs recorded as artifact references."""
+        messages = getattr(command_result, "modified_messages", None)
+        if not messages:
+            return
+
+        normalized_messages: list[Any] = []
+        changed = False
+
+        for raw_message in messages:
+            message, altered = self._normalize_tool_message(raw_message)
+            normalized_messages.append(message)
+            changed = changed or altered
+
+        if changed:
+            command_result.modified_messages = normalized_messages
+
+    def _normalize_tool_message(self, raw_message: Any) -> tuple[Any, bool]:
+        """Return tool message with expanded artifact content when possible."""
+        role = None
+        content = None
+
+        if isinstance(raw_message, dict):
+            role = raw_message.get("role")
+            content = raw_message.get("content")
+        else:
+            role = getattr(raw_message, "role", None)
+            content = getattr(raw_message, "content", None)
+
+        if role != "tool":
+            return raw_message, False
+
+        replacement = self._extract_truncated_artifact_preview(content)
+        if replacement is None:
+            return raw_message, False
+
+        if isinstance(raw_message, dict):
+            updated = dict(raw_message)
+            updated["content"] = replacement
+            return updated, True
+
+        if hasattr(raw_message, "model_copy"):
+            return raw_message.model_copy(update={"content": replacement}), True
+
+        # Fallback: attempt in-place assignment
+        try:
+            raw_message.content = replacement  # type: ignore[attr-defined]
+            return raw_message, True
+        except Exception:
+            return raw_message, False
+
+    def _extract_truncated_artifact_preview(self, content: Any) -> str | None:
+        """Extract and truncate the artifact referenced by the tool output."""
+        if not isinstance(content, str):
+            return None
+        if _TRUNCATED_ARTIFACT_PREFIX not in content:
+            return None
+
+        match = _TRUNCATED_ARTIFACT_PATH_RE.search(content)
+        if not match:
+            return None
+
+        raw_path = match.group(1)
+        artifact_path = self._convert_artifact_path(raw_path)
+        if artifact_path is None or not artifact_path.exists():
+            logger.debug(
+                "Artifact path %s could not be resolved or does not exist", raw_path
+            )
+            return None
+
+        try:
+            artifact_text = artifact_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            logger.warning("Failed to read tool artifact %s: %s", artifact_path, exc)
+            return None
+
+        preview = self._build_artifact_preview(artifact_text)
+        note = (
+            f"<system-reminder> Extracted artifact from {raw_path}. "
+            f"Showing limited preview for the language model.\n\n"
+        )
+        return note + preview
+
+    def _convert_artifact_path(self, raw_path: str) -> Path | None:
+        """Convert CLI artifact path to a path accessible from this environment."""
+        potential_path = Path(raw_path)
+        if potential_path.exists():
+            return potential_path
+
+        # Handle Windows paths when running under WSL/Linux (e.g., C:\ -> /mnt/c/)
+        if len(raw_path) > 2 and raw_path[1:3] == ":\\":
+            drive = raw_path[0].lower()
+            remainder = raw_path[3:].replace("\\", "/")
+            candidate = Path(f"/mnt/{drive}/{remainder}")
+            if candidate.exists():
+                return candidate
+
+        return None
+
+    def _build_artifact_preview(self, artifact_text: str) -> str:
+        """Produce a trimmed preview of artifact contents."""
+        lines = artifact_text.splitlines()
+        truncated_lines = False
+
+        if len(lines) > _ARTIFACT_MAX_LINES:
+            omitted = len(lines) - _ARTIFACT_MAX_LINES
+            lines = lines[:_ARTIFACT_MAX_LINES]
+            lines.append(f"[... {omitted} additional lines omitted ...]")
+            truncated_lines = True
+
+        preview = "\n".join(lines)
+
+        if len(preview) > _ARTIFACT_MAX_CHARS:
+            preview = preview[:_ARTIFACT_MAX_CHARS] + "\n[... output truncated ...]"
+            truncated_lines = True
+
+        if truncated_lines:
+            preview += "\n"
+
+        return preview
