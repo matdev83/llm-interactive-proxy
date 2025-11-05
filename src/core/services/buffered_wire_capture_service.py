@@ -229,36 +229,6 @@ class BufferedWireCapture(IWireCapture):
         if self._file_path:
             self._initialize()
 
-    def __del__(self) -> None:
-        """Cleanup resources when the instance is destroyed."""
-        if (
-            hasattr(self, "_flush_task")
-            and self._flush_task
-            and not self._flush_task.done()
-        ):
-            import logging
-
-            def _can_write(handler: logging.Handler) -> bool:
-                stream = getattr(handler, "stream", None)
-                return stream is None or not getattr(stream, "closed", False)
-
-            def _safe_to_log() -> bool:
-                try:
-                    handlers = set(logger.handlers)
-                    root = logging.getLogger()
-                    handlers.update(root.handlers)
-                    return all(_can_write(h) for h in handlers)
-                except Exception:
-                    return False
-
-            if _safe_to_log():
-                with contextlib.suppress(Exception):
-                    logger.warning(
-                        "BufferedWireCapture was garbage collected without being shut down. "
-                        "Call shutdown() to ensure data is flushed and tasks are cleaned up."
-                    )
-        self.force_shutdown_sync()
-
     def _initialize(self) -> None:
         """Initialize the wire capture system."""
         if not self._file_path:
