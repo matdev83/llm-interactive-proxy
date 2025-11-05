@@ -209,15 +209,18 @@ class StateAccessProxy:
         import inspect
 
         frame = inspect.currentframe()
-        if frame and frame.f_back:
-            caller_locals = frame.f_back.f_locals
+        try:
+            if frame and frame.f_back:
+                caller_locals = frame.f_back.f_locals
 
-            # Check if 'self' in caller is an instance of allowed interfaces
-            caller_self = caller_locals.get("self")
-            if caller_self:
-                for interface in self._allowed_interfaces:
-                    if isinstance(caller_self, interface):
-                        return getattr(self._target, name)
+                # Check if 'self' in caller is an instance of allowed interfaces
+                caller_self = caller_locals.get("self")
+                if caller_self:
+                    for interface in self._allowed_interfaces:
+                        if isinstance(caller_self, interface):
+                            return getattr(self._target, name)
+        finally:
+            del frame
 
         # If we get here, the access is not through an allowed interface
         raise StateAccessViolationError(
@@ -245,15 +248,18 @@ class StateAccessProxy:
         import inspect
 
         frame = inspect.currentframe()
-        if frame and frame.f_back:
-            caller_locals = frame.f_back.f_locals
-            caller_self = caller_locals.get("self")
+        try:
+            if frame and frame.f_back:
+                caller_locals = frame.f_back.f_locals
+                caller_self = caller_locals.get("self")
 
-            if caller_self:
-                for interface in self._allowed_interfaces:
-                    if isinstance(caller_self, interface):
-                        setattr(self._target, name, value)
-                        return
+                if caller_self:
+                    for interface in self._allowed_interfaces:
+                        if isinstance(caller_self, interface):
+                            setattr(self._target, name, value)
+                            return
+        finally:
+            del frame
 
         raise StateAccessViolationError(
             f"Direct setting of '{name}' is not allowed. "

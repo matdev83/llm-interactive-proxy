@@ -77,8 +77,8 @@ class InMemorySessionRepository(ISessionRepository):
             tracked_sessions = self._user_sessions.get(previous_user_id)
             if tracked_sessions and entity.id in tracked_sessions:
                 tracked_sessions.remove(entity.id)
-                if not tracked_sessions:
-                    del self._user_sessions[previous_user_id]
+            if not self._user_sessions[previous_user_id]:
+                del self._user_sessions[previous_user_id]
 
         if new_user_id:
             tracked_sessions = self._user_sessions.setdefault(new_user_id, [])
