@@ -7,10 +7,10 @@ This module provides the implementation of the backend request manager interface
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import AsyncIterator, Iterable
 from typing import Any, cast
 
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -357,10 +357,9 @@ class BackendRequestManager(IBackendRequestManager):
                 "Maximum empty stream recovery attempts reached for session %s",
                 session_id,
             )
-            return await self._build_fallback_stream(
-                stream_envelope=stream_envelope,
+            self._raise_empty_stream_error(
                 session_id=session_id,
-                reason="Empty streaming response after maximum retries",
+                reason="empty_stream_after_retries",
             )
 
         original_stream = stream_envelope.content
@@ -504,10 +503,9 @@ class BackendRequestManager(IBackendRequestManager):
                 reason,
                 session_id,
             )
-            return await self._build_fallback_stream(
-                stream_envelope=stream_envelope,
+            self._raise_empty_stream_error(
                 session_id=session_id,
-                reason=reason,
+                reason="empty_stream_retry_failure",
             )
 
         logger.info("%s", reason)
@@ -596,14 +594,25 @@ class BackendRequestManager(IBackendRequestManager):
         if isinstance(chunk, bytes):
             try:
                 decoded = chunk.decode("utf-8")
-                # Try to parse as JSON to extract content
-                data = json.loads(decoded)
+            except UnicodeDecodeError:
+                return ""
+
+            for line in decoded.splitlines():
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:].strip()
+                if payload == "[DONE]":
+                    continue
+                try:
+                    data = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
                 if isinstance(data, dict):
                     choices = data.get("choices")
                     if isinstance(choices, list) and choices:
                         choice = choices[0]
                         if isinstance(choice, dict):
-                            delta = choice.get("delta")
+                            delta = choice.get("delta") or {}
                             if isinstance(delta, dict):
                                 content = delta.get("content")
                                 if isinstance(content, str):
@@ -624,9 +633,6 @@ class BackendRequestManager(IBackendRequestManager):
                                 msg_content = message.get("content")
                                 if isinstance(msg_content, str):
                                     return msg_content
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                # If decoding or parsing fails, return empty string
-                return ""
             return ""
 
         # Handle case where chunk is a ProcessedResponse object
@@ -662,52 +668,11 @@ class BackendRequestManager(IBackendRequestManager):
                                 return msg_content
         return ""
 
-    async def _build_fallback_stream(
-        self,
-        stream_envelope: StreamingResponseEnvelope,
-        session_id: str,
-        reason: str,
-    ) -> StreamingResponseEnvelope:
-        """Generate a synthetic assistant response when recovery fails."""
-        logger.warning(
-            "Returning fallback assistant message for session %s: %s",
-            session_id,
-            reason,
-        )
-
-        payload = {
-            "id": "proxy-empty-response-retry",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "proxy-empty-response",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "content": (
-                            "Proxy notice: the upstream model returned no content "
-                            "after multiple attempts. Please retry or adjust your request."
-                        ),
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        }
-
-        async def fallback_stream() -> AsyncIterator[ProcessedResponse]:
-            yield ProcessedResponse(
-                content=payload,
-                metadata={
-                    "proxy_generated": True,
-                    "empty_response_recovery_failed": True,
-                    "recovery_reason": reason,
-                },
-            )
-
-        return StreamingResponseEnvelope(
-            content=fallback_stream(),
-            media_type=stream_envelope.media_type,
-            headers=stream_envelope.headers,
-            cancel_callback=stream_envelope.cancel_callback,
+    def _raise_empty_stream_error(self, session_id: str, reason: str) -> None:
+        """Raise a backend error when no content is produced after retries."""
+        raise BackendError(
+            message="Upstream model returned no content after retries",
+            backend_name="gemini-oauth-plan",
+            code=reason,
+            details={"session_id": session_id},
         )
