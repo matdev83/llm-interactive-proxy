@@ -4,6 +4,7 @@ Unit tests for the metrics service.
 
 from __future__ import annotations
 
+import threading
 import time
 
 from src.core.services import metrics_service
@@ -84,6 +85,23 @@ class TestMetricsService:
         assert "timer2" in all_stats
         assert all_stats["timer1"]["count"] == 1
         assert all_stats["timer2"]["count"] == 1
+
+    def test_get_all_timer_stats_thread_safe(self):
+        """Ensure get_all_timer_stats does not deadlock when called from another thread."""
+        metrics_service.record_duration("timer1", 0.1)
+        metrics_service.record_duration("timer2", 0.2)
+
+        result: dict[str, dict[str, float]] = {}
+
+        def target() -> None:
+            result.update(metrics_service.get_all_timer_stats())
+
+        worker = threading.Thread(target=target)
+        worker.start()
+        worker.join(timeout=1)
+
+        assert not worker.is_alive(), "get_all_timer_stats deadlocked when called from another thread"
+        assert result, "Expected timer stats to be populated after thread execution"
 
     def test_tool_call_processing_metrics(self):
         """Test metrics specific to tool call processing."""

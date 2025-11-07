@@ -14,6 +14,28 @@ _lock = threading.Lock()
 _counters: dict[str, int] = defaultdict(int)
 _timers: dict[str, list[float]] = defaultdict(list)
 
+def _calculate_timer_stats(durations: list[float]) -> dict[str, Any]:
+    """Calculate statistics for the provided list of durations."""
+    if not durations:
+        return {
+            "count": 0,
+            "total": 0.0,
+            "average": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+        }
+
+    total_duration = sum(durations)
+    count = len(durations)
+    return {
+        "count": count,
+        "total": total_duration,
+        "average": total_duration / count,
+        "min": min(durations),
+        "max": max(durations),
+    }
+
+
 
 def inc(name: str, by: int = 1) -> None:
     """Increment a counter metric by the specified amount.
@@ -90,23 +112,9 @@ def get_timer_stats(name: str) -> dict[str, Any]:
         A dictionary containing count, total, average, min, and max durations
     """
     with _lock:
-        durations = _timers.get(name, [])
-        if not durations:
-            return {
-                "count": 0,
-                "total": 0.0,
-                "average": 0.0,
-                "min": 0.0,
-                "max": 0.0,
-            }
+        durations = list(_timers.get(name, []))
 
-        return {
-            "count": len(durations),
-            "total": sum(durations),
-            "average": sum(durations) / len(durations),
-            "min": min(durations),
-            "max": max(durations),
-        }
+    return _calculate_timer_stats(durations)
 
 
 def get_all_timer_stats() -> dict[str, dict[str, Any]]:
@@ -116,7 +124,9 @@ def get_all_timer_stats() -> dict[str, dict[str, Any]]:
         A dictionary mapping timer names to their statistics
     """
     with _lock:
-        return {name: get_timer_stats(name) for name in _timers}
+        timers_snapshot = {name: list(durations) for name, durations in _timers.items()}
+
+    return {name: _calculate_timer_stats(durations) for name, durations in timers_snapshot.items()}
 
 
 def log_performance_stats() -> None:
