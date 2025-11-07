@@ -255,8 +255,6 @@ class ServiceProviderFailoverRouteValidator(FailoverRouteValidatorProtocol):
                 ),
             )
 
-        coroutine = backend_service.validate_backend_and_model(backend_name, model_name)
-
         try:
             asyncio.get_running_loop()
             loop_running = True
@@ -273,6 +271,8 @@ class ServiceProviderFailoverRouteValidator(FailoverRouteValidatorProtocol):
                     "Cannot validate failover routes while the event loop is running."
                 )
             return FailoverValidationResult(is_valid=True, warning=warning)
+
+        coroutine = backend_service.validate_backend_and_model(backend_name, model_name)
 
         try:
             is_valid, message = asyncio.run(coroutine)
