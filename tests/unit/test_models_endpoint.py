@@ -72,3 +72,64 @@ def test_model_listing_includes_oauth_backends(monkeypatch) -> None:
     model_ids = {model["id"] for model in result["data"]}
     assert "gemini-oauth-plan:gemini-2.5-pro" in model_ids
     assert created_backends == ["gemini-oauth-plan"]
+
+
+def test_model_listing_respects_injected_config(monkeypatch) -> None:
+    """Ensure the controller honours custom configurations supplied via DI."""
+
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from src.core.app.controllers import models_controller
+    from src.core.app.controllers.models_controller import _list_models_impl
+
+    monkeypatch.setattr(
+        models_controller.backend_registry,
+        "get_registered_backends",
+        lambda: ["dummy"],
+    )
+
+    class DummyBackend:
+        def get_available_models(self) -> list[str]:
+            return ["dummy-model"]
+
+    class DummyFactory:
+        def __init__(self) -> None:
+            self.created_with: list[tuple[str, object]] = []
+
+        def create_backend(self, backend_type: str, config_obj: object) -> DummyBackend:
+            self.created_with.append((backend_type, config_obj))
+            return DummyBackend()
+
+    class CustomBackends:
+        def __init__(self) -> None:
+            self.functional_backends = {"dummy"}
+            self.dummy = SimpleNamespace(api_key="token")
+
+    class CustomConfig:
+        def __init__(self) -> None:
+            self.backends = CustomBackends()
+
+        def get(self, key: str, default: object | None = None) -> object | None:
+            if key == "backends":
+                return self.backends
+            return default
+
+        def set(self, key: str, value: object) -> None:
+            setattr(self, key, value)
+
+    factory = DummyFactory()
+    config = CustomConfig()
+
+    result = asyncio.run(
+        _list_models_impl(
+            backend_service=Mock(),
+            config=config,  # type: ignore[arg-type]
+            backend_factory=factory,  # type: ignore[arg-type]
+        )
+    )
+
+    model_ids = {model["id"] for model in result["data"]}
+    assert "dummy:dummy-model" in model_ids
+    assert factory.created_with == [("dummy", config)]

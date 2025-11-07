@@ -255,27 +255,100 @@ async def _list_models_impl(
         # Use the injected config service
         from src.core.config.app_config import AppConfig
 
-        if not isinstance(config, AppConfig):
-            # Fallback to default config if we got a different config type
-            config = AppConfig()
+        # Determine which backend configuration views are available. Prefer the
+        # injected configuration object but gracefully fall back to a default
+        # AppConfig instance when the provided config does not expose a
+        # compatible `backends` attribute. This preserves compatibility with
+        # lightweight test doubles that only implement the public IConfig
+        # interface while avoiding the previous behaviour of discarding the
+        # injected configuration altogether.
+        backend_views: list[Any] = []
+        if hasattr(config, "backends"):
+            try:
+                backend_views.append(getattr(config, "backends"))
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.debug(
+                    "Unable to access backends on %s: %s",
+                    type(config).__name__,
+                    exc,
+                    exc_info=True,
+                )
+        else:
+            logger.debug(
+                "Configuration %s lacks 'backends' attribute; using fallback AppConfig",
+                type(config).__name__,
+            )
+
+        if not backend_views:
+            fallback_config = AppConfig()
+            backend_views.append(fallback_config.backends)
 
         # Ensure backend service is at least resolved for DI side effects
         _ = backend_service
 
-        try:
-            functional_backends = set(config.backends.functional_backends)
-        except Exception as exc:  # pragma: no cover - defensive guard
-            logger.debug(
-                "Unable to determine functional backends: %s", exc, exc_info=True
-            )
-            functional_backends = set()
+        functional_backends: set[str] = set()
+        for view in backend_views:
+            try:
+                candidates = getattr(view, "functional_backends")
+            except AttributeError:
+                logger.debug(
+                    "Backend configuration %s does not expose functional_backends",
+                    type(view).__name__,
+                )
+                continue
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.debug(
+                    "Error accessing functional_backends on %s: %s",
+                    type(view).__name__,
+                    exc,
+                    exc_info=True,
+                )
+                continue
+
+            # Support both property-based and plain attribute implementations.
+            try:
+                if callable(candidates):
+                    candidates = candidates()
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.debug(
+                    "Failed to invoke functional_backends on %s: %s",
+                    type(view).__name__,
+                    exc,
+                    exc_info=True,
+                )
+                continue
+
+            try:
+                if isinstance(candidates, set) or isinstance(candidates, (list, tuple)):
+                    functional_backends.update(candidates)
+                elif isinstance(candidates, dict):
+                    functional_backends.update(candidates.keys())
+                elif candidates is None:
+                    continue
+                else:
+                    functional_backends.update(set(candidates))
+            except TypeError:
+                logger.debug(
+                    "functional_backends on %s is not iterable", type(view).__name__
+                )
+                continue
 
         # Iterate through dynamically discovered backend types from the registry
         for backend_type in backend_registry.get_registered_backends():
             backend_config: Any | None = None
-            if config.backends:
-                # Access backend config dynamically using getattr
-                backend_config = getattr(config.backends, backend_type, None)
+            for view in backend_views:
+                candidate: Any | None = None
+                if isinstance(view, dict):
+                    candidate = view.get(backend_type)
+                else:
+                    try:
+                        candidate = getattr(view, backend_type, None)
+                    except AttributeError:
+                        candidate = None
+
+                if candidate is not None:
+                    backend_config = candidate
+                    break
 
             has_credentials = False
             if isinstance(backend_config, dict):
