@@ -37,6 +37,7 @@ class ContentRewriterService:
         self.prompt_system_rules: list[ReplacementRule] = []
         self.prompt_user_rules: list[ReplacementRule] = []
         self.reply_rules: list[ReplacementRule] = []
+        self._max_reply_search_length: int | None = None
         self.load_rules()
 
     def load_rules(self) -> None:
@@ -50,6 +51,35 @@ class ContentRewriterService:
         self.reply_rules = self._load_rules_from_dir(
             os.path.join(self.config_path, "replies")
         )
+        self.refresh_rule_cache()
+
+    def refresh_rule_cache(self) -> None:
+        """Recompute cached values derived from replacement rules."""
+
+        self._max_reply_search_length = self._calculate_max_search_length(
+            self.reply_rules
+        )
+
+    @staticmethod
+    def _calculate_max_search_length(rules: list[ReplacementRule]) -> int:
+        """Return the length of the longest search string in ``rules``."""
+
+        max_length = 0
+        for rule in rules:
+            search = rule.search
+            if search:
+                search_length = len(search)
+                if search_length > max_length:
+                    max_length = search_length
+        return max_length
+
+    @property
+    def max_reply_search_length(self) -> int:
+        """Maximum length of reply rule search patterns (cached)."""
+
+        if self._max_reply_search_length is None:
+            self.refresh_rule_cache()
+        return self._max_reply_search_length or 0
 
     def _load_rules_from_dir(self, directory: str) -> list[ReplacementRule]:
         """Loads rules from a specific directory."""

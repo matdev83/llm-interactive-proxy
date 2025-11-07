@@ -1,4 +1,6 @@
+import codecs
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import Request
@@ -399,19 +401,51 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
 
         # Step 3: Potentially rewrite the response
         if isinstance(response, StreamingResponse):
+            original_iterator = response.body_iterator
 
-            async def new_iterator():
-                response_body = b""
-                async for chunk in response.body_iterator:
-                    response_body += chunk
-                rewritten_body = self.rewriter.rewrite_reply(response_body.decode())
-                yield rewritten_body.encode("utf-8")
+            if original_iterator is None:
+                return response
+
+            # If no reply rules are configured we can pass the stream through.
+            if not self.rewriter.reply_rules:
+                return response
+
+            max_pattern_length = self.rewriter.max_reply_search_length
+            overlap = max(0, max_pattern_length - 1)
+            # Keep the working buffer bounded to avoid unbounded memory growth.
+            chunk_limit = max(65536, (overlap + 1) * 2)
+
+            async def rewriting_iterator() -> AsyncIterator[bytes]:
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                buffer = ""
+
+                async for chunk in original_iterator:
+                    if isinstance(chunk, bytes):
+                        text_chunk = decoder.decode(chunk, final=False)
+                    else:
+                        text_chunk = decoder.decode(chunk.encode("utf-8"), final=False)
+                    buffer += text_chunk
+
+                    while len(buffer) > chunk_limit:
+                        emit_upto = len(buffer) - overlap if overlap else len(buffer)
+                        if emit_upto <= 0:
+                            break
+                        to_emit = buffer[:emit_upto]
+                        buffer = buffer[emit_upto:]
+                        if to_emit:
+                            rewritten = self.rewriter.rewrite_reply(to_emit)
+                            yield rewritten.encode("utf-8")
+
+                remaining = buffer + decoder.decode(b"", final=True)
+                if remaining:
+                    rewritten_remaining = self.rewriter.rewrite_reply(remaining)
+                    yield rewritten_remaining.encode("utf-8")
 
             background = response.background
             response.background = None
 
             return StreamingResponse(
-                new_iterator(),
+                rewriting_iterator(),
                 status_code=response.status_code,
                 headers=dict(response.headers),
                 media_type=response.media_type,
