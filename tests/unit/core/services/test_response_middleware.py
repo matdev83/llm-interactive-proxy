@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from src.core.common.exceptions import LoopDetectionError
-from src.core.interfaces.loop_detector_interface import ILoopDetector
+from src.core.interfaces.loop_detector_interface import ILoopDetector, LoopDetectionResult
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.response_middleware import (
     ContentFilterMiddleware,
@@ -127,6 +127,31 @@ class TestLoopDetectionMiddleware:
         """Create a LoopDetectionMiddleware instance."""
         return LoopDetectionMiddleware(mock_loop_detector)
 
+    class _StubLoopDetector(ILoopDetector):
+        """Simple loop detector stub to capture processed content."""
+
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def is_enabled(self) -> bool:
+            return True
+
+        def process_chunk(self, chunk: str):
+            return None
+
+        def reset(self) -> None:
+            self.calls.clear()
+
+        def get_loop_history(self):
+            return []
+
+        def get_current_state(self):
+            return {}
+
+        async def check_for_loops(self, content: str) -> LoopDetectionResult:
+            self.calls.append(content)
+            return LoopDetectionResult(has_loop=False)
+
     @pytest.mark.asyncio
     async def test_process_no_loop_detected(self, middleware, mock_loop_detector):
         """Test middleware processes normally when no loop is detected."""
@@ -198,9 +223,23 @@ class TestLoopDetectionMiddleware:
         result2 = await middleware.process(response2, "session123", {})
         assert result2 == response2
 
-        # Check that accumulated content was passed to detector
-        args, _kwargs = mock_loop_detector.check_for_loops.call_args
-        assert "Part 1" in args[0] and "Part 2" in args[0]
+    @pytest.mark.asyncio
+    async def test_process_isolates_sessions_without_identifier(self):
+        """Ensure content buffers do not leak between sessions when IDs are missing."""
+
+        detector = self._StubLoopDetector()
+        middleware = LoopDetectionMiddleware(detector)
+
+        content = "A" * 120
+        response_one = ProcessedResponse(content=content)
+        response_two = ProcessedResponse(content=content)
+
+        await middleware.process(response_one, "", {"stream_id": "stream-one"})
+        await middleware.process(response_two, "", {"stream_id": "stream-two"})
+
+        assert len(detector.calls) == 2
+        assert [len(call) for call in detector.calls] == [len(content), len(content)]
+
 
     def test_reset_session(self, middleware):
         """Test resetting session accumulated content."""

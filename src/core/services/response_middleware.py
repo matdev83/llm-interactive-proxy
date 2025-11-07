@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 from typing import Any
 
 from src.core.common.exceptions import LoopDetectionError
@@ -106,6 +107,7 @@ class LoopDetectionMiddleware(IResponseMiddleware):
     def __init__(self, loop_detector: ILoopDetector, priority: int = 0) -> None:
         self._loop_detector = loop_detector
         self._accumulated_content: dict[str, str] = {}
+        self._session_aliases: dict[str, str] = {}
         self._priority = priority
 
     @property
@@ -124,9 +126,11 @@ class LoopDetectionMiddleware(IResponseMiddleware):
         if not response.content:
             return response
 
-        self._accumulated_content.setdefault(session_id, "")
-        self._accumulated_content[session_id] += response.content
-        content = self._accumulated_content[session_id]
+        resolved_session_id = self._resolve_session_id(session_id, context, response)
+
+        self._accumulated_content.setdefault(resolved_session_id, "")
+        self._accumulated_content[resolved_session_id] += response.content
+        content = self._accumulated_content[resolved_session_id]
 
         if len(content) > 100:
             loop_result = await self._loop_detector.check_for_loops(content)
@@ -147,5 +151,42 @@ class LoopDetectionMiddleware(IResponseMiddleware):
 
     def reset_session(self, session_id: str) -> None:
         """Reset the accumulated content for a session."""
-        if session_id in self._accumulated_content:
-            del self._accumulated_content[session_id]
+        target_session = self._session_aliases.pop(session_id, session_id)
+        if target_session in self._accumulated_content:
+            del self._accumulated_content[target_session]
+
+    def _resolve_session_id(
+        self,
+        session_id: str,
+        context: dict[str, Any] | None,
+        response: Any,
+    ) -> str:
+        """Resolve a stable session identifier for loop detection state."""
+
+        if session_id:
+            resolved = str(session_id)
+        else:
+            resolved = None
+
+        if resolved is None and context:
+            resolved = context.get("stream_id") or context.get(
+                "_loop_detection_session_id"
+            )
+
+        if resolved is None:
+            metadata = getattr(response, "metadata", None)
+            if isinstance(metadata, dict):
+                resolved = metadata.get("stream_id") or metadata.get("session_id")
+
+        if resolved is None:
+            resolved = uuid4().hex
+
+        resolved = str(resolved)
+
+        if context is not None:
+            context.setdefault("_loop_detection_session_id", resolved)
+
+        if session_id and session_id != resolved:
+            self._session_aliases[session_id] = resolved
+
+        return resolved
