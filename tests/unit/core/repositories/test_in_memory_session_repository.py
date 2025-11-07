@@ -391,3 +391,21 @@ class TestInMemorySessionRepository:
         assert await repository.delete("any") is False
         assert await repository.get_by_user_id("any") == []
         assert await repository.cleanup_expired(0) == 0
+
+    @pytest.mark.asyncio
+    async def test_max_sessions_eviction(self) -> None:
+        """Repository should evict least-recently-used sessions when full."""
+        repo = InMemorySessionRepository(max_sessions=3)
+
+        # Insert more sessions than the cap.
+        sessions = [Session(session_id=f"session-{i}") for i in range(5)]
+        for session in sessions:
+            await repo.add(session)
+
+        # Only the three most recent sessions should remain.
+        remaining_ids = set(repo._sessions.keys())
+        assert remaining_ids == {
+            sessions[2].session_id,
+            sessions[3].session_id,
+            sessions[4].session_id,
+        }

@@ -198,6 +198,21 @@ class TestPersistentSessionRepository:
         assert persistent_result is sample_session
 
     @pytest.mark.asyncio
+    async def test_max_sessions_limit(self) -> None:
+        """Persistent repository should respect max session limits."""
+        repository = PersistentSessionRepository(max_sessions=2)
+
+        sessions = [Session(session_id=f"persist-{i}") for i in range(4)]
+        for session in sessions:
+            await repository.add(session)
+
+        remaining_ids = set(repository._memory_repo._sessions.keys())
+        assert remaining_ids == {
+            sessions[2].session_id,
+            sessions[3].session_id,
+        }
+
+    @pytest.mark.asyncio
     async def test_multiple_operations_work_consistently(
         self, repository: PersistentSessionRepository, sample_session: Session
     ) -> None:

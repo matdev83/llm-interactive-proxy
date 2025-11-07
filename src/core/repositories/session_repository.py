@@ -22,13 +22,20 @@ class PersistentSessionRepository(ISessionRepository):
     It would use file-based storage, a database, or another persistence mechanism.
     """
 
-    def __init__(self, storage_path: str | None = None):
+    def __init__(
+        self,
+        storage_path: str | None = None,
+        *,
+        max_sessions: int | None = None,
+    ):
         """Initialize the persistent session repository.
 
         Args:
             storage_path: Optional path to store sessions
         """
-        self._memory_repo = InMemorySessionRepository()  # Use in-memory as cache
+        self._memory_repo = InMemorySessionRepository(
+            max_sessions=max_sessions
+        )  # Use in-memory as cache
         self._storage_path = storage_path
         # Future: Initialize storage adapter based on storage_path
 
