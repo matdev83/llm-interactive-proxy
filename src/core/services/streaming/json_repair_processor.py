@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import src.core.services.metrics_service as metrics
@@ -23,6 +24,7 @@ class _JsonStreamState:
     brace_level: int = 0
     in_string: bool = False
     json_started: bool = False
+    last_accessed: float = field(default_factory=time.time)
 
 
 class JsonRepairProcessor(IStreamProcessor):
@@ -35,6 +37,7 @@ class JsonRepairProcessor(IStreamProcessor):
         strict_mode: bool,
         schema: dict[str, Any] | None = None,
         enabled: bool = True,
+        state_ttl_seconds: int = 300,
     ) -> None:
         self._service = repair_service
         self._buffer_cap_bytes = int(buffer_cap_bytes)
@@ -42,6 +45,8 @@ class JsonRepairProcessor(IStreamProcessor):
         self._schema = schema
         self._enabled = bool(enabled)
         self._states: dict[str, _JsonStreamState] = {}
+        ttl = int(state_ttl_seconds)
+        self._state_ttl_seconds = ttl if ttl > 0 else None
 
     def reset(self) -> None:
         """Clear any buffered state across streams (called per new streaming session)."""
@@ -51,11 +56,14 @@ class JsonRepairProcessor(IStreamProcessor):
         if not self._enabled:
             return content
 
+        self._cleanup_stale_states()
+
         if content.is_empty and not content.is_done:
             return content
 
         stream_id = get_stream_id(content)
         state = self._states.setdefault(stream_id, _JsonStreamState())
+        state.last_accessed = time.time()
 
         out_parts: list[str] = []
         text = content.content or ""
@@ -105,6 +113,28 @@ class JsonRepairProcessor(IStreamProcessor):
             usage=content.usage,
             raw_data=content.raw_data,
         )
+
+    def _cleanup_stale_states(self) -> None:
+        if not self._states or self._state_ttl_seconds is None:
+            return
+
+        current_time = time.time()
+        expired_streams = [
+            stream_id
+            for stream_id, state in list(self._states.items())
+            if current_time - state.last_accessed > self._state_ttl_seconds
+        ]
+
+        if not expired_streams:
+            return
+
+        for stream_id in expired_streams:
+            self._states.pop(stream_id, None)
+            logger.debug(
+                "Cleaned up stale JSON repair state for stream_id=%s after %s seconds",
+                stream_id,
+                self._state_ttl_seconds,
+            )
 
     # ---------------------------------------------------------------------
     # Internal helpers

@@ -6,6 +6,9 @@ import pytest
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.streaming.json_repair_processor import JsonRepairProcessor
+from src.core.services.streaming import (
+    json_repair_processor as json_repair_processor_module,
+)
 
 
 @pytest.fixture()
@@ -143,6 +146,44 @@ async def test_stream_with_multiple_reparable_json_objects(
         processor, "Text1 {'a': 1,} Text2 {'b': 2,} Text3"
     )
     assert result == 'Text1 {"a": 1} Text2 {"b": 2} Text3'
+
+
+class _FakeTime:
+    def __init__(self, start: float) -> None:
+        self._value = start
+
+    def advance(self, delta: float) -> None:
+        self._value += delta
+
+    def time(self) -> float:
+        return self._value
+
+
+@pytest.mark.asyncio
+async def test_stale_stream_state_is_cleaned_up(monkeypatch) -> None:
+    processor = JsonRepairProcessor(
+        repair_service=JsonRepairService(),
+        buffer_cap_bytes=1024,
+        strict_mode=False,
+        state_ttl_seconds=5,
+    )
+
+    fake_time = _FakeTime(start=1000.0)
+    monkeypatch.setattr(json_repair_processor_module.time, "time", fake_time.time)
+
+    await processor.process(
+        StreamingContent(content='{"partial": ', metadata={"stream_id": "stale"})
+    )
+    assert "stale" in processor._states
+
+    fake_time.advance(10.0)
+
+    await processor.process(
+        StreamingContent(content='{"new": ', metadata={"stream_id": "fresh"})
+    )
+
+    assert "stale" not in processor._states
+    assert "fresh" in processor._states
 
 
 @pytest.mark.asyncio
