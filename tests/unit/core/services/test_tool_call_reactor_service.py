@@ -58,13 +58,13 @@ class _PassthroughHandler(IToolCallHandler):
 
 
 @pytest.mark.asyncio
-async def test_tool_call_reactor_aliases_empty_session_ids() -> None:
+async def test_tool_call_reactor_isolates_anonymous_sessions() -> None:
     tracker = _RecordingHistoryTracker()
     service = ToolCallReactorService(history_tracker=tracker)
     handler = _PassthroughHandler()
     await service.register_handler(handler)
 
-    context_without_session = ToolCallContext(
+    first_context = ToolCallContext(
         session_id="",
         backend_name="test-backend",
         model_name="model",
@@ -73,13 +73,24 @@ async def test_tool_call_reactor_aliases_empty_session_ids() -> None:
         tool_arguments={},
     )
 
-    await service.process_tool_call(context_without_session)
-    assert tracker.records
-    alias_session_id = tracker.records[0][0]
-    assert alias_session_id != ""
+    second_context = ToolCallContext(
+        session_id="",
+        backend_name="test-backend",
+        model_name="model",
+        full_response={},
+        tool_name="other",
+        tool_arguments={},
+    )
 
-    await service.process_tool_call(context_without_session)
-    assert tracker.records[1][0] == alias_session_id
+    await service.process_tool_call(first_context)
+    await service.process_tool_call(second_context)
+
+    assert tracker.records
+    first_alias = tracker.records[0][0]
+    second_alias = tracker.records[1][0]
+    assert first_alias != ""
+    assert second_alias != ""
+    assert first_alias != second_alias
 
     explicit_context = ToolCallContext(
         session_id="explicit-session",
