@@ -150,6 +150,8 @@ class ChatRequest(ValueObject):
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
+    repetition_penalty: float | None = None
+    min_p: float | None = None
     n: int | None = None
     stream: bool | None = None
     stop: list[str] | str | None = None

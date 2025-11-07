@@ -41,6 +41,8 @@ class TestResolvedParameters:
         assert params.reasoning_effort is None
         assert params.top_p is None
         assert params.top_k is None
+        assert params.repetition_penalty is None
+        assert params.min_p is None
 
     def test_resolved_parameters_creation_with_values(self):
         """Test creating ResolvedParameters with values."""
@@ -49,17 +51,24 @@ class TestResolvedParameters:
         top_p_source = ParameterSource(value=0.9, source="config")
         top_k_source = ParameterSource(value=42, source="header")
 
+        repetition_source = ParameterSource(value=1.1, source="uri")
+        min_p_source = ParameterSource(value=0.05, source="session")
+
         params = ResolvedParameters(
             temperature=temp_source,
             reasoning_effort=effort_source,
             top_p=top_p_source,
             top_k=top_k_source,
+            repetition_penalty=repetition_source,
+            min_p=min_p_source,
         )
 
         assert params.temperature == temp_source
         assert params.reasoning_effort == effort_source
         assert params.top_p == top_p_source
         assert params.top_k == top_k_source
+        assert params.repetition_penalty == repetition_source
+        assert params.min_p == min_p_source
 
     def test_to_dict_empty(self):
         """Test to_dict with no parameters."""
@@ -101,6 +110,16 @@ class TestResolvedParameters:
         result = params.to_dict()
 
         assert result == {"top_p": 0.92, "top_k": 32}
+
+    def test_to_dict_with_penalty_parameters(self):
+        """Test to_dict with repetition_penalty and min_p."""
+        params = ResolvedParameters(
+            repetition_penalty=ParameterSource(1.2, "uri"),
+            min_p=ParameterSource(0.07, "session"),
+        )
+        result = params.to_dict()
+
+        assert result == {"repetition_penalty": 1.2, "min_p": 0.07}
 
     def test_get_debug_info_empty(self):
         """Test get_debug_info with no parameters."""
@@ -155,6 +174,21 @@ class TestResolvedParameters:
         assert "top_k" in debug_info
         assert debug_info["top_k"]["effective_value"] == 16
         assert debug_info["top_k"]["source"] == "session"
+
+    def test_get_debug_info_with_penalty_parameters(self):
+        """Test get_debug_info includes penalty parameters."""
+        params = ResolvedParameters(
+            repetition_penalty=ParameterSource(1.25, "config"),
+            min_p=ParameterSource(0.09, "header"),
+        )
+        debug_info = params.get_debug_info()
+
+        assert "repetition_penalty" in debug_info
+        assert debug_info["repetition_penalty"]["effective_value"] == 1.25
+        assert debug_info["repetition_penalty"]["source"] == "config"
+        assert "min_p" in debug_info
+        assert debug_info["min_p"]["effective_value"] == 0.09
+        assert debug_info["min_p"]["source"] == "header"
 
 
 class TestParameterResolutionService:
@@ -255,6 +289,28 @@ class TestParameterResolutionService:
         assert result.reasoning_effort is not None
         assert result.reasoning_effort.value == "low"
         assert result.reasoning_effort.source == "session"
+
+    def test_precedence_repetition_penalty_uri(self, service):
+        """Test repetition_penalty resolution from URI."""
+        result = service.resolve_parameters(
+            config_params={"repetition_penalty": 1.05},
+            uri_params={"repetition_penalty": 1.2},
+        )
+
+        assert result.repetition_penalty is not None
+        assert result.repetition_penalty.value == 1.2
+        assert result.repetition_penalty.source == "uri"
+
+    def test_precedence_min_p_session(self, service):
+        """Test min_p resolution with session override."""
+        result = service.resolve_parameters(
+            config_params={"min_p": 0.1},
+            session_params={"min_p": 0.2},
+        )
+
+        assert result.min_p is not None
+        assert result.min_p.value == 0.2
+        assert result.min_p.source == "session"
 
     def test_precedence_mixed_parameters_different_sources(self, service):
         """Test precedence with different parameters from different sources."""
@@ -633,7 +689,9 @@ class TestParameterResolutionService:
         assert "reasoning_effort" in service.SUPPORTED_PARAMETERS
         assert "top_p" in service.SUPPORTED_PARAMETERS
         assert "top_k" in service.SUPPORTED_PARAMETERS
-        assert len(service.SUPPORTED_PARAMETERS) == 4
+        assert "repetition_penalty" in service.SUPPORTED_PARAMETERS
+        assert "min_p" in service.SUPPORTED_PARAMETERS
+        assert len(service.SUPPORTED_PARAMETERS) == 6
 
     # ========================================================================
     # Integration-like Tests

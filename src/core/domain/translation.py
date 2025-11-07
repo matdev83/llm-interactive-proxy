@@ -752,6 +752,10 @@ class Translation(BaseTranslator):
             temperature=Translation._get_request_param(request, "temperature"),
             top_p=Translation._get_request_param(request, "top_p"),
             top_k=Translation._get_request_param(request, "top_k"),
+            repetition_penalty=Translation._get_request_param(
+                request, "repetition_penalty"
+            ),
+            min_p=Translation._get_request_param(request, "min_p"),
             n=Translation._get_request_param(request, "n"),
             stream=Translation._get_request_param(request, "stream"),
             stop=normalized_stop,
@@ -993,6 +997,8 @@ class Translation(BaseTranslator):
             seed = request.get("seed")
             reasoning_effort = request.get("reasoning_effort")
             reasoning_payload = request.get("reasoning")
+            repetition_penalty = request.get("repetition_penalty")
+            min_p = request.get("min_p")
         else:
             model = getattr(request, "model", None)
             messages = getattr(request, "messages", [])
@@ -1007,6 +1013,8 @@ class Translation(BaseTranslator):
             seed = getattr(request, "seed", None)
             reasoning_effort = getattr(request, "reasoning_effort", None)
             reasoning_payload = getattr(request, "reasoning", None)
+            repetition_penalty = getattr(request, "repetition_penalty", None)
+            min_p = getattr(request, "min_p", None)
 
         if reasoning_effort in ("", None) and isinstance(reasoning_payload, dict):
             raw_effort = reasoning_payload.get("effort")
@@ -1037,6 +1045,8 @@ class Translation(BaseTranslator):
             top_k=top_k,
             top_p=top_p,
             temperature=temperature,
+            repetition_penalty=repetition_penalty,
+            min_p=min_p,
             max_tokens=max_tokens,
             stop=stop,
             stream=stream,
@@ -1880,6 +1890,8 @@ class Translation(BaseTranslator):
             stop = request.get("stop")
             seed = request.get("seed")
             reasoning_effort = request.get("reasoning_effort")
+            repetition_penalty = request.get("repetition_penalty")
+            min_p = request.get("min_p")
             extra_params = request.get("extra_params")
         else:
             model = getattr(request, "model", None)
@@ -1891,6 +1903,8 @@ class Translation(BaseTranslator):
             stop = getattr(request, "stop", None)
             seed = getattr(request, "seed", None)
             reasoning_effort = getattr(request, "reasoning_effort", None)
+            repetition_penalty = getattr(request, "repetition_penalty", None)
+            min_p = getattr(request, "min_p", None)
             extra_params = getattr(request, "extra_params", None)
 
         if not model:
@@ -1914,6 +1928,8 @@ class Translation(BaseTranslator):
             stop=stop,
             seed=seed,
             reasoning_effort=reasoning_effort,
+            repetition_penalty=repetition_penalty,
+            min_p=min_p,
             stream=(
                 request.get("stream")
                 if isinstance(request, dict)
@@ -2357,6 +2373,10 @@ class Translation(BaseTranslator):
             payload["presence_penalty"] = request.presence_penalty
         if request.frequency_penalty is not None:
             payload["frequency_penalty"] = request.frequency_penalty
+        if request.repetition_penalty is not None:
+            payload["repetition_penalty"] = request.repetition_penalty
+        if request.min_p is not None:
+            payload["min_p"] = request.min_p
         if request.user is not None:
             payload["user"] = request.user
         if request.tools is not None:

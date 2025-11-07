@@ -2740,6 +2740,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         if "top_k" in cfg:
             cfg["topK"] = cfg.pop("top_k")
 
+        if getattr(request_data, "repetition_penalty", None) is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
+            logger.warning(
+                "GeminiOAuthBase does not support the 'repetition_penalty' parameter."
+            )
+        if getattr(request_data, "min_p", None) is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
+            logger.warning("GeminiOAuthBase does not support the 'min_p' parameter.")
+
         return cfg
 
     def _convert_from_code_assist_format(

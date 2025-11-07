@@ -327,6 +327,16 @@ class AnthropicBackend(LLMBackend):
             logger.warning(
                 "AnthropicBackend does not support the 'logit_bias' parameter."
             )
+        if request_data.repetition_penalty is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
+            logger.warning(
+                "AnthropicBackend does not support the 'repetition_penalty' parameter."
+            )
+        if request_data.min_p is not None and logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "AnthropicBackend does not support the 'min_p' parameter."
+            )
 
         # Include tools and tool_choice when provided (tests set these fields)
         if request_data.tools is not None:

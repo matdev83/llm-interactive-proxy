@@ -54,6 +54,7 @@ class OpenAIConnector(LLMBackend):
     """
 
     backend_type: str = "openai"
+    SUPPORTED_CUSTOM_PARAMETERS: frozenset[str] = frozenset()
 
     def __init__(
         self,
@@ -527,7 +528,29 @@ class OpenAIConnector(LLMBackend):
         if isinstance(extra, dict):
             payload.update(extra)
 
+        self._filter_unsupported_parameters(payload)
+
         return payload  # type: ignore[no-any-return]
+
+    def _filter_unsupported_parameters(self, payload: dict[str, Any]) -> None:
+        unsupported_parameters = []
+        for param_name in ("repetition_penalty", "min_p"):
+            if param_name in payload and param_name not in self.SUPPORTED_CUSTOM_PARAMETERS:
+                unsupported_parameters.append(param_name)
+
+        if not unsupported_parameters:
+            return
+
+        backend_name = self.backend_type or self.__class__.__name__
+        for param_name in unsupported_parameters:
+            value = payload.pop(param_name, None)
+            if value is not None and logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "%s backend does not support the '%s' parameter; ignoring value %r",
+                    backend_name,
+                    param_name,
+                    value,
+                )
 
     async def _handle_non_streaming_response(
         self,

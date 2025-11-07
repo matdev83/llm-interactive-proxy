@@ -33,6 +33,8 @@ class ResolvedParameters:
     reasoning_effort: ParameterSource | None = None
     top_p: ParameterSource | None = None
     top_k: ParameterSource | None = None
+    repetition_penalty: ParameterSource | None = None
+    min_p: ParameterSource | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -63,6 +65,12 @@ class ResolvedParameters:
 
         if self.reasoning_effort is not None:
             result["reasoning_effort"] = self.reasoning_effort.value
+
+        if self.repetition_penalty is not None:
+            result["repetition_penalty"] = self.repetition_penalty.value
+
+        if self.min_p is not None:
+            result["min_p"] = self.min_p.value
 
         return result
 
@@ -112,6 +120,18 @@ class ResolvedParameters:
                 "source": self.reasoning_effort.source,
             }
 
+        if self.repetition_penalty is not None:
+            result["repetition_penalty"] = {
+                "effective_value": self.repetition_penalty.value,
+                "source": self.repetition_penalty.source,
+            }
+
+        if self.min_p is not None:
+            result["min_p"] = {
+                "effective_value": self.min_p.value,
+                "source": self.min_p.source,
+            }
+
         return result
 
 
@@ -135,6 +155,8 @@ class ParameterResolutionService:
         "top_p",
         "top_k",
         "reasoning_effort",
+        "repetition_penalty",
+        "min_p",
     ]
 
     def resolve_parameters(

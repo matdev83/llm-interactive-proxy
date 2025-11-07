@@ -28,6 +28,9 @@ class OpenRouterBackend(OpenAIConnector):
     """LLMBackend implementation for OpenRouter.ai."""
 
     backend_type: str = "openrouter"
+    SUPPORTED_CUSTOM_PARAMETERS: frozenset[str] = frozenset(
+        {"repetition_penalty", "min_p"}
+    )
 
     def __init__(
         self,

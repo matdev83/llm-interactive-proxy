@@ -222,6 +222,8 @@ def gemini_request_to_canonical_request(
     temperature = generation_config.get("temperature")
     top_p = generation_config.get("topP")
     top_k = generation_config.get("topK")
+    repetition_penalty = generation_config.get("repetitionPenalty")
+    min_p = generation_config.get("minP")
     max_tokens = generation_config.get("maxOutputTokens")
     stop = generation_config.get("stopSequences")
 
@@ -298,6 +300,8 @@ def gemini_request_to_canonical_request(
         tools=tools,  # type: ignore
         tool_choice=tool_choice,
         reasoning_effort=reasoning_effort,
+        repetition_penalty=repetition_penalty,
+        min_p=min_p,
     )
 
 

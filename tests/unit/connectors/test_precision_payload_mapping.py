@@ -46,6 +46,41 @@ async def test_openai_payload_contains_temperature_and_top_p(
 
 
 @pytest.mark.asyncio
+async def test_openai_warns_for_unsupported_penalties(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cfg = AppConfig()
+    client = httpx.AsyncClient()
+    connector = OpenAIConnector(client, cfg, translation_service=TranslationService())
+    connector.api_key = "test-api-key"
+    req = ChatRequest(
+        model="gpt-4",
+        messages=_messages(),
+        repetition_penalty=1.1,
+        min_p=0.05,
+    )
+
+    captured_payload: dict[str, Any] = {}
+
+    async def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
+        captured_payload.update(json)
+        return httpx.Response(
+            200, json={"id": "1", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    monkeypatch.setattr(client, "post", fake_post)
+    caplog.set_level("WARNING")
+
+    await connector.chat_completions(req, req.messages, req.model)
+
+    assert "does not support the 'repetition_penalty'" in caplog.text
+    assert "does not support the 'min_p'" in caplog.text
+    assert "repetition_penalty" not in captured_payload
+    assert "min_p" not in captured_payload
+
+
+@pytest.mark.asyncio
 async def test_openai_payload_uses_processed_messages_with_list_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -89,7 +124,12 @@ async def test_openrouter_payload_contains_temperature_and_top_p(
     connector = OpenRouterBackend(client, cfg, translation_service=TranslationService())
     connector.api_key = "test-api-key"  # Add API key to avoid authentication error
     req = ChatRequest(
-        model="openrouter:gpt-4", messages=_messages(), temperature=0.2, top_p=0.5
+        model="openrouter:gpt-4",
+        messages=_messages(),
+        temperature=0.2,
+        top_p=0.5,
+        repetition_penalty=1.01,
+        min_p=0.15,
     )
 
     captured_payload = {}
@@ -106,11 +146,14 @@ async def test_openrouter_payload_contains_temperature_and_top_p(
 
     assert captured_payload.get("temperature") == 0.2
     assert captured_payload.get("top_p") == 0.5
+    assert captured_payload.get("repetition_penalty") == 1.01
+    assert captured_payload.get("min_p") == 0.15
 
 
 @pytest.mark.asyncio
 async def test_anthropic_payload_contains_temperature_and_top_p(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     cfg = AppConfig()
     client = httpx.AsyncClient()
@@ -143,12 +186,22 @@ async def test_anthropic_payload_contains_temperature_and_top_p(
     monkeypatch.setattr(client, "post", fake_post)
 
     req = ChatRequest(
-        model="claude-3", messages=_messages(), temperature=0.25, top_p=0.6
+        model="claude-3",
+        messages=_messages(),
+        temperature=0.25,
+        top_p=0.6,
+        repetition_penalty=1.05,
+        min_p=0.2,
     )
+    caplog.set_level("WARNING")
     await backend.chat_completions(req, req.messages, req.model, api_key="test-key")
     payload = captured.get("payload", {})
     assert payload.get("temperature") == 0.25
     assert payload.get("top_p") == 0.6
+    assert "repetition_penalty" not in payload
+    assert "min_p" not in payload
+    assert "repetition_penalty" in caplog.text
+    assert "min_p" in caplog.text
 
 
 def test_gemini_public_generation_config_clamping_and_topk() -> None:
@@ -167,7 +220,32 @@ def test_gemini_public_generation_config_clamping_and_topk() -> None:
     assert gc.get("topK") == 50
 
 
-def test_gemini_oauth_personal_builds_topk() -> None:
+def test_gemini_generation_config_warns_for_penalties(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cfg = AppConfig()
+    backend = GeminiBackend(
+        httpx.AsyncClient(), cfg, translation_service=TranslationService()
+    )
+    payload: dict[str, Any] = {}
+    req = ChatRequest(
+        model="gemini-pro",
+        messages=_messages(),
+        repetition_penalty=1.05,
+        min_p=0.22,
+    )
+    caplog.set_level("WARNING")
+    backend._apply_generation_config(payload, req)
+    gc = payload.get("generationConfig", {})
+    assert "repetitionPenalty" not in gc
+    assert "minP" not in gc
+    assert "repetition_penalty" in caplog.text
+    assert "min_p" in caplog.text
+
+
+def test_gemini_oauth_personal_builds_topk(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     cfg = AppConfig()
     backend = GeminiOAuthPlanConnector(
         httpx.AsyncClient(), cfg, translation_service=TranslationService()
@@ -178,14 +256,21 @@ def test_gemini_oauth_personal_builds_topk() -> None:
         top_p = 0.55
         top_k = 33
         max_tokens = 777
+        repetition_penalty = 1.02
+        min_p = 0.18
 
+    caplog.set_level("WARNING")
     gc = backend._build_generation_config(_Req())
     assert gc["temperature"] == pytest.approx(0.22)
     assert gc["topP"] == pytest.approx(0.55)
     assert gc["topK"] == 33
+    assert "repetition_penalty" in caplog.text
+    assert "min_p" in caplog.text
 
 
-def test_gemini_cloud_project_builds_topk() -> None:
+def test_gemini_cloud_project_builds_topk(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     cfg = AppConfig()
     # Minimal init (project id may be None for this isolated helper test)
     backend = GeminiCloudProjectConnector(
@@ -200,8 +285,13 @@ def test_gemini_cloud_project_builds_topk() -> None:
         top_p = 0.77
         top_k = 21
         max_tokens = 512
+        repetition_penalty = 1.04
+        min_p = 0.12
 
+    caplog.set_level("WARNING")
     gc = backend._build_generation_config(_Req())
     assert gc["temperature"] == pytest.approx(0.3)
     assert gc["topP"] == pytest.approx(0.77)
     assert gc["topK"] == 21
+    assert "repetition_penalty" in caplog.text
+    assert "min_p" in caplog.text

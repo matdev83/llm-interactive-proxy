@@ -1420,6 +1420,18 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         if top_k is not None:
             with contextlib.suppress(Exception):
                 cfg["topK"] = int(top_k)
+        if getattr(request_data, "repetition_penalty", None) is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
+            logger.warning(
+                "GeminiCloudProjectConnector does not support the 'repetition_penalty' parameter."
+            )
+        if getattr(request_data, "min_p", None) is not None and logger.isEnabledFor(
+            logging.WARNING
+        ):
+            logger.warning(
+                "GeminiCloudProjectConnector does not support the 'min_p' parameter."
+            )
         return cfg
 
     async def _ensure_project_onboarded(self, auth_session) -> str:
