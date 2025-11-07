@@ -1,5 +1,5 @@
 """
-Streaming response processor interfaces and utilities.
+"""Streaming response processor interfaces and utilities.
 
 This module provides interfaces and utilities for processing streaming
 responses in a consistent way, regardless of the source or format.
@@ -8,6 +8,7 @@ responses in a consistent way, regardless of the source or format.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
@@ -35,19 +36,53 @@ class LoopDetectionProcessor(IStreamProcessor):
         self,
         loop_detector_factory: Callable[[], ILoopDetector],
         cancel_callback: Callable[[], Awaitable[None]] | None = None,
+        *,
+        session_ttl_seconds: int = 300,
+        time_provider: Callable[[], float] | None = None,
     ) -> None:
         """Initialize loop detection processor.
 
         Args:
             loop_detector_factory: Factory function to create new loop detector instances per session.
             cancel_callback: Optional callback to trigger API cancellation when loop is detected.
+            session_ttl_seconds: Maximum idle time (in seconds) before a detector is
+                automatically discarded. Defaults to 300 seconds. Set to 0 to disable TTL cleanup.
+            time_provider: Optional callable returning the current time in seconds. Primarily
+                intended for tests so they can control time progression deterministically.
         """
         self.loop_detector_factory = loop_detector_factory
         self.cancel_callback = cancel_callback
         # Per-session detector instances to ensure isolation
         self._session_detectors: dict[str, ILoopDetector] = {}
+        self._session_last_activity: dict[str, float] = {}
+        self._session_ttl_seconds = max(0, session_ttl_seconds)
+        self._time_provider = time_provider or time.time
 
-    def _get_detector_for_session(self, session_id: str) -> ILoopDetector:
+    def _cleanup_stale_sessions(self, current_time: float) -> None:
+        """Prune detector instances that have been inactive beyond the TTL."""
+
+        if self._session_ttl_seconds <= 0:
+            return
+
+        stale_sessions = [
+            session_id
+            for session_id, last_seen in self._session_last_activity.items()
+            if current_time - last_seen >= self._session_ttl_seconds
+        ]
+
+        for session_id in stale_sessions:
+            if session_id in self._session_detectors:
+                logger.debug(
+                    "Pruning stale loop detector for session %s after %ss of inactivity",
+                    session_id,
+                    self._session_ttl_seconds,
+                )
+                self._session_detectors.pop(session_id, None)
+            self._session_last_activity.pop(session_id, None)
+
+    def _get_detector_for_session(
+        self, session_id: str, current_time: float
+    ) -> ILoopDetector:
         """Get or create a loop detector for the given session.
 
         Args:
@@ -56,10 +91,13 @@ class LoopDetectionProcessor(IStreamProcessor):
         Returns:
             A loop detector instance dedicated to this session
         """
+        self._cleanup_stale_sessions(current_time)
+
         if session_id not in self._session_detectors:
             detector = self.loop_detector_factory()
             self._session_detectors[session_id] = detector
             logger.debug(f"Created new loop detector for session {session_id}")
+        self._session_last_activity[session_id] = current_time
         return self._session_detectors[session_id]
 
     def cleanup_session(self, session_id: str) -> None:
@@ -71,6 +109,7 @@ class LoopDetectionProcessor(IStreamProcessor):
         if session_id in self._session_detectors:
             del self._session_detectors[session_id]
             logger.debug(f"Cleaned up loop detector for session {session_id}")
+        self._session_last_activity.pop(session_id, None)
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process a streaming content chunk and check for loops.
@@ -91,8 +130,10 @@ class LoopDetectionProcessor(IStreamProcessor):
         raw_session = content.metadata.get("session_id") or content.metadata.get("id")
         session_id = str(raw_session) if raw_session else str(stream_id)
 
+        current_time = self._time_provider()
+
         # Get the detector instance for this specific session
-        loop_detector = self._get_detector_for_session(session_id)
+        loop_detector = self._get_detector_for_session(session_id, current_time)
 
         # Process the content for loop detection
         # Ensure content is a string for loop detector

@@ -5,10 +5,56 @@ These tests ensure that loop detector state is never shared between different se
 preventing state contamination and ensuring each session has independent loop detection.
 """
 
+from typing import Any
+
 import pytest
 from src.core.domain.streaming_response_processor import LoopDetectionProcessor
+from src.core.interfaces.loop_detector_interface import (
+    ILoopDetector,
+    LoopDetectionResult,
+)
 from src.core.ports.streaming import StreamingContent
+from src.loop_detection.event import LoopDetectionEvent
 from src.loop_detection.hybrid_detector import HybridLoopDetector
+
+
+class _FakeTime:
+    """Deterministic time provider for TTL tests."""
+
+    def __init__(self, start: float = 0.0) -> None:
+        self._current = start
+
+    def advance(self, seconds: float) -> None:
+        self._current += seconds
+
+    def now(self) -> float:
+        return self._current
+
+
+class _NoopLoopDetector(ILoopDetector):
+    """Simple loop detector stub for exercising processor lifecycle logic."""
+
+    def __init__(self) -> None:
+        self._seen_chunks: list[str] = []
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
+        self._seen_chunks.append(chunk)
+        return None
+
+    def reset(self) -> None:
+        self._seen_chunks.clear()
+
+    def get_loop_history(self) -> list[Any]:
+        return []
+
+    def get_current_state(self) -> dict[str, Any]:
+        return {"chunks": list(self._seen_chunks)}
+
+    async def check_for_loops(self, content: str) -> LoopDetectionResult:
+        return LoopDetectionResult(has_loop=False)
 
 
 class TestLoopDetectionSessionIsolation:
@@ -366,3 +412,58 @@ class TestLoopDetectionRegressionPrevention:
             "REGRESSION: Session A's detector contains Session B's content! "
             "Detector state is being shared globally instead of per-session."
         )
+
+
+class TestLoopDetectionProcessorMemoryManagement:
+    """Tests covering memory-leak prevention mechanics in the processor."""
+
+    @pytest.mark.asyncio
+    async def test_stale_sessions_are_pruned_after_ttl(self) -> None:
+        fake_time = _FakeTime()
+        processor = LoopDetectionProcessor(
+            loop_detector_factory=_NoopLoopDetector,
+            session_ttl_seconds=5,
+            time_provider=fake_time.now,
+        )
+
+        async def send(session_id: str) -> None:
+            content = StreamingContent(
+                content="chunk", metadata={"session_id": session_id}
+            )
+            await processor.process(content)
+
+        await send("session-a")
+        fake_time.advance(1)
+        await send("session-b")
+
+        assert set(processor._session_detectors) == {"session-a", "session-b"}
+
+        # Advance time past the TTL without touching session-a
+        fake_time.advance(6)
+        await send("session-b")
+
+        assert "session-a" not in processor._session_detectors
+        assert "session-a" not in processor._session_last_activity
+        assert "session-b" in processor._session_detectors
+
+    @pytest.mark.asyncio
+    async def test_zero_ttl_disables_cleanup(self) -> None:
+        fake_time = _FakeTime()
+        processor = LoopDetectionProcessor(
+            loop_detector_factory=_NoopLoopDetector,
+            session_ttl_seconds=0,
+            time_provider=fake_time.now,
+        )
+
+        content = StreamingContent(
+            content="chunk", metadata={"session_id": "session-x"}
+        )
+        await processor.process(content)
+
+        # Even after a large time jump, the session should still be present
+        fake_time.advance(10_000)
+        await processor.process(
+            StreamingContent(content="chunk", metadata={"session_id": "session-x"})
+        )
+
+        assert set(processor._session_detectors) == {"session-x"}

@@ -450,6 +450,8 @@ class SessionConfig(DomainModel):
     json_repair_buffer_cap_bytes: int = 64 * 1024
     json_repair_strict_mode: bool = False
     json_repair_schema: dict[str, Any] | None = None  # Added
+    # TTL for cleaning up idle loop detection sessions to avoid memory leaks (seconds)
+    loop_detection_session_ttl_seconds: int = 600
     tool_call_reactor: ToolCallReactorConfig = Field(
         default_factory=ToolCallReactorConfig
     )

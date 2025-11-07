@@ -1020,7 +1020,15 @@ def register_core_services(
         def create_detector() -> ILoopDetector:
             return provider.get_required_service(cast(type, ILoopDetector))
 
-        return LoopDetectionProcessor(loop_detector_factory=create_detector)
+        app_config = provider.get_required_service(AppConfig)
+        session_ttl = getattr(
+            app_config.session, "loop_detection_session_ttl_seconds", 300
+        )
+
+        return LoopDetectionProcessor(
+            loop_detector_factory=create_detector,
+            session_ttl_seconds=session_ttl,
+        )
 
     _add_singleton(
         LoopDetectionProcessor, implementation_factory=_loop_detection_processor_factory
