@@ -51,7 +51,11 @@ class ToolCallReactorService(IToolCallReactor):
         self._history_tracker = history_tracker
         self._lock = asyncio.Lock()
         self._sorted_handlers: tuple[IToolCallHandler, ...] | None = None
-        self._session_aliases: dict[str, str] = {}
+        # Map normalized alias keys to resolved session identifiers. Alias keys
+        # encode the source of the identifier (e.g., explicit session id,
+        # response id, object identity) so we never reuse aliases across
+        # unrelated requests when upstream callers omit a true session id.
+        self._session_aliases: dict[tuple[str, str], str] = {}
 
         # Telemetry counters for tool access control
         self._tool_definitions_filtered_count: int = 0
@@ -153,13 +157,7 @@ class ToolCallReactorService(IToolCallReactor):
             The reaction result from the first handler that swallows the call,
             or None if no handler swallows it.
         """
-        raw_session_id = context.session_id
-        alias_key = raw_session_id if raw_session_id else "__empty__"
-        if alias_key not in self._session_aliases:
-            self._session_aliases[alias_key] = (
-                str(raw_session_id) if raw_session_id else uuid4().hex
-            )
-        resolved_session_id = self._session_aliases[alias_key]
+        resolved_session_id = self._resolve_session_identifier(context)
 
         # Record the tool call in history if tracker is available
         if self._history_tracker:
@@ -220,6 +218,92 @@ class ToolCallReactorService(IToolCallReactor):
             f"No handler swallowed tool call '{context.tool_name}' in session {resolved_session_id}"
         )
         return None
+
+    @staticmethod
+    def _normalize_session_identifier(session_id: str | None) -> str | None:
+        """Normalize a raw session identifier value."""
+
+        if session_id is None:
+            return None
+
+        normalized = str(session_id).strip()
+        return normalized or None
+
+    @staticmethod
+    def _extract_response_identifier(full_response: Any) -> str | None:
+        """Extract a stable identifier from a full response payload."""
+
+        try:
+            if isinstance(full_response, dict):
+                candidate = full_response.get("id") or full_response.get("response_id")
+                if candidate:
+                    return str(candidate)
+
+            candidate = getattr(full_response, "id", None)
+            if candidate:
+                return str(candidate)
+        except Exception:
+            logger.debug("Failed to extract response identifier", exc_info=True)
+
+        return None
+
+    @staticmethod
+    def _extract_object_identity(full_response: Any) -> str | None:
+        """Fallback to an object identity when no identifier is provided."""
+
+        if full_response is None:
+            return None
+
+        return hex(id(full_response))
+
+    def _build_alias_key(
+        self, context: ToolCallContext
+    ) -> tuple[tuple[str, str], str | None] | None:
+        """Determine the alias key and preset value for a tool call context."""
+
+        normalized_session = self._normalize_session_identifier(context.session_id)
+        if normalized_session is not None:
+            return ("session", normalized_session), normalized_session
+
+        response_identifier = self._extract_response_identifier(context.full_response)
+        if response_identifier is not None:
+            return ("response", response_identifier), None
+
+        object_identity = self._extract_object_identity(context.full_response)
+        if object_identity is not None:
+            return ("object", object_identity), None
+
+        return None
+
+    def _resolve_session_identifier(self, context: ToolCallContext) -> str:
+        """Resolve a stable session identifier for the given tool call context."""
+
+        alias_info = self._build_alias_key(context)
+        if alias_info is None:
+            return uuid4().hex
+
+        alias_key, preset_value = alias_info
+        if alias_key not in self._session_aliases:
+            resolved_value = preset_value if preset_value is not None else uuid4().hex
+            self._session_aliases[alias_key] = resolved_value
+
+        return self._session_aliases[alias_key]
+
+    async def clear_history(self, session_id: str | None = None) -> None:
+        """Clear tracked history and alias mappings for a session."""
+
+        if self._history_tracker is not None:
+            await self._history_tracker.clear_history(session_id)
+
+        if session_id is None:
+            self._session_aliases.clear()
+            return
+
+        keys_to_remove = [
+            key for key, value in self._session_aliases.items() if value == session_id
+        ]
+        for key in keys_to_remove:
+            self._session_aliases.pop(key, None)
 
     def get_registered_handlers(self) -> list[str]:
         """Get the names of all registered handlers.

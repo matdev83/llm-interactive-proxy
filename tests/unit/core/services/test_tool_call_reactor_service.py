@@ -93,6 +93,67 @@ async def test_tool_call_reactor_aliases_empty_session_ids() -> None:
     assert tracker.records[2][0] == "explicit-session"
 
 
+@pytest.mark.asyncio
+async def test_tool_call_reactor_isolates_missing_session_ids_across_requests() -> None:
+    tracker = _RecordingHistoryTracker()
+    service = ToolCallReactorService(history_tracker=tracker)
+    handler = _PassthroughHandler()
+    await service.register_handler(handler)
+
+    first_context = ToolCallContext(
+        session_id="",
+        backend_name="test-backend",
+        model_name="model",
+        full_response={"id": "resp-1"},
+        tool_name="dummy",
+        tool_arguments={},
+    )
+
+    second_context = ToolCallContext(
+        session_id="",
+        backend_name="test-backend",
+        model_name="model",
+        full_response={"id": "resp-2"},
+        tool_name="dummy",
+        tool_arguments={},
+    )
+
+    await service.process_tool_call(first_context)
+    await service.process_tool_call(second_context)
+
+    assert len(tracker.records) == 2
+    first_alias, second_alias = tracker.records[0][0], tracker.records[1][0]
+    assert first_alias != second_alias
+
+
+@pytest.mark.asyncio
+async def test_clear_history_removes_alias_mapping() -> None:
+    tracker = _RecordingHistoryTracker()
+    service = ToolCallReactorService(history_tracker=tracker)
+    handler = _PassthroughHandler()
+    await service.register_handler(handler)
+
+    context = ToolCallContext(
+        session_id="",
+        backend_name="backend",
+        model_name="model",
+        full_response={"id": "resp-123"},
+        tool_name="dummy",
+        tool_arguments={},
+    )
+
+    await service.process_tool_call(context)
+    assert tracker.records
+    alias = tracker.records[0][0]
+    assert any(value == alias for value in service._session_aliases.values())
+
+    await service.clear_history(alias)
+    assert all(value != alias for value in service._session_aliases.values())
+
+    await service.clear_history(None)
+    assert not service._session_aliases
+
+
 class MockToolCallHandler(IToolCallHandler):
     def __init__(
         self,
