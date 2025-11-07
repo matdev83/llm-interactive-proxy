@@ -13,6 +13,11 @@ from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
+from src.core.interfaces.response_processor_interface import (
+    IResponseMiddleware,
+    IResponseProcessor,
+    ProcessedResponse,
+)
 
 
 @pytest.mark.asyncio
@@ -228,3 +233,85 @@ async def test_prepare_backend_request_appends_results_without_modified_messages
     assert backend_request.messages[2].role == "tool"
     assert backend_request.messages[2].tool_call_id == "call-456"
     assert backend_request.messages[2].content == "file.txt"
+
+
+class _StubBackendProcessor:
+    async def process_backend_request(self, *args: Any, **kwargs: Any) -> ResponseEnvelope:
+        return ResponseEnvelope(content="raw", metadata={})
+
+
+class _StubResponseProcessor(IResponseProcessor):
+    async def process_response(
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any] | None = None,
+    ) -> ProcessedResponse:
+        return ProcessedResponse(content="processed", metadata={"source": "processor"})
+
+    def process_streaming_response(self, response_iterator, session_id: str):  # type: ignore[override]
+        raise NotImplementedError
+
+    async def register_middleware(self, middleware: IResponseMiddleware, priority: int = 0) -> None:
+        return None
+
+
+class _StubStructuredMiddleware(IResponseMiddleware):
+    def __init__(self) -> None:
+        super().__init__(priority=5)
+        self.calls = 0
+
+    async def process(
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any],
+        is_streaming: bool = False,
+        stop_event: Any = None,
+    ) -> Any:
+        self.calls += 1
+        return ProcessedResponse(
+            content="structured",
+            metadata={"structured_output_validated": True, "schema_validation_attempted": True},
+        )
+
+
+@pytest.mark.asyncio
+async def test_backend_request_manager_uses_injected_structured_output_middleware(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fail_get_service_provider() -> None:
+        raise RuntimeError("global service provider should not be used")
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider",
+        _fail_get_service_provider,
+    )
+
+    structured_middleware = _StubStructuredMiddleware()
+    manager = BackendRequestManager(
+        _StubBackendProcessor(),
+        _StubResponseProcessor(),
+        structured_output_middleware=structured_middleware,
+    )
+
+    request = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="hi")],
+        stream=False,
+    )
+    context = SimpleNamespace(
+        processing_context={
+            "response_schema": {"type": "object"},
+            "schema_name": "schema",
+            "request_id": "req-1",
+        }
+    )
+
+    response = await manager.process_backend_request(request, "session-1", context)
+
+    assert structured_middleware.calls == 1
+    assert response.content == "structured"
+    assert response.metadata is not None
+    assert response.metadata.get("structured_output_validated") is True
+    assert response.metadata.get("schema_validation_attempted") is True

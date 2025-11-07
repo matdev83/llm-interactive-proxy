@@ -20,6 +20,7 @@ from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
+    IResponseMiddleware,
     IResponseProcessor,
     ProcessedResponse,
 )
@@ -40,12 +41,22 @@ class BackendRequestManager(IBackendRequestManager):
         backend_processor: IBackendProcessor,
         response_processor: IResponseProcessor,
         wire_capture: Any | None = None,
+        *,
+        structured_output_middleware: IResponseMiddleware | None = None,
     ) -> None:
         """Initialize the backend request manager."""
         self._backend_processor = backend_processor
         self._response_processor = response_processor
         # wire_capture is currently applied at BackendService level to avoid
         # duplicating backend resolution logic; accepted here for future use.
+        self._structured_output_middleware = structured_output_middleware
+
+    def set_structured_output_middleware(
+        self, middleware: IResponseMiddleware | None
+    ) -> None:
+        """Replace the structured output middleware dependency."""
+
+        self._structured_output_middleware = middleware
 
     async def prepare_backend_request(
         self, request_data: ChatRequest, command_result: ProcessedResult
@@ -251,21 +262,19 @@ class BackendRequestManager(IBackendRequestManager):
                             f"request_id={request_id}, schema_name={schema_name}"
                         )
 
-                        # Import here to avoid circular imports
-                        from src.core.di.services import get_service_provider
-                        from src.core.services.structured_output_middleware import (
-                            StructuredOutputMiddleware,
-                        )
+                        structured_output_middleware = self._structured_output_middleware
 
-                        # Get services from DI container
-                        service_provider = get_service_provider()
-                        structured_output_middleware = (
-                            service_provider.get_required_service(
+                        if structured_output_middleware is None:
+                            from src.core.di.services import get_service_provider
+                            from src.core.services.structured_output_middleware import (
+                                StructuredOutputMiddleware,
+                            )
+
+                            service_provider = get_service_provider()
+                            structured_output_middleware = service_provider.get_required_service(
                                 StructuredOutputMiddleware
                             )
-                        )
 
-                        # Apply the middleware
                         try:
                             processed_response = (
                                 await structured_output_middleware.process(
