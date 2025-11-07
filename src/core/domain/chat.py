@@ -159,6 +159,16 @@ class ChatRequest(ValueObject):
     logit_bias: dict[str, float] | None = None
     user: str | None = None
     seed: int | None = None
+    repetition_penalty: float | None = None
+    top_logprobs: int | None = None
+    min_p: float | None = None
+    top_a: float | None = None
+    prediction: dict[str, Any] | None = None
+    transforms: list[str] | None = None
+    models: list[str] | None = None
+    route: str | None = None
+    provider: dict[str, Any] | None = None
+    response_format: dict[str, Any] | None = None
     tools: list[dict[str, Any]] | None = None
     tool_choice: str | dict[str, Any] | None = None
     session_id: str | None = None

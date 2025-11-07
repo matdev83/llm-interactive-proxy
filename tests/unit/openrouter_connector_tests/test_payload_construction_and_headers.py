@@ -216,3 +216,53 @@ async def test_openrouter_processed_messages_remain_pydantic(
     assert isinstance(
         processed_msgs_fixture[2].content[1], MessageContentPartImage
     )  # Specific type
+
+
+@pytest.mark.asyncio
+async def test_openrouter_specific_parameters_forwarded(
+    openrouter_backend: OpenRouterBackend, httpx_mock: HTTPXMock
+):
+    request = ChatRequest(
+        model="openai/gpt-4o",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+        top_k=42,
+        repetition_penalty=1.15,
+        top_logprobs=5,
+        min_p=0.25,
+        top_a=0.8,
+        prediction={"type": "content", "content": "Hello"},
+        transforms=["safe-mode"],
+        models=["openai/gpt-4o", "perplexity/llama-3"],
+        route="fallback",
+        provider={"allow_fallbacks": True, "order": ["openai/gpt-4o"]},
+        response_format={"type": "json_object"},
+    )
+
+    httpx_mock.add_response(status_code=200, json={"id": "ok"})
+
+    await openrouter_backend.chat_completions(
+        request_data=request,
+        processed_messages=request.messages,
+        effective_model=request.model,
+        openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+        openrouter_headers_provider=mock_get_openrouter_headers,
+        key_name="test_key",
+        api_key="FAKE_KEY",
+    )
+
+    sent_request = httpx_mock.get_request()
+    assert sent_request is not None
+    payload = json.loads(sent_request.content)
+
+    assert payload["top_k"] == 42
+    assert payload["repetition_penalty"] == 1.15
+    assert payload["top_logprobs"] == 5
+    assert payload["min_p"] == 0.25
+    assert payload["top_a"] == 0.8
+    assert payload["prediction"] == {"type": "content", "content": "Hello"}
+    assert payload["transforms"] == ["safe-mode"]
+    assert payload["models"] == ["openai/gpt-4o", "perplexity/llama-3"]
+    assert payload["route"] == "fallback"
+    assert payload["provider"] == {"allow_fallbacks": True, "order": ["openai/gpt-4o"]}
+    assert payload["response_format"] == {"type": "json_object"}
