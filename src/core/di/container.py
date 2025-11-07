@@ -4,7 +4,7 @@ import inspect
 import logging
 import os
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.interfaces.app_settings_interface import IAppSettings
@@ -18,7 +18,9 @@ from src.core.interfaces.di_interface import (
     ServiceLifetime,
 )
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.interfaces.wire_capture_interface import IWireCapture
 
 T = TypeVar("T")
 
@@ -425,7 +427,36 @@ class ServiceCollection(IServiceCollection):
         )
 
         self.add_scoped(IBackendProcessor, BackendProcessor)
-        self.add_scoped(IBackendRequestManager, BackendRequestManager)
+
+        def _backend_request_manager_factory(
+            provider: IServiceProvider,
+        ) -> BackendRequestManager:
+            from src.core.interfaces.loop_detector_interface import ILoopDetector
+
+            backend_processor = provider.get_required_service(IBackendProcessor)
+            response_processor = provider.get_required_service(IResponseProcessor)
+            wire_capture = provider.get_required_service(IWireCapture)
+
+            def _loop_detector_factory() -> ILoopDetector:
+                return provider.get_required_service(cast(type, ILoopDetector))
+
+            return BackendRequestManager(
+                backend_processor,
+                response_processor,
+                wire_capture,
+                loop_detector_factory=_loop_detector_factory,
+            )
+
+        self.add_scoped(
+            BackendRequestManager,
+            implementation_factory=_backend_request_manager_factory,
+        )
+        self.add_scoped(
+            IBackendRequestManager,
+            implementation_factory=lambda provider: provider.get_required_service(
+                BackendRequestManager
+            ),
+        )
         self.add_scoped(IRequestProcessor, RequestProcessor)
 
         # Register additional core services including ToolCallReactor

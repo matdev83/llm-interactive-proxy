@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
 from typing import Any, cast
 
 from src.core.common.exceptions import BackendError
@@ -40,12 +40,14 @@ class BackendRequestManager(IBackendRequestManager):
         backend_processor: IBackendProcessor,
         response_processor: IResponseProcessor,
         wire_capture: Any | None = None,
+        loop_detector_factory: Callable[[], ILoopDetector] | None = None,
     ) -> None:
         """Initialize the backend request manager."""
         self._backend_processor = backend_processor
         self._response_processor = response_processor
         # wire_capture is currently applied at BackendService level to avoid
         # duplicating backend resolution logic; accepted here for future use.
+        self._loop_detector_factory = loop_detector_factory
 
     async def prepare_backend_request(
         self, request_data: ChatRequest, command_result: ProcessedResult
@@ -697,6 +699,32 @@ class BackendRequestManager(IBackendRequestManager):
 
     def _create_loop_detector(self) -> ILoopDetector:
         """Create or resolve a loop detector instance for streaming inspection."""
+        detector = None
+        if self._loop_detector_factory is not None:
+            try:
+                detector = self._loop_detector_factory()
+            except Exception:  # pragma: no cover - defensive guard
+                logger.debug(
+                    "Loop detector factory failed; using DI fallback", exc_info=True
+                )
+                detector = None
+            else:
+                if detector is None:
+                    logger.debug(
+                        "Loop detector factory returned None; using DI fallback"
+                    )
+                else:
+                    try:
+                        detector.reset()
+                    except Exception:  # pragma: no cover - defensive guard
+                        logger.debug(
+                            "Loop detector factory produced detector without reset; using fallback",
+                            exc_info=True,
+                        )
+                        detector = None
+                    else:
+                        return detector
+
         try:
             from src.core.di.services import get_or_build_service_provider
 

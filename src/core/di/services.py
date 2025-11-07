@@ -899,11 +899,23 @@ def register_core_services(
     def _backend_request_manager_factory(
         provider: IServiceProvider,
     ) -> BackendRequestManager:
+        from typing import cast
+
+        from src.core.interfaces.loop_detector_interface import ILoopDetector
+
         backend_processor = provider.get_required_service(IBackendProcessor)  # type: ignore[type-abstract]
         response_processor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
         wire_capture = provider.get_required_service(IWireCapture)  # type: ignore[type-abstract]
+
+        def _loop_detector_factory() -> ILoopDetector:
+            detector = provider.get_required_service(cast(type, ILoopDetector))
+            return detector
+
         return BackendRequestManager(
-            backend_processor, response_processor, wire_capture
+            backend_processor,
+            response_processor,
+            wire_capture,
+            loop_detector_factory=_loop_detector_factory,
         )
 
     _add_singleton(
