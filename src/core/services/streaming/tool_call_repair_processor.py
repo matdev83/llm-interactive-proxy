@@ -178,22 +178,25 @@ class ToolCallRepairProcessor(IStreamProcessor):
         if not buffer:
             return ""
 
-        encoded_length = len(buffer.encode("utf-8"))
+        encoded_buffer = buffer.encode("utf-8")
+        encoded_length = len(encoded_buffer)
         if encoded_length <= self._max_buffer_bytes:
             return ""
 
         overflow = encoded_length - self._max_buffer_bytes
-        flushed_chars = []
-        consumed = 0
+        cutoff = overflow
 
-        for ch in buffer:
-            char_bytes = len(ch.encode("utf-8"))
-            flushed_chars.append(ch)
-            consumed += char_bytes
-            if consumed >= overflow:
+        # Adjust cutoff to avoid splitting multibyte UTF-8 characters.
+        # decode() with strict errors will raise if the slice ends mid-character.
+        while cutoff <= encoded_length:
+            try:
+                flush_text = encoded_buffer[:cutoff].decode("utf-8")
                 break
-
-        flush_text = "".join(flushed_chars)
+            except UnicodeDecodeError:
+                cutoff += 1
+        else:
+            # If decoding still fails (extremely unlikely), fall back to flushing all
+            flush_text = buffer
 
         logger.warning(
             "ToolCallRepairProcessor buffer exceeded %d bytes; flushed %d characters",

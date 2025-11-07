@@ -899,6 +899,28 @@ class TestToolCallRepairProcessorBuffering:
         # End of stream flushes remaining buffer
         assert final.content == "BBBBBBBBCCCC"  # Remaining 8 B's + 4 C's
 
+    @pytest.mark.asyncio
+    async def test_trim_buffer_preserves_multibyte_characters(self) -> None:
+        service = ToolCallRepairService(max_buffer_bytes=12)
+        processor = ToolCallRepairProcessor(service, max_buffer_bytes=8)
+
+        stream_metadata = {"stream_id": "unicode_stream"}
+
+        first = await processor.process(
+            StreamingContent(content="😀😀A", metadata=stream_metadata)
+        )
+
+        # Overflow is a single byte, but the processor must flush the entire
+        # multi-byte emoji to keep the buffer boundary aligned.
+        assert first.content == "😀"
+
+        final = await processor.process(
+            StreamingContent(content="", is_done=True, metadata=stream_metadata)
+        )
+
+        # The remaining buffer contains the second emoji and trailing text.
+        assert final.content == "😀A"
+
 
 class TestToolCallRepairProcessorReasoning:
     @pytest.mark.asyncio
