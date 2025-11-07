@@ -216,3 +216,63 @@ async def test_openrouter_processed_messages_remain_pydantic(
     assert isinstance(
         processed_msgs_fixture[2].content[1], MessageContentPartImage
     )  # Specific type
+
+
+@pytest.mark.asyncio
+async def test_openrouter_payload_extended_parameters(
+    openrouter_backend: OpenRouterBackend,
+    httpx_mock: HTTPXMock,
+    sample_chat_request_data: ChatRequest,
+):
+    extended_request = sample_chat_request_data.model_copy(
+        update={
+            "repetition_penalty": 1.1,
+            "top_logprobs": 3,
+            "min_p": 0.25,
+            "top_a": 0.9,
+            "prediction": {"type": "content", "content": "prefill"},
+            "response_format": {"type": "json_object"},
+            "transforms": ["normalize-prompts"],
+            "models": ["openai/gpt-4o", "openai/gpt-4o-mini"],
+            "route": "fallback",
+            "provider": {
+                "include": ["openai"],
+                "allow_fallbacks": True,
+            },
+            "extra_body": {"transforms": ["override-transform"]},
+        }
+    )
+
+    httpx_mock.add_response(
+        status_code=200,
+        json={"choices": [{"message": {"content": "ok"}}]},
+    )
+
+    await openrouter_backend.chat_completions(
+        request_data=extended_request,
+        processed_messages=extended_request.messages,
+        effective_model=extended_request.model,
+        openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+        openrouter_headers_provider=mock_get_openrouter_headers,
+        key_name="test_key",
+        api_key="FAKE_KEY",
+    )
+
+    sent_request = httpx_mock.get_request()
+    assert sent_request is not None
+
+    payload = json.loads(sent_request.content)
+    assert payload["repetition_penalty"] == 1.1
+    assert payload["top_logprobs"] == 3
+    assert payload["min_p"] == 0.25
+    assert payload["top_a"] == 0.9
+    assert payload["prediction"] == {"type": "content", "content": "prefill"}
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["models"] == ["openai/gpt-4o", "openai/gpt-4o-mini"]
+    assert payload["route"] == "fallback"
+    assert payload["provider"] == {
+        "include": ["openai"],
+        "allow_fallbacks": True,
+    }
+    # extra_body should take precedence for transforms
+    assert payload["transforms"] == ["override-transform"]

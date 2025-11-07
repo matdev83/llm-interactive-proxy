@@ -349,6 +349,25 @@ class OpenRouterBackend(OpenAIConnector):
             )
 
             # Add OpenRouter-specific parameters to the payload
+            def _normalize_payload_value(value: Any) -> Any:
+                if value is None:
+                    return None
+                if hasattr(value, "model_dump") and callable(value.model_dump):
+                    try:
+                        return value.model_dump(exclude_none=True)
+                    except TypeError:
+                        return value.model_dump()
+                if isinstance(value, Mapping):
+                    return {
+                        key: _normalize_payload_value(val)
+                        for key, val in value.items()
+                    }
+                if isinstance(value, list):
+                    return [_normalize_payload_value(item) for item in value]
+                if isinstance(value, tuple):
+                    return [_normalize_payload_value(item) for item in value]
+                return value
+
             if domain_request.top_k is not None:
                 payload["top_k"] = domain_request.top_k
             if domain_request.seed is not None:
@@ -361,6 +380,50 @@ class OpenRouterBackend(OpenAIConnector):
                 payload["frequency_penalty"] = domain_request.frequency_penalty
             if domain_request.presence_penalty is not None:
                 payload["presence_penalty"] = domain_request.presence_penalty
+            if domain_request.repetition_penalty is not None:
+                payload["repetition_penalty"] = domain_request.repetition_penalty
+            if domain_request.top_logprobs is not None:
+                payload["top_logprobs"] = domain_request.top_logprobs
+            if domain_request.min_p is not None:
+                payload["min_p"] = domain_request.min_p
+            if domain_request.top_a is not None:
+                payload["top_a"] = domain_request.top_a
+            if domain_request.prediction is not None:
+                payload["prediction"] = _normalize_payload_value(
+                    domain_request.prediction
+                )
+            if domain_request.response_format is not None:
+                payload["response_format"] = _normalize_payload_value(
+                    domain_request.response_format
+                )
+            if domain_request.transforms:
+                transforms_value = domain_request.transforms
+                if isinstance(transforms_value, (list, tuple)):
+                    payload["transforms"] = [
+                        _normalize_payload_value(item)
+                        for item in transforms_value
+                    ]
+                else:
+                    payload["transforms"] = [
+                        _normalize_payload_value(transforms_value)
+                    ]
+            if domain_request.models:
+                models_value = domain_request.models
+                if isinstance(models_value, (list, tuple)):
+                    payload["models"] = [
+                        _normalize_payload_value(item)
+                        for item in models_value
+                    ]
+                else:
+                    payload["models"] = [
+                        _normalize_payload_value(models_value)
+                    ]
+            if domain_request.route is not None:
+                payload["route"] = domain_request.route
+            if domain_request.provider is not None:
+                payload["provider"] = _normalize_payload_value(
+                    domain_request.provider
+                )
 
             # Handle extra_body from the request (takes precedence)
             if hasattr(domain_request, "extra_body") and domain_request.extra_body:
