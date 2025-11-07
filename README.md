@@ -109,12 +109,16 @@ graph TD
     - `--edit-precision-temperature FLOAT`: Set target temperature for edit failures (default: 0.1)
     - `--edit-precision-min-top-p FLOAT`: Set minimum top_p value for edit failures (default: 0.3)
     - `--edit-precision-override-top-p`: Enable top_p override for edit failures
+    - `--edit-precision-override-top-k`: Enable top_k override for edit failures when the provider supports it
+    - `--edit-precision-target-top-k INT`: Target top_k value to apply when top_k override is enabled
     - `--edit-precision-exclude-agents REGEX`: Exclude specific agents from edit-precision tuning
   - **Environment Variables**:
     - `EDIT_PRECISION_ENABLED=true|false` (default: true)
     - `EDIT_PRECISION_TEMPERATURE=0.1` (default: 0.1)
     - `EDIT_PRECISION_MIN_TOP_P=0.3`
     - `EDIT_PRECISION_OVERRIDE_TOP_P=false|true`
+    - `EDIT_PRECISION_OVERRIDE_TOP_K=false|true`
+    - `EDIT_PRECISION_TARGET_TOP_K=<int>`
     - `EDIT_PRECISION_EXCLUDE_AGENTS_REGEX="<pattern>"`
     - `DISABLE_GEMINI_OAUTH_FALLBACK=true|false` (default: false) prevents Gemini OAuth connectors from automatically falling back to `gemini-2.5-flash` when the primary model is rate-limited.
   - **YAML** (`config.yaml`):
@@ -125,6 +129,8 @@ graph TD
       temperature: 0.1
       min_top_p: 0.3
       override_top_p: false
+      override_top_k: false
+      target_top_k: null
       exclude_agents_regex: null
     ```
 
@@ -156,12 +162,13 @@ The proxy includes an intelligent conversation assessment system that monitors c
 
 ```bash
 --enable-llm-assessment                    # Enable the assessment system
---llm-assessment-backend openai            # Backend to use for assessment
---llm-assessment-model gpt-4o-mini         # Model for assessment (recommend fast, cheap models)
+--llm-assessment-model openai:gpt-4o-mini  # Backend:model pair for assessment (recommend fast, cheap models)
 --llm-assessment-turn-threshold 30         # Turns before first assessment (default: 30)
 --llm-assessment-confidence-threshold 0.9  # Confidence threshold for intervention
 --llm-assessment-history-window 20         # Recent turns to analyze (default: 20)
 ```
+
+> **Note:** The CLI flag `--llm-assessment-model` expects the backend and model in a single `BACKEND:MODEL` string (for example, `anthropic:claude-3-haiku-20240307`). Set `LLM_ASSESSMENT_BACKEND` and `LLM_ASSESSMENT_MODEL` environment variables if you prefer to configure them separately.
 
 **Environment Variables**:
 
@@ -203,14 +210,12 @@ llm_assessment:
 # Basic setup with OpenAI for assessment
 python -m src.core.cli \
   --enable-llm-assessment \
-  --llm-assessment-backend openai \
-  --llm-assessment-model gpt-4o-mini
+  --llm-assessment-model openai:gpt-4o-mini
 
 # Custom thresholds for more sensitive detection
 python -m src.core.cli \
   --enable-llm-assessment \
-  --llm-assessment-backend anthropic \
-  --llm-assessment-model claude-3-haiku-20240307 \
+  --llm-assessment-model anthropic:claude-3-haiku-20240307 \
   --llm-assessment-turn-threshold 20 \
   --llm-assessment-confidence-threshold 0.8
 ```
@@ -1145,6 +1150,8 @@ Useful flags
 - `--edit-precision-temperature TEMP` to set target temperature for edit failures (default: 0.1)
 - `--edit-precision-min-top-p FLOAT` to set minimum top_p for edit failures (default: 0.3)
 - `--edit-precision-override-top-p` to enable top_p override for edit failures
+- `--edit-precision-override-top-k` to enable top_k override for edit failures (providers that support top_k)
+- `--edit-precision-target-top-k INT` to set the target top_k when overriding
 - `--edit-precision-exclude-agents REGEX` to exclude specific agents from edit-precision tuning
 
 3) Point your client at the proxy
@@ -2254,6 +2261,9 @@ python -m src.core.cli --edit-precision-temperature 0.05
 # Custom top_p value and enable override
 python -m src.core.cli --edit-precision-min-top-p 0.2 --edit-precision-override-top-p
 
+# Force deterministic top_k on providers that support it
+python -m src.core.cli --edit-precision-override-top-k --edit-precision-target-top-k 32
+
 # Exclude specific agents from edit-precision (e.g., exclude "test" agents)
 python -m src.core.cli --edit-precision-exclude-agents "test.*"
 
@@ -2262,7 +2272,9 @@ python -m src.core.cli \
   --enable-edit-precision \
   --edit-precision-temperature 0.08 \
   --edit-precision-min-top-p 0.25 \
-  --edit-precision-override-top-p
+  --edit-precision-override-top-p \
+  --edit-precision-override-top-k \
+  --edit-precision-target-top-k 24
 ```
 
 **Model-Specific Temperature Overrides**:
