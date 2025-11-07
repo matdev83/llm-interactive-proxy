@@ -356,7 +356,7 @@ class TestRateLimitingBehavior:
         assert result1.should_swallow is True
         assert result2.should_swallow is True
 
-    def test_rate_limit_window_expiry(self):
+    def test_rate_limit_window_expiry(self, recwarn: pytest.WarningsRecorder) -> None:
         """
         Given: A rule with rate limiting and a time window
         When: Sufficient time passes after rate limit is hit
@@ -371,7 +371,7 @@ class TestRateLimitingBehavior:
                 "triggers": {"tool_names": ["test_tool"], "phrases": []},
                 "rate_limit": {
                     "calls_per_window": 1,
-                    "window_seconds": 1,  # 1 second window for testing
+                    "window_seconds": 0.05,  # Short window keeps the test fast
                 },
                 "priority": 50,
             }
@@ -397,11 +397,20 @@ class TestRateLimitingBehavior:
         # assert result2.should_swallow is False
 
         # Wait for window to expire
-        asyncio.sleep(1.1)
+        window_seconds = rules[0]["rate_limit"]["window_seconds"]
+        asyncio.run(asyncio.sleep(window_seconds * 2))
 
         # Make third call after window expiry (should succeed)
         result3 = asyncio.run(handler.handle(context))
         assert result3.should_swallow is True
+
+        runtime_warnings = [
+            warning
+            for warning in recwarn.list
+            if issubclass(warning.category, RuntimeWarning)
+            and "was never awaited" in str(warning.message)
+        ]
+        assert not runtime_warnings
 
     def test_concurrent_rate_limiting(self):
         """
