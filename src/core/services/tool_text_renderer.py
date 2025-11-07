@@ -5,6 +5,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from contextvars import ContextVar, Token
 from typing import Any
 
 from src.core.domain.chat import ToolCall
@@ -279,31 +280,35 @@ def reset_renderer_registry() -> None:
 
 
 # Context manager to temporarily override the renderer for a block of code
-_override: str | None = None
+_override_var: ContextVar[str | None] = ContextVar(
+    "tool_text_renderer_override", default=None
+)
 
 
 class OverrideRenderer:
     def __init__(self, renderer_name: str):
         self.renderer_name = renderer_name
-        self.original_override = _override
+        self._token: Token[str | None] | None = None
 
     def __enter__(self) -> None:
-        global _override
-        _override = self.renderer_name
+        self._token = _override_var.set(self.renderer_name)
 
     def __exit__(self, exc_type: Any, _: Any, traceback: Any) -> None:
-        global _override
-        _override = self.original_override
+        if self._token is not None:
+            _override_var.reset(self._token)
+        else:
+            _override_var.set(None)
 
 
 def render_tool_call(tool_call: ToolCall) -> str | None:
     """Render a tool call using the currently active renderer."""
-    renderer_name = _override or _renderer_registry.default_renderer
+    current_override = _override_var.get()
+    renderer_name = current_override or _renderer_registry.default_renderer
     renderer = get_renderer(renderer_name)
     text = renderer.render(tool_call)
     if text:
         return text
-    if (_override or "").strip().lower() in {"", "none"}:
+    if (current_override or "").strip().lower() in {"", "none"}:
         return None
     fallback_name = _renderer_registry.fallback_renderer
     if fallback_name and fallback_name != renderer_name:
