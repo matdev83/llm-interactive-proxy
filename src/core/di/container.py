@@ -92,7 +92,9 @@ class ServiceScope(IServiceScope):
             if hasattr(instance, "__aenter__") and hasattr(instance, "__aexit__"):
                 await instance.__aexit__(None, None, None)
             elif hasattr(instance, "dispose") and callable(instance.dispose):
-                instance.dispose()
+                result = instance.dispose()
+                if inspect.isawaitable(result):
+                    await result
 
         self._instances.clear()
 
