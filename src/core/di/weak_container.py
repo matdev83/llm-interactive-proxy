@@ -71,12 +71,19 @@ class WeakDIContainer:
         if cleanup_callback:
             self._cleanup_callbacks[service_type] = cleanup_callback
 
-            # Set up weak reference callback for cleanup
-            def on_delete(ref):
+            instance_ref = weakref.ref(instance)
+
+            # Set up weak reference callback for cleanup without strong reference cycles
+            def on_delete(_: weakref.ReferenceType[Any]) -> None:
+                service_instance = instance_ref()
+                if service_instance is None:
+                    return
                 try:
-                    cleanup_callback(instance)
-                except Exception as e:
-                    logger.warning(f"Error in cleanup callback for {service_type}: {e}")
+                    cleanup_callback(service_instance)
+                except Exception as exc:
+                    logger.warning(
+                        f"Error in cleanup callback for {service_type}: {exc}",
+                    )
 
             weakref.ref(instance, on_delete)
 
@@ -123,13 +130,17 @@ class WeakDIContainer:
                     # Set up cleanup callback if registered
                     cleanup_callback = self._cleanup_callbacks.get(service_type)
                     if cleanup_callback:
+                        instance_ref = weakref.ref(instance)
 
-                        def on_delete(ref):
+                        def on_delete(_: weakref.ReferenceType[Any]) -> None:
+                            service_instance = instance_ref()
+                            if service_instance is None:
+                                return
                             try:
-                                cleanup_callback(instance)
-                            except Exception as e:
+                                cleanup_callback(service_instance)
+                            except Exception as exc:
                                 logger.warning(
-                                    f"Error in cleanup callback for {service_type}: {e}"
+                                    f"Error in cleanup callback for {service_type}: {exc}",
                                 )
 
                         weakref.ref(instance, on_delete)
