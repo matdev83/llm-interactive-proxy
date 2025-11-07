@@ -47,6 +47,15 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
             re.IGNORECASE | re.DOTALL,
         ),
     ]
+    _SESSION_KEY_FIELDS = (
+        "session_id",
+        "stream_id",
+        "id",
+        "request_id",
+        "conversation_id",
+        "thread_id",
+        "message_id",
+    )
 
     def __init__(self, app_state: IApplicationState) -> None:
         super().__init__(priority=10)
@@ -80,6 +89,40 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
             # Use only default patterns if config loading fails
             pass
 
+    def _resolve_session_key(
+        self,
+        session_id: str,
+        context: dict[str, Any] | None,
+        metadata: dict[str, Any] | None,
+    ) -> str | None:
+        if session_id:
+            normalized = str(session_id).strip()
+            if normalized:
+                return normalized
+
+        candidates: list[str] = []
+        if isinstance(context, dict):
+            for field in self._SESSION_KEY_FIELDS:
+                value = context.get(field)
+                if value is None:
+                    continue
+                candidate = str(value).strip()
+                if candidate:
+                    candidates.append(candidate)
+
+        if isinstance(metadata, dict):
+            for field in self._SESSION_KEY_FIELDS:
+                value = metadata.get(field)
+                if value is None:
+                    continue
+                candidate = str(value).strip()
+                if candidate:
+                    candidates.append(candidate)
+
+        if candidates:
+            return candidates[0]
+        return None
+
     async def process(
         self,
         response: Any,
@@ -97,6 +140,12 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
             out = ProcessedResponse(content=text)
 
         metadata = getattr(out, "metadata", {}) or {}
+        session_key = self._resolve_session_key(session_id, context, metadata)
+        if session_key is None:
+            self._logger.debug(
+                "Edit-precision: unable to determine session scope; skipping state updates"
+            )
+            return out
 
         text_sources: list[str] = []
         if text:
@@ -140,14 +189,13 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
             except Exception:
                 pending_map = {}
 
-            key = session_id or ""
-            if key:
-                if active_disable_map.get(key):
+            if session_key:
+                if active_disable_map.get(session_key):
                     # We already flagged this response; still update stream tracking
-                    self._update_stream_tracking(key, context, out)
+                    self._update_stream_tracking(session_key, context, out)
                     self._logger.debug(
                         "Edit-precision: session %s already has hybrid reasoning disable flag",
-                        key,
+                        session_key,
                     )
                     return out
 
@@ -168,19 +216,19 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                         )
                     except Exception:
                         stream_id = ""
-                    last_stream_id = self._last_stream_ids.get(key)
+                    last_stream_id = self._last_stream_ids.get(session_key)
                     if stream_id and last_stream_id == stream_id:
                         return out
 
-                pending_map[key] = int(pending_map.get(key, 0)) + 1
+                pending_map[session_key] = int(pending_map.get(session_key, 0)) + 1
                 if response_type == "stream" and stream_id:
-                    self._last_stream_ids[key] = stream_id
+                    self._last_stream_ids[session_key] = stream_id
                 elif response_type != "stream":
-                    self._last_stream_ids.pop(key, None)
+                    self._last_stream_ids.pop(session_key, None)
                 self._app_state.set_setting("edit_precision_pending", pending_map)
 
                 # Mark hybrid reasoning disable active until consumed by request processor
-                active_disable_map[key] = {"timestamp": time.time()}
+                active_disable_map[session_key] = {"timestamp": time.time()}
                 self._app_state.set_setting(
                     "edit_precision_hybrid_reasoning_active", active_disable_map
                 )
@@ -200,7 +248,7 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     hybrid_reasoning_disabled_map = {}
 
                 # Mark that hybrid reasoning should be disabled for next request
-                hybrid_reasoning_disabled_map[key] = True
+                hybrid_reasoning_disabled_map[session_key] = True
                 self._app_state.set_setting(
                     "edit_precision_hybrid_reasoning_disabled",
                     hybrid_reasoning_disabled_map,
@@ -213,14 +261,14 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     )
                     self._logger.info(
                         "Edit-precision trigger detected; session_id=%s pattern=%s count=%s response_type=%s",
-                        key,
+                        session_key,
                         matched_pattern,
-                        pending_map.get(key, 0),
+                        pending_map.get(session_key, 0),
                         response_type,
                     )
                     self._logger.info(
                         "Hybrid reasoning disabled for next request in session %s due to edit failure",
-                        key,
+                        session_key,
                     )
                 except Exception as e:
                     self._logger.debug(

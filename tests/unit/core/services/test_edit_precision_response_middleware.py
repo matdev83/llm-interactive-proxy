@@ -65,6 +65,46 @@ async def test_streaming_processor_applies_middleware_and_sets_pending(
 
 
 @pytest.mark.asyncio
+async def test_streaming_without_session_id_uses_stream_identifier(
+    app_state: ApplicationStateService,
+) -> None:
+    mw = EditPrecisionResponseMiddleware(app_state)
+    processor = MiddlewareApplicationProcessor([mw], app_state=app_state)
+
+    chunk = StreamingContent(
+        content="... diff_error ...",
+        metadata={"stream_id": "anon-stream"},
+    )
+
+    await processor.process(chunk)
+
+    pending = app_state.get_setting("edit_precision_pending", {})
+    assert pending.get("anon-stream", 0) >= 1
+    active_flags = app_state.get_setting("edit_precision_hybrid_reasoning_active", {})
+    assert "anon-stream" in active_flags
+
+
+@pytest.mark.asyncio
+async def test_streaming_without_identifiers_skips_state_changes(
+    app_state: ApplicationStateService,
+) -> None:
+    mw = EditPrecisionResponseMiddleware(app_state)
+    processor = MiddlewareApplicationProcessor([mw], app_state=app_state)
+
+    chunk = StreamingContent(
+        content="... diff_error ...",
+        metadata={},
+    )
+
+    await processor.process(chunk)
+
+    pending = app_state.get_setting("edit_precision_pending", {})
+    assert pending == {}
+    active_flags = app_state.get_setting("edit_precision_hybrid_reasoning_active", {})
+    assert active_flags == {}
+
+
+@pytest.mark.asyncio
 async def test_streaming_duplicate_without_stream_id_only_flags_once(
     app_state: ApplicationStateService,
 ) -> None:

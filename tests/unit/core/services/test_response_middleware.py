@@ -202,6 +202,64 @@ class TestLoopDetectionMiddleware:
         args, _kwargs = mock_loop_detector.check_for_loops.call_args
         assert "Part 1" in args[0] and "Part 2" in args[0]
 
+    @pytest.mark.asyncio
+    async def test_streams_without_session_id_are_isolated(
+        self, middleware, mock_loop_detector
+    ):
+        """Ensure anonymous streaming sessions do not leak state between each other."""
+        mock_result = MagicMock()
+        mock_result.has_loop = False
+        mock_loop_detector.check_for_loops.return_value = mock_result
+
+        class DummyStopEvent:
+            def __init__(self) -> None:
+                self._set = False
+
+            def is_set(self) -> bool:
+                return self._set
+
+        stop_a = DummyStopEvent()
+        stop_b = DummyStopEvent()
+
+        chunk_a1 = ProcessedResponse(
+            content="A" * 60, metadata={"stream_id": "stream-a"}
+        )
+        chunk_b = ProcessedResponse(
+            content="B" * 60, metadata={"stream_id": "stream-b"}
+        )
+        chunk_a2 = ProcessedResponse(
+            content="A" * 60, metadata={"stream_id": "stream-a"}
+        )
+
+        await middleware.process(
+            chunk_a1,
+            "",
+            {"response_type": "stream"},
+            is_streaming=True,
+            stop_event=stop_a,
+        )
+        await middleware.process(
+            chunk_b,
+            "",
+            {"response_type": "stream"},
+            is_streaming=True,
+            stop_event=stop_b,
+        )
+        await middleware.process(
+            chunk_a2,
+            "",
+            {"response_type": "stream"},
+            is_streaming=True,
+            stop_event=stop_a,
+        )
+
+        assert "stream-a" in middleware._accumulated_content
+        assert "stream-b" in middleware._accumulated_content
+        assert middleware._accumulated_content["stream-b"] == "B" * 60
+
+        args, _ = mock_loop_detector.check_for_loops.call_args
+        assert "B" not in args[0]
+
     def test_reset_session(self, middleware):
         """Test resetting session accumulated content."""
         # Manually add content to test reset
