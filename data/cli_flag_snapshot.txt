@@ -1,5 +1,6 @@
 --allow-admin
 --allowed-tools
+--angel-frequency
 --anthropic-port
 --auth-brute-force-initial-block
 --auth-brute-force-max-block
@@ -85,4 +86,5 @@
 --trusted-ip
 --use-angel-model
 --zai-api-key
+--zenmux-api-base-url
 -h

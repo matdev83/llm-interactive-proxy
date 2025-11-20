@@ -118,6 +118,9 @@ export ANTHROPIC_API_KEY_2="your_anthropic_api_key_2_here"
 # ZAI (Zhipu AI) backend
 export ZAI_API_KEY="your_zai_api_key_here"
 
+# ZenMux backend
+export ZENMUX_API_KEY="your_zenmux_api_key_here"
+
 # Google Cloud Project (for OAuth-based backends)
 export GOOGLE_CLOUD_PROJECT="your_gcp_project_id"
 ```
@@ -130,6 +133,7 @@ export GOOGLE_CLOUD_PROJECT="your_gcp_project_id"
 export GEMINI_API_KEY="your_key_here"
 export OPENROUTER_API_KEY="your_key_here"
 export ANTHROPIC_API_KEY="your_key_here"
+export ZENMUX_API_KEY="your_key_here"
 ```
 
 **Option 2: .env File (Local Development)**
@@ -531,6 +535,7 @@ markers = [
 | `ANTHROPIC_API_KEY` | Primary Anthropic key | Anthropic backend tests |
 | `ANTHROPIC_API_KEY_1-20` | Additional Anthropic keys | Key rotation/failover tests |
 | `ZAI_API_KEY` | ZAI backend key | ZAI backend tests |
+| `ZENMUX_API_KEY` | ZenMux backend key | ZenMux backend tests |
 | `GOOGLE_CLOUD_PROJECT` | GCP project for OAuth | OAuth-based backends |
 | `GEMINI_CLI_WORKSPACE` | Workspace for gemini-cli | Gemini CLI tests |
 

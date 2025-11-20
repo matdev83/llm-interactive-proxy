@@ -53,6 +53,8 @@ session:
   # Format: BACKEND:MODEL with optional URI params, e.g.:
   #   "openai:gpt-4o-mini?temperature=1&reasoning_effort=high"
   angel_model: null
+  # Angel verification frequency (1 = every user turn, 5 = every 5th user turn, etc.)
+  angel_frequency: 1
 
   # Tool call processing behavior
   # These settings control how tool calls are processed to prevent re-processing of historical messages

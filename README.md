@@ -773,7 +773,8 @@ These are ready out of the box. Front-ends are the client-facing APIs the proxy 
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + `GOOGLE_CLOUD_PROJECT` (+ ADC) | Bills to your GCP project |
 | `gemini-cli-acp` | Google Gemini (CLI Agent) | OAuth (no key) | Uses gemini-cli as an agent via Agent Control Protocol (ACP) |
 | `openrouter` | OpenRouter | `OPENROUTER_API_KEY` | Access to many hosted models |
-| `zai` | ZAI | `ZAI_API_KEY` | Zhipu/Z.ai access (OpenAI-compatible) |
+| `zenmux` | ZenMux | `ZENMUX_API_KEY` | OpenAI-compatible ZenMux router (`https://zenmux.ai/api/v1`) |
+| `zai` | ZAI | `ZAI_API_KEY` | Zhipu/Z.ai access (OpenAI-compatible). Reasoning payloads are currently stripped due to provider limitations. |
 | `zai-coding-plan` | ZAI Coding Plan | `ZAI_API_KEY` | Works with any supported front-end and coding agent |
 | `minimax` | Minimax | `MINIMAX_API_KEY` | Minimax AI models (OpenAI-compatible) |
 | `qwen-oauth` | Alibaba Qwen | Local `oauth_creds.json` | Qwen CLI OAuth; OpenAI-compatible endpoint |
@@ -1166,6 +1167,7 @@ export OPENAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
 export GEMINI_API_KEY=...
 export OPENROUTER_API_KEY=...
+export ZENMUX_API_KEY=...
 export ZAI_API_KEY=...
 export MINIMAX_API_KEY=...
 # GCP-based Gemini back-end
@@ -1321,7 +1323,7 @@ curl -H "x-session-id: my-custom-session-123" ...
 ## Security
 
 - Do not store provider API keys in config files; use environment variables only.
-- Common keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `GOOGLE_CLOUD_PROJECT`.
+- Common keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `ZENMUX_API_KEY`, `ZAI_API_KEY`, `GOOGLE_CLOUD_PROJECT`.
 - Optional proxy auth: set `LLM_INTERACTIVE_PROXY_API_KEY` and require clients to send `Authorization: Bearer <key>`.
 - Built-in redaction masks API keys in prompts and logs.
 
@@ -2199,6 +2201,12 @@ Then launch `claude`. You can switch models during a session:
 
 - Use back-end `zai-coding-plan`; it works with any supported front-end and any coding agent
 - Point OpenAI-compatible tools at `http://localhost:8000/v1`
+
+### ZenMux backend
+
+- Configure `ZENMUX_API_KEY` (and optionally `ZENMUX_API_BASE_URL`, defaults to `https://zenmux.ai/api/v1`)
+- Models follow `<provider>/<model>` names and can be enumerated via `GET https://zenmux.ai/api/v1/models` (documented in [ZenMux's OpenAI compatibility guide](https://docs.zenmux.ai/api-reference/overview#requests))
+- Use any OpenAI-compatible front-end (Chat Completions/Responses); no custom translations required
 
 ### Gemini options
 

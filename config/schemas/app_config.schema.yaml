@@ -85,6 +85,10 @@ properties:
       pytest_full_suite_steering_enabled: { type: boolean }
       pytest_full_suite_steering_message: { type: ["string", "null"] }
       angel_model: { type: ["string", "null"] }
+      angel_frequency:
+        type: integer
+        minimum: 1
+        default: 1
       fix_think_tags_enabled: { type: boolean }
       fix_think_tags_streaming_buffer_size: { type: integer, minimum: 1024 }
       max_per_session_backends: { type: integer, minimum: 1 }
