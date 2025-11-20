@@ -1,0 +1,220 @@
+# Patch to Fix Loop Detection Interference with Streaming Tests
+
+## File 1: src/loop_detection/detector.py
+
+Add NoOpLoopDetector class:
+
+```python
+# Add after existing detector classes
+
+class NoOpLoopDetector(ILoopDetector):
+    """No-op loop detector for testing environments.
+    
+    This detector never detects loops and is used when loop detection
+    is disabled via configuration.
+    """
+    
+    def process_chunk(self, chunk: str) -> tuple[bool, str | None]:
+        """Process a chunk without detecting loops.
+        
+        Args:
+            chunk: The chunk to process
+            
+        Returns:
+            Tuple of (False, None) indicating no loop detected
+        """
+        return False, None
+    
+    def reset(self) -> None:
+        """Reset detector state (no-op)."""
+        pass
+```
+
+## File 2: src/core/app/stages/infrastructure.py
+
+Modify loop detector registration (around line 150-175):
+
+```python
+# BEFORE:
+def loop_detector_factory(provider: IServiceProvider) -> HybridLoopDetector:
+    return _create_hybrid_loop_detector()
+
+services.add_transient(
+    HybridLoopDetector, implementation_factory=loop_detector_factory
+)
+services.add_transient(
+    cast(type, ILoopDetector), implementation_factory=loop_detector_factory
+)
+
+logger.debug("Registered HybridLoopDetector with DI container")
+
+# AFTER:
+# Check if loop detection is enabled in config
+if config.loop_detection_enabled:
+    def loop_detector_factory(provider: IServiceProvider) -> HybridLoopDetector:
+        return _create_hybrid_loop_detector()
+
+    services.add_transient(
+        HybridLoopDetector, implementation_factory=loop_detector_factory
+    )
+    services.add_transient(
+        cast(type, ILoopDetector), implementation_factory=loop_detector_factory
+    )
+
+    logger.debug("Registered HybridLoopDetector with DI container")
+else:
+    # Register no-op detector when loop detection is disabled
+    from src.loop_detection.detector import NoOpLoopDetector
+    
+    def noop_detector_factory(provider: IServiceProvider) -> NoOpLoopDetector:
+        return NoOpLoopDetector()
+    
+    services.add_transient(
+        cast(type, ILoopDetector), implementation_factory=noop_detector_factory
+    )
+    
+    logger.debug("Loop detection disabled, registered NoOpLoopDetector")
+```
+
+## File 3: src/loop_detection/config.py
+
+Ensure loop_detection_enabled is properly read from environment:
+
+```python
+# Verify this exists in LoopDetectionConfig.from_env():
+
+if "LOOP_DETECTION_ENABLED" in env_dict:
+    config.enabled = _coerce_to_bool(env_dict["LOOP_DETECTION_ENABLED"])
+```
+
+## File 4: src/core/config/app_config.py
+
+Ensure loop_detection_enabled is accessible:
+
+```python
+# Verify AppConfig has this property:
+
+@property
+def loop_detection_enabled(self) -> bool:
+    """Check if loop detection is enabled."""
+    if hasattr(self, 'loop_detection') and self.loop_detection:
+        return getattr(self.loop_detection, 'enabled', True)
+    return True  # Default to enabled
+```
+
+## Testing the Fix
+
+### Step 1: Apply the patch
+
+```bash
+# Apply changes to the files above
+```
+
+### Step 2: Test with loop detection disabled
+
+```bash
+# Windows PowerShell
+$env:LOOP_DETECTION_ENABLED="false"
+./.venv/Scripts/python.exe -m pytest tests/streaming_regression/test_streaming_core.py::test_openai_streaming_incremental_delivery -v
+
+# Expected output:
+# DEBUG Loop detection disabled, registered NoOpLoopDetector
+# PASSED tests/streaming_regression/test_streaming_core.py::test_openai_streaming_incremental_delivery
+```
+
+### Step 3: Test with loop detection enabled
+
+```bash
+# Windows PowerShell
+$env:LOOP_DETECTION_ENABLED="true"
+./.venv/Scripts/python.exe -m pytest tests/integration/test_loop_detection.py -v
+
+# Expected output:
+# DEBUG Registered HybridLoopDetector with DI container
+# PASSED (loop detection tests should still work)
+```
+
+### Step 4: Run all streaming tests
+
+```bash
+$env:LOOP_DETECTION_ENABLED="false"
+./.venv/Scripts/python.exe -m pytest tests/streaming_regression/ -v
+
+# Expected: All tests pass
+```
+
+## Verification Checklist
+
+- [ ] NoOpLoopDetector class added to src/loop_detection/detector.py
+- [ ] Infrastructure stage conditionally registers loop detector
+- [ ] Environment variable LOOP_DETECTION_ENABLED is respected
+- [ ] Streaming tests pass with LOOP_DETECTION_ENABLED=false
+- [ ] Loop detection tests pass with LOOP_DETECTION_ENABLED=true
+- [ ] No warnings about loop detection in streaming test output
+- [ ] CI/CD pipeline updated to set LOOP_DETECTION_ENABLED=false for streaming tests
+
+## Alternative: Minimal Fix
+
+If you want a minimal fix without creating NoOpLoopDetector:
+
+```python
+# In src/core/app/stages/infrastructure.py
+
+if config.loop_detection_enabled:
+    def loop_detector_factory(provider: IServiceProvider) -> HybridLoopDetector:
+        return _create_hybrid_loop_detector()
+
+    services.add_transient(
+        HybridLoopDetector, implementation_factory=loop_detector_factory
+    )
+    services.add_transient(
+        cast(type, ILoopDetector), implementation_factory=loop_detector_factory
+    )
+
+    logger.debug("Registered HybridLoopDetector with DI container")
+else:
+    logger.debug("Loop detection disabled, skipping registration")
+    # Don't register anything - let DI fail gracefully or use default
+```
+
+Then update processor stage to handle missing loop detector:
+
+```python
+# In src/core/app/stages/processor.py
+
+if config.loop_detection_enabled:
+    try:
+        loop_detector = provider.get_service(ILoopDetector)
+        # ... add middleware
+        logger.debug("Added loop detection middleware")
+    except Exception as e:
+        logger.warning(f"Could not add loop detection middleware: {e}")
+else:
+    logger.debug("Loop detection disabled, skipping middleware")
+```
+
+## Rollback Plan
+
+If the fix causes issues:
+
+```bash
+# Revert changes
+git checkout src/loop_detection/detector.py
+git checkout src/core/app/stages/infrastructure.py
+
+# Or manually remove the conditional logic
+```
+
+## Impact Assessment
+
+**Low Risk**: 
+- Only affects initialization logic
+- Doesn't change loop detection behavior when enabled
+- Adds proper configuration respect
+- Improves testability
+
+**Benefits**:
+- Streaming tests can run
+- Better separation of concerns
+- Respects configuration settings
+- Enables test-specific configurations
