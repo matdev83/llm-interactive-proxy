@@ -472,6 +472,16 @@ class SessionConfig(DomainModel):
     log_skipped_tool_calls: bool = False
     # Angel verification model (backend:model with optional URI params)
     angel_model: str | None = None
+    angel_frequency: int = 1
+
+    @field_validator("angel_frequency")
+    @classmethod
+    def _validate_angel_frequency(cls, value: int) -> int:
+        try:
+            freq = int(value)
+        except (TypeError, ValueError):
+            return 1
+        return freq if freq > 0 else 1
 
     @model_validator(mode="before")
     @classmethod
@@ -514,6 +524,13 @@ class SessionConfig(DomainModel):
                 values["angel_model"] = str(angel_model)
             except Exception:
                 values["angel_model"] = None
+        # Normalize angel_frequency
+        freq_value = values.get("angel_frequency", 1)
+        try:
+            freq_int = int(freq_value)
+        except (TypeError, ValueError):
+            freq_int = 1
+        values["angel_frequency"] = freq_int if freq_int > 0 else 1
         return values
 
 
@@ -613,6 +630,16 @@ class BackendSettings(DomainModel):
         default=120,
         ge=1,
         description="Timeout in seconds for execution model call in hybrid scenarios. Defaults to 120.",
+    )
+    hybrid_reasoning_latency_threshold: float = Field(
+        default=8.0,
+        ge=0.0,
+        description="Latency threshold (seconds) that triggers adaptive reasoning backoff when exceeded. Set 0 to disable.",
+    )
+    hybrid_reasoning_backoff_turns: int = Field(
+        default=2,
+        ge=0,
+        description="Number of subsequent turns to skip reasoning after latency threshold is exceeded. Set 0 to disable adaptive backoff.",
     )
 
     def __init__(self, **data: Any) -> None:
@@ -1288,6 +1315,13 @@ class AppConfig(DomainModel, IConfig):
                 path="session.angel_model",
                 resolution=resolution,
             ),
+            "angel_frequency": _env_to_int(
+                "ANGEL_FREQUENCY",
+                1,
+                env,
+                path="session.angel_frequency",
+                resolution=resolution,
+            ),
         }
 
         config["logging"] = {
@@ -1833,6 +1867,37 @@ class AppConfig(DomainModel, IConfig):
                     config_backends["zai"]["api_key"],
                     ParameterSource.ENVIRONMENT,
                     origin="ZAI_API_KEY*",
+                )
+
+        zenmux_keys: dict[str, str] = _collect_api_keys_from_env(
+            "ZENMUX_API_KEY", env, resolution
+        )
+        if zenmux_keys:
+            config_backends["zenmux"] = config_backends.get("zenmux", {})
+            config_backends["zenmux"]["api_key"] = list(zenmux_keys.values())
+            config_backends["zenmux"]["api_url"] = _get_env_value(
+                env,
+                "ZENMUX_API_BASE_URL",
+                "https://zenmux.ai/api/v1",
+                path="backends.zenmux.api_url",
+                resolution=resolution,
+            )
+            zenmux_timeout = _get_env_value(
+                env,
+                "ZENMUX_TIMEOUT",
+                None,
+                path="backends.zenmux.timeout",
+                resolution=resolution,
+                transform=lambda value: _to_int(value, 0),
+            )
+            if zenmux_timeout:
+                config_backends["zenmux"]["timeout"] = zenmux_timeout
+            if resolution is not None:
+                resolution.record(
+                    "backends.zenmux.api_key",
+                    config_backends["zenmux"]["api_key"],
+                    ParameterSource.ENVIRONMENT,
+                    origin="ZENMUX_API_KEY*",
                 )
 
         openai_keys: dict[str, str] = _collect_api_keys_from_env(

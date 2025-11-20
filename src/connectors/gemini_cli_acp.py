@@ -617,10 +617,15 @@ class GeminiCliAcpConnector(GeminiBackend):
                     },
                 )
 
-                return ResponseEnvelope(
+                response_envelope = ResponseEnvelope(
                     content=canonical_response,
                     headers={},
                     status_code=200,
+                )
+
+                # Ensure usage is calculated (CLI doesn't provide usage)
+                return self.ensure_usage_in_response(
+                    response_envelope, processed_messages, effective_model
                 )
 
         except Exception as e:

@@ -1154,6 +1154,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             # The response is a single JSON object, not a stream
             response_json = api_response.json()
 
+            # Extract usage from Code Assist response (similar to Gemini format)
+            usage = self._extract_code_assist_usage(response_json)
+
             # Translate the response from Code Assist format to domain format
             domain_response = self.translation_service.to_domain_response(
                 response=response_json, source_format="code_assist"
@@ -1168,8 +1171,13 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             logger.info(
                 f"Successfully received response from Code Assist API for project {project_id}"
             )
-            return ResponseEnvelope(
-                content=openai_response, headers={}, status_code=200
+            response_envelope = ResponseEnvelope(
+                content=openai_response, headers={}, status_code=200, usage=usage
+            )
+
+            # Ensure usage is calculated if missing
+            return self.ensure_usage_in_response(
+                response_envelope, processed_messages, effective_model
             )
 
         except (AuthenticationError, BackendError):
@@ -1581,6 +1589,44 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             )
 
         return lro_data
+
+    def _extract_code_assist_usage(
+        self, response_data: dict[str, Any]
+    ) -> dict[str, int] | None:
+        """Extract usage information from Code Assist API response.
+
+        Code Assist API wraps the response and may include usageMetadata.
+
+        Args:
+            response_data: The response data from Code Assist API
+
+        Returns:
+            Usage dictionary or None if not found
+        """
+        try:
+            # Code Assist wraps response in a "response" object
+            response_wrapper = response_data.get("response", {})
+            usage_metadata = response_wrapper.get("usageMetadata", {})
+
+            if not usage_metadata:
+                return None
+
+            prompt_tokens = usage_metadata.get("promptTokenCount", 0)
+            completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
+            total_tokens = usage_metadata.get("totalTokenCount", 0)
+
+            # If all are zero, return None to trigger calculation
+            if prompt_tokens == 0 and completion_tokens == 0 and total_tokens == 0:
+                return None
+
+            return {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            }
+        except Exception as e:
+            logger.debug(f"Failed to extract Code Assist usage: {e}")
+            return None
 
     def __del__(self):
         """Cleanup file watcher on destruction."""

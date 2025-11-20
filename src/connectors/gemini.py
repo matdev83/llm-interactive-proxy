@@ -12,6 +12,7 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
+from src.connectors.mixins.usage_calculation_mixin import UsageCalculationMixin
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -43,7 +44,7 @@ from src.core.services.translation_service import TranslationService
 logger = logging.getLogger(__name__)
 
 
-class GeminiBackend(LLMBackend):
+class GeminiBackend(LLMBackend, UsageCalculationMixin):
     """LLMBackend implementation for Google's Gemini API."""
 
     backend_type: str = "gemini"
@@ -532,8 +533,13 @@ class GeminiBackend(LLMBackend):
                 cancel_callback=stream_handle.cancel_callback,
             )
 
-        return await self._handle_gemini_non_streaming_response(
+        response_envelope = await self._handle_gemini_non_streaming_response(
             model_url, payload, headers, effective_model
+        )
+
+        # Ensure usage is calculated if missing
+        return self.ensure_usage_in_response(
+            response_envelope, processed_messages, effective_model
         )
 
     def _build_openrouter_header_context(self) -> dict[str, str]:
@@ -748,12 +754,17 @@ class GeminiBackend(LLMBackend):
                 )
             data = response.json()
             logger.debug("Gemini response headers: %s", dict(response.headers))
+
+            # Extract usage from Gemini response
+            usage = self._extract_gemini_usage(data)
+
             return ResponseEnvelope(
                 content=self.translation_service.to_domain_response(
                     data, source_format="gemini"
                 ),
                 headers=dict(response.headers),
                 status_code=response.status_code,
+                usage=usage,
             )
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
@@ -780,6 +791,39 @@ class GeminiBackend(LLMBackend):
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+
+    def _extract_gemini_usage(
+        self, response_data: dict[str, Any]
+    ) -> dict[str, int] | None:
+        """Extract usage information from Gemini API response.
+
+        Args:
+            response_data: The response data from Gemini API
+
+        Returns:
+            Usage dictionary or None if not found
+        """
+        try:
+            usage_metadata = response_data.get("usageMetadata", {})
+            if not usage_metadata:
+                return None
+
+            prompt_tokens = usage_metadata.get("promptTokenCount", 0)
+            completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
+            total_tokens = usage_metadata.get("totalTokenCount", 0)
+
+            # If all are zero, return None to trigger calculation
+            if prompt_tokens == 0 and completion_tokens == 0 and total_tokens == 0:
+                return None
+
+            return {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            }
+        except Exception as e:
+            logger.debug(f"Failed to extract Gemini usage: {e}")
+            return None
 
 
 backend_registry.register_backend("gemini", GeminiBackend)

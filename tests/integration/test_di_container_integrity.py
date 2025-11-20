@@ -44,7 +44,7 @@ class TestDIContainerIntegrity:
         return service_collection
 
     @pytest.mark.asyncio
-    async def test_loop_detector_is_registered(self, initialized_services):
+    async def test_loop_detector_is_registered(self, initialized_services, monkeypatch):
         """Verify ILoopDetector is properly registered in DI container.
 
         REGRESSION TEST: This would have caught the bug where ILoopDetector
@@ -52,7 +52,29 @@ class TestDIContainerIntegrity:
         """
         from src.core.interfaces.loop_detector_interface import ILoopDetector
 
-        provider = initialized_services.build_service_provider()
+        # Enable loop detection for this test
+        monkeypatch.setenv("LOOP_DETECTION_ENABLED", "true")
+
+        # Rebuild services with loop detection enabled
+        from src.core.app.stages.core_services import CoreServicesStage
+        from src.core.app.stages.infrastructure import InfrastructureStage
+        from src.core.app.stages.processor import ProcessorStage
+        from src.core.config.app_config import AppConfig
+        from src.core.di.container import ServiceCollection
+
+        config = AppConfig.from_env()
+        service_collection = ServiceCollection()
+
+        infra = InfrastructureStage()
+        await infra.execute(service_collection, config)
+
+        core = CoreServicesStage()
+        await core.execute(service_collection, config)
+
+        processor = ProcessorStage()
+        await processor.execute(service_collection, config)
+
+        provider = service_collection.build_service_provider()
 
         # Verify service can be resolved
         loop_detector = provider.get_service(ILoopDetector)
@@ -254,9 +276,7 @@ class TestDIContainerIntegrity:
             )
 
     @pytest.mark.asyncio
-    async def test_loop_detection_functional_with_real_content(
-        self, initialized_services
-    ):
+    async def test_loop_detection_functional_with_real_content(self, monkeypatch):
         """Functional test that loop detection actually works with real content.
 
         This is the ultimate integration test - it verifies that the entire
@@ -264,7 +284,29 @@ class TestDIContainerIntegrity:
         """
         from src.core.interfaces.loop_detector_interface import ILoopDetector
 
-        provider = initialized_services.build_service_provider()
+        # Enable loop detection for this test
+        monkeypatch.setenv("LOOP_DETECTION_ENABLED", "true")
+
+        # Rebuild services with loop detection enabled
+        from src.core.app.stages.core_services import CoreServicesStage
+        from src.core.app.stages.infrastructure import InfrastructureStage
+        from src.core.app.stages.processor import ProcessorStage
+        from src.core.config.app_config import AppConfig
+        from src.core.di.container import ServiceCollection
+
+        config = AppConfig.from_env()
+        service_collection = ServiceCollection()
+
+        infra = InfrastructureStage()
+        await infra.execute(service_collection, config)
+
+        core = CoreServicesStage()
+        await core.execute(service_collection, config)
+
+        processor = ProcessorStage()
+        await processor.execute(service_collection, config)
+
+        provider = service_collection.build_service_provider()
         loop_detector = provider.get_service(ILoopDetector)
 
         # Test that loop detection is functional (basic smoke test)

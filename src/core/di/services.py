@@ -22,6 +22,7 @@ from src.core.domain.streaming_response_processor import (
 from src.core.interfaces.agent_response_formatter_interface import (
     IAgentResponseFormatter,
 )
+from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.app_settings_interface import IAppSettings
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_config_provider_interface import (
@@ -66,6 +67,7 @@ from src.core.interfaces.tool_call_repair_service_interface import (
 )
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.services.angel_service import AngelService
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
@@ -901,9 +903,13 @@ def register_core_services(
     ) -> BackendRequestManager:
         backend_processor = provider.get_required_service(IBackendProcessor)  # type: ignore[type-abstract]
         response_processor = provider.get_required_service(IResponseProcessor)  # type: ignore[type-abstract]
+        angel_service_factory = provider.get_required_service(IAngelServiceFactory)  # type: ignore[type-abstract]
         wire_capture = provider.get_required_service(IWireCapture)  # type: ignore[type-abstract]
         return BackendRequestManager(
-            backend_processor, response_processor, wire_capture
+            backend_processor,
+            response_processor,
+            angel_service_factory,
+            wire_capture,
         )
 
     _add_singleton(
@@ -954,9 +960,7 @@ def register_core_services(
             middleware_application_processor = provider.get_required_service(
                 MiddlewareApplicationProcessor
             )
-            content_accumulation_processor = provider.get_required_service(
-                ContentAccumulationProcessor
-            )
+            provider.get_required_service(ContentAccumulationProcessor)
 
             processors: list[IStreamProcessor] = []
             # Prefer JSON repair first so JSON blocks are valid
@@ -968,19 +972,17 @@ def register_core_services(
             # Then tool-call repair
             if tool_call_repair_processor is not None:
                 processors.append(tool_call_repair_processor)
-            # Middleware and accumulation
+            # Middleware application
             processors.append(middleware_application_processor)
-            processors.append(content_accumulation_processor)
+            # NOTE: ContentAccumulationProcessor is NOT added to streaming pipeline
+            # because it buffers all content until done, which breaks streaming.
+            # It should only be used for non-streaming responses if needed.
         except Exception as e:
             logger.warning(
-                f"Error creating stream processors: {e}. Using default configuration."
+                f"Error creating stream processors: {e}. Using empty processor list."
             )
-            # Create minimal configuration with just content accumulation
-            # Use default 10MB buffer limit for fallback
-            content_accumulation_processor = ContentAccumulationProcessor(
-                max_buffer_bytes=10 * 1024 * 1024
-            )
-            processors = [content_accumulation_processor]
+            # Use empty processor list as fallback - streaming should work without processors
+            processors = []
 
         return StreamNormalizer(processors)
 
@@ -1099,6 +1101,21 @@ def register_core_services(
     _add_singleton(
         ToolCallRepairService, implementation_factory=_tool_call_repair_service_factory
     )
+
+    # Register AngelServiceFactory
+    class _AngelServiceFactory(IAngelServiceFactory):
+        def create(self, model_spec: str) -> AngelService:
+            return AngelService(model_spec)
+
+    def _angel_service_factory_factory(
+        provider: IServiceProvider,
+    ) -> IAngelServiceFactory:
+        return _AngelServiceFactory()
+
+    _add_singleton(
+        IAngelServiceFactory, implementation_factory=_angel_service_factory_factory  # type: ignore[type-abstract]
+    )
+    # IAngelServiceFactory already registered above via _add_singleton
 
     # Register TranslationService (dependency of BackendService)
     def _translation_service_factory(provider: IServiceProvider) -> TranslationService:
