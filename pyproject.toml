@@ -29,7 +29,8 @@ dependencies = [
     "watchdog",
     "pytz",
     "pytest-asyncio==0.23.7",
-    "pytest-xdist==3.6.1"
+    "pytest-xdist==3.6.1",
+    "cryptography>=42.0.0",
 ]
 requires-python = ">=3.10"
 readme = "README.md"

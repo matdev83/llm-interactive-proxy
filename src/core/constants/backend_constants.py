@@ -11,6 +11,7 @@ BACKEND_GEMINI = "gemini"
 BACKEND_OPENROUTER = "openrouter"
 BACKEND_QWEN_OAUTH = "qwen-oauth"
 BACKEND_ZAI = "zai"
+BACKEND_ZENMUX = "zenmux"
 
 # Backend display names
 # Display names removed to minimize public surface; use backend type constants instead.

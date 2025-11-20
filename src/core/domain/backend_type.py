@@ -13,3 +13,4 @@ class BackendType(str, Enum):
     QWEN = "qwen"
     QWEN_OAUTH = "qwen-oauth"
     ZAI = "zai"
+    ZENMUX = "zenmux"
