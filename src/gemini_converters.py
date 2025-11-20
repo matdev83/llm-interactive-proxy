@@ -222,14 +222,39 @@ def openai_to_gemini_response(openai_response: ChatResponse) -> GenerateContentR
         if choice.message:
             parts: list[Part] = []
 
+            reasoning_text = getattr(choice.message, "reasoning_content", None)
+            if isinstance(reasoning_text, str) and reasoning_text.strip():
+                parts.append(
+                    Part(
+                        text=reasoning_text.strip(),
+                        metadata={"type": "thinking"},
+                    )  # type: ignore[call-arg]
+                )
+
             # Properly map OpenAI tool_calls to Gemini functionCall parts
             if choice.message.tool_calls:
                 for tool_call in choice.message.tool_calls:
                     parts.append(_tool_call_to_function_call(tool_call))
 
             # Include any assistant message content if present
-            if choice.message.content:
-                parts.append(Part(text=choice.message.content))  # type: ignore[call-arg]
+            message_content = choice.message.content
+            if isinstance(message_content, str):
+                if message_content:
+                    parts.append(Part(text=message_content))  # type: ignore[call-arg]
+            elif isinstance(message_content, list):
+                text_segments: list[str] = []
+                for item in message_content:
+                    if isinstance(item, dict) and item.get("type") in {
+                        "text",
+                        "output_text",
+                    }:
+                        text_value = item.get("text")
+                        if isinstance(text_value, str):
+                            text_segments.append(text_value)
+                if text_segments:
+                    parts.append(
+                        Part(text="".join(text_segments))  # type: ignore[call-arg]
+                    )
 
             if parts:
                 content = Content(parts=parts, role="model")
@@ -288,9 +313,24 @@ def openai_to_gemini_stream_chunk(chunk_data: str) -> str:
         if "choices" in openai_chunk:
             for choice in openai_chunk["choices"]:
                 content = None
+                parts: list[Part] = []
+                delta = choice.get("delta") if isinstance(choice, dict) else None
+                if isinstance(delta, dict):
+                    reasoning_value = delta.get("reasoning_content") or delta.get(
+                        "reasoning"
+                    )
+                    if isinstance(reasoning_value, str) and reasoning_value.strip():
+                        parts.append(
+                            Part(
+                                text=reasoning_value.strip(),
+                                metadata={"type": "thinking"},
+                            )  # type: ignore[call-arg]
+                        )
                 part = _openai_delta_to_part(choice)
                 if part is not None:
-                    content = Content(parts=[part], role="model")
+                    parts.append(part)
+                if parts:
+                    content = Content(parts=parts, role="model")
 
                 finish_reason = None
                 if choice.get("finish_reason") == "stop":
@@ -382,7 +422,25 @@ def _gemini_candidate_to_openai_chunk(candidate: dict[str, Any]) -> str | None:
                 for part in content["parts"]:
                     if "text" in part:
                         choice["delta"]["content"] = part["text"]
-                    elif "functionCall" in part:
+                    if "metadata" in part and isinstance(part["metadata"], dict):
+                        for key in ("thought", "thinking", "reasoning"):
+                            if part["metadata"].get(key):
+                                choice["delta"]["reasoning_content"] = part["metadata"][
+                                    key
+                                ]
+                                break
+                        meta_type = str(part["metadata"].get("type", "")).lower()
+                        if (
+                            meta_type in {"thinking", "thought"}
+                            and isinstance(part.get("text"), str)
+                            and part.get("text")
+                        ):
+                            choice["delta"]["reasoning_content"] = part["text"]
+                    elif part.get("type") in {"thinking", "thought"} and part.get(
+                        "text"
+                    ):
+                        choice["delta"]["reasoning_content"] = part["text"]
+                    if "functionCall" in part:
                         # Handle function calls
                         function_call = part["functionCall"]
                         choice["delta"]["tool_calls"] = [

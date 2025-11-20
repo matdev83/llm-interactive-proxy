@@ -34,6 +34,31 @@ class EmptyResponseMiddleware(IResponseMiddleware):
         self._max_retries = max_retries
         self._retry_counts: dict[str, int] = {}
         self._recovery_prompt: str | None = None
+        self._stream_activity: dict[str, dict[str, bool]] = {}
+
+    def _has_tool_calls(
+        self, response: ProcessedResponse, context: dict[str, Any] | None = None
+    ) -> bool:
+        """Determine whether tool calls are present in the response or context."""
+        has_tool_calls = False
+
+        if response.metadata:
+            has_tool_calls = bool(response.metadata.get("tool_calls"))
+
+        if not has_tool_calls and context:
+            has_tool_calls = bool(context.get("tool_calls"))
+
+        if not has_tool_calls and context and "original_response" in context:
+            original = context["original_response"]
+            if hasattr(original, "tool_calls"):
+                has_tool_calls = bool(original.tool_calls)
+            elif isinstance(original, dict):
+                choices = original.get("choices", [])
+                if choices and isinstance(choices[0], dict):
+                    message = choices[0].get("message", {})
+                    has_tool_calls = bool(message.get("tool_calls"))
+
+        return has_tool_calls
 
     def _load_recovery_prompt(self) -> str:
         """Load the recovery prompt from the config file."""
@@ -91,31 +116,17 @@ class EmptyResponseMiddleware(IResponseMiddleware):
         Returns:
             True if the response is empty, False otherwise
         """
+        metadata = response.metadata if isinstance(response.metadata, dict) else {}
+        finish_reason = (
+            metadata.get("finish_reason") if isinstance(metadata, dict) else None
+        )
+        if isinstance(finish_reason, str) and finish_reason.lower() == "tool_calls":
+            return False
+
         # Check if content is empty (after stripping whitespace)
         content_empty = not response.content or not response.content.strip()
 
-        # Check if there are tool calls in the response metadata or context
-        has_tool_calls = False
-
-        # Check metadata for tool calls
-        if response.metadata:
-            has_tool_calls = bool(response.metadata.get("tool_calls"))
-
-        # Check context for tool calls (might be passed from upstream processing)
-        if not has_tool_calls and context:
-            has_tool_calls = bool(context.get("tool_calls"))
-
-        # Also check if the original response object has tool calls
-        if not has_tool_calls and context and "original_response" in context:
-            original = context["original_response"]
-            if hasattr(original, "tool_calls"):
-                has_tool_calls = bool(original.tool_calls)
-            elif isinstance(original, dict):
-                choices = original.get("choices", [])
-                if choices and isinstance(choices[0], dict):
-                    message = choices[0].get("message", {})
-                    has_tool_calls = bool(message.get("tool_calls"))
-
+        has_tool_calls = self._has_tool_calls(response, context)
         # Response is empty if it has no content AND no tool calls
         is_empty = content_empty and not has_tool_calls
 
@@ -210,8 +221,19 @@ class EmptyResponseMiddleware(IResponseMiddleware):
             return response
 
         context = context or {}
+        original_request = context.get("original_request")
 
         processed_response = self._ensure_processed_response(response, context)
+
+        if is_streaming:
+            if isinstance(processed_response.metadata, dict):
+                processed_response.metadata.pop("original_request", None)
+            return processed_response
+
+        if original_request is None and isinstance(processed_response.metadata, dict):
+            original_request = processed_response.metadata.pop("original_request", None)
+        elif isinstance(processed_response.metadata, dict):
+            processed_response.metadata.pop("original_request", None)
 
         # Check if this is an empty response
         if self._is_empty_response(processed_response, context):
@@ -219,7 +241,6 @@ class EmptyResponseMiddleware(IResponseMiddleware):
             retry_count = self._retry_counts.get(session_id, 0)
 
             if retry_count < self._max_retries:
-                original_request = context.get("original_request")
                 if original_request is None:
                     logger.warning(
                         "Empty response detected but no original_request in context; skipping retry"
@@ -268,6 +289,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
     def reset_session(self, session_id: str) -> None:
         """Reset retry count for a session."""
         self._retry_counts.pop(session_id, None)
+        self._stream_activity.pop(session_id or "default_stream", None)
 
 
 class EmptyResponseRetryError(Exception):

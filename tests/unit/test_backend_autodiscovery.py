@@ -63,6 +63,7 @@ class TestBackendAutoDiscovery:
                 "qwen-oauth",
                 "zai",
                 "zai-coding-plan",
+                "zenmux",
             ]
 
             # Check that all expected backends are registered

@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any, TypeVar
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from src.core.domain.base import ValueObject
 from src.core.interfaces.model_bases import DomainModel
@@ -94,16 +94,30 @@ class ChatMessage(DomainModel):
 
     role: str
     content: str | Sequence[MessageContentPart] | None = None
+    reasoning_content: str | None = None
     name: str | None = None
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
     metadata: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_reasoning_fields(cls, data: Any) -> Any:
+        """Map alternative reasoning field names to reasoning_content."""
+        if isinstance(data, dict) and "reasoning_content" not in data:
+            if "reasoning" in data:
+                data["reasoning_content"] = data["reasoning"]
+            elif "reasoning_details" in data:
+                data["reasoning_content"] = data["reasoning_details"]
+        return data
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the message to a dictionary."""
         result: dict[str, Any] = {"role": self.role}
         if self.content is not None:
             result["content"] = self._serialize_content(self.content)
+        if self.reasoning_content is not None:
+            result["reasoning_content"] = self.reasoning_content
         if self.name:
             result["name"] = self.name
         if self.tool_calls:
@@ -213,6 +227,7 @@ class ChatCompletionChoiceMessage(DomainModel):
 
     role: str
     content: str | None = None
+    reasoning_content: str | None = None
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
     metadata: dict[str, Any] | None = None

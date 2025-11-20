@@ -12,6 +12,8 @@ from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 def test_loop_detector_is_registered_in_di_container():
     """Test that ILoopDetector is properly registered in the DI container."""
+    import os
+
     services = ServiceCollection()
 
     # Register infrastructure services
@@ -21,22 +23,32 @@ def test_loop_detector_is_registered_in_di_container():
     stage = InfrastructureStage()
     app_config = AppConfig()
 
-    # Execute the infrastructure stage
-    import asyncio
+    # Ensure loop detection is enabled for this test
+    old_value = os.environ.get("LOOP_DETECTION_ENABLED")
+    os.environ["LOOP_DETECTION_ENABLED"] = "true"
 
-    asyncio.run(stage.execute(services, app_config))
+    try:
+        # Execute the infrastructure stage
+        import asyncio
 
-    # Build the service provider
-    provider = services.build_service_provider()
+        asyncio.run(stage.execute(services, app_config))
 
-    # Verify ILoopDetector is registered and can be resolved
-    loop_detector = provider.get_service(ILoopDetector)
-    assert (
-        loop_detector is not None
-    ), "ILoopDetector should be registered in DI container"
-    assert isinstance(
-        loop_detector, HybridLoopDetector
-    ), "Should resolve to HybridLoopDetector instance"
+        # Build the service provider
+        provider = services.build_service_provider()
+
+        # Verify ILoopDetector is registered and can be resolved
+        loop_detector = provider.get_service(ILoopDetector)
+        assert (
+            loop_detector is not None
+        ), "ILoopDetector should be registered in DI container"
+        assert isinstance(
+            loop_detector, HybridLoopDetector
+        ), "Should resolve to HybridLoopDetector instance"
+    finally:
+        if old_value is None:
+            os.environ.pop("LOOP_DETECTION_ENABLED", None)
+        else:
+            os.environ["LOOP_DETECTION_ENABLED"] = old_value
 
 
 def test_loop_detection_processor_can_be_created():

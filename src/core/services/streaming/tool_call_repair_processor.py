@@ -53,9 +53,11 @@ class ToolCallRepairProcessor(IStreamProcessor):
         chunk_text = content.content or ""
         reasoning_segments: list[str] = []
         for key in ("reasoning_content", "reasoning"):
-            value = metadata.pop(key, None)
+            value = metadata.get(key)
             if isinstance(value, str) and value:
                 reasoning_segments.append(value)
+
+        has_reasoning = bool(reasoning_segments)
 
         if reasoning_segments:
             state["pending_text"] += "".join(reasoning_segments)
@@ -64,95 +66,115 @@ class ToolCallRepairProcessor(IStreamProcessor):
             state["pending_text"] += chunk_text
 
         repaired_content_parts: list[str] = []
-
         buffer_text = state["pending_text"]
 
-        for marker in ("<use_mcp_tool", "<patch_file"):
-            marker_index = buffer_text.find(marker)
-            if marker_index > 0:
-                prefix = buffer_text[:marker_index]
-                if prefix.strip():
-                    repaired_content_parts.append(prefix)
-                buffer_text = buffer_text[marker_index:]
-                state["pending_text"] = buffer_text
-                break
-
-        if buffer_text:
-            repaired_json = self.tool_call_repair_service.repair_tool_calls(buffer_text)
-            if repaired_json:
-                detected_tool_calls.append(repaired_json)
-                snippet = getattr(
-                    self.tool_call_repair_service, "last_tool_snippet", None
-                )
-                if snippet:
-                    idx = buffer_text.find(snippet)
-                    if idx != -1:
-                        prefix = buffer_text[:idx]
-                        suffix = buffer_text[idx + len(snippet) :]
-                        if prefix.strip():
-                            repaired_content_parts.append(prefix)
-                        buffer_text = suffix
-                state["pending_text"] = buffer_text
-
-        if not detected_tool_calls:
-            trimmed = self._trim_buffer(state["pending_text"])
-            if trimmed:
-                repaired_content_parts.append(trimmed)
-                state["pending_text"] = state["pending_text"][len(trimmed) :]
-
-        if content.is_done:
-            pending_text = state["pending_text"]
-            if pending_text:
-                synthetic_calls = (
-                    ("<use_mcp_tool", "</use_mcp_tool>"),
-                    ("<patch_file", "</patch_file>"),
-                )
-                handled = False
-                for opener, closer in synthetic_calls:
-                    if opener in pending_text and closer not in pending_text:
-                        synthetic_buffer = pending_text + closer
-                        repaired_json = self.tool_call_repair_service.repair_tool_calls(
-                            synthetic_buffer
-                        )
-                        if repaired_json:
-                            detected_tool_calls.append(repaired_json)
-                            snippet = getattr(
-                                self.tool_call_repair_service, "last_tool_snippet", None
+        repaired_json = (
+            self.tool_call_repair_service.repair_tool_calls(buffer_text)
+            if buffer_text
+            else None
+        )
+        if repaired_json:
+            detected_tool_calls.append(repaired_json)
+            snippet = getattr(self.tool_call_repair_service, "last_tool_snippet", None)
+            if snippet:
+                idx = buffer_text.find(snippet)
+                if idx != -1:
+                    prefix = buffer_text[:idx]
+                    suffix = buffer_text[idx + len(snippet) :]
+                    if prefix.strip():
+                        repaired_content_parts.append(prefix)
+                    buffer_text = suffix
+            state["pending_text"] = buffer_text
+            if content.is_done and state["pending_text"]:
+                repaired_content_parts.append(state["pending_text"])
+                state["pending_text"] = ""
+        else:
+            if content.is_done:
+                if buffer_text:
+                    synthetic_calls = (
+                        ("<use_mcp_tool", "</use_mcp_tool>"),
+                        ("<patch_file", "</patch_file>"),
+                    )
+                    handled = False
+                    for opener, closer in synthetic_calls:
+                        if opener in buffer_text and closer not in buffer_text:
+                            synthetic_buffer = buffer_text + closer
+                            repaired_json = (
+                                self.tool_call_repair_service.repair_tool_calls(
+                                    synthetic_buffer
+                                )
                             )
-                            if snippet:
-                                idx = synthetic_buffer.find(snippet)
-                                prefix = synthetic_buffer[:idx]
-                                suffix = synthetic_buffer[idx + len(snippet) :]
-                                if prefix.strip():
-                                    repaired_content_parts.append(prefix)
-                                if suffix.strip():
-                                    repaired_content_parts.append(suffix)
-                            handled = True
-                            pending_text = ""
-                            break
-                if not handled and pending_text:
-                    repaired_content_parts.append(pending_text)
-            state["pending_text"] = ""
+                            if repaired_json:
+                                detected_tool_calls.append(repaired_json)
+                                snippet = getattr(
+                                    self.tool_call_repair_service,
+                                    "last_tool_snippet",
+                                    None,
+                                )
+                                if snippet:
+                                    idx = synthetic_buffer.find(snippet)
+                                    prefix = synthetic_buffer[:idx]
+                                    suffix = synthetic_buffer[idx + len(snippet) :]
+                                    if prefix.strip():
+                                        repaired_content_parts.append(prefix)
+                                    if suffix.strip():
+                                        repaired_content_parts.append(suffix)
+                                handled = True
+                                buffer_text = ""
+                                break
+                    if not handled and buffer_text:
+                        repaired_content_parts.append(buffer_text)
+                state["pending_text"] = ""
+            else:
+                trimmed = self._trim_buffer(buffer_text)
+                if trimmed:
+                    repaired_content_parts.append(trimmed)
+                    state["pending_text"] = state["pending_text"][len(trimmed) :]
+
+                should_flush_streaming = (
+                    not has_reasoning and self._max_buffer_bytes > 1024
+                )
+                if should_flush_streaming:
+                    markers = ("<use_mcp_tool", "<patch_file")
+                    flush_text = ""
+                    if not any(marker in state["pending_text"] for marker in markers):
+                        flush_text = state["pending_text"]
+                        state["pending_text"] = ""
+                    else:
+                        flush_text, remainder = self._split_safe_prefix(
+                            state["pending_text"]
+                        )
+                        state["pending_text"] = remainder
+
+                    if flush_text:
+                        repaired_content_parts.append(flush_text)
 
         if content.is_done or content.is_cancellation:
             self._buffers.pop(stream_id, None)
         else:
-            if state["pending_text"]:
+            if state.get("pending_text"):
                 self._buffers[stream_id] = state
             else:
                 self._buffers.pop(stream_id, None)
 
         new_content_str = "".join(repaired_content_parts)
+
         if detected_tool_calls:
             logger.debug(
                 "ToolCallRepairProcessor captured tool call(s): %s", detected_tool_calls
             )
+            metadata.pop("reasoning_content", None)
+            metadata.pop("reasoning", None)
             existing_calls = metadata.get("tool_calls")
             if isinstance(existing_calls, list):
                 metadata["tool_calls"] = existing_calls + detected_tool_calls
             else:
                 metadata["tool_calls"] = detected_tool_calls
             metadata.setdefault("finish_reason", "tool_calls")
+        elif has_reasoning:
+            reasoning_value = reasoning_segments[-1]
+            metadata.setdefault("reasoning_content", reasoning_value)
+            metadata.setdefault("reasoning", reasoning_value)
 
         if new_content_str or detected_tool_calls or content.is_done:
             return StreamingContent(
@@ -202,3 +224,26 @@ class ToolCallRepairProcessor(IStreamProcessor):
         )
 
         return flush_text
+
+    def _split_safe_prefix(self, buffer: str) -> tuple[str, str]:
+        """
+        Flush most of the buffer while keeping a small suffix to detect tool markers
+        that may span chunk boundaries.
+        """
+        if not buffer:
+            return "", ""
+
+        markers = ("<use_mcp_tool", "<patch_file")
+        positions = [buffer.find(marker) for marker in markers if marker in buffer]
+        if positions:
+            marker_pos = min(pos for pos in positions if pos >= 0)
+            if marker_pos <= 0:
+                return "", buffer
+            return buffer[:marker_pos], buffer[marker_pos:]
+
+        max_marker = max(len(marker) for marker in markers)
+        if len(buffer) <= max_marker:
+            return "", buffer
+
+        flush_len = len(buffer) - max_marker
+        return buffer[:flush_len], buffer[flush_len:]

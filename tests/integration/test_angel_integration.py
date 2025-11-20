@@ -2,17 +2,24 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.backend_processor_interface import IBackendProcessor
+from src.core.interfaces.middleware_application_manager_interface import (
+    IMiddlewareApplicationManager,
+)
+from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.angel_service import ANGEL_PROMPT
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.response_processor_service import ResponseProcessor
+
+from tests.helpers.angel_factory_stub import AngelFactoryStub
 
 
 class _DummyParser:
@@ -43,7 +50,9 @@ class _DummyMiddlewareManager:
 
 
 class _StubBackendProcessor:
-    def __init__(self, factory: Callable[[], ResponseEnvelope | StreamingResponseEnvelope]):
+    def __init__(
+        self, factory: Callable[[], ResponseEnvelope | StreamingResponseEnvelope]
+    ):
         self._factory = factory
         self.calls: list[ChatRequest] = []
 
@@ -51,7 +60,7 @@ class _StubBackendProcessor:
         self,
         request: ChatRequest,
         session_id: str,
-        context: RequestContext,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.calls.append(request)
         return self._factory()
@@ -85,9 +94,7 @@ class _FakeBackendService:
             if self.decision.lower() == "pass":
                 content = "<angels_decision>Pass</angels_decision>"
             else:
-                content = (
-                    f"\n<angels_steering_message>{self.steering_message}</angels_steering_message>\n"
-                )
+                content = f"\n<angels_steering_message>{self.steering_message}</angels_steering_message>\n"
             return SimpleNamespace(content=content)
 
         if self.override:
@@ -105,11 +112,15 @@ class _DummyAppState:
         raise KeyError(key)
 
 
-def _make_response_processor() -> ResponseProcessor:
-    return ResponseProcessor(
-        response_parser=_DummyParser(),
-        middleware_application_manager=_DummyMiddlewareManager(),
+def _make_response_processor(config: AppConfig) -> ResponseProcessor:
+    processor = ResponseProcessor(
+        response_parser=cast(IResponseParser, _DummyParser()),
+        middleware_application_manager=cast(
+            IMiddlewareApplicationManager, _DummyMiddlewareManager()
+        ),
     )
+    processor._app_state = _DummyAppState(config)  # type: ignore[attr-defined]
+    return processor
 
 
 def _make_context(config: AppConfig) -> RequestContext:
@@ -125,7 +136,9 @@ def _make_context(config: AppConfig) -> RequestContext:
     )
 
 
-def _patch_provider(monkeypatch: pytest.MonkeyPatch, backend_service: _FakeBackendService) -> None:
+def _patch_provider(
+    monkeypatch: pytest.MonkeyPatch, backend_service: _FakeBackendService
+) -> None:
     class _Provider:
         def get_required_service(self, _type: Any) -> _FakeBackendService:
             return backend_service
@@ -138,19 +151,22 @@ def _patch_provider(monkeypatch: pytest.MonkeyPatch, backend_service: _FakeBacke
 
 
 @pytest.mark.asyncio
-async def test_angel_integration_non_streaming_correction(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_angel_integration_non_streaming_correction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = AppConfig(session=SessionConfig(angel_model="fake_backend:guardian"))
 
     def _response_factory() -> ResponseEnvelope:
         return ResponseEnvelope(content={"content": "initial output"})
 
-    response_processor = _make_response_processor()
+    response_processor = _make_response_processor(config)
     backend_service = _FakeBackendService(corrected_text="Corrected response")
     _patch_provider(monkeypatch, backend_service)
 
     manager = BackendRequestManager(
-        _StubBackendProcessor(_response_factory),
+        cast(IBackendProcessor, _StubBackendProcessor(_response_factory)),
         response_processor,
+        AngelFactoryStub(),
     )
 
     original_request = ChatRequest(
@@ -175,7 +191,9 @@ async def test_angel_integration_non_streaming_correction(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
-async def test_angel_integration_streaming_override(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_angel_integration_streaming_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = AppConfig(session=SessionConfig(angel_model="fake_backend:guardian"))
 
     async def _stream() -> AsyncIterator[ProcessedResponse]:
@@ -185,7 +203,7 @@ async def test_angel_integration_streaming_override(monkeypatch: pytest.MonkeyPa
     def _response_factory() -> StreamingResponseEnvelope:
         return StreamingResponseEnvelope(content=_stream())
 
-    response_processor = _make_response_processor()
+    response_processor = _make_response_processor(config)
     backend_service = _FakeBackendService(
         corrected_text="unused",
         steering_message="Check your math",
@@ -194,8 +212,9 @@ async def test_angel_integration_streaming_override(monkeypatch: pytest.MonkeyPa
     _patch_provider(monkeypatch, backend_service)
 
     manager = BackendRequestManager(
-        _StubBackendProcessor(_response_factory),
+        cast(IBackendProcessor, _StubBackendProcessor(_response_factory)),
         response_processor,
+        AngelFactoryStub(),
     )
 
     original_request = ChatRequest(
@@ -224,4 +243,3 @@ async def test_angel_integration_streaming_override(monkeypatch: pytest.MonkeyPa
         "fake_backend:guardian",
         "fake_backend:primary",
     ]
-

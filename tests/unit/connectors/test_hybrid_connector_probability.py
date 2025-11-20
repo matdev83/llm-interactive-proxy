@@ -18,6 +18,8 @@ def mock_config():
     config.backends.disable_hybrid_backend = False
     config.backends.hybrid_reasoning_model_timeout = 60
     config.backends.hybrid_reasoning_force_initial_turns = 4
+    config.backends.hybrid_reasoning_latency_threshold = 8.0
+    config.backends.hybrid_reasoning_backoff_turns = 2
     return config
 
 
@@ -205,6 +207,122 @@ async def test_hybrid_connector_skips_reasoning_with_zero_probability(
     # Assert
     hybrid_connector._execute_reasoning_phase.assert_not_called()
     hybrid_connector._execute_execution_phase.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("random.random", return_value=0.1)
+async def test_hybrid_connector_skips_reasoning_when_backoff_active(
+    mock_random,
+    mock_client,
+    mock_config,
+    mock_translation_service,
+    mock_backend_registry,
+):
+    """Adaptive backoff should skip reasoning even if probability favors reasoning."""
+    mock_config.backends.reasoning_injection_probability = 1.0
+    hybrid_connector = HybridConnector(
+        client=mock_client,
+        config=mock_config,
+        translation_service=mock_translation_service,
+        backend_registry=mock_backend_registry,
+    )
+    hybrid_connector._reasoning_backoff_remaining = 2
+    hybrid_connector._execute_reasoning_phase = AsyncMock()
+    hybrid_connector._execute_execution_phase = AsyncMock(
+        return_value=ResponseEnvelope(content={})
+    )
+    hybrid_connector._parse_hybrid_model_spec = MagicMock(
+        return_value=(
+            "reasoning_backend",
+            "reasoning_model",
+            {},
+            "exec_backend",
+            "exec_model",
+            {},
+        )
+    )
+
+    conversation = [
+        ChatMessage(role="system", content="You are helpful."),
+        ChatMessage(role="user", content="Hello"),
+        ChatMessage(role="assistant", content="Hi there!"),
+        ChatMessage(role="user", content="Follow-up"),
+    ]
+    request = CanonicalChatRequest(
+        model="hybrid:[test:test,test:test]",
+        messages=conversation,
+    )
+
+    await hybrid_connector.chat_completions(
+        request_data=request,
+        processed_messages=conversation,
+        effective_model="hybrid:[test:test,test:test]",
+    )
+
+    hybrid_connector._execute_reasoning_phase.assert_not_called()
+    hybrid_connector._execute_execution_phase.assert_called_once()
+    assert hybrid_connector._reasoning_backoff_remaining == 1
+
+
+@pytest.mark.asyncio
+@patch("random.random", return_value=0.05)
+async def test_hybrid_connector_triggers_backoff_after_slow_reasoning(
+    mock_random,
+    mock_client,
+    mock_config,
+    mock_translation_service,
+    mock_backend_registry,
+):
+    """Slow reasoning responses should activate adaptive backoff."""
+    mock_config.backends.reasoning_injection_probability = 1.0
+    mock_config.backends.hybrid_reasoning_latency_threshold = 0.01
+    mock_config.backends.hybrid_reasoning_backoff_turns = 3
+
+    hybrid_connector = HybridConnector(
+        client=mock_client,
+        config=mock_config,
+        translation_service=mock_translation_service,
+        backend_registry=mock_backend_registry,
+    )
+    hybrid_connector._execute_reasoning_phase = AsyncMock(
+        return_value=MagicMock(text="reasoning output", tool_calls=[])
+    )
+    hybrid_connector._execute_execution_phase = AsyncMock(
+        return_value=ResponseEnvelope(content={})
+    )
+    hybrid_connector._parse_hybrid_model_spec = MagicMock(
+        return_value=(
+            "reasoning_backend",
+            "reasoning_model",
+            {},
+            "exec_backend",
+            "exec_model",
+            {},
+        )
+    )
+
+    conversation = [
+        ChatMessage(role="system", content="You are helpful."),
+        ChatMessage(role="user", content="Hello"),
+        ChatMessage(role="assistant", content="Hi there!"),
+        ChatMessage(role="user", content="Follow-up"),
+    ]
+    request = CanonicalChatRequest(
+        model="hybrid:[test:test,test:test]",
+        messages=conversation,
+    )
+
+    with patch(
+        "src.connectors.hybrid.time.time",
+        side_effect=[0.0] + [5.0] * 10,
+    ):
+        await hybrid_connector.chat_completions(
+            request_data=request,
+            processed_messages=conversation,
+            effective_model="hybrid:[test:test,test:test]",
+        )
+
+    assert hybrid_connector._reasoning_backoff_remaining == 3
 
 
 @pytest.mark.asyncio

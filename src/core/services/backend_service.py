@@ -1093,6 +1093,23 @@ class BackendService(IBackendService):
                     except Exception:
                         pass
 
+                # Calculate outbound tokens AFTER all transformations
+                # This tracks what we're actually sending to the backend
+                try:
+                    from src.core.utils.usage_recalculation import (
+                        calculate_outbound_tokens,
+                    )
+
+                    outbound_tokens = calculate_outbound_tokens(
+                        domain_request, model=effective_model
+                    )
+                    logger.debug(
+                        f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens}"
+                    )
+                except Exception:
+                    logger.debug("Failed to calculate outbound tokens", exc_info=True)
+                    outbound_tokens = 0
+
                 try:
                     result: ResponseEnvelope | StreamingResponseEnvelope = (
                         await backend.chat_completions(
@@ -1103,6 +1120,17 @@ class BackendService(IBackendService):
                             **backend_call_kwargs,
                         )
                     )
+
+                    # Store outbound tokens in result metadata for tracking
+                    if hasattr(result, "metadata") and result.metadata is None:
+                        result.metadata = {}
+                    if hasattr(result, "metadata") and isinstance(
+                        result.metadata, dict
+                    ):
+                        result.metadata["outbound_tokens"] = outbound_tokens
+                except AttributeError:
+                    # Result doesn't support metadata, skip
+                    pass
                 except BackendError as be:
                     # Lightweight retry once on HTTP 429 from backend
                     if getattr(be, "status_code", None) == 429:
@@ -1779,6 +1807,7 @@ class BackendService(IBackendService):
                 "gemini": "GEMINI_API_KEY",
                 "anthropic": "ANTHROPIC_API_KEY",
                 "zai": "ZAI_API_KEY",
+                "zenmux": "ZENMUX_API_KEY",
                 "minimax": "MINIMAX_API_KEY",
             }.get(backend_type)
             if not env_base:

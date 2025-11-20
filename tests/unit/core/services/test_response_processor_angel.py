@@ -38,6 +38,27 @@ class DummyMiddlewareManager:
         return content
 
 
+class DummyAppState:
+    def __init__(
+        self, model: str | None = "openai:gpt-4o-mini", frequency: int = 1
+    ) -> None:
+        self._model = model
+        self._frequency = frequency
+
+    def get_setting(self, key: str) -> Any:
+        if key == "app_config":
+
+            class Sess:
+                angel_model = self._model
+                angel_frequency = self._frequency
+
+            class Cfg:
+                session = Sess()
+
+            return Cfg()
+        return None
+
+
 @pytest.mark.asyncio
 async def test_response_processor_calls_angel_when_configured(monkeypatch) -> None:
     # Prepare processor
@@ -48,24 +69,7 @@ async def test_response_processor_calls_angel_when_configured(monkeypatch) -> No
         ),
     )
 
-    # Fake app_state with angel_model
-    class DummyAppState:
-        def get_setting(self, key: str) -> Any:
-            if key == "app_config":
-
-                class S:
-                    angel_model = None
-
-                class Sess:
-                    angel_model = "openai:gpt-4o-mini"
-
-                class Cfg:
-                    session = Sess()
-
-                return Cfg()
-            return None
-
-    proc._app_state = DummyAppState()
+    proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
 
     # Stub backend_service
     class DummyBackendService:
@@ -134,20 +138,7 @@ async def test_response_processor_keeps_original_on_pass(monkeypatch) -> None:
         ),
     )
 
-    class DummyAppState:
-        def get_setting(self, key: str) -> Any:
-            if key == "app_config":
-
-                class Sess:
-                    angel_model = "openai:gpt-4o-mini"
-
-                class Cfg:
-                    session = Sess()
-
-                return Cfg()
-            return None
-
-    proc._app_state = DummyAppState()
+    proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
 
     call_counter: dict[str, int] = {"count": 0}
 
@@ -199,20 +190,7 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
         ),
     )
 
-    class DummyAppState:
-        def get_setting(self, key: str) -> Any:
-            if key == "app_config":
-
-                class Sess:
-                    angel_model = "openai:gpt-4o-mini"
-
-                class Cfg:
-                    session = Sess()
-
-                return Cfg()
-            return None
-
-    proc._app_state = DummyAppState()
+    proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
 
     class DummyBackendService:
         def __init__(self) -> None:
@@ -261,3 +239,45 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
     assert isinstance(pr, ProcessedResponse)
     assert pr.content == "initial"
     assert backend_service.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_response_processor_respects_angel_frequency(monkeypatch) -> None:
+    proc = ResponseProcessor(
+        response_parser=cast(IResponseParser, DummyParser()),
+        middleware_application_manager=cast(
+            IMiddlewareApplicationManager, DummyMiddlewareManager()
+        ),
+    )
+
+    proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=5)
+
+    class FailingBackendService:
+        async def chat_completions(self, *args, **kwargs):
+            pytest.fail(
+                "Angel should not run before the configured frequency threshold"
+            )
+
+    class DummyProvider:
+        def get_required_service(self, t):
+            return FailingBackendService()
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider", lambda: DummyProvider()
+    )
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+
+    original_req = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="Hi")],
+    )
+    context = {"original_request": original_req}
+
+    pr = await proc.process_response(
+        {"content": "unverified"},
+        session_id="freq-test",
+        context=context,
+    )
+    assert isinstance(pr, ProcessedResponse)
+    assert pr.content == "unverified"

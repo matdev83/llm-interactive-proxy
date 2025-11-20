@@ -57,6 +57,17 @@ def test_apply_cli_args_sets_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # The environment variables should not be set, so no need to delete them.
 
 
+def test_app_config_from_env_loads_zenmux(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ZENMUX_API_KEY", "zen-key")
+    monkeypatch.setenv("ZENMUX_API_BASE_URL", "https://custom.zenmux/api")
+    monkeypatch.setenv("ZENMUX_TIMEOUT", "45")
+
+    config = AppConfig.from_env()
+    assert config.backends.zenmux.api_key == ["zen-key"]
+    assert config.backends.zenmux.api_url == "https://custom.zenmux/api"
+    assert config.backends.zenmux.timeout == 45
+
+
 def test_configuration_precedence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -576,6 +587,7 @@ def test_main_disable_auth_forces_localhost() -> None:
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
+        patch("src.core.cli.is_port_in_use", return_value=False),
     ):
         main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
 
@@ -603,6 +615,7 @@ def test_main_disable_auth_with_localhost_no_force() -> None:
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
+        patch("src.core.cli.is_port_in_use", return_value=False),
     ):
         main(["--port", "8080", "--disable-auth", "--host", "127.0.0.1"])
 
@@ -630,6 +643,7 @@ def test_main_auth_enabled_allows_custom_host() -> None:
         patch("src.core.cli._check_privileges"),
         patch("src.core.app.application_builder.build_app"),
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
+        patch("src.core.cli.is_port_in_use", return_value=False),
     ):
         main(["--port", "8080", "--host", "0.0.0.0"])
 

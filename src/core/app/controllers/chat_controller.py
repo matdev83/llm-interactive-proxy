@@ -441,6 +441,26 @@ class ChatController:
             def _ensure_openai_chat_schema(
                 content: object, metadata: dict[str, object] | None = response_metadata
             ) -> object:
+                def _inject_reasoning_aliases(payload: object) -> object:
+                    if not isinstance(payload, dict):
+                        return payload
+                    choices = payload.get("choices")
+                    if isinstance(choices, list):
+                        for choice in choices:
+                            if not isinstance(choice, dict):
+                                continue
+                            message = choice.get("message")
+                            if isinstance(message, dict):
+                                reasoning_value = message.get("reasoning_content")
+                                if reasoning_value and "reasoning" not in message:
+                                    message["reasoning"] = reasoning_value
+                            delta = choice.get("delta")
+                            if isinstance(delta, dict):
+                                reasoning_value = delta.get("reasoning_content")
+                                if reasoning_value and "reasoning" not in delta:
+                                    delta["reasoning"] = reasoning_value
+                    return payload
+
                 try:
                     # If domain ChatResponse, convert to dict first
                     if isinstance(content, ChatResponse):
@@ -448,7 +468,7 @@ class ChatController:
 
                     # If already in expected schema, return as-is
                     if isinstance(content, dict) and "choices" in content:
-                        return content
+                        return _inject_reasoning_aliases(content)
 
                     # If metadata contains tool_calls, construct OpenAI response preserving them
                     if metadata and isinstance(metadata, dict):
@@ -521,7 +541,7 @@ class ChatController:
                                 ),
                             )
 
-                            return response.model_dump()
+                            return _inject_reasoning_aliases(response.model_dump())
 
                     if metadata and isinstance(metadata, dict):
                         meta_role = metadata.get("role")

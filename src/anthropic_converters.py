@@ -52,6 +52,10 @@ def anthropic_to_openai_request(
                         text_parts.append(text_value)
                 elif btype == "tool_use":
                     tool_calls.append(_convert_tool_use_block(block))
+                elif btype == "thinking":
+                    thinking_val = block.get("thinking")
+                    if isinstance(thinking_val, str) and thinking_val:
+                        openai_msg["reasoning"] = thinking_val
                 elif btype == "tool_result":
                     tool_result_block = block
                 else:
@@ -226,6 +230,9 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
         "role": first_choice.message.role,
         "content": first_choice.message.content,
     }
+    if getattr(first_choice.message, "reasoning_content", None):
+        msg_obj["reasoning_content"] = first_choice.message.reasoning_content
+
     tool_calls = getattr(first_choice.message, "tool_calls", None)
     if tool_calls:
         try:
@@ -286,6 +293,15 @@ def _build_content_blocks(
 ) -> list[dict[str, Any]]:
     content_blocks: list[dict[str, Any]] = []
     tool_calls = _extract_tool_calls(choice, message) or []
+
+    if message.get("reasoning_content"):
+        content_blocks.append(
+            {
+                "type": "thinking",
+                "thinking": message["reasoning_content"],
+                "signature": "signature_placeholder",
+            }
+        )
 
     if message.get("content") is not None:
         normalized_text = _normalize_text_content(message["content"])

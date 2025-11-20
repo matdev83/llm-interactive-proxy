@@ -11,6 +11,8 @@ from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_request_manager_service import BackendRequestManager
 
+from tests.helpers.angel_factory_stub import AngelFactoryStub
+
 
 def _make_context(app_state: Any) -> RequestContext:
     return RequestContext(
@@ -27,14 +29,18 @@ def _make_context(app_state: Any) -> RequestContext:
 
 
 class _DummyAppState:
-    def __init__(self, angel_model: str | None = None) -> None:
+    def __init__(
+        self, angel_model: str | None = None, angel_frequency: int = 1
+    ) -> None:
         self._angel_model = angel_model
+        self._angel_frequency = angel_frequency
 
     def get_setting(self, key: str) -> Any:
         if key == "app_config":
 
             class Session:
                 angel_model = self._angel_model
+                angel_frequency = self._angel_frequency
 
             class Config:
                 session = Session()
@@ -55,7 +61,10 @@ def _build_stream(chunks: list[ProcessedResponse]) -> AsyncIterator[ProcessedRes
 async def test_streaming_angel_pass_forwards_original(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(backend_processor, response_processor)
+    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
 
     original_request = ChatRequest(
         model="openai:gpt-4o-mini",
@@ -117,7 +126,10 @@ async def test_streaming_angel_pass_forwards_original(monkeypatch) -> None:
 async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(backend_processor, response_processor)
+    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
 
     original_request = ChatRequest(
         model="openai:gpt-4o-mini",
@@ -186,7 +198,10 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
 async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(backend_processor, response_processor)
+    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
 
     original_request = ChatRequest(
         model="openai:gpt-4o-mini",
@@ -250,3 +265,53 @@ async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
 
     assert recovered == ["Draft", " reply"]
     assert backend_service.calls == ["angel", "correction"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_angel_respects_frequency(monkeypatch) -> None:
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
+
+    original_request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="Hi")],
+        stream=True,
+    )
+
+    chunks = [
+        ProcessedResponse(content="No Angel", metadata={}),
+        ProcessedResponse(content=" needed", metadata={"is_done": True}),
+    ]
+    stream_envelope = StreamingResponseEnvelope(content=_build_stream(chunks))
+
+    class DummyBackendService:
+        async def chat_completions(self, *args, **kwargs):
+            pytest.fail("Angel verification should not run before frequency threshold")
+
+    class DummyProvider:
+        def get_required_service(self, _t):
+            return DummyBackendService()
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider",
+        lambda: DummyProvider(),
+        raising=False,
+    )
+
+    context = _make_context(_DummyAppState("openai:gpt-4o-mini", angel_frequency=5))
+
+    result = await manager._process_streaming_response(
+        stream_envelope, original_request, "session-skip", context
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.content is not None
+    chunks_out: list[str] = []
+    async for chunk in result.content:
+        chunks_out.append(str(chunk.content))
+
+    assert chunks_out == ["No Angel", " needed"]

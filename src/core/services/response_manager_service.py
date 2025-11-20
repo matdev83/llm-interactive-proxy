@@ -506,7 +506,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             # If we can't determine the threshold, apply compression as fallback
             pass
 
-        return self._filter_pytest_output_with_metrics(message)
+        filtered_message, _token_count = self._filter_pytest_output_with_metrics(
+            message
+        )
+        return filtered_message
 
     async def _apply_pytest_compression(
         self, command_name: str, message: str, session: Session
@@ -681,7 +684,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         return filtered_output
 
-    def _filter_pytest_output_with_metrics(self, output: str) -> str:
+    def _filter_pytest_output_with_metrics(self, output: str) -> tuple[str, int]:
         """Filter pytest output with detailed metrics tracking.
 
         Provides comprehensive logging about the compression process including:
@@ -694,10 +697,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             output: The original pytest output
 
         Returns:
-            The compressed pytest output
+            Tuple of (compressed pytest output, final token count)
         """
         if not output:
-            return output
+            return output, 0
 
         # Calculate original metrics
         from src.core.utils.token_count import count_tokens
@@ -711,7 +714,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         lines = output.strip().split("\n")
         if not lines:
-            return output
+            return output, original_tokens
 
         # Always preserve the last line (summary/final output)
         last_line = lines[-1] if lines else ""
@@ -763,4 +766,4 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             f"  Lines dropped: {lines_dropped}"
         )
 
-        return filtered_output
+        return filtered_output, final_tokens

@@ -480,6 +480,10 @@ class OpenAIConnector(LLMBackend):
                         content = msg["content"]
                     msg["content"] = _normalize_content(content)
 
+                    reasoning_content = _get_value(message, "reasoning_content")
+                    if reasoning_content is not None:
+                        msg["reasoning"] = reasoning_content
+
                     name = _get_value(message, "name")
                     if name is not None:
                         msg["name"] = name

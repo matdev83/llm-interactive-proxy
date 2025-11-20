@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
@@ -343,7 +343,7 @@ class ReasoningStreamProcessor:
             logger.debug(f"Failed to parse chunk: {e}")
             return None
 
-    def _extract_content_from_chunk(self, chunk: dict[str, Any]) -> str:
+    def _extract_content_from_chunk(self, chunk: Mapping[str, Any] | None) -> str:
         """
         Extract text content from a chunk.
 
@@ -355,6 +355,9 @@ class ReasoningStreamProcessor:
         Returns:
             Extracted text content, or empty string if none found
         """
+        if chunk is None or not isinstance(chunk, Mapping):
+            return ""
+
         content_parts: list[str] = []
 
         try:
@@ -373,7 +376,7 @@ class ReasoningStreamProcessor:
 
         if not content_parts:
             # OpenAI format: choices[0].delta.content
-            choices = chunk.get("choices", [])
+            choices = chunk.get("choices", []) if isinstance(chunk, Mapping) else []
 
             for choice in choices:
                 if not isinstance(choice, dict):

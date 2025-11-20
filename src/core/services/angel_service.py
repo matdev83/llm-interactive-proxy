@@ -59,6 +59,19 @@ class AngelService:
     def is_enabled(self) -> bool:
         return bool(self._model_spec and self._model_spec.strip())
 
+    @staticmethod
+    def should_run_for_request(request: ChatRequest, frequency: int | None) -> bool:
+        try:
+            freq = int(frequency) if frequency is not None else 1
+        except (TypeError, ValueError):
+            freq = 1
+        if freq <= 1:
+            freq = 1
+        user_turns = sum(1 for message in request.messages if message.role == "user")
+        if user_turns <= 0:
+            return False
+        return user_turns % freq == 0
+
     def parse_model(self, default_backend: str = "") -> tuple[str, str, dict[str, Any]]:
         backend, model, params = parse_model_with_params(
             self._model_spec, default_backend

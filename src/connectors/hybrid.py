@@ -106,6 +106,7 @@ class HybridConnector(LLMBackend):
         self.config = config
         self.translation_service = translation_service
         self._backend_registry = backend_registry
+        self._reasoning_backoff_remaining = 0
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the hybrid backend.
@@ -1925,6 +1926,19 @@ class HybridConnector(LLMBackend):
             and turn_count <= self.config.backends.hybrid_reasoning_force_initial_turns
         )
 
+        adaptive_backoff_active = False
+        if (
+            self._reasoning_backoff_remaining > 0
+            and not force_reasoning_for_initial_turns
+            and not is_first_turn
+        ):
+            adaptive_backoff_active = True
+            self._reasoning_backoff_remaining -= 1
+            logger.info(
+                "Reasoning model injection decision: SKIP (adaptive backoff active), remaining=%s",
+                self._reasoning_backoff_remaining,
+            )
+
         if force_reasoning_for_initial_turns:
             use_reasoning = True
             logger.info(
@@ -1939,6 +1953,8 @@ class HybridConnector(LLMBackend):
                 "Reasoning model injection decision: FORCE (first user turn), probability=%s",
                 temp_reasoning_probability,
             )
+        elif adaptive_backoff_active:
+            use_reasoning = False
         else:
             random_draw = random.random()
             use_reasoning = random_draw < temp_reasoning_probability
@@ -1983,6 +1999,36 @@ class HybridConnector(LLMBackend):
                         "tool_call_count": len(reasoning_result.tool_calls),
                     },
                 )
+
+                latency_threshold = getattr(
+                    self.config.backends, "hybrid_reasoning_latency_threshold", 0.0
+                )
+                backoff_turns = getattr(
+                    self.config.backends, "hybrid_reasoning_backoff_turns", 0
+                )
+                if (
+                    latency_threshold
+                    and latency_threshold > 0
+                    and backoff_turns
+                    and backoff_turns > 0
+                    and reasoning_time > latency_threshold
+                ):
+                    self._reasoning_backoff_remaining = backoff_turns
+                    logger.warning(
+                        "Reasoning latency %.2fs exceeded threshold %.2fs; activating adaptive backoff for %s turn(s)",
+                        reasoning_time,
+                        latency_threshold,
+                        backoff_turns,
+                        extra={
+                            "session_id": session_id,
+                            "phase": "reasoning",
+                            "reasoning_backend": reasoning_backend,
+                            "reasoning_model": reasoning_model,
+                            "reasoning_latency": reasoning_time,
+                            "latency_threshold": latency_threshold,
+                            "backoff_turns": backoff_turns,
+                        },
+                    )
 
                 skip_execution_due_to_tool_call = (
                     not has_reasoning_content and reasoning_result.has_tool_calls()

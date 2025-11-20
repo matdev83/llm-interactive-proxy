@@ -26,6 +26,54 @@ from src.core.services.tool_text_renderer import render_tool_call
 logger = logging.getLogger(__name__)
 
 
+def _collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
+    """Recursively collect textual fragments from nested reasoning payloads."""
+    if value is None or depth > 50:
+        return []
+
+    if isinstance(value, str):
+        return [value]
+
+    if isinstance(value, int | float | bool):
+        return [str(value)]
+
+    if isinstance(value, list | tuple | set):
+        sequence_values: list[str] = []
+        for item in value:
+            sequence_values.extend(_collect_reasoning_lines(item, depth + 1))
+        return sequence_values
+
+    if isinstance(value, dict):
+        collected_values: list[str] = []
+        # Prefer common reasoning keys before falling back to generic traversal.
+        for key in (
+            "thinking",
+            "reasoning",
+            "text",
+            "value",
+            "content",
+            "message",
+            "delta",
+        ):
+            if key in value:
+                collected_values.extend(_collect_reasoning_lines(value[key], depth + 1))
+        return collected_values
+
+    return [str(value)]
+
+
+def _coerce_reasoning_text(value: Any) -> str | None:
+    """Flatten nested reasoning payloads into a normalized text snippet."""
+    parts = [
+        segment.strip()
+        for segment in _collect_reasoning_lines(value)
+        if isinstance(segment, str) and segment.strip()
+    ]
+    if not parts:
+        return None
+    return "\n".join(parts)
+
+
 class Translation(BaseTranslator):
     """
     A class for translating requests and responses between different API formats.
@@ -799,19 +847,47 @@ class Translation(BaseTranslator):
                 usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             )
 
-        # Extract choices
-        choices = []
-        if "content" in response:
-            for idx, item in enumerate(response["content"]):
-                if item.get("type") == "text":
-                    choice = ChatCompletionChoice(
-                        index=idx,
-                        message=ChatCompletionChoiceMessage(
-                            role="assistant", content=item.get("text", "")
-                        ),
-                        finish_reason=response.get("stop_reason", "stop"),
-                    )
-                    choices.append(choice)
+        content_blocks = response.get("content") or []
+        text_segments: list[str] = []
+        reasoning_segments: list[str] = []
+
+        for block in content_blocks:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type == "text":
+                text_value = block.get("text")
+                if isinstance(text_value, str):
+                    text_segments.append(text_value)
+            elif block_type in {"thinking", "reasoning"}:
+                reasoning_value = (
+                    block.get("thinking")
+                    or block.get("text")
+                    or block.get("value")
+                    or block
+                )
+                normalized_reasoning = _coerce_reasoning_text(reasoning_value)
+                if normalized_reasoning:
+                    reasoning_segments.append(normalized_reasoning)
+
+        aggregated_text = "".join(text_segments).strip()
+        reasoning_text = "\n".join(
+            segment for segment in reasoning_segments if segment
+        ).strip()
+
+        message = ChatCompletionChoiceMessage(
+            role=response.get("role", "assistant"),
+            content=aggregated_text or None,
+            reasoning_content=reasoning_text or None,
+        )
+
+        choices = [
+            ChatCompletionChoice(
+                index=0,
+                message=message,
+                finish_reason=response.get("stop_reason", "stop"),
+            )
+        ]
 
         # Extract usage
         usage = response.get("usage", {})
@@ -845,6 +921,7 @@ class Translation(BaseTranslator):
             for idx, candidate in enumerate(response["candidates"]):
                 content = ""
                 tool_calls = None
+                reasoning_segments: list[str] = []
 
                 # Extract content from parts
                 if "content" in candidate and "parts" in candidate["content"]:
@@ -853,8 +930,24 @@ class Translation(BaseTranslator):
                     # Extract text content
                     text_parts = []
                     for part in parts:
-                        if "text" in part:
+                        if not isinstance(part, dict):
+                            continue
+                        if "text" in part and not part.get("functionCall"):
                             text_parts.append(part["text"])
+                            metadata = part.get("metadata", {})
+                            if isinstance(metadata, dict):
+                                metadata_reasoning = _coerce_reasoning_text(
+                                    metadata.get("thought")
+                                    or metadata.get("thinking")
+                                    or metadata.get("reasoning")
+                                )
+                                if metadata_reasoning:
+                                    reasoning_segments.append(metadata_reasoning)
+                                meta_type = str(metadata.get("type", "")).lower()
+                                if meta_type in {"thinking", "thought"} and isinstance(
+                                    part.get("text"), str
+                                ):
+                                    reasoning_segments.append(part["text"])
                         elif "functionCall" in part:
                             # Handle function calls (tool calls)
                             if tool_calls is None:
@@ -864,6 +957,12 @@ class Translation(BaseTranslator):
                             tool_calls.append(
                                 Translation._process_gemini_function_call(function_call)
                             )
+                        elif part.get("type") in {"reasoning", "thinking"}:
+                            normalized_reasoning = _coerce_reasoning_text(
+                                part.get("text") or part.get("value")
+                            )
+                            if normalized_reasoning:
+                                reasoning_segments.append(normalized_reasoning)
 
                     content = "".join(text_parts)
 
@@ -872,12 +971,17 @@ class Translation(BaseTranslator):
                     candidate.get("finishReason")
                 )
 
+                reasoning_text = "\n".join(
+                    segment for segment in reasoning_segments if segment
+                ).strip()
+
                 # Create choice
                 choice = ChatCompletionChoice(
                     index=idx,
                     message=ChatCompletionChoiceMessage(
                         role="assistant",
-                        content=content,
+                        content=content or None,
+                        reasoning_content=reasoning_text or None,
                         tool_calls=tool_calls,
                     ),
                     finish_reason=finish_reason,
@@ -931,6 +1035,7 @@ class Translation(BaseTranslator):
         model = "gemini-pro"  # Default model
 
         content_pieces: list[str] = []
+        reasoning_pieces: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         finish_reason = None
 
@@ -938,8 +1043,31 @@ class Translation(BaseTranslator):
             for candidate in chunk["candidates"]:
                 if "content" in candidate and "parts" in candidate["content"]:
                     for part in candidate["content"]["parts"]:
-                        if "text" in part:
+                        if not isinstance(part, dict):
+                            continue
+                        # Check for reasoning/thinking type first (before regular text)
+                        if part.get("type") in {"reasoning", "thinking"}:
+                            normalized_reasoning = _coerce_reasoning_text(
+                                part.get("text") or part.get("value")
+                            )
+                            if normalized_reasoning:
+                                reasoning_pieces.append(normalized_reasoning)
+                        elif "text" in part and not part.get("functionCall"):
                             content_pieces.append(part["text"])
+                            metadata = part.get("metadata", {})
+                            if isinstance(metadata, dict):
+                                metadata_reasoning = _coerce_reasoning_text(
+                                    metadata.get("thought")
+                                    or metadata.get("thinking")
+                                    or metadata.get("reasoning")
+                                )
+                                if metadata_reasoning:
+                                    reasoning_pieces.append(metadata_reasoning)
+                                meta_type = str(metadata.get("type", "")).lower()
+                                if meta_type in {"thinking", "thought"} and isinstance(
+                                    part.get("text"), str
+                                ):
+                                    reasoning_pieces.append(part["text"])
                         elif "functionCall" in part:
                             try:
                                 tool_calls.append(
@@ -957,6 +1085,10 @@ class Translation(BaseTranslator):
         delta: dict[str, Any] = {"role": "assistant"}
         if content_pieces:
             delta["content"] = "".join(content_pieces)
+        if reasoning_pieces:
+            delta["reasoning_content"] = "\n".join(
+                segment for segment in reasoning_pieces if segment
+            ).strip()
         if tool_calls:
             delta["tool_calls"] = tool_calls
 
@@ -1085,29 +1217,37 @@ class Translation(BaseTranslator):
                 # Validate each tool call in the list before including it
                 validated_tool_calls = []
                 for tc in raw_tool_calls:
-                    # Convert dict to ToolCall if necessary
                     if isinstance(tc, dict):
-                        # Create a ToolCall object from the dict
-                        # Assuming the dict has the necessary structure for ToolCall
-                        # We'll need to import ToolCall if not already available
-                        # For now, we'll use a simple approach
                         try:
-                            # Create ToolCall from dict, assuming proper structure
                             tool_call_obj = ToolCall(**tc)
                             validated_tool_calls.append(tool_call_obj)
                         except (TypeError, ValueError):
-                            # If conversion fails, skip this tool call
-                            pass
+                            continue
                     elif isinstance(tc, ToolCall):
                         validated_tool_calls.append(tc)
-                    else:
-                        # Log or handle invalid tool call
-                        # For now, we'll skip invalid ones
-                        pass
                 tool_calls = validated_tool_calls if validated_tool_calls else None
 
+            reasoning_content = msg.get("reasoning_content")
+            if reasoning_content is None and "reasoning" in msg:
+                reasoning_content = _coerce_reasoning_text(msg.get("reasoning"))
+            if reasoning_content is None:
+                metadata_reasoning = _coerce_reasoning_text(
+                    msg.get("metadata", {}).get("reasoning")
+                )
+                if metadata_reasoning:
+                    reasoning_content = metadata_reasoning
+            if reasoning_content is None:
+                choice_reasoning = _coerce_reasoning_text(
+                    ch.get("reasoning") or ch.get("metadata", {}).get("reasoning")
+                )
+                if choice_reasoning:
+                    reasoning_content = choice_reasoning
+
             message_obj = ChatCompletionChoiceMessage(
-                role=role, content=content, tool_calls=tool_calls
+                role=role,
+                content=content,
+                reasoning_content=reasoning_content,
+                tool_calls=tool_calls,
             )
 
             choices.append(
@@ -1156,6 +1296,7 @@ class Translation(BaseTranslator):
 
             text_segments: list[str] = []
             tool_calls: list[ToolCall] = []
+            reasoning_segments: list[str] = []
 
             for part in content_parts:
                 if not isinstance(part, dict):
@@ -1166,6 +1307,11 @@ class Translation(BaseTranslator):
                     text_value = part.get("text") or part.get("value") or ""
                     if text_value:
                         text_segments.append(str(text_value))
+                elif part_type in {"reasoning", "thinking", "assistant_reasoning"}:
+                    reasoning_value = part.get("text") or part.get("value")
+                    normalized_reasoning = _coerce_reasoning_text(reasoning_value)
+                    if normalized_reasoning:
+                        reasoning_segments.append(normalized_reasoning)
                 elif part_type == "tool_call":
                     function_payload = (
                         part.get("function") or part.get("function_call") or {}
@@ -1184,9 +1330,20 @@ class Translation(BaseTranslator):
                             ),
                         )
                     )
+                else:
+                    metadata = part.get("metadata") or {}
+                    for key in ("thought", "thinking", "reasoning"):
+                        if metadata.get(key):
+                            normalized_reasoning = _coerce_reasoning_text(metadata[key])
+                            if normalized_reasoning:
+                                reasoning_segments.append(normalized_reasoning)
+                                break
 
             content_text = "\n".join(
                 segment for segment in text_segments if segment
+            ).strip()
+            reasoning_text = "\n".join(
+                segment for segment in reasoning_segments if segment
             ).strip()
 
             finish_reason = item.get("finish_reason") or item.get("status")
@@ -1202,6 +1359,7 @@ class Translation(BaseTranslator):
             message = ChatCompletionChoiceMessage(
                 role=role,
                 content=content_text or None,
+                reasoning_content=reasoning_text or None,
                 tool_calls=tool_calls or None,
             )
 
@@ -1364,6 +1522,33 @@ class Translation(BaseTranslator):
                         "OpenAI stream chunk missing id/choices (non-serializable)",
                     )
             return {"error": "Invalid chunk: missing 'id' or 'choices'"}
+
+        choices = chunk.get("choices")
+        if isinstance(choices, list):
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                delta = choice.get("delta")
+                if not isinstance(delta, dict):
+                    continue
+
+                normalized_reasoning = None
+                if "reasoning_content" in delta:
+                    normalized_reasoning = _coerce_reasoning_text(
+                        delta.get("reasoning_content")
+                    )
+                if not normalized_reasoning and "reasoning" in delta:
+                    normalized_reasoning = _coerce_reasoning_text(
+                        delta.get("reasoning")
+                    )
+                if not normalized_reasoning and isinstance(delta.get("metadata"), dict):
+                    normalized_reasoning = _coerce_reasoning_text(
+                        delta["metadata"].get("reasoning")
+                    )
+
+                if normalized_reasoning:
+                    delta["reasoning_content"] = normalized_reasoning
+                    delta.setdefault("reasoning", normalized_reasoning)
 
         # For simplicity, we'll return the chunk as a dictionary.
         # In a more complex scenario, you might map this to a Pydantic model.
@@ -2474,6 +2659,7 @@ class Translation(BaseTranslator):
         model = "claude-3-opus-20240229"  # Default model
 
         content = ""
+        reasoning_content = ""
         finish_reason = None
         role = None
 
@@ -2487,10 +2673,13 @@ class Translation(BaseTranslator):
             # Content block start - no content yet
             pass
         elif event_type == "content_block_delta":
-            # Content delta - extract text
+            # Content delta - extract text or reasoning
             delta = chunk.get("delta", {})
-            if delta.get("type") == "text_delta":
+            delta_type = delta.get("type")
+            if delta_type == "text_delta":
                 content = delta.get("text", "")
+            elif delta_type in {"thinking_delta", "reasoning_delta"}:
+                reasoning_content = delta.get("text", "")
         elif event_type == "content_block_stop":
             # Content block stop - no action needed
             pass
@@ -2514,6 +2703,8 @@ class Translation(BaseTranslator):
             output_delta["role"] = role
         if content:
             output_delta["content"] = content
+        if reasoning_content:
+            output_delta["reasoning_content"] = reasoning_content
 
         return {
             "id": response_id,

@@ -7,6 +7,7 @@ from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
 )
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 
@@ -39,6 +40,41 @@ class TestStreamingContent:
         assert content.content == "Hello"
         assert content.metadata["id"] == "test-id"
         assert content.metadata["model"] == "test-model"
+
+    def test_from_raw_processed_response_dict(self) -> None:
+        """ProcessedResponse chunks with dict content should round-trip like raw dicts."""
+        chunk = {
+            "id": "chunk-1",
+            "model": "test-model",
+            "choices": [
+                {
+                    "delta": {
+                        "role": "assistant",
+                        "content": "Hello!",
+                        "tool_calls": None,
+                        "reasoning": None,
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+        processed = ProcessedResponse(
+            content=chunk,
+            metadata={"session_id": "abc123"},
+            usage={"prompt_tokens": 12},
+        )
+
+        content = StreamingContent.from_raw(processed)
+
+        assert content.content == "Hello!"
+        # Metadata extracted from the chunk should still be preserved
+        assert content.metadata["id"] == "chunk-1"
+        assert content.metadata["model"] == "test-model"
+        # Existing metadata from the processed response should merge in
+        assert content.metadata["session_id"] == "abc123"
+        # Usage is forwarded when provided
+        assert content.usage == {"prompt_tokens": 12}
 
     def test_from_raw_str(self) -> None:
         """Test creating StreamingContent from a string."""
@@ -108,11 +144,12 @@ class TestStreamNormalizer:
         normalizer = StreamNormalizer([processor])
 
         # Normalize the stream
-        results = []
-        async for content in normalizer.process_stream(
+        results: list[StreamingContent] = []
+        async for chunk in normalizer.process_stream(
             mock_stream(), output_format="objects"
         ):
-            results.append(content)
+            assert isinstance(chunk, StreamingContent)
+            results.append(chunk)
 
         # Check results
         assert len(results) == 4  # Hello, world, !, [DONE]
@@ -159,11 +196,12 @@ class TestStreamNormalizer:
             yield "world"
 
         # Process the stream
-        results = []
-        async for content in normalizer.process_stream(
+        results: list[StreamingContent] = []
+        async for chunk in normalizer.process_stream(
             mock_stream(), output_format="objects"
         ):
-            results.append(content)
+            assert isinstance(chunk, StreamingContent)
+            results.append(chunk)
 
         # Check results
         assert len(results) == 2

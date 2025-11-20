@@ -474,6 +474,7 @@ class TranslationService:
             message = ChatCompletionChoiceMessage(
                 role=choice.message.role,
                 content=choice.message.content,
+                reasoning_content=choice.message.reasoning_content,
                 tool_calls=(
                     choice.message.tool_calls if choice.message.tool_calls else None
                 ),
@@ -496,7 +497,18 @@ class TranslationService:
             usage=response.usage,
         )
 
-        return openai_response.model_dump()
+        response_dict: dict[str, Any] = openai_response.model_dump()
+        for choice in response_dict.get("choices", []):
+            if not isinstance(choice, dict):
+                continue
+            message_payload = choice.get("message")
+            if (
+                isinstance(message_payload, dict)
+                and message_payload.get("reasoning_content")
+                and "reasoning" not in message_payload
+            ):
+                message_payload["reasoning"] = message_payload["reasoning_content"]
+        return response_dict
 
     def from_domain_to_anthropic_response(
         self, response: ChatResponse
@@ -506,6 +518,15 @@ class TranslationService:
 
         first_choice = response.choices[0] if response.choices else None
         message = first_choice.message if first_choice else None
+
+        if message and message.reasoning_content:
+            content_blocks.append(
+                {
+                    "type": "thinking",
+                    "thinking": message.reasoning_content,
+                    "signature": "llm-proxy",
+                }
+            )
 
         if message and message.content:
             content_blocks.append({"type": "text", "text": message.content})
@@ -552,10 +573,20 @@ class TranslationService:
         candidates = []
         for choice in response.choices:
             if choice.message:
+                parts: list[dict[str, Any]] = []
+                if choice.message.reasoning_content:
+                    parts.append(
+                        {
+                            "type": "reasoning",
+                            "text": choice.message.reasoning_content,
+                        }
+                    )
+                parts.append({"text": choice.message.content or ""})
+
                 candidates.append(
                     {
                         "content": {
-                            "parts": [{"text": choice.message.content or ""}],
+                            "parts": parts,
                             "role": choice.message.role,
                         },
                         "finishReason": (

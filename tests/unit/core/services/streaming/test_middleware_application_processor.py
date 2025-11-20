@@ -15,7 +15,12 @@ class MockMiddleware(IResponseMiddleware):
         self.name = name
 
     async def process(
-        self, response: ProcessedResponse, session_id: str, context: dict
+        self,
+        response: ProcessedResponse,
+        session_id: str,
+        context: dict,
+        is_streaming: bool = False,
+        stop_event=None,
     ) -> ProcessedResponse:
         response.content = f"{response.content}[{self.name}]"
         response.metadata[self.name] = True
@@ -29,7 +34,12 @@ class OrderCheckingMiddleware(IResponseMiddleware):
         self.order_list = order_list if order_list is not None else []
 
     async def process(
-        self, response: ProcessedResponse, session_id: str, context: dict
+        self,
+        response: ProcessedResponse,
+        session_id: str,
+        context: dict,
+        is_streaming: bool = False,
+        stop_event=None,
     ) -> ProcessedResponse:
         self.order_list.append(self.name)
         return response

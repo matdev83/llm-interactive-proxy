@@ -10,16 +10,21 @@ from src.core.domain.chat import (
     ToolCall,
 )
 from src.core.domain.processed_result import ProcessedResult
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
+
+from tests.helpers.angel_factory_stub import AngelFactoryStub
 
 
 @pytest.mark.asyncio
 async def test_prepare_backend_request_preserves_tools_when_commands_run() -> None:
     backend_processor = MagicMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(backend_processor, response_processor)
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
 
     request = ChatRequest(
         model="test-model",
@@ -91,7 +96,9 @@ async def test_backend_processor_passes_tools_to_backend() -> None:
 
     processor = BackendProcessor(backend_service, session_service, app_state)
 
-    context = SimpleNamespace(session_id="session-1")
+    context = RequestContext(
+        headers={}, cookies={}, state=None, app_state=None, session_id="session-1"
+    )
     await processor.process_backend_request(request, "session-1", context)
 
     call_args = backend_service.call_completion.await_args
@@ -106,7 +113,9 @@ async def test_prepare_backend_request_appends_chatmessage_results() -> None:
     """Command results carrying ChatMessage instances should be appended."""
     backend_processor = MagicMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(backend_processor, response_processor)
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
 
     original_messages = [ChatMessage(role="user", content="original question")]
     request = ChatRequest(model="test-model", messages=original_messages, stream=False)
@@ -139,7 +148,9 @@ class _ToolWrapper:
 async def test_prepare_backend_request_supports_tool_message_wrappers() -> None:
     backend_processor = MagicMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(backend_processor, response_processor)
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
 
     user_message = ChatMessage(role="user", content="Do something")
     request = ChatRequest(model="test-model", messages=[user_message], stream=False)
@@ -192,7 +203,9 @@ async def test_prepare_backend_request_appends_results_without_modified_messages
     """Verify command results are appended even if modified_messages is empty."""
     backend_processor = MagicMock()
     response_processor = MagicMock()
-    manager = BackendRequestManager(backend_processor, response_processor)
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
 
     original_messages = [
         ChatMessage(role="user", content="question"),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -86,6 +87,13 @@ class StreamingContent:
         if isinstance(tool_calls, list) and tool_calls:
             delta["tool_calls"] = tool_calls
 
+        reasoning_value = self.metadata.get("reasoning_content") or self.metadata.get(
+            "reasoning"
+        )
+        if isinstance(reasoning_value, str) and reasoning_value.strip():
+            delta["reasoning_content"] = reasoning_value
+            delta.setdefault("reasoning", reasoning_value)
+
         if self.content is not None:
             delta["content"] = self.content
 
@@ -123,16 +131,59 @@ class StreamingContent:
         if isinstance(raw_data, ProcessedResponse):
             metadata = dict(raw_data.metadata) if raw_data.metadata else {}
             usage = raw_data.usage
-            content = raw_data.content if raw_data.content is not None else ""
-            is_done = bool(metadata.get("is_done", False))
-            is_cancellation = bool(metadata.get("is_cancellation", False))
-            return cls(
-                content=content,
-                is_done=is_done,
-                is_cancellation=is_cancellation,
-                metadata=metadata,
-                usage=usage,
-                raw_data=raw_data,
+            content_val = raw_data.content
+
+            def _finalize(result: StreamingContent) -> StreamingContent:
+                merged_metadata = dict(result.metadata)
+                merged_metadata.update(metadata)
+                result.metadata = merged_metadata
+                if usage is not None:
+                    result.usage = usage
+                result.raw_data = raw_data
+                if bool(metadata.get("is_done")):
+                    result.is_done = True
+                if bool(metadata.get("is_cancellation")):
+                    result.is_cancellation = True
+                return result
+
+            if isinstance(content_val, StreamingContent):
+                # Create a shallow copy so downstream mutations don't affect upstream state
+                copied = StreamingContent(
+                    content=content_val.content,
+                    is_done=content_val.is_done,
+                    is_cancellation=content_val.is_cancellation,
+                    metadata=dict(content_val.metadata),
+                    usage=content_val.usage,
+                    raw_data=content_val.raw_data,
+                )
+                return _finalize(copied)
+
+            if isinstance(content_val, ProcessedResponse):
+                return _finalize(cls.from_raw(content_val))
+
+            if isinstance(content_val, dict | str | bytes | bytearray | list):
+                # Delegate back to from_raw so dicts/bytes/strings are normalized consistently.
+                return _finalize(cls.from_raw(content_val))
+
+            content_str = ""
+            if content_val is not None:
+                if isinstance(content_val, bytes):
+                    try:
+                        content_str = content_val.decode("utf-8")
+                    except UnicodeDecodeError:
+                        logger.warning(
+                            "Could not decode bytes in ProcessedResponse: %r",
+                            content_val,
+                        )
+                        content_str = ""
+                else:
+                    content_str = str(content_val)
+
+            return _finalize(
+                cls(
+                    content=content_str,
+                    metadata={},
+                )
             )
 
         if isinstance(raw_data, dict):
@@ -145,36 +196,101 @@ class StreamingContent:
                 usage = raw_data.get("usage")
                 is_done = True
             else:
-                # Handle OpenAI chat completion chunk
-                is_done = raw_data.get("done", False)
+                # Handle OpenAI chat completion chunks and Gemini streaming payloads
+                is_done = bool(raw_data.get("done", False))
+                finish_reason = None
 
-                choices = raw_data.get("choices")
-                if choices and isinstance(choices, list) and len(choices) > 0:
-                    choice = choices[0]
-                    if isinstance(choice, dict):
-                        if "delta" in choice:
-                            delta = choice["delta"]
-                            if isinstance(delta, dict):
-                                reasoning_value = delta.get("reasoning_content")
-                                if reasoning_value:
-                                    metadata["reasoning_content"] = (
-                                        reasoning_value
-                                        if isinstance(reasoning_value, str)
-                                        else str(reasoning_value)
+                # Gemini-style candidates
+                candidates = raw_data.get("candidates")
+                if isinstance(candidates, list) and candidates:
+                    candidate = candidates[0]
+                    if isinstance(candidate, dict):
+                        finish_reason = candidate.get("finishReason", finish_reason)
+                        content_block = candidate.get("content") or {}
+                        if isinstance(content_block, dict):
+                            parts = content_block.get("parts")
+                            if isinstance(parts, list) and parts:
+                                first_part = parts[0]
+                                if isinstance(first_part, dict):
+                                    text_val = first_part.get("text")
+                                    if isinstance(text_val, str):
+                                        content = text_val
+                                    function_call = first_part.get("functionCall")
+                                    if isinstance(function_call, dict):
+                                        metadata["tool_calls"] = [
+                                            {
+                                                "id": function_call.get("id")
+                                                or f"call_{uuid.uuid4().hex[:8]}",
+                                                "type": "function",
+                                                "function": function_call,
+                                            }
+                                        ]
+                                        finish_reason = finish_reason or "tool_calls"
+                                elif isinstance(first_part, str):
+                                    content = first_part
+                            role = content_block.get("role")
+                            if role:
+                                metadata["role"] = role
+                else:
+                    # OpenAI-style chat completion chunk
+                    choices = raw_data.get("choices")
+                    if choices and isinstance(choices, list) and len(choices) > 0:
+                        choice = choices[0]
+                        if isinstance(choice, dict):
+                            finish_reason = choice.get("finish_reason", finish_reason)
+                            if "delta" in choice:
+                                delta = choice["delta"]
+                                if isinstance(delta, dict):
+                                    reasoning_value = delta.get(
+                                        "reasoning_content"
+                                    ) or delta.get("reasoning")
+                                    if reasoning_value:
+                                        normalized_reasoning = (
+                                            reasoning_value
+                                            if isinstance(reasoning_value, str)
+                                            else str(reasoning_value)
+                                        )
+                                        metadata["reasoning_content"] = (
+                                            normalized_reasoning
+                                        )
+                                        metadata.setdefault(
+                                            "reasoning", normalized_reasoning
+                                        )
+                                    content_value = delta.get("content")
+                                    if content_value is not None:
+                                        content = content_value
+                                    tool_calls_val = delta.get("tool_calls")
+                                    if (
+                                        isinstance(tool_calls_val, list)
+                                        and tool_calls_val
+                                    ):
+                                        metadata["tool_calls"] = tool_calls_val
+                            elif "message" in choice:
+                                message = choice["message"]
+                                if isinstance(message, dict) and "content" in message:
+                                    content_value = message.get("content")
+                                    content = (
+                                        content_value
+                                        if content_value is not None
+                                        else ""
                                     )
-                                content_value = delta.get("content")
-                                if content_value is not None:
-                                    content = content_value
-                        elif "message" in choice:
-                            message = choice["message"]
-                            if isinstance(message, dict) and "content" in message:
-                                content_value = message.get("content")
+                                if isinstance(message, dict):
+                                    tool_calls_val = message.get("tool_calls")
+                                    if (
+                                        isinstance(tool_calls_val, list)
+                                        and tool_calls_val
+                                    ):
+                                        metadata["tool_calls"] = tool_calls_val
+                            elif "text" in choice:  # For older models or specific APIs
+                                content_value = choice.get("text")
                                 content = (
                                     content_value if content_value is not None else ""
                                 )
-                        elif "text" in choice:  # For older models or specific APIs
-                            content_value = choice.get("text")
-                            content = content_value if content_value is not None else ""
+
+                if finish_reason is not None:
+                    metadata["finish_reason"] = finish_reason
+                    if str(finish_reason):
+                        is_done = True
 
                 if "id" in raw_data:
                     metadata["id"] = raw_data["id"]
@@ -183,7 +299,17 @@ class StreamingContent:
                 if "created" in raw_data:
                     metadata["created"] = raw_data["created"]
 
-                usage = raw_data.get("usage")
+                usage_metadata = raw_data.get("usageMetadata")
+                if isinstance(usage_metadata, dict):
+                    usage = {
+                        "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
+                        "completion_tokens": usage_metadata.get(
+                            "candidatesTokenCount", 0
+                        ),
+                        "total_tokens": usage_metadata.get("totalTokenCount", 0),
+                    }
+                else:
+                    usage = raw_data.get("usage")
 
         elif isinstance(raw_data, str):
             # Handle string (e.g., raw text or JSON string)

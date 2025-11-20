@@ -4,6 +4,8 @@ Tests for Response Adapters module.
 This module tests the response conversion functions between domain models and FastAPI responses.
 """
 
+import json
+
 import pytest
 from src.core.adapters.response_adapters import (
     adapt_response,
@@ -33,7 +35,7 @@ class TestToFastapiResponse:
         assert response.headers.get("X-Custom") == "test"
 
         # Check content
-        content = response.body.decode()
+        content = bytes(response.body).decode()
         assert '"test":"data"' in content
 
     def test_response_with_default_headers(self) -> None:
@@ -61,6 +63,17 @@ class TestToFastapiResponse:
 
         assert isinstance(response, JSONResponse)
         assert response.status_code == 404
+
+    def test_response_metadata_reasoning_preserved(self) -> None:
+        envelope = ResponseEnvelope(
+            content={"choices": [{"index": 0, "message": {"content": "Hi"}}]},
+            status_code=200,
+            metadata={"reasoning": "Captured reasoning stream."},
+        )
+
+        response = to_fastapi_response(envelope)
+        payload = json.loads(response.body)
+        assert payload["metadata"]["reasoning"] == "Captured reasoning stream."
 
 
 class TestToFastapiStreamingResponse:
@@ -147,7 +160,7 @@ class TestAdaptResponse:
     def test_adapt_invalid_type(self) -> None:
         """Test adapting an invalid response type."""
         with pytest.raises(TypeError, match="Unexpected response type"):
-            adapt_response("invalid response")
+            adapt_response("invalid response")  # type: ignore[arg-type]
 
 
 class TestWrapAsyncIterator:

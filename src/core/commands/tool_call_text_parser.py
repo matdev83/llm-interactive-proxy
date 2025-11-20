@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from collections.abc import Mapping
@@ -64,6 +65,19 @@ _ASK_FOLLOWUP_PATTERN = re.compile(
     r"<ask_followup_question[^>]*>(.*?)</ask_followup_question>", re.DOTALL
 )
 
+# KiloCode <tool_call> envelope
+_TOOL_CALL_BLOCK_PATTERN = re.compile(
+    r"<tool_call>(.*?)</tool_call>", re.DOTALL | re.IGNORECASE
+)
+_FUNCTION_ATTRIBUTE_PATTERN = re.compile(
+    r"<function\s*=\s*([^>\s]+)(?:[^>]*)>(.*?)</function>",
+    re.DOTALL | re.IGNORECASE,
+)
+_PARAMETER_ATTRIBUTE_PATTERN = re.compile(
+    r"<parameter\s*=\s*([^>\s]+)(?:[^>]*)>(.*?)</parameter>",
+    re.DOTALL | re.IGNORECASE,
+)
+
 # Generic XML attribute patterns
 _FILE_PATH_ATTR_PATTERN = re.compile(r'(?:file_path|path)="([^"]*)"')
 _RECURSIVE_ATTR_PATTERN = re.compile(r'recursive="([^"]*)"')
@@ -106,6 +120,11 @@ def parse_textual_tool_invocation(text: str) -> TextToolInvocation | None:
     stripped = text.strip()
     if not stripped:
         return None
+
+    if "<tool_call" in stripped:
+        invocation = _parse_tool_call_block(stripped)
+        if invocation:
+            return invocation
 
     # Legacy Cline/Codex tools
     if stripped.startswith("<execute_command"):
@@ -391,3 +410,46 @@ def _parse_ask_followup_invocation(text: str) -> TextToolInvocation | None:
         raw_text=text,
         command_text=None,
     )
+
+
+def _parse_tool_call_block(text: str) -> TextToolInvocation | None:
+    """Parse KiloCode <tool_call> blocks emitted by some agents."""
+    match = _TOOL_CALL_BLOCK_PATTERN.search(text)
+    if not match:
+        return None
+
+    block = match.group(1)
+    function_match = _FUNCTION_ATTRIBUTE_PATTERN.search(block)
+    if not function_match:
+        return None
+
+    function_name = function_match.group(1).strip()
+    function_body = function_match.group(2) or ""
+    canonical_name = _TOOL_NAME_ALIASES.get(
+        function_name.lower(), function_name.lower()
+    )
+    arguments: dict[str, Any] = {}
+
+    for parameter_match in _PARAMETER_ATTRIBUTE_PATTERN.finditer(function_body):
+        parameter_name = parameter_match.group(1).strip()
+        if not parameter_name:
+            continue
+        parameter_value = _parse_tool_call_parameter_value(parameter_match.group(2))
+        arguments[parameter_name] = parameter_value
+
+    return TextToolInvocation(
+        canonical_name=canonical_name,
+        arguments=arguments,
+        raw_text=match.group(0),
+        command_text=None,
+    )
+
+
+def _parse_tool_call_parameter_value(raw_value: str) -> Any:
+    trimmed = (raw_value or "").strip()
+    if not trimmed:
+        return ""
+    try:
+        return json.loads(trimmed)
+    except json.JSONDecodeError:
+        return trimmed

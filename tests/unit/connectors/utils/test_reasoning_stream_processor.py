@@ -200,6 +200,17 @@ class TestReasoningContentExtraction:
 
         assert reasoning_text == "Direct content field continuation"
 
+    def test_handles_none_chunks_gracefully(self, processor):
+        """Processor should ignore None chunks without raising errors."""
+        chunks = [
+            None,
+            {"choices": [{"delta": {"content": "Partial reasoning"}}]},
+        ]
+
+        reasoning_text = processor.extract_reasoning_content(chunks)  # type: ignore[arg-type]
+
+        assert "Partial reasoning" in reasoning_text
+
 
 class TestReasoningPhaseDetection:
     """Test reasoning phase detection (Task 9.2)."""

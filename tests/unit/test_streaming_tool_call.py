@@ -1,21 +1,37 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
-from typing import Any
+from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.app.controllers.chat_controller import ChatController
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.response_processor_interface import (
+    IResponseMiddleware,
     IResponseProcessor,
     ProcessedResponse,
 )
+from src.core.interfaces.tool_call_repair_service_interface import (
+    IToolCallRepairService,
+)
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
+from src.core.services.streaming.middleware_application_processor import (
+    MiddlewareApplicationProcessor,
+)
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
+from src.core.services.streaming.tool_call_repair_processor import (
+    ToolCallRepairProcessor,
+)
+from src.core.services.tool_call_repair_service import ToolCallRepairService
+
+from tests.helpers.angel_factory_stub import AngelFactoryStub
 
 
 async def _create_streaming_response(content: list[str]) -> StreamingResponseEnvelope:
@@ -98,6 +114,10 @@ async def test_streaming_tool_call_in_first_chunk():
     backend_request_manager = BackendRequestManager(
         backend_processor=mock_backend_processor,
         response_processor=mock_response_processor,
+        angel_service_factory=AngelFactoryStub(),
+    )
+    mock_response_processor.process_streaming_response = (
+        lambda stream, _session_id: stream
     )
 
     from src.core.services import tool_text_renderer
@@ -147,3 +167,125 @@ async def test_streaming_tool_call_in_first_chunk():
         if msg.role == "user" and isinstance(msg.content, str)
     ]
     assert all("!/" not in (content or "") for content in stripped_user_commands)
+
+
+class _RecordingStreamingProcessor(IResponseProcessor):
+    """Minimal processor that runs stream normalization with tool-call repair."""
+
+    def __init__(self) -> None:
+        self.tool_call_seen = False
+
+        class _RecorderMiddleware(IResponseMiddleware):
+            def __init__(self, outer: _RecordingStreamingProcessor) -> None:
+                super().__init__(priority=0)
+                self.outer = outer
+
+            async def process(
+                self,
+                response: Any,
+                session_id: str,
+                context: dict[str, Any],
+                is_streaming: bool = False,
+                stop_event: Any = None,
+            ) -> Any:
+                tool_calls = getattr(response, "metadata", {}).get("tool_calls")
+                if isinstance(tool_calls, list) and tool_calls:
+                    self.outer.tool_call_seen = True
+                return response
+
+        repair_service: IToolCallRepairService = cast(
+            IToolCallRepairService, ToolCallRepairService()
+        )
+        repair_processor = ToolCallRepairProcessor(repair_service)
+        recorder = _RecorderMiddleware(self)
+        middleware_processor = MiddlewareApplicationProcessor(middleware=[recorder])
+        self._normalizer = StreamNormalizer([repair_processor, middleware_processor])
+
+    async def process_response(
+        self,
+        response: Any,
+        session_id: str,
+        context: dict[str, Any] | None = None,
+    ) -> ProcessedResponse:
+        return ProcessedResponse(content=response, metadata={})
+
+    def process_streaming_response(
+        self, response_iterator: AsyncIterator[Any], session_id: str
+    ) -> AsyncIterator[ProcessedResponse]:
+        async def _generator() -> AsyncIterator[ProcessedResponse]:
+            async for chunk in self._normalizer.process_stream(
+                response_iterator, output_format="objects"
+            ):
+                assert isinstance(chunk, StreamingContent)
+                yield ProcessedResponse(
+                    content=chunk.content,
+                    usage=chunk.usage,
+                    metadata=chunk.metadata,
+                )
+
+        return _generator()
+
+    async def register_middleware(
+        self, middleware: Any, priority: int = 0
+    ) -> None:  # pragma: no cover - not needed for these tests
+        return None
+
+
+def _make_request_context() -> RequestContext:
+    return RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        client_host=None,
+        session_id=None,
+        agent=None,
+        original_request=None,
+        processing_context=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_streaming_text_tool_call_is_repaired_and_middleware_runs() -> None:
+    """Textual tool calls in streaming output are repaired and passed to middleware."""
+
+    response_processor = _RecordingStreamingProcessor()
+    backend_processor = AsyncMock()
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
+
+    original_request = ChatRequest(
+        model="zenmux:kuaishou/kat-coder-pro-v1",
+        messages=[ChatMessage(role="user", content="fix it")],
+        stream=True,
+    )
+
+    async def source_stream() -> AsyncGenerator[ProcessedResponse, None]:
+        yield ProcessedResponse(
+            content=(
+                "Here is the change:\n"
+                "<patch_file>\n"
+                "<path>C:/Users/Mateusz/source/repos/llm-interactive-proxy/pyproject.toml</path>\n"
+                "<patch_content>abc</patch_content>\n"
+                "</patch_file>\n"
+            )
+        )
+        yield ProcessedResponse(content="", metadata={"is_done": True})
+
+    envelope = StreamingResponseEnvelope(content=source_stream())
+    result = await manager._process_streaming_response(
+        envelope, original_request, "sess-123", _make_request_context()
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.content is not None
+
+    chunks = [chunk async for chunk in result.content]
+    tool_chunks = [chunk for chunk in chunks if chunk.metadata.get("tool_calls", [])]
+    assert tool_chunks, "Expected repaired tool_calls to be emitted"
+    first_tool_chunk = tool_chunks[0]
+    tool_calls = first_tool_chunk.metadata.get("tool_calls")
+    assert isinstance(tool_calls, list) and tool_calls
+    assert tool_calls[0]["function"]["name"] == "patch_file"
+    assert response_processor.tool_call_seen is True

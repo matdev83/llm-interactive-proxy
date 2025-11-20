@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import importlib.util
 import inspect
+import os
 import sys
 import types
 import warnings
@@ -267,6 +268,11 @@ def pytest_cmdline_parse(pluginmanager, args):
     Dynamically modifies pytest arguments before test collection.
     """
     config = yield
+
+    # Skip argument modification in xdist workers to avoid collection mismatches
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        return
+
     modified_args = args.copy()  # Don't modify original args
 
     has_test_paths = any(arg for arg in modified_args if not arg.startswith("-"))

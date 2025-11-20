@@ -58,6 +58,7 @@ class ResponseProcessor(IResponseProcessor):
 
         # Angel feature wiring
         self._angel_service: Any | None = None
+        self._angel_frequency: int = 1
 
         self._stream_normalizer = stream_normalizer
 
@@ -102,25 +103,38 @@ class ResponseProcessor(IResponseProcessor):
             if not self._angel_service:
                 # Resolve angel model spec from app_state config
                 model_spec = None
+                frequency_value: int | None = 1
                 try:
                     cfg = (
                         self._app_state.get_setting("app_config")
                         if self._app_state
                         else None
                     )
-                    model_spec = getattr(
-                        getattr(cfg, "session", None), "angel_model", None
-                    )
+                    session_cfg = getattr(cfg, "session", None)
+                    model_spec = getattr(session_cfg, "angel_model", None)
+                    frequency_value = getattr(session_cfg, "angel_frequency", 1)
                 except Exception:
                     model_spec = None
+                    frequency_value = 1
                 angel_svc = AngelService(model_spec or "")
                 if not angel_svc.is_enabled():
                     return {"action": "pass"}
                 self._angel_service = angel_svc
+                try:
+                    freq_int = (
+                        int(frequency_value) if frequency_value is not None else 1
+                    )
+                except (TypeError, ValueError):
+                    freq_int = 1
+                self._angel_frequency = freq_int if freq_int > 0 else 1
 
             svc: AngelService = self._angel_service
 
             if not isinstance(original_request, ChatRequest):
+                return {"action": "pass"}
+
+            frequency = getattr(self, "_angel_frequency", 1)
+            if not AngelService.should_run_for_request(original_request, frequency):
                 return {"action": "pass"}
 
             verification_request = svc.build_verification_request(
@@ -442,27 +456,6 @@ class ResponseProcessor(IResponseProcessor):
                     )
             return
 
-        if self._stream_normalizer is None:
-            try:
-                from src.core.di.services import get_service_collection
-                from src.core.interfaces.streaming_response_processor_interface import (
-                    IStreamNormalizer,
-                )
-
-                services = get_service_collection()
-                fallback_provider = services.build_service_provider()
-                normalizer = fallback_provider.get_service(
-                    cast(type, IStreamNormalizer)
-                )
-                if normalizer is None:
-                    normalizer = fallback_provider.get_required_service(
-                        cast(type, IStreamNormalizer)
-                    )
-                self._stream_normalizer = normalizer
-            except Exception:
-                # As a last resort use an empty StreamNormalizer; DI resolution failed.
-                self._stream_normalizer = StreamNormalizer()  # noqa: DI-bypass
-
         # Process the stream using the normalizer
         try:
             # Process the stream using the normalizer
@@ -496,16 +489,47 @@ class ResponseProcessor(IResponseProcessor):
                             metadata=metadata,
                         )
                     else:
-                        # Handle cases where processed_chunk might be bytes or other unexpected types
-                        logger.warning(
-                            f"Unexpected chunk type from stream normalizer: {type(processed_chunk)}"
-                        )
-                        metadata = {"session_id": session_id} if session_id else {}
-                        yield ProcessedResponse(
-                            content=str(processed_chunk),
-                            usage=None,
-                            metadata=metadata,
-                        )
+                        # Handle cases where processed_chunk might be ProcessedResponse or other types
+                        if isinstance(processed_chunk, ProcessedResponse):
+                            # Extract content from ProcessedResponse
+                            content_val = processed_chunk.content
+                            if isinstance(content_val, bytes):
+                                try:
+                                    content = content_val.decode("utf-8")
+                                except UnicodeDecodeError:
+                                    logger.warning(
+                                        f"Could not decode bytes in ProcessedResponse: {content_val!r}"
+                                    )
+                                    content = ""
+                            elif content_val is not None:
+                                content = str(content_val)
+                            else:
+                                content = ""
+
+                            metadata = (
+                                dict(processed_chunk.metadata)
+                                if processed_chunk.metadata
+                                else {}
+                            )
+                            if session_id:
+                                metadata.setdefault("session_id", session_id)
+
+                            yield ProcessedResponse(
+                                content=content,
+                                usage=processed_chunk.usage,
+                                metadata=metadata,
+                            )
+                        else:
+                            # Handle unexpected types
+                            logger.warning(
+                                f"Unexpected chunk type from stream normalizer: {type(processed_chunk)}"
+                            )
+                            metadata = {"session_id": session_id} if session_id else {}
+                            yield ProcessedResponse(
+                                content=str(processed_chunk),
+                                usage=None,
+                                metadata=metadata,
+                            )
             except (
                 TypeError,
                 ValueError,

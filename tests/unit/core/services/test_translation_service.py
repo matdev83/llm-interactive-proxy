@@ -2,7 +2,10 @@ import pytest
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
     ChatMessage,
+    ChatResponse,
 )
 from src.core.services.translation_service import TranslationService
 
@@ -311,6 +314,82 @@ def test_to_domain_stream_chunk_raw_text_wrapped():
     domain_chunk = service.to_domain_stream_chunk(wrapped_chunk, "raw_text")
     assert isinstance(domain_chunk, dict)
     assert domain_chunk["choices"][0]["delta"]["content"] == "wrapped streaming chunk"
+
+
+def test_from_domain_to_openai_response_includes_reasoning():
+    service = TranslationService()
+    response = ChatResponse(
+        id="resp-openai",
+        created=111,
+        model="gpt-4o",
+        choices=[
+            ChatCompletionChoice(
+                index=0,
+                message=ChatCompletionChoiceMessage(
+                    role="assistant",
+                    content="Here is the answer.",
+                    reasoning_content="First, analyze the task.",
+                ),
+                finish_reason="stop",
+            )
+        ],
+    )
+
+    payload = service.from_domain_to_openai_response(response)
+    message = payload["choices"][0]["message"]
+    assert message["content"] == "Here is the answer."
+    assert message["reasoning_content"] == "First, analyze the task."
+    assert message["reasoning"] == "First, analyze the task."
+
+
+def test_from_domain_to_anthropic_response_includes_thinking():
+    service = TranslationService()
+    response = ChatResponse(
+        id="resp-anthropic",
+        created=222,
+        model="claude-3-opus",
+        choices=[
+            ChatCompletionChoice(
+                index=0,
+                message=ChatCompletionChoiceMessage(
+                    role="assistant",
+                    content="Final output.",
+                    reasoning_content="Plan carefully.",
+                ),
+                finish_reason="stop",
+            )
+        ],
+    )
+
+    payload = service.from_domain_to_anthropic_response(response)
+    thinking_block = payload["content"][0]
+    assert thinking_block["type"] == "thinking"
+    assert thinking_block["thinking"] == "Plan carefully."
+
+
+def test_from_domain_to_gemini_response_includes_reasoning_part():
+    service = TranslationService()
+    response = ChatResponse(
+        id="resp-gemini",
+        created=333,
+        model="gemini-1.5-pro",
+        choices=[
+            ChatCompletionChoice(
+                index=0,
+                message=ChatCompletionChoiceMessage(
+                    role="model",
+                    content="Gemini reply.",
+                    reasoning_content="Outline the solution.",
+                ),
+                finish_reason="stop",
+            )
+        ],
+    )
+
+    payload = service.from_domain_to_gemini_response(response)
+    parts = payload["candidates"][0]["content"]["parts"]
+    assert parts[0]["type"] == "reasoning"
+    assert parts[0]["text"] == "Outline the solution."
 
 
 def test_from_domain_request_without_converter_raises() -> None:

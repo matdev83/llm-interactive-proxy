@@ -258,3 +258,65 @@ class LoopDetector(ILoopDetector):
                 "repetitions": repetition_count,
             },
         )
+
+
+class NoOpLoopDetector(ILoopDetector):
+    """No-op loop detector for testing environments.
+
+    This detector never detects loops and is used when loop detection
+    is disabled via configuration.
+    """
+
+    def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
+        """Process a chunk without detecting loops.
+
+        Args:
+            chunk: The chunk to process
+
+        Returns:
+            None (no loop detected)
+        """
+        return None
+
+    def reset(self) -> None:
+        """Reset detector state (no-op)."""
+
+    def enable(self) -> None:
+        """Enable loop detection (no-op)."""
+
+    def disable(self) -> None:
+        """Disable loop detection (no-op)."""
+
+    def is_enabled(self) -> bool:
+        """Check if loop detection is enabled."""
+        return False
+
+    def get_stats(self) -> dict:
+        """Get detector statistics."""
+        return {
+            "is_active": False,
+            "last_detection_position": -1,
+            "config": {},
+        }
+
+    def get_loop_history(self) -> list[LoopDetectionEvent]:
+        """Retrieve loop history (always empty)."""
+        return []
+
+    def get_current_state(self) -> dict[str, Any]:
+        """Get current state."""
+        return {
+            "buffer_content_length": 0,
+            "total_processed": 0,
+            "last_detection_position": -1,
+            "analyzer_state": {},
+        }
+
+    def update_config(self, new_config: InternalLoopDetectionConfig) -> None:
+        """Update configuration (no-op)."""
+
+    async def check_for_loops(self, content: str) -> LoopDetectionResult:
+        """Check for loops (always returns no loop)."""
+        from src.core.interfaces.loop_detector_interface import LoopDetectionResult
+
+        return LoopDetectionResult(has_loop=False)

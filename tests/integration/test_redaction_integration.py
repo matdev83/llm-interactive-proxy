@@ -24,6 +24,7 @@ from src.core.services.rate_limiter import InMemoryRateLimiter
 from src.core.services.response_parser_service import ResponseParser
 from src.core.services.response_processor_service import ResponseProcessor
 
+from tests.helpers.angel_factory_stub import AngelFactoryStub
 from tests.unit.core.test_doubles import MockSessionService
 from tests.utils.failover_stub import StubFailoverCoordinator
 
@@ -169,7 +170,7 @@ async def _build_services_with_fake_backend(
         middleware_application_manager=middleware_manager,
     )
     backend_request_manager = BackendRequestManager(
-        backend_processor, response_processor
+        backend_processor, response_processor, AngelFactoryStub()
     )
 
     # Create and return the live BackendRequestManager and a backend instance placeholder

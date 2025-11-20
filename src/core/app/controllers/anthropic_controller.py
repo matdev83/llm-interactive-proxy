@@ -193,17 +193,34 @@ class AnthropicController:
                         cr: _ChatResponse = response.content
                         first = cr.choices[0] if cr.choices else None
                         text = first.message.content if first and first.message else ""
+                        reasoning_text = (
+                            first.message.reasoning_content
+                            if first and first.message
+                            else None
+                        )
                         usage = cr.usage or {}
                         stop_reason = (
                             _map_finish_reason(first.finish_reason)
                             if first and first.finish_reason is not None
                             else None
                         )
+                        content_blocks: list[dict[str, Any]] = []
+                        if reasoning_text:
+                            content_blocks.append(
+                                {
+                                    "type": "thinking",
+                                    "thinking": reasoning_text,
+                                }
+                            )
+                        content_blocks.append(
+                            {"type": "text", "text": text or ""}  # type: ignore[arg-type]
+                        )
+
                         anthropic_response_data = {
                             "id": cr.id,
                             "type": "message",
                             "role": "assistant",
-                            "content": [{"type": "text", "text": text or ""}],
+                            "content": content_blocks,
                             "model": cr.model,
                             "stop_reason": stop_reason,
                             "stop_sequence": None,

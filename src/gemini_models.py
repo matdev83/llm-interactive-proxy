@@ -104,6 +104,7 @@ class Part(DomainModel):
     # Gemini tool-calling fields
     function_call: dict[str, Any] | None = Field(None, alias="functionCall")
     function_response: dict[str, Any] | None = Field(None, alias="functionResponse")
+    metadata: dict[str, Any] | None = None
 
     def model_post_init(self, __context: Any) -> None:
         """Ensure only one kind of payload is present per part."""

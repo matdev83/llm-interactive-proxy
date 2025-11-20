@@ -525,6 +525,8 @@ def test_steering_handler_is_enabled_via_cli_flag():
         gemini_api_key=None,
         gemini_api_base_url=None,
         zai_api_key=None,
+        zenmux_api_key=None,
+        zenmux_api_base_url=None,
         disable_interactive_mode=None,
         disable_redact_api_keys_in_prompts=True,
         disable_auth=True,

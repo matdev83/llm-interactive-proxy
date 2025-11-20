@@ -9,8 +9,18 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 
 def to_fastapi_response(envelope: ResponseEnvelope) -> Response:
     """Convert a domain ResponseEnvelope to a FastAPI Response."""
+    content = envelope.content
+
+    # Include metadata in response if present
+    if envelope.metadata:
+        if isinstance(content, dict):
+            content = {**content, "metadata": envelope.metadata}
+        else:
+            # If content is not a dict, wrap it with metadata
+            content = {"data": content, "metadata": envelope.metadata}
+
     return JSONResponse(
-        content=envelope.content,
+        content=content,
         status_code=envelope.status_code,
         headers=envelope.headers,
     )

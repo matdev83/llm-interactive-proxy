@@ -7,6 +7,8 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 
+from tests.helpers.angel_factory_stub import AngelFactoryStub
+
 
 @pytest.mark.asyncio
 async def test_top_p_fix_with_actual_request() -> None:
@@ -24,6 +26,7 @@ async def test_top_p_fix_with_actual_request() -> None:
     backend_request_manager = BackendRequestManager(
         backend_processor=mock_backend_processor,
         response_processor=mock_response_processor,
+        angel_service_factory=AngelFactoryStub(),
     )
     mock_response_manager = AsyncMock()
 

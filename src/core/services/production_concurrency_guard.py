@@ -49,19 +49,19 @@ class ConcurrencyMetrics:
                     f"High lock contention detected in {lock_name}: {wait_time:.3f}s wait time"
                 )
 
-    def record_deadlock_detection(self, lock_name: str):
+    def record_deadlock_detection(self, lock_name: str) -> None:
         """Record deadlock detection event."""
         with self._metrics_lock:
             self.deadlock_detection_count += 1
             logger.error(f"Deadlock detected and recovered in {lock_name}")
 
-    def record_race_condition_warning(self, operation: str):
+    def record_race_condition_warning(self, operation: str) -> None:
         """Record potential race condition warning."""
         with self._metrics_lock:
             self.race_condition_warnings += 1
             logger.warning(f"Potential race condition in operation: {operation}")
 
-    def record_retry_attempt(self, operation: str, attempt: int):
+    def record_retry_attempt(self, operation: str, attempt: int) -> None:
         """Record retry attempt."""
         with self._metrics_lock:
             self.retry_attempts += 1
@@ -122,7 +122,7 @@ class CircuitBreaker:
             self._on_failure()
             raise
 
-    def _on_success(self):
+    def _on_success(self) -> None:
         """Handle successful operation."""
         with self._lock:
             if self.state == CircuitBreakerState.HALF_OPEN:
@@ -136,7 +136,7 @@ class CircuitBreaker:
             elif self.state == CircuitBreakerState.CLOSED:
                 self.failure_count = 0
 
-    def _on_failure(self):
+    def _on_failure(self) -> None:
         """Handle failed operation."""
         with self._lock:
             self.failure_count += 1
@@ -152,7 +152,7 @@ class CircuitBreaker:
 class ProductionAsyncLock:
     """AsyncIO lock with production monitoring and deadlock detection."""
 
-    def __init__(self, name: str = "unnamed", timeout: float = 30.0):
+    def __init__(self, name: str = "unnamed", timeout: float = 30.0) -> None:
         self.name = name
         self.timeout = timeout
         self._lock = asyncio.Lock()
@@ -184,7 +184,7 @@ class ProductionAsyncLock:
                 f"Potential deadlock detected in lock {self.name} after {self.timeout}s"
             )
 
-    def release(self):
+    def release(self) -> None:
         """Release lock with monitoring."""
         if self._acquired_at:
             hold_time = time.time() - self._acquired_at
@@ -314,11 +314,11 @@ def production_retry(config: RetryConfig):
 class ConcurrencyGuard:
     """Production-grade concurrency guard with monitoring."""
 
-    def __init__(self, max_concurrent: int = 10, name: str = "unnamed"):
+    def __init__(self, max_concurrent: int = 10, name: str = "unnamed") -> None:
         self.max_concurrent = max_concurrent
         self.name = name
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._active_operations: WeakSet = WeakSet()
+        self._active_operations: WeakSet[object] = WeakSet()
         self._total_operations = 0
         self._rejected_operations = 0
 

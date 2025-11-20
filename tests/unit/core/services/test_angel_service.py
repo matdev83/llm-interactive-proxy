@@ -85,6 +85,25 @@ def test_parse_model_with_params(
     assert params == expected_params
 
 
+def test_should_run_for_request_every_turn() -> None:
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[
+            ChatMessage(role="user", content="one"),
+        ],
+    )
+    assert AngelService.should_run_for_request(request, 1) is True
+
+
+def test_should_run_for_request_every_nth_turn() -> None:
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content=str(i)) for i in range(5)],
+    )
+    assert AngelService.should_run_for_request(request, 5) is True
+    assert AngelService.should_run_for_request(request, 6) is False
+
+
 def test_build_verification_request_uses_default_backend() -> None:
     svc = AngelService("gpt-4o-mini?temperature=0.2")
     request = ChatRequest(
@@ -114,4 +133,4 @@ def test_build_correction_request_includes_previous_response() -> None:
     assert correction.messages[-2].role == "assistant"
     assert correction.messages[-2].content == "Bad output"
     assert correction.messages[-1].role == "system"
-    assert "Fix the solution" in correction.messages[-1].content
+    assert "Fix the solution" in str(correction.messages[-1].content)

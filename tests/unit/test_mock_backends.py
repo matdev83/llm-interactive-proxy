@@ -348,6 +348,7 @@ def test_real_backend_fixture(monkeypatch):
             # Check the response
             assert response.status_code == 200
             data = response.json()
+            print(f"DEBUG: response data: {data}")
             assert "choices" in data
             assert len(data["choices"]) == 1
             assert "This is a real response" in data["choices"][0]["message"]["content"]

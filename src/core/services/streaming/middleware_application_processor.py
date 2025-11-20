@@ -51,6 +51,9 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
             "response_type": response_type,
             "app_state": self._app_state,
         }
+        original_request = content.metadata.get("original_request")
+        if original_request is not None:
+            context["original_request"] = original_request
         # Per-route flags
         if "expected_json" in content.metadata:
             context["expected_json"] = bool(content.metadata.get("expected_json"))
@@ -58,7 +61,9 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
             context["config"] = self._default_loop_config
 
         for mw in self._middleware:
-            result = await mw.process(processed_response, session_id_str, context)
+            result = await mw.process(
+                processed_response, session_id_str, context, is_streaming=True
+            )
             # Allow middleware to be no-op by returning None
             if result is not None:
                 processed_response = result

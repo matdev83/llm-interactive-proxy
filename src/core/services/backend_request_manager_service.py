@@ -16,6 +16,7 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.loop_detector_interface import ILoopDetector
@@ -23,6 +24,7 @@ from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
+from src.core.services.angel_service import AngelService
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
 from src.loop_detection.hybrid_detector import HybridLoopDetector
 
@@ -39,11 +41,15 @@ class BackendRequestManager(IBackendRequestManager):
         self,
         backend_processor: IBackendProcessor,
         response_processor: IResponseProcessor,
+        angel_service_factory: IAngelServiceFactory,
         wire_capture: Any | None = None,
     ) -> None:
         """Initialize the backend request manager."""
         self._backend_processor = backend_processor
+        if angel_service_factory is None:
+            raise ValueError("angel_service_factory is required")
         self._response_processor = response_processor
+        self._angel_service_factory = angel_service_factory
         # wire_capture is currently applied at BackendService level to avoid
         # duplicating backend resolution logic; accepted here for future use.
 
@@ -564,15 +570,17 @@ class BackendRequestManager(IBackendRequestManager):
             )
 
         angel_model_spec: str | None = None
+        angel_frequency: int = 1
         try:
             app_state = getattr(context, "app_state", None)
             if app_state is not None:
                 cfg = app_state.get_setting("app_config")
-                angel_model_spec = getattr(
-                    getattr(cfg, "session", None), "angel_model", None
-                )
+                session_cfg = getattr(cfg, "session", None)
+                angel_model_spec = getattr(session_cfg, "angel_model", None)
+                angel_frequency = getattr(session_cfg, "angel_frequency", 1)
         except Exception:
             angel_model_spec = None
+            angel_frequency = 1
 
         cancel_callback = stream_envelope.cancel_callback
         loop_detector = self._create_loop_detector()
@@ -639,7 +647,11 @@ class BackendRequestManager(IBackendRequestManager):
                     return
 
                 if text_fragment:
-                    event = loop_detector.process_chunk(text_fragment)
+                    clean_fragment = text_fragment.strip()
+                    if clean_fragment.startswith(("data:", "event:")):
+                        event = None
+                    else:
+                        event = loop_detector.process_chunk(text_fragment)
                 else:
                     event = None
 
@@ -685,6 +697,43 @@ class BackendRequestManager(IBackendRequestManager):
                 yield chunk  # type: ignore[return-value]
 
         async def angel_guarded_stream() -> AsyncIterator[ProcessedResponse]:
+            # Check if Angel should run before buffering the stream
+            should_buffer_for_angel = False
+            angel_service_instance = None
+
+            if (
+                angel_model_spec
+                and isinstance(original_request, ChatRequest)
+                and AngelService.should_run_for_request(
+                    original_request, angel_frequency
+                )
+            ):
+                try:
+                    angel_service_instance = self._angel_service_factory.create(
+                        angel_model_spec
+                    )
+                    if angel_service_instance.is_enabled():
+                        should_buffer_for_angel = True
+                except Exception:
+                    # If we can't create the service, we can't use Angel
+                    logger.debug(
+                        "Failed to initialize Angel service for check",
+                        exc_info=True,
+                    )
+
+            if not should_buffer_for_angel:
+                async for chunk in monitored_stream():
+                    if isinstance(chunk, ProcessedResponse):
+                        yield chunk
+                    else:
+                        # Normalize raw chunks to ProcessedResponse
+                        text_piece = self._extract_text_from_chunk(chunk)
+                        yield ProcessedResponse(
+                            content=text_piece,
+                            metadata=getattr(chunk, "metadata", {}),
+                        )
+                return
+
             buffered_chunks: list[ProcessedResponse] = []
             text_fragments: list[str] = []
 
@@ -707,24 +756,15 @@ class BackendRequestManager(IBackendRequestManager):
             if not buffered_chunks:
                 return
 
-            if not angel_model_spec or not isinstance(original_request, ChatRequest):
-                for buffered in buffered_chunks:
-                    yield buffered
-                return
+            # We already checked should_buffer_for_angel, so we know we should verify
+            # But we need to ensure imports and service availability (already done above)
 
             try:
                 from src.core.di.services import get_service_provider
                 from src.core.interfaces.backend_service_interface import (
                     IBackendService,
                 )
-                from src.core.services.angel_service import AngelService
             except Exception:
-                for buffered in buffered_chunks:
-                    yield buffered
-                return
-
-            angel_service = AngelService(angel_model_spec or "")
-            if not angel_service.is_enabled():
                 for buffered in buffered_chunks:
                     yield buffered
                 return
@@ -754,8 +794,17 @@ class BackendRequestManager(IBackendRequestManager):
                     cast(type, IBackendService)
                 )
 
-                verification_request = angel_service.build_verification_request(
-                    original_request, combined_text
+                # Use the pre-created instance
+                if not angel_service_instance:
+                    # Should not happen given the check above, but safe fallback
+                    angel_service_instance = self._angel_service_factory.create(
+                        angel_model_spec or ""
+                    )
+
+                verification_request = (
+                    angel_service_instance.build_verification_request(
+                        original_request, combined_text
+                    )
                 )
 
                 angel_response = await backend_service.chat_completions(
@@ -766,14 +815,14 @@ class BackendRequestManager(IBackendRequestManager):
                 )
                 angel_text = _extract_text(angel_response)
 
-                decision = angel_service.parse_angel_output(angel_text)
+                decision = angel_service_instance.parse_angel_output(angel_text)
                 steering_msg = (decision.steering_message or "").strip()
                 if decision.decision != "steer" or not steering_msg:
                     for buffered in buffered_chunks:
                         yield buffered
                     return
 
-                correction_request = angel_service.build_correction_request(
+                correction_request = angel_service_instance.build_correction_request(
                     original_request, combined_text, steering_msg
                 )
 
@@ -785,12 +834,12 @@ class BackendRequestManager(IBackendRequestManager):
                 )
                 corrected_text = _extract_text(corrected_response)
 
-                if angel_service.has_override_marker(corrected_text):
+                if angel_service_instance.has_override_marker(corrected_text):
                     for buffered in buffered_chunks:
                         yield buffered
                     return
 
-                cleaned = angel_service.strip_override_marker(corrected_text)
+                cleaned = angel_service_instance.strip_override_marker(corrected_text)
                 yield ProcessedResponse(
                     content=cleaned,
                     metadata={
@@ -807,8 +856,93 @@ class BackendRequestManager(IBackendRequestManager):
                 for buffered in buffered_chunks:
                     yield buffered
 
+        processed_stream: AsyncIterator[ProcessedResponse] = angel_guarded_stream()
+
+        async def _attach_stream_context(
+            stream: AsyncIterator[ProcessedResponse | Any],
+        ) -> AsyncIterator[ProcessedResponse]:
+            async for chunk in stream:
+                if isinstance(chunk, ProcessedResponse):
+                    processed_metadata = dict(chunk.metadata or {})
+                    processed_metadata.setdefault("original_request", original_request)
+                    processed_metadata.setdefault("session_id", session_id)
+                    chunk.metadata = processed_metadata
+                    yield chunk
+                    continue
+
+                metadata: dict[str, Any] = {}
+                if hasattr(chunk, "metadata"):
+                    raw_metadata = chunk.metadata
+                    if isinstance(raw_metadata, dict):
+                        metadata = dict(raw_metadata)
+                metadata.setdefault("original_request", original_request)
+                metadata.setdefault("session_id", session_id)
+                content_value = getattr(chunk, "content", chunk)
+                yield ProcessedResponse(content=content_value, metadata=metadata)
+
+        processed_stream = _attach_stream_context(processed_stream)
+
+        # Route streaming chunks through the response processor so stream processors
+        # (tool-call repair, reactor middleware, etc.) run for streaming as well.
+        try:
+            processed_stream = self._response_processor.process_streaming_response(
+                processed_stream, session_id
+            )
+        except Exception:
+            logger.warning(
+                "Response processor streaming normalization failed; "
+                "returning unprocessed stream",
+                exc_info=True,
+            )
+
+        async def _stream_with_empty_recovery(
+            stream: AsyncIterator[ProcessedResponse],
+        ) -> AsyncIterator[ProcessedResponse]:
+            try:
+                async for chunk in stream:
+                    yield chunk
+            except EmptyResponseRetryError as exc:
+                logger.info(
+                    "Empty streaming response detected, retrying with recovery prompt: %s",
+                    exc.recovery_prompt[:100],
+                )
+                retry_request = await self._create_retry_request(
+                    original_request, exc.recovery_prompt
+                )
+                retry_response = await self._backend_processor.process_backend_request(
+                    request=retry_request, session_id=session_id, context=context
+                )
+
+                if isinstance(retry_response, StreamingResponseEnvelope):
+                    retried = await self._process_streaming_response(
+                        retry_response,
+                        retry_request,
+                        session_id,
+                        context,
+                        retry_depth=retry_depth + 1,
+                    )
+                    retry_stream = getattr(retried, "content", None)
+                    if retry_stream is not None:
+                        async for retry_chunk in retry_stream:
+                            yield retry_chunk
+                    return
+
+                yield ProcessedResponse(
+                    content=getattr(retry_response, "content", ""),
+                    metadata=getattr(retry_response, "metadata", {}),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Streaming middleware failed for session %s: %s",
+                    session_id,
+                    exc,
+                    exc_info=True,
+                )
+
+        processed_stream = _stream_with_empty_recovery(processed_stream)
+
         return StreamingResponseEnvelope(
-            content=angel_guarded_stream(),
+            content=processed_stream,
             media_type=stream_envelope.media_type,
             headers=stream_envelope.headers,
             cancel_callback=cancel_callback,

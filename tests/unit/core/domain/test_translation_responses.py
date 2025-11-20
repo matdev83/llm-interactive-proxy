@@ -55,6 +55,25 @@ class TestTranslationResponses(unittest.TestCase):
             self.assertEqual(result.usage["completion_tokens"], 25)
             self.assertEqual(result.usage["total_tokens"], 35)
 
+    def test_anthropic_to_domain_response_includes_thinking(self):
+        anthropic_response = {
+            "id": "msg_reasoning",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-opus-20240229",
+            "content": [
+                {"type": "thinking", "thinking": "Step through the plan."},
+                {"type": "text", "text": "Solution summary."},
+            ],
+            "stop_reason": "end_turn",
+        }
+
+        result = Translation.anthropic_to_domain_response(anthropic_response)
+
+        choice = result.choices[0]
+        self.assertEqual(choice.message.content, "Solution summary.")
+        self.assertEqual(choice.message.reasoning_content, "Step through the plan.")
+
     def test_openai_to_domain_response_success(self):
         openai_response = {
             "id": "chatcmpl-123",
@@ -84,6 +103,35 @@ class TestTranslationResponses(unittest.TestCase):
             self.assertEqual(result.usage["prompt_tokens"], 8)
             self.assertEqual(result.usage["completion_tokens"], 5)
             self.assertEqual(result.usage["total_tokens"], 13)
+
+    def test_openai_to_domain_response_includes_reasoning(self):
+        openai_response = {
+            "id": "chatcmpl-reasoning",
+            "object": "chat.completion",
+            "created": 1677652299,
+            "model": "gpt-4o-reasoning",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Final answer.",
+                        "reasoning": {
+                            "content": [
+                                {"type": "output_text", "text": "Consider the steps."}
+                            ]
+                        },
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        result = Translation.openai_to_domain_response(openai_response)
+
+        choice = result.choices[0]
+        self.assertEqual(choice.message.content, "Final answer.")
+        self.assertEqual(choice.message.reasoning_content, "Consider the steps.")
 
     def test_responses_to_domain_response_output_payload(self):
         responses_response = {
@@ -136,6 +184,32 @@ class TestTranslationResponses(unittest.TestCase):
             self.assertEqual(result.usage["completion_tokens"], 9)
             self.assertEqual(result.usage["total_tokens"], 20)
 
+    def test_responses_to_domain_response_preserves_reasoning(self):
+        responses_response = {
+            "id": "resp-reasoning",
+            "object": "response",
+            "created": 1700000001,
+            "model": "gpt-4.1",
+            "output": [
+                {
+                    "id": "msg-1",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {"type": "reasoning", "text": "Thinking carefully."},
+                        {"type": "output_text", "text": "Here is the result."},
+                    ],
+                }
+            ],
+        }
+
+        result = Translation.responses_to_domain_response(responses_response)
+
+        choice = result.choices[0]
+        self.assertEqual(choice.message.content, "Here is the result.")
+        self.assertEqual(choice.message.reasoning_content, "Thinking carefully.")
+
     def test_gemini_to_domain_response_success(self):
         gemini_response = {
             "candidates": [
@@ -164,6 +238,29 @@ class TestTranslationResponses(unittest.TestCase):
             self.assertEqual(result.usage["prompt_tokens"], 12)
             self.assertEqual(result.usage["completion_tokens"], 6)
             self.assertEqual(result.usage["total_tokens"], 18)
+
+    def test_gemini_to_domain_response_includes_reasoning(self):
+        gemini_response = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": "Final Gemini answer.",
+                                "metadata": {"thought": "Plan with care."},
+                            }
+                        ]
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+
+        result = Translation.gemini_to_domain_response(gemini_response)
+
+        choice = result.choices[0]
+        self.assertEqual(choice.message.content, "Final Gemini answer.")
+        self.assertEqual(choice.message.reasoning_content, "Plan with care.")
 
     def test_gemini_to_domain_response_tool_call_argument_normalization(self):
         gemini_response = {
@@ -214,6 +311,31 @@ class TestTranslationResponses(unittest.TestCase):
         self.assertEqual(result["id"], "chatcmpl-123")
         self.assertEqual(result["choices"][0]["delta"]["content"], "Hello")
 
+    def test_openai_to_domain_stream_chunk_reasoning(self):
+        openai_chunk = {
+            "id": "chatcmpl-reasoning",
+            "object": "chat.completion.chunk",
+            "created": 1677652300,
+            "model": "gpt-4o-reasoning",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "reasoning": {
+                            "content": [
+                                {"type": "output_text", "text": "Streaming thought."}
+                            ]
+                        }
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+        result = Translation.openai_to_domain_stream_chunk(openai_chunk)
+        delta = result["choices"][0]["delta"]
+        self.assertEqual(delta["reasoning_content"], "Streaming thought.")
+
     def test_gemini_to_domain_stream_chunk_success(self):
         gemini_chunk = {
             "candidates": [
@@ -257,6 +379,24 @@ class TestTranslationResponses(unittest.TestCase):
         self.assertEqual(len(delta["tool_calls"]), 1)
         self.assertEqual(delta["tool_calls"][0]["function"]["name"], "call_tool")
 
+    def test_gemini_to_domain_stream_chunk_reasoning(self):
+        gemini_chunk = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "partial"},
+                            {"type": "reasoning", "text": "chain of thought"},
+                        ]
+                    }
+                }
+            ]
+        }
+
+        result = Translation.gemini_to_domain_stream_chunk(gemini_chunk)
+        delta = result["choices"][0]["delta"]
+        self.assertEqual(delta["reasoning_content"], "chain of thought")
+
     def test_anthropic_to_domain_stream_chunk_success(self):
         anthropic_chunk = {
             "type": "content_block_delta",
@@ -269,6 +409,16 @@ class TestTranslationResponses(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertTrue(result["id"].startswith("chatcmpl-"))
         self.assertEqual(result["choices"][0]["delta"]["content"], "Hello")
+
+    def test_anthropic_to_domain_stream_chunk_reasoning(self):
+        anthropic_chunk = {
+            "type": "content_block_delta",
+            "delta": {"type": "thinking_delta", "text": "careful plan"},
+        }
+
+        result = Translation.anthropic_to_domain_stream_chunk(anthropic_chunk)
+        delta = result["choices"][0]["delta"]
+        self.assertEqual(delta["reasoning_content"], "careful plan")
 
     def test_from_domain_to_anthropic_response_basic(self):
         message = ChatCompletionChoiceMessage(role="assistant", content="Hi there!")

@@ -182,6 +182,13 @@ def build_cli_parser() -> argparse.ArgumentParser:
             "anthropic:claude-3-5-sonnet?temperature=1&reasoning_effort=high)"
         ),
     )
+    parser.add_argument(
+        "--angel-frequency",
+        dest="angel_frequency",
+        type=int,
+        metavar="N",
+        help="Run Angel verification every N user turns (default: 1)",
+    )
 
     # API Keys and URLs
     parser.add_argument("--openrouter-api-key")
@@ -189,6 +196,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gemini-api-key")
     parser.add_argument("--gemini-api-base-url")
     parser.add_argument("--zai-api-key")
+    parser.add_argument("--zenmux-api-base-url")
 
     # Basic server options
     parser.add_argument("--host")
@@ -1045,6 +1053,15 @@ def apply_cli_args(
             normalized_key,
             "--zai-api-key",
         )
+    if args.zenmux_api_base_url is not None:
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        zenmux_overrides = backend_overrides.setdefault("zenmux", {})
+        zenmux_overrides["api_url"] = args.zenmux_api_base_url
+        record_cli(
+            "backends.zenmux.api_url",
+            args.zenmux_api_base_url,
+            "--zenmux-api-base-url",
+        )
 
     # Feature flags (inverted boolean logic)
     if args.disable_interactive_mode is not None:
@@ -1136,6 +1153,16 @@ def apply_cli_args(
             "session.angel_model",
             args.use_angel_model,
             "--use-angel-model",
+        )
+    if getattr(args, "angel_frequency", None) is not None:
+        frequency = max(1, int(args.angel_frequency))
+        session_overrides = cli_overrides.setdefault("session", {})
+        session_overrides["angel_frequency"] = frequency
+        os.environ["ANGEL_FREQUENCY"] = str(frequency)
+        record_cli(
+            "session.angel_frequency",
+            frequency,
+            "--angel-frequency",
         )
 
     # Brute force protection configuration (auth_overrides may already exist from earlier setdefault calls)
