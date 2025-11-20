@@ -7,8 +7,11 @@ to FastAPI/Starlette response objects.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
+import uuid
 from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import asdict, is_dataclass
 from typing import Any
@@ -42,11 +45,186 @@ def _format_chunk_as_sse(chunk: Any) -> bytes:
         sse_line = f"data: {json.dumps(chunk)}\n\n"
         return sse_line.encode("utf-8")
     elif isinstance(chunk, str):
-        return chunk.encode("utf-8")
+        return chunk.encode()
     elif isinstance(chunk, bytes):
         return chunk
     else:
         return str(chunk).encode("utf-8")
+
+
+def _normalize_content(content: Any) -> Any:
+    """Normalize content into JSON-serializable structures when possible."""
+    if hasattr(content, "model_dump"):
+        try:
+            return content.model_dump()
+        except (TypeError, ValueError, AttributeError):
+            logger.debug(
+                "Failed to model_dump content; falling back to dict", exc_info=True
+            )
+            return dict(content)
+    if is_dataclass(content) and not isinstance(content, type):
+        return asdict(content)
+    return content
+
+
+def _assign_reasoning(
+    payload: dict[str, Any],
+    metadata: dict[str, Any],
+    *,
+    streaming: bool,
+) -> bool:
+    """Insert reasoning metadata into an OpenAI-style payload.
+
+    Returns True when reasoning was injected into at least one choice.
+    """
+
+    reasoning_text = metadata.get("reasoning_content") or metadata.get("reasoning")
+    if not reasoning_text:
+        return False
+
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        return False
+
+    assigned = False
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+
+        target_key = "delta" if (streaming or "delta" in choice) else "message"
+        target = choice.get(target_key)
+        if not isinstance(target, dict):
+            target = {}
+            choice[target_key] = target
+
+        if target.get("reasoning_content"):
+            continue
+
+        if streaming:
+            target.setdefault("role", metadata.get("role", "assistant"))
+        elif metadata.get("role") and "role" not in target:
+            target["role"] = metadata["role"]
+
+        target["reasoning_content"] = reasoning_text
+        target.setdefault("reasoning", metadata.get("reasoning", reasoning_text))
+        assigned = True
+
+    return assigned
+
+
+def _build_streaming_payload(
+    content: Any,
+    metadata: dict[str, Any],
+    reasoning_text: str | None,
+    *,
+    streaming: bool,
+) -> dict[str, Any]:
+    """Create an OpenAI-style payload when we can't inject into existing content."""
+
+    chunk_id = metadata.get("id")
+    if not isinstance(chunk_id, str) or not chunk_id:
+        chunk_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
+
+    created_raw = metadata.get("created")
+    if isinstance(created_raw, int):
+        created = created_raw
+    else:
+        try:
+            created = int(created_raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            created = int(time.time())
+
+    model_name = metadata.get("model") or "unknown"
+    object_type = metadata.get("object")
+    if not isinstance(object_type, str):
+        object_type = "chat.completion.chunk" if streaming else "chat.completion"
+
+    choice_payload: dict[str, Any] = {
+        "index": metadata.get("index", 0),
+        "finish_reason": metadata.get("finish_reason"),
+    }
+
+    target_key = "delta" if streaming else "message"
+    target_payload: dict[str, Any] = {
+        "role": metadata.get("role", "assistant"),
+    }
+
+    tool_calls = metadata.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        target_payload["tool_calls"] = tool_calls
+
+    if reasoning_text:
+        target_payload["reasoning_content"] = reasoning_text
+        target_payload["reasoning"] = metadata.get("reasoning", reasoning_text)
+
+    if isinstance(content, dict):
+        target_payload.update(content)
+    elif isinstance(content, str) and content.strip():
+        if streaming:
+            target_payload["content"] = content
+        else:
+            target_payload.setdefault("content", content)
+    elif content not in (None, ""):
+        rendered = str(content).strip()
+        if rendered:
+            target_payload.setdefault("content", rendered)
+
+    choice_payload[target_key] = target_payload
+
+    return {
+        "id": chunk_id,
+        "object": object_type,
+        "created": created,
+        "model": model_name,
+        "choices": [choice_payload],
+    }
+
+
+def _inject_reasoning_metadata(
+    content: Any,
+    metadata: dict[str, Any] | None,
+    *,
+    streaming: bool,
+) -> Any:
+    """Inject reasoning metadata into OpenAI-style payloads when available."""
+
+    normalized_content = _normalize_content(content)
+
+    if not metadata or not isinstance(metadata, dict):
+        return normalized_content
+
+    reasoning_text = metadata.get("reasoning_content") or metadata.get("reasoning")
+
+    if isinstance(normalized_content, dict):
+        if _assign_reasoning(normalized_content, metadata, streaming=streaming):
+            return normalized_content
+
+        # If we couldn't place reasoning inside choices, surface it via metadata
+        metadata_block = normalized_content.get("metadata")
+        reasoning_payload = {
+            "reasoning_content": reasoning_text,
+            "reasoning": metadata.get("reasoning", reasoning_text),
+        }
+        if isinstance(metadata_block, dict):
+            metadata_block.setdefault(
+                "reasoning_content", reasoning_payload["reasoning_content"]
+            )
+            metadata_block.setdefault("reasoning", reasoning_payload["reasoning"])
+        else:
+            normalized_content["metadata"] = reasoning_payload
+        return normalized_content
+
+    if reasoning_text:
+        return _build_streaming_payload(
+            normalized_content, metadata, reasoning_text, streaming=streaming
+        )
+
+    if streaming and isinstance(normalized_content, str):
+        return _build_streaming_payload(
+            normalized_content, metadata, None, streaming=streaming
+        )
+
+    return normalized_content
 
 
 async def _string_to_async_iterator(content: bytes) -> AsyncIterator[ProcessedResponse]:
@@ -69,6 +247,9 @@ def to_fastapi_response(
     """
     envelope = _normalize_response_envelope(domain_response)
     content = _apply_content_converter(envelope.content, content_converter)
+    content = _inject_reasoning_metadata(
+        content, getattr(envelope, "metadata", None), streaming=False
+    )
     headers = envelope.headers or {}
     status_code = envelope.status_code
     media_type = getattr(envelope, "media_type", "application/json")
@@ -76,11 +257,79 @@ def to_fastapi_response(
     if media_type and media_type.startswith("application/json"):
         json_content = _prepare_json_content(content)
 
+        if envelope.metadata and isinstance(json_content, dict):
+            reasoning_meta = envelope.metadata.get(
+                "reasoning"
+            ) or envelope.metadata.get("reasoning_content")
+            if reasoning_meta:
+                metadata_section = json_content.setdefault("metadata", {})
+                if isinstance(metadata_section, dict):
+                    metadata_section.setdefault("reasoning", reasoning_meta)
+                    metadata_section.setdefault("reasoning_content", reasoning_meta)
+
         # If the envelope has usage data, merge it into the response content.
         # This ensures that token usage from the backend is always included
         # in the final response, overriding any default/zeroed values.
+        # If content appears to have been transformed, recalculate usage to match actual content.
+        allow_usage_recalculation = bool(
+            envelope.metadata.get("allow_usage_recalculation")
+            if envelope.metadata
+            else False
+        )
+
         if envelope.usage and isinstance(json_content, dict):
-            json_content["usage"] = envelope.usage
+            from src.core.utils.usage_recalculation import (
+                extract_content_text,
+                should_recalculate_usage,
+            )
+
+            # Check if we should recalculate usage based on content
+            if allow_usage_recalculation and should_recalculate_usage(json_content):
+                current_content = extract_content_text(json_content)
+                if current_content:
+                    # Recalculate completion tokens based on actual content
+                    from src.core.utils.token_count import count_tokens
+
+                    actual_completion_tokens = count_tokens(current_content)
+                    original_completion_tokens = envelope.usage.get(
+                        "completion_tokens", 0
+                    )
+
+                    # Only update if there's a significant difference (>5% or >10 tokens)
+                    token_diff = abs(
+                        original_completion_tokens - actual_completion_tokens
+                    )
+                    if token_diff > 10 or (
+                        original_completion_tokens > 0
+                        and token_diff / original_completion_tokens > 0.05
+                    ):
+                        prompt_tokens = envelope.usage.get("prompt_tokens", 0)
+                        recalculated_usage = {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": actual_completion_tokens,
+                            "total_tokens": prompt_tokens + actual_completion_tokens,
+                        }
+                        logger.info(
+                            f"Usage recalculated: completion_tokens {original_completion_tokens} -> {actual_completion_tokens} "
+                            f"(diff: {token_diff}, {token_diff/max(original_completion_tokens, 1)*100:.1f}%)"
+                        )
+                        json_content["usage"] = recalculated_usage
+                    else:
+                        json_content["usage"] = envelope.usage
+                else:
+                    json_content["usage"] = envelope.usage
+            else:
+                json_content["usage"] = envelope.usage
+
+        # Surface middleware metadata such as reasoning streams when available.
+        if envelope.metadata and isinstance(json_content, dict):
+            metadata_reasoning = envelope.metadata.get(
+                "reasoning"
+            ) or envelope.metadata.get("reasoning_content")
+            if metadata_reasoning:
+                metadata_block = json_content.setdefault("metadata", {})
+                if isinstance(metadata_block, dict):
+                    metadata_block.setdefault("reasoning", metadata_reasoning)
 
         safe_content = _sanitize_json_content(json_content)
         safe_headers = _sanitize_headers(headers)
@@ -180,7 +429,13 @@ def _sanitize_headers(headers: Any) -> dict[str, Any]:
                 safe_headers = {}
         elif hasattr(headers, "_mock_name") or hasattr(headers, "_execute_mock_call"):
             safe_headers = {}
-    allowed_prefixes = ("x-", "access-control-")
+    # Allow headers that are useful for clients:
+    # - x-* (custom headers)
+    # - access-control-* (CORS)
+    # - anthropic-* (Anthropic-specific headers including usage/rate limits)
+    # - openai-* (OpenAI-specific headers)
+    # - zenmux-* (ZenMux-specific headers)
+    allowed_prefixes = ("x-", "access-control-", "anthropic-", "openai-", "zenmux-")
     hop_by_hop = {
         "content-encoding",
         "transfer-encoding",
@@ -226,7 +481,8 @@ def _handle_backend_error_status_code(content: Any, status_code: int) -> int:
 def _create_json_response(
     content: Any, status_code: int, headers: dict[str, Any]
 ) -> JSONResponse:
-    allowed_prefixes = ("x-", "access-control-")
+    # Allow provider-specific headers for usage tracking and rate limiting
+    allowed_prefixes = ("x-", "access-control-", "anthropic-", "openai-", "zenmux-")
     filtered_headers = {
         k: v
         for k, v in (headers or {}).items()
@@ -274,6 +530,7 @@ def to_fastapi_streaming_response(
     """
 
     # Ensure the async iterator yields bytes (some backends yield str)
+    # Ensure the async iterator yields bytes (some backends yield str)
     async def _byte_streamer(
         it: AsyncIterator[Any] | Iterable[Any] | None,
     ) -> AsyncIterator[bytes]:
@@ -282,18 +539,43 @@ def to_fastapi_streaming_response(
         try:
             async for chunk in it:  # type: ignore
                 # Extract content from ProcessedResponse if needed
-                content = (
-                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
-                )
-                yield _format_chunk_as_sse(content)
+                if isinstance(chunk, ProcessedResponse):
+                    metadata = chunk.metadata
+                    content = chunk.content
+                else:
+                    metadata = None
+                    content = chunk
+
+                # Check if content is already SSE formatted (e.g. from emulator)
+                if isinstance(content, str) and content.strip().startswith("data: "):
+                    yield content.encode("utf-8")
+                    await asyncio.sleep(0)
+                    continue
+
+                enriched = _inject_reasoning_metadata(content, metadata, streaming=True)
+                formatted = _format_chunk_as_sse(enriched)
+                yield formatted
+                # Add explicit flush point to ensure immediate delivery
+                # This helps prevent buffering by yielding control to the event loop
+                await asyncio.sleep(0)
         except TypeError:
             # Not an async iterator; handle as sync iterable
             for chunk in it:  # type: ignore
                 # Extract content from ProcessedResponse if needed
-                content = (
-                    chunk.content if isinstance(chunk, ProcessedResponse) else chunk
-                )
-                yield _format_chunk_as_sse(content)
+                if isinstance(chunk, ProcessedResponse):
+                    metadata = chunk.metadata
+                    content = chunk.content
+                else:
+                    metadata = None
+                    content = chunk
+
+                # Check if content is already SSE formatted
+                if isinstance(content, str) and content.strip().startswith("data: "):
+                    yield content.encode("utf-8")
+                    continue
+
+                enriched = _inject_reasoning_metadata(content, metadata, streaming=True)
+                yield _format_chunk_as_sse(enriched)
 
     content_iter = domain_response.content
     if content_iter is None:

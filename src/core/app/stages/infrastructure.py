@@ -115,6 +115,7 @@ class InfrastructureStage(InitializationStage):
     def _register_loop_detector(self, services: ServiceCollection) -> None:
         """Register loop detector service."""
         try:
+            import os
             from typing import cast
 
             from src.core.interfaces.di_interface import IServiceProvider
@@ -122,53 +123,74 @@ class InfrastructureStage(InitializationStage):
             from src.loop_detection.config import InternalLoopDetectionConfig
             from src.loop_detection.hybrid_detector import HybridLoopDetector
 
-            def _create_hybrid_loop_detector() -> HybridLoopDetector:
-                """Build a HybridLoopDetector using legacy config defaults."""
-                config = InternalLoopDetectionConfig()
+            # Check if loop detection is enabled in config (read from environment)
+            config = InternalLoopDetectionConfig.from_env_vars(dict(os.environ))
 
-                short_config = {
-                    "content_loop_threshold": config.content_loop_threshold,
-                    "content_chunk_size": config.content_chunk_size,
-                    "max_history_length": config.max_history_length,
-                }
+            if config.enabled:
 
-                long_threshold = config.long_pattern_threshold
-                if long_threshold is None:
-                    raise ValueError(
-                        "LoopDetectionConfig.long_pattern_threshold must be set"
+                def _create_hybrid_loop_detector() -> HybridLoopDetector:
+                    """Build a HybridLoopDetector using legacy config defaults."""
+                    short_config = {
+                        "content_loop_threshold": config.content_loop_threshold,
+                        "content_chunk_size": config.content_chunk_size,
+                        "max_history_length": config.max_history_length,
+                    }
+
+                    long_threshold = config.long_pattern_threshold
+                    if long_threshold is None:
+                        raise ValueError(
+                            "LoopDetectionConfig.long_pattern_threshold must be set"
+                        )
+
+                    min_repetitions = max(long_threshold.min_repetitions, 1)
+                    min_pattern_length = max(
+                        long_threshold.min_total_length // min_repetitions,
+                        60,
                     )
 
-                min_repetitions = max(long_threshold.min_repetitions, 1)
-                min_pattern_length = max(
-                    long_threshold.min_total_length // min_repetitions,
-                    60,
+                    long_config = {
+                        "min_pattern_length": min(
+                            min_pattern_length, config.max_pattern_length
+                        ),
+                        "max_pattern_length": config.max_pattern_length,
+                        "min_repetitions": long_threshold.min_repetitions,
+                        "max_history": config.max_history_length,
+                    }
+
+                    return HybridLoopDetector(
+                        short_detector_config=short_config,
+                        long_detector_config=long_config,
+                    )
+
+                def loop_detector_factory(
+                    provider: IServiceProvider,
+                ) -> HybridLoopDetector:
+                    return _create_hybrid_loop_detector()
+
+                services.add_transient(
+                    HybridLoopDetector, implementation_factory=loop_detector_factory
+                )
+                services.add_transient(
+                    cast(type, ILoopDetector),
+                    implementation_factory=loop_detector_factory,
                 )
 
-                long_config = {
-                    "min_pattern_length": min(
-                        min_pattern_length, config.max_pattern_length
-                    ),
-                    "max_pattern_length": config.max_pattern_length,
-                    "min_repetitions": long_threshold.min_repetitions,
-                    "max_history": config.max_history_length,
-                }
+                logger.debug("Registered HybridLoopDetector with DI container")
+            else:
+                # Register no-op detector when loop detection is disabled
+                from src.loop_detection.detector import NoOpLoopDetector
 
-                return HybridLoopDetector(
-                    short_detector_config=short_config,
-                    long_detector_config=long_config,
+                def noop_detector_factory(
+                    provider: IServiceProvider,
+                ) -> NoOpLoopDetector:
+                    return NoOpLoopDetector()
+
+                services.add_transient(
+                    cast(type, ILoopDetector),
+                    implementation_factory=noop_detector_factory,
                 )
 
-            def loop_detector_factory(provider: IServiceProvider) -> HybridLoopDetector:
-                return _create_hybrid_loop_detector()
-
-            services.add_transient(
-                HybridLoopDetector, implementation_factory=loop_detector_factory
-            )
-            services.add_transient(
-                cast(type, ILoopDetector), implementation_factory=loop_detector_factory
-            )
-
-            logger.debug("Registered HybridLoopDetector with DI container")
+                logger.debug("Loop detection disabled, registered NoOpLoopDetector")
 
         except ImportError as e:
             logger.warning(f"Could not register loop detector: {e}")
