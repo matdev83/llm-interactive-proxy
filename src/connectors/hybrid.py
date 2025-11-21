@@ -662,7 +662,14 @@ class HybridConnector(LLMBackend):
             )
             if formatted_reasoning:
                 augmented_messages.append(
-                    {"role": "assistant", "content": formatted_reasoning}
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "reasoning": formatted_reasoning,
+                        "reasoning_content": self._extract_reasoning_inner_text(
+                            formatted_reasoning
+                        ),
+                    }
                 )
         return augmented_messages
 
@@ -862,6 +869,12 @@ class HybridConnector(LLMBackend):
     ) -> ProcessedResponse | None:
         """Create a processed response chunk that surfaces reasoning to clients."""
 
+        reasoning_metadata = {
+            "hybrid_phase": "reasoning",
+            "reasoning_backend": reasoning_backend,
+            "reasoning_model": reasoning_model,
+        }
+
         formatted = (
             formatted_reasoning.strip()
             if formatted_reasoning
@@ -905,8 +918,10 @@ class HybridConnector(LLMBackend):
                     "index": 0,
                     "delta": delta_payload,
                     "finish_reason": None,
+                    "metadata": reasoning_metadata,
                 }
             ],
+            "metadata": reasoning_metadata,
         }
 
         sse_payload = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -914,11 +929,7 @@ class HybridConnector(LLMBackend):
         return ProcessedResponse(
             content=sse_payload,
             usage=None,
-            metadata={
-                "hybrid_phase": "reasoning",
-                "reasoning_backend": reasoning_backend,
-                "reasoning_model": reasoning_model,
-            },
+            metadata=reasoning_metadata,
         )
 
     def _build_tool_call_only_response(

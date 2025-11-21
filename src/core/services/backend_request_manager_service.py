@@ -666,10 +666,7 @@ class BackendRequestManager(IBackendRequestManager):
                                 exc_info=True,
                             )
 
-                    cancellation_message = (
-                        "[Response cancelled: Loop detected - Pattern "
-                        f"'{event.pattern[:30]}...' repeated {event.repetition_count} times]"
-                    )
+                    # Emit a quiet cancellation marker without leaking debug text
                     cancellation_payload = {
                         "id": f"loop-detector-{int(event.timestamp)}",
                         "object": "chat.completion.chunk",
@@ -678,8 +675,8 @@ class BackendRequestManager(IBackendRequestManager):
                         "choices": [
                             {
                                 "index": 0,
-                                "delta": {"content": cancellation_message},
-                                "finish_reason": "stop",
+                                "delta": {"content": ""},
+                                "finish_reason": "cancelled",
                             }
                         ],
                     }
@@ -690,8 +687,10 @@ class BackendRequestManager(IBackendRequestManager):
                             "is_done": True,
                             "loop_pattern": event.pattern,
                             "loop_repetitions": event.repetition_count,
+                            "loop_detected": True,
                         },
                     )
+                    # Stop streaming after cancellation to avoid duplicate markers
                     return
 
                 yield chunk  # type: ignore[return-value]

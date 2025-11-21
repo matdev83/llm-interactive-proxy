@@ -461,7 +461,9 @@ class ResponseProcessor(IResponseProcessor):
             # Process the stream using the normalizer
             try:
                 stream_processor = self._stream_normalizer.process_stream(
-                    response_iterator, output_format="objects"
+                    response_iterator,
+                    output_format="objects",
+                    cancel_callback=None,
                 )
 
                 # stream_processor is already an async generator, no need to await

@@ -41,13 +41,17 @@ class StreamNormalizer(IStreamNormalizer):
                     )
 
     async def process_stream(
-        self, stream: AsyncIterator[Any], output_format: str = "bytes"
+        self,
+        stream: AsyncIterator[Any],
+        output_format: str = "bytes",
+        cancel_callback: Any | None = None,
     ) -> AsyncGenerator[StreamingContent | bytes, None]:
         """Process a stream and convert to the desired output format.
 
         Args:
             stream: The input stream to process.
             output_format: The desired output format ("bytes" or "objects").
+            cancel_callback: Optional callback to cancel upstream streaming.
 
         Yields:
             An async iterator of the processed stream in the requested format.
@@ -72,6 +76,17 @@ class StreamNormalizer(IStreamNormalizer):
 
             # Apply processors in sequence
             for processor in self._processors:
+                if cancel_callback is not None and hasattr(
+                    processor, "cancel_callback"
+                ):
+                    try:
+                        setattr(processor, "cancel_callback", cancel_callback)
+                    except Exception:  # pragma: no cover - defensive guard
+                        logger.debug(
+                            "Failed to set cancel_callback on processor %s",
+                            type(processor).__name__,
+                            exc_info=True,
+                        )
                 content = await processor.process(content)
 
                 # Skip if processor made it empty

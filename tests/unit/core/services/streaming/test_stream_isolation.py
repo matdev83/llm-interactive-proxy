@@ -140,6 +140,39 @@ class _DummyLoopDetector(ILoopDetector):
         return LoopDetectionResult(has_loop=False)
 
 
+class _TriggeringLoopDetector(ILoopDetector):
+    """Detector that fires a loop event on the first chunk."""
+
+    def __init__(self) -> None:
+        self.triggered = False
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def process_chunk(self, chunk: str):
+        if self.triggered:
+            return None
+        self.triggered = True
+        return LoopDetectionEvent(
+            pattern="loop",
+            pattern_length=len("loop"),
+            repetition_count=2,
+            total_length=len(chunk),
+            confidence=1.0,
+            buffer_content=chunk,
+            timestamp=0.0,
+        )
+
+    def reset(self) -> None:
+        self.triggered = False
+
+    def get_loop_history(self):
+        return []
+
+    def get_current_state(self):
+        return {"triggered": self.triggered}
+
+
 @pytest.mark.asyncio
 async def test_loop_detection_isolates_sessions() -> None:
     processor = LoopDetectionProcessor(loop_detector_factory=_DummyLoopDetector)
@@ -180,3 +213,24 @@ async def test_loop_detection_assigns_stream_id_when_missing() -> None:
     assert "stream_id" not in content.metadata
     await processor.process(content)
     assert "stream_id" in content.metadata
+
+
+@pytest.mark.asyncio
+async def test_loop_detection_cancellation_does_not_leak_text() -> None:
+    processor = LoopDetectionProcessor(loop_detector_factory=_TriggeringLoopDetector)
+
+    # First chunk triggers loop detection
+    cancellation = await processor.process(
+        StreamingContent(content="repeating", metadata={"session_id": "s1"})
+    )
+    assert cancellation.is_cancellation
+    assert cancellation.is_done
+    assert cancellation.content == ""
+    assert cancellation.metadata.get("loop_detected") is True
+
+    # Subsequent chunk for same session should also be cancelled quietly
+    follow_up = await processor.process(
+        StreamingContent(content="repeating-again", metadata={"session_id": "s1"})
+    )
+    assert follow_up.is_cancellation
+    assert follow_up.is_done

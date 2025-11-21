@@ -31,7 +31,10 @@ else:
 
 class _PassthroughStreamNormalizer(IStreamNormalizer):
     async def process_stream(
-        self, iterator: AsyncIterator[Any], output_format: str = "objects"
+        self,
+        iterator: AsyncIterator[Any],
+        output_format: str = "objects",
+        cancel_callback: Any | None = None,
     ) -> AsyncGenerator[StreamingContent | bytes, None]:
         # Simple passthrough that converts bytes to StreamingContent or passes through as-is
         if output_format == "bytes":
@@ -195,6 +198,7 @@ def normalize_streaming_response(
     normalize: bool = True,
     media_type: str = "text/event-stream",
     headers: dict[str, str] | None = None,
+    cancel_callback: Any | None = None,
 ) -> StreamingResponseEnvelope:
     """Create a normalized StreamingResponseEnvelope from an async iterator.
 
@@ -227,9 +231,15 @@ def normalize_streaming_response(
                         exc,
                         exc_info=True,
                     )
-            processed_stream = normalizer.process_stream(
-                iterator, output_format="objects"
-            )
+            try:
+                processed_stream = normalizer.process_stream(
+                    iterator, output_format="objects", cancel_callback=cancel_callback
+                )
+            except TypeError:
+                # Backward compatibility with normalizers that don't accept cancel_callback
+                processed_stream = normalizer.process_stream(
+                    iterator, output_format="objects"
+                )
             async for chunk in processed_stream:
                 if hasattr(chunk, "to_bytes"):
                     try:
@@ -260,4 +270,5 @@ def normalize_streaming_response(
         content=cast(AsyncIterator, create_normalized_stream()),
         media_type=media_type,
         headers=headers or {},
+        cancel_callback=cancel_callback,
     )

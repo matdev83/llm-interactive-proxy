@@ -527,7 +527,8 @@ class TestAdaptiveMessageAugmentation:
         assert augmented[1]["content"] == "Hello"
 
         assert augmented[2]["role"] == "assistant"
-        assert reasoning_output in augmented[2]["content"]
+        assert augmented[2]["content"] == ""
+        assert augmented[2].get("reasoning_content") == reasoning_output
 
 
 class TestReasoningExposure:

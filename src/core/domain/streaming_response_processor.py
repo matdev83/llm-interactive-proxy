@@ -46,6 +46,8 @@ class LoopDetectionProcessor(IStreamProcessor):
         self.cancel_callback = cancel_callback
         # Per-session detector instances to ensure isolation
         self._session_detectors: dict[str, ILoopDetector] = {}
+        # Track sessions that have already triggered cancellation to suppress duplicates
+        self._cancelled_sessions: set[str] = set()
 
     def _get_detector_for_session(self, session_id: str) -> ILoopDetector:
         """Get or create a loop detector for the given session.
@@ -91,6 +93,10 @@ class LoopDetectionProcessor(IStreamProcessor):
         raw_session = content.metadata.get("session_id") or content.metadata.get("id")
         session_id = str(raw_session) if raw_session else str(stream_id)
 
+        if session_id in self._cancelled_sessions:
+            # Suppress further chunks after cancellation for this session/stream.
+            return self._create_cancellation_content(detection_event=None, session_id=session_id)
+
         # Get the detector instance for this specific session
         loop_detector = self._get_detector_for_session(session_id)
 
@@ -126,28 +132,30 @@ class LoopDetectionProcessor(IStreamProcessor):
                         f"Failed to trigger API cancellation: {e}", exc_info=True
                     )
 
-            return self._create_cancellation_content(detection_event)
+            self._cancelled_sessions.add(session_id)
+            return self._create_cancellation_content(detection_event, session_id=session_id)
         else:
             # No loop detected, pass through the content
             return content
 
     def _create_cancellation_content(
-        self, detection_event: LoopDetectionEvent
+        self, detection_event: LoopDetectionEvent | None, session_id: str
     ) -> StreamingContent:
-        """Create a StreamingContent object with a cancellation message."""
-        payload = (
-            "[Response cancelled: Loop detected - Pattern "
-            f"'{detection_event.pattern[:30]}...' repeated "
-            f"{detection_event.repetition_count} times]"
-        )
+        """Create a StreamingContent cancellation marker without leaking debug text."""
+
+        metadata: dict[str, Any] = {"loop_detected": True, "session_id": session_id}
+        if detection_event:
+            metadata.update(
+                {
+                    "pattern": detection_event.pattern,
+                    "repetition_count": detection_event.repetition_count,
+                    "total_length": detection_event.total_length,
+                }
+            )
 
         return StreamingContent(
-            content=payload,
+            content="",
             is_done=True,
             is_cancellation=True,
-            metadata={
-                "loop_detected": True,
-                "pattern": detection_event.pattern,
-                "repetition_count": detection_event.repetition_count,
-            },
+            metadata=metadata,
         )

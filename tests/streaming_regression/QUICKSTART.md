@@ -21,11 +21,13 @@ $env:LOOP_DETECTION_ENABLED="false"
 ## Expected Result
 
 **✅ Passing (after loop detection fix)**:
+
 ```
 PASSED tests/streaming_regression/test_streaming_core.py::test_openai_streaming_incremental_delivery
 ```
 
 **❌ Currently Failing**:
+
 ```
 FAILED - AssertionError: Should receive multiple chunks
 [Response cancelled: Loop detected...]
@@ -61,6 +63,7 @@ $env:LOOP_DETECTION_ENABLED="false"
 ## Understanding Test Output
 
 ### Passing Test
+
 ```
 ✓ Received 8 chunks
 ✓ Max delay: 0.023s (chunks arrived incrementally)
@@ -69,6 +72,7 @@ $env:LOOP_DETECTION_ENABLED="false"
 ```
 
 ### Failing Test (Buffering Detected)
+
 ```
 ✗ Received 1 chunk (expected >3)
 ✗ Max delay: 0.001s (all chunks arrived at once)
