@@ -235,10 +235,41 @@ class BackendService(IBackendService):
 
         from src.core.interfaces.response_processor_interface import ProcessedResponse
 
+        def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
+            if isinstance(content, bytes | bytearray):
+                text = content.decode("utf-8", errors="ignore").strip()
+                if text == "[DONE]" or text.startswith("data: [DONE]"):
+                    return True
+            elif isinstance(content, str):
+                stripped = content.strip()
+                if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
+                    return True
+
+            if metadata and metadata.get("finish_reason"):
+                return True
+
+            if isinstance(content, dict):
+                content_metadata = content.get("metadata")
+                if isinstance(content_metadata, dict) and content_metadata.get(
+                    "finish_reason"
+                ):
+                    return True
+                choices = content.get("choices")
+                if isinstance(choices, list):
+                    for choice in choices:
+                        if isinstance(choice, dict) and choice.get("finish_reason"):
+                            return True
+
+            return False
+
         async def _adapter() -> Any:
+            done_sent = False
             async for chunk in it:  # type: ignore
                 content = (
                     chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                )
+                metadata = (
+                    chunk.metadata if isinstance(chunk, ProcessedResponse) else {}
                 )
                 if isinstance(content, dict):
                     line = f"data: {json.dumps(content)}\n\n".encode()
@@ -249,6 +280,23 @@ class BackendService(IBackendService):
                     yield content
                 else:
                     yield str(content).encode("utf-8")
+
+                if _chunk_signals_done(content, metadata):
+                    done_sent = True
+                    if isinstance(content, bytes | bytearray | str):
+                        text_str = (
+                            content.decode("utf-8", errors="ignore")
+                            if isinstance(content, bytes | bytearray)
+                            else content
+                        )
+                        stripped = text_str.strip()
+                        if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
+                            break
+                    yield b"data: [DONE]\n\n"
+                    break
+
+            if not done_sent:
+                yield b"data: [DONE]\n\n"
 
         return _adapter()
 

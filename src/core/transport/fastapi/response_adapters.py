@@ -19,6 +19,7 @@ from typing import Any
 from fastapi.responses import JSONResponse, Response
 from starlette.responses import StreamingResponse
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
 
 # Some environments may fail mypy import resolution for local packages; silence here
@@ -26,6 +27,37 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
+    """Detect if a streaming chunk signals end-of-stream."""
+
+    text_value: str | None = None
+    if isinstance(content, bytes | bytearray):
+        text_value = content.decode("utf-8", errors="ignore").strip()
+    elif isinstance(content, str):
+        text_value = content.strip()
+
+    if text_value:
+        if text_value == "[DONE]":
+            return True
+        if text_value.startswith("data: [DONE]"):
+            return True
+
+    if metadata and metadata.get("finish_reason"):
+        return True
+
+    if isinstance(content, dict):
+        content_metadata = content.get("metadata")
+        if isinstance(content_metadata, dict) and content_metadata.get("finish_reason"):
+            return True
+        choices = content.get("choices")
+        if isinstance(choices, list):
+            for choice in choices:
+                if isinstance(choice, dict) and choice.get("finish_reason"):
+                    return True
+
+    return False
 
 
 def _format_chunk_as_sse(chunk: Any) -> bytes:
@@ -538,9 +570,13 @@ def to_fastapi_streaming_response(
             return
         try:
             chunk_count = 0
+            done_sent = False
             async for chunk in it:  # type: ignore
                 chunk_count += 1
-                logger.debug(f"[STREAMING] Yielding chunk #{chunk_count}")
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL, "[STREAMING] Yielding chunk #%s", chunk_count
+                    )
                 # Extract content from ProcessedResponse if needed
                 if isinstance(chunk, ProcessedResponse):
                     metadata = chunk.metadata
@@ -551,8 +587,12 @@ def to_fastapi_streaming_response(
 
                 # Check if content is already SSE formatted (e.g. from emulator)
                 if isinstance(content, str) and content.strip().startswith("data: "):
+                    if _chunk_signals_done(content, metadata):
+                        done_sent = True
                     yield content.encode("utf-8")
                     await asyncio.sleep(0)
+                    if done_sent:
+                        break
                     continue
 
                 enriched = _inject_reasoning_metadata(content, metadata, streaming=True)
@@ -561,9 +601,30 @@ def to_fastapi_streaming_response(
                 # Add explicit flush point to ensure immediate delivery
                 # This helps prevent buffering by yielding control to the event loop
                 await asyncio.sleep(0)
-            logger.debug(f"[STREAMING] Stream completed with {chunk_count} chunks")
+                if _chunk_signals_done(content, metadata):
+                    done_sent = True
+                    if isinstance(content, bytes | bytearray | str):
+                        text_str = (
+                            content.decode("utf-8", errors="ignore")
+                            if isinstance(content, bytes | bytearray)
+                            else content
+                        )
+                        stripped = text_str.strip()
+                        if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
+                            break
+                    yield b"data: [DONE]\n\n"
+                    break
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "[STREAMING] Stream completed with %s chunks",
+                    chunk_count,
+                )
+            if not done_sent:
+                yield b"data: [DONE]\n\n"
         except TypeError:
             # Not an async iterator; handle as sync iterable
+            done_sent = False
             for chunk in it:  # type: ignore
                 # Extract content from ProcessedResponse if needed
                 if isinstance(chunk, ProcessedResponse):
@@ -575,11 +636,30 @@ def to_fastapi_streaming_response(
 
                 # Check if content is already SSE formatted
                 if isinstance(content, str) and content.strip().startswith("data: "):
+                    if _chunk_signals_done(content, metadata):
+                        done_sent = True
                     yield content.encode("utf-8")
+                    if done_sent:
+                        break
                     continue
 
                 enriched = _inject_reasoning_metadata(content, metadata, streaming=True)
                 yield _format_chunk_as_sse(enriched)
+                if _chunk_signals_done(content, metadata):
+                    done_sent = True
+                    if isinstance(content, bytes | bytearray | str):
+                        text_str = (
+                            content.decode("utf-8", errors="ignore")
+                            if isinstance(content, bytes | bytearray)
+                            else content
+                        )
+                        stripped = text_str.strip()
+                        if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
+                            break
+                    yield b"data: [DONE]\n\n"
+                    break
+            if not done_sent:
+                yield b"data: [DONE]\n\n"
 
     content_iter = domain_response.content
     if content_iter is None:
