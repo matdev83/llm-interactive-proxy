@@ -1,5 +1,21 @@
 # Changelog
 
+## ["2025-11-21"]
+
+- **Features**:
+  - Add usage recalculation feature and development documentation.
+  - Enhance Gemini connectors with usage tracking.
+  - Add Cline and ZenMux backend connectors.
+- **Fixes**:
+  - Enhance loop detection and cancellation logic for streaming.
+  - Address streaming regression and improve hybrid backend.
+- **Refactoring**:
+  - Improve core services and streaming infrastructure.
+- **Testing**:
+  - Add comprehensive streaming regression testing infrastructure.
+- **Documentation**:
+  - Add usage tracking documentation and configuration.
+
 ## [2025-11-04]
 
 - **Hybrid Backend Repeat Messages Feature**: New configuration option to repeat reasoning output as an artificial message in the session
