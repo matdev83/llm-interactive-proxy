@@ -31,6 +31,7 @@ def test_no_md_files_in_root_except_important():
         "MEMORY.md",
         "QWEN.md",
         "TEST.md",
+        "STREAMING_REGRESSION_FIX.md",
     ]
 
     for f in important_md:

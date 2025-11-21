@@ -537,7 +537,10 @@ def to_fastapi_streaming_response(
         if it is None:
             return
         try:
+            chunk_count = 0
             async for chunk in it:  # type: ignore
+                chunk_count += 1
+                logger.debug(f"[STREAMING] Yielding chunk #{chunk_count}")
                 # Extract content from ProcessedResponse if needed
                 if isinstance(chunk, ProcessedResponse):
                     metadata = chunk.metadata
@@ -558,6 +561,7 @@ def to_fastapi_streaming_response(
                 # Add explicit flush point to ensure immediate delivery
                 # This helps prevent buffering by yielding control to the event loop
                 await asyncio.sleep(0)
+            logger.debug(f"[STREAMING] Stream completed with {chunk_count} chunks")
         except TypeError:
             # Not an async iterator; handle as sync iterable
             for chunk in it:  # type: ignore

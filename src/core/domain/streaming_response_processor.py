@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.ports.streaming import IStreamProcessor, StreamingContent
@@ -73,6 +74,7 @@ class LoopDetectionProcessor(IStreamProcessor):
         if session_id in self._session_detectors:
             del self._session_detectors[session_id]
             logger.debug(f"Cleaned up loop detector for session {session_id}")
+        self._cancelled_sessions.discard(session_id)
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process a streaming content chunk and check for loops.
@@ -94,8 +96,16 @@ class LoopDetectionProcessor(IStreamProcessor):
         session_id = str(raw_session) if raw_session else str(stream_id)
 
         if session_id in self._cancelled_sessions:
+            if content.is_done:
+                self.cleanup_session(session_id)
+                self._cancelled_sessions.discard(session_id)
+                return self._create_cancellation_content(
+                    detection_event=None, session_id=session_id
+                )
             # Suppress further chunks after cancellation for this session/stream.
-            return self._create_cancellation_content(detection_event=None, session_id=session_id)
+            return self._create_cancellation_content(
+                detection_event=None, session_id=session_id
+            )
 
         # Get the detector instance for this specific session
         loop_detector = self._get_detector_for_session(session_id)
@@ -133,7 +143,9 @@ class LoopDetectionProcessor(IStreamProcessor):
                     )
 
             self._cancelled_sessions.add(session_id)
-            return self._create_cancellation_content(detection_event, session_id=session_id)
+            return self._create_cancellation_content(
+                detection_event, session_id=session_id
+            )
         else:
             # No loop detected, pass through the content
             return content

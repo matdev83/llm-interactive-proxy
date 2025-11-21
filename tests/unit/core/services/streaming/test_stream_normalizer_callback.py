@@ -1,8 +1,6 @@
-import asyncio
-from typing import Any, Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 
 import pytest
-
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 

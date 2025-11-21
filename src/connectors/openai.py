@@ -18,11 +18,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
-from src.core.common.exceptions import (
-    AuthenticationError,
-    ServiceResolutionError,
-    ServiceUnavailableError,
-)
+from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses import (
@@ -106,15 +102,20 @@ class OpenAIConnector(LLMBackend):
     def _resolve_translation_service() -> TranslationService:
         """Resolve TranslationService from the DI container."""
 
-        from src.core.di.services import get_or_build_service_provider
+        from src.core.di.services import (
+            get_or_build_service_provider,
+            get_service_collection,
+            set_service_provider,
+        )
 
         provider = get_or_build_service_provider()
         service = provider.get_service(TranslationService)
         if service is None:
-            raise ServiceResolutionError(
-                "TranslationService is not registered in the service provider",
-                service_name="TranslationService",
-            )
+            # Rebuild provider to ensure TranslationService registration in isolated contexts
+            services = get_service_collection()
+            provider = services.build_service_provider()
+            set_service_provider(provider)
+            service = provider.get_required_service(TranslationService)
         return service
 
     def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:

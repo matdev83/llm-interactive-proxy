@@ -80,7 +80,7 @@ class StreamNormalizer(IStreamNormalizer):
                     processor, "cancel_callback"
                 ):
                     try:
-                        setattr(processor, "cancel_callback", cancel_callback)
+                        processor.cancel_callback = cancel_callback
                     except Exception:  # pragma: no cover - defensive guard
                         logger.debug(
                             "Failed to set cancel_callback on processor %s",

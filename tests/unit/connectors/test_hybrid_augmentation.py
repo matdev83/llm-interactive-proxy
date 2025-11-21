@@ -30,7 +30,9 @@ def test_augment_injects_reasoning_into_system_message() -> None:
     assert augmented[1]["role"] == "user"
 
 
-def test_augment_appends_reasoning_message_without_content_when_repeat_enabled() -> None:
+def test_augment_appends_reasoning_message_without_content_when_repeat_enabled() -> (
+    None
+):
     connector = _connector_with_repeat(repeat=True)
     base_messages = [{"role": "user", "content": "Hello"}]
 

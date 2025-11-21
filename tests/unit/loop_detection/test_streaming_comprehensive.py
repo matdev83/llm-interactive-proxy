@@ -223,11 +223,8 @@ class TestLoopDetectionStreaming:
         ):
             collected.append(chunk)
 
-        assert any(
-            "Response cancelled: Loop detected" in chunk.content
-            for chunk in collected
-            if chunk.content
-        )
+        assert any(chunk.is_cancellation for chunk in collected)
+        assert any(chunk.metadata.get("loop_detected") for chunk in collected)
         assert any(chunk.is_done for chunk in collected)
 
     @pytest.mark.asyncio

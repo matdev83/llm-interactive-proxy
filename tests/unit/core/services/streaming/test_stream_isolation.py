@@ -21,6 +21,7 @@ from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
+from src.loop_detection.event import LoopDetectionEvent
 
 
 @pytest.mark.asyncio
@@ -171,6 +172,9 @@ class _TriggeringLoopDetector(ILoopDetector):
 
     def get_current_state(self):
         return {"triggered": self.triggered}
+
+    async def check_for_loops(self, content: str) -> LoopDetectionResult:
+        return LoopDetectionResult(has_loop=False)
 
 
 @pytest.mark.asyncio
