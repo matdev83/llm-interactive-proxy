@@ -77,15 +77,15 @@ class StreamingEmulatorBase(LLMBackend):
 
                 # Convert to ProcessedResponse
                 if isinstance(chunk, bytes):
-                    content = chunk.decode("utf-8")
+                    content: Any = chunk.decode("utf-8")
                 else:
                     content = chunk
 
                 # Safe debug print
                 content_preview = str(content)[:50] if content else ""
                 print(f"DEBUG: Emulator yielding chunk: {content_preview!r}")
-                yield ProcessedResponse(content=content)
                 self.chunks_sent += 1
+                yield ProcessedResponse(content=content)
 
         return StreamingResponseEnvelope(
             content=stream_generator(),

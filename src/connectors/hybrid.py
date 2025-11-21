@@ -22,6 +22,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
+from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
 from src.connectors.utils.model_capabilities import (
@@ -817,11 +818,16 @@ class HybridConnector(LLMBackend):
                 # Filter the content
                 filtered_content = self._filter_response_content(chunk.content)
 
+                # Strip reasoning artifacts from metadata as well
+                cleaned_metadata = dict(chunk.metadata or {})
+                for key in ("reasoning", "reasoning_content", "reasoning_format"):
+                    cleaned_metadata.pop(key, None)
+
                 # Create new ProcessedResponse with filtered content
                 filtered_chunk = ProcessedResponse(
                     content=filtered_content,
                     usage=chunk.usage,
-                    metadata=chunk.metadata,
+                    metadata=cleaned_metadata,
                 )
 
                 yield filtered_chunk
@@ -1676,6 +1682,33 @@ class HybridConnector(LLMBackend):
         except AuthenticationError:
             # Re-raise AuthenticationError as-is (already has proper context)
             raise
+        except HTTPException as e:
+            status_code = getattr(e, "status_code", None)
+            detail = getattr(e, "detail", None)
+            logger.warning(
+                "Execution phase failed with HTTPException: %s",
+                status_code,
+                extra={
+                    "phase": "execution",
+                    "execution_backend": execution_backend,
+                    "execution_model": execution_model,
+                    "reasoning_output_length": reasoning_output_length,
+                    "status_code": status_code,
+                    "detail": detail,
+                },
+            )
+            raise BackendError(
+                message=f"Execution phase failed with HTTP {status_code}",
+                code="execution_http_error",
+                details={
+                    "phase": "execution",
+                    "execution_backend": execution_backend,
+                    "execution_model": execution_model,
+                    "reasoning_output_length": reasoning_output_length,
+                    "status_code": status_code,
+                    "detail": detail,
+                },
+            ) from e
         except Exception as e:
             logger.error(
                 f"Execution phase failed with unexpected error: {type(e).__name__}",

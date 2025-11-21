@@ -48,7 +48,7 @@ class MockRequest:
         self.app.state.backend_type = "openai"
         self.state = MagicMock()
         self.query_params = QueryParams({})
-        self.path_params = {}
+        self.path_params: dict[str, str] = {}
 
 
 class TestRequestAdapters:
@@ -185,7 +185,8 @@ class TestResponseAdapters:
             chunks.append(chunk)
 
         # Verify the content
-        assert chunks == [b"Hello, ", b"world!"]
+        assert chunks[:2] == [b"Hello, ", b"world!"]
+        assert chunks[-1] == b"data: [DONE]\n\n"
 
     def test_domain_response_to_fastapi(self):
         """Test the generic converter function."""
