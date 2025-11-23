@@ -258,6 +258,13 @@ async def test_chat_completions_streaming(
         effective_model="glm-4.5",
     )
 
+    # For streaming responses, we need to consume at least one chunk to trigger the request
+    from src.core.domain.responses import StreamingResponseEnvelope
+
+    if isinstance(response, StreamingResponseEnvelope):
+        async for _ in response.content:
+            break
+
     # Get the request that was sent - specify method and URL to get the correct request
     sent_request = httpx_mock.get_request(
         method="POST", url=f"{TEST_ZAI_API_BASE_URL}/chat/completions"

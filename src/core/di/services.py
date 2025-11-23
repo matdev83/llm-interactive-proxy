@@ -67,6 +67,7 @@ from src.core.interfaces.tool_call_repair_service_interface import (
 )
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.ports.streaming_processors import ThinkTagsProcessor
 from src.core.services.angel_service import AngelService
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
@@ -927,6 +928,8 @@ def register_core_services(
 
     # Register stream normalizer
     def _stream_normalizer_factory(provider: IServiceProvider) -> StreamNormalizer:
+        from src.core.ports.streaming_processors import ThinkTagsProcessor
+
         # Retrieve all stream processors in the correct order
         try:
             from src.core.config.app_config import AppConfig
@@ -969,6 +972,20 @@ def register_core_services(
             # Then text loop detection
             if loop_detection_processor is not None:
                 processors.append(loop_detection_processor)
+
+            if app_config.session.fix_think_tags_enabled:
+                try:
+                    think_tags_processor = provider.get_required_service(
+                        ThinkTagsProcessor
+                    )
+                    processors.append(cast(IStreamProcessor, think_tags_processor))
+                    logger.debug(
+                        "ThinkTagsProcessor successfully registered for streaming"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to register ThinkTagsProcessor for streaming: {e}"
+                    )
             # Then tool-call repair
             if tool_call_repair_processor is not None:
                 processors.append(tool_call_repair_processor)
@@ -1026,6 +1043,24 @@ def register_core_services(
 
     _add_singleton(
         LoopDetectionProcessor, implementation_factory=_loop_detection_processor_factory
+    )
+
+    def _think_tags_processor_factory(
+        provider: IServiceProvider,
+    ) -> IStreamProcessor:
+        app_config = provider.get_required_service(AppConfig)
+        return cast(
+            IStreamProcessor,
+            ThinkTagsProcessor(
+                enabled=getattr(app_config.session, "fix_think_tags_enabled", True),
+                streaming_buffer_size=getattr(
+                    app_config.session, "fix_think_tags_streaming_buffer_size", 16384
+                ),
+            ),
+        )
+
+    _add_singleton(
+        ThinkTagsProcessor, implementation_factory=_think_tags_processor_factory
     )
 
     # Register ContentAccumulationProcessor with configured buffer limit
@@ -1235,8 +1270,12 @@ def register_core_services(
     def _tool_call_repair_processor_factory(
         provider: IServiceProvider,
     ) -> ToolCallRepairProcessor:
-        tool_call_repair_service = provider.get_required_service(IToolCallRepairService)  # type: ignore[type-abstract]
-        return ToolCallRepairProcessor(tool_call_repair_service)
+        # ToolCallRepairProcessor from streaming/tool_call_repair_processor.py
+        # takes tool_call_repair_service parameter
+        tool_call_repair_service = provider.get_required_service(ToolCallRepairService)
+        return ToolCallRepairProcessor(
+            cast(IToolCallRepairService, tool_call_repair_service)
+        )
 
     _add_singleton(
         ToolCallRepairProcessor,

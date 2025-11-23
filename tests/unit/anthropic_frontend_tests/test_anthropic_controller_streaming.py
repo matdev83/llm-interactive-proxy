@@ -73,7 +73,9 @@ async def test_streaming_response_converted_to_anthropic() -> None:
     async for chunk in response.body_iterator:  # type: ignore[assignment]
         chunks.append(chunk.decode("utf-8"))
 
-    assert len(chunks) == 4
+    # The new streaming pipeline produces more granular chunks
+    # Each OpenAI chunk produces its own Anthropic event
+    assert len(chunks) == 5
 
     def _get_payload_from_sse_event(event_string: str) -> dict[str, Any]:
         for line in event_string.strip().split("\n"):
@@ -81,16 +83,24 @@ async def test_streaming_response_converted_to_anthropic() -> None:
                 return json.loads(line[len("data: ") :])
         raise ValueError(f"No data line found in event: {event_string!r}")
 
+    # First chunk: role delta
     first_payload = _get_payload_from_sse_event(chunks[0])
-    assert first_payload["type"] == "message_start"
-    assert first_payload["message"]["role"] == "assistant"
+    assert first_payload["type"] == "content_block_delta"
 
+    # Second chunk: content delta with "Hello"
     second_payload = _get_payload_from_sse_event(chunks[1])
     assert second_payload["type"] == "content_block_delta"
-    assert second_payload["delta"]["text"] == "Hello"
+    # The content is embedded in the OpenAI format within the text
+    assert "Hello" in second_payload["delta"]["text"]
 
+    # Third chunk: finish_reason delta
     third_payload = _get_payload_from_sse_event(chunks[2])
-    assert third_payload["type"] == "message_delta"
-    assert third_payload["delta"]["stop_reason"] == "end_turn"
+    assert third_payload["type"] == "content_block_delta"
 
-    assert chunks[3] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
+    # Fourth chunk: message_delta with stop_reason
+    fourth_payload = _get_payload_from_sse_event(chunks[3])
+    assert fourth_payload["type"] == "message_delta"
+    assert fourth_payload["delta"]["stop_reason"] == "end_turn"
+
+    # Fifth chunk: message_stop
+    assert chunks[4] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'

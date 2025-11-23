@@ -1044,6 +1044,39 @@ class BackendService(IBackendService):
                 else:
                     error_message = f"Backend {backend_type} is not functional"
 
+                # If streaming is enabled, return SSE error stream instead of raising
+                if stream or getattr(request, "stream", False):
+                    from collections.abc import AsyncGenerator
+
+                    from src.core.domain.responses import StreamingResponseEnvelope
+                    from src.core.interfaces.response_processor_interface import (
+                        ProcessedResponse,
+                    )
+                    from src.core.ports.streaming_contracts import (
+                        handle_streaming_error,
+                    )
+
+                    backend_error = BackendError(
+                        message=error_message,
+                        backend_name=backend_type,
+                        details=error_details,
+                    )
+
+                    async def error_stream() -> AsyncGenerator[ProcessedResponse, None]:
+                        chunk = await handle_streaming_error(
+                            backend_error,
+                            getattr(request, "session_id", None),
+                            backend_type,
+                        )
+                        yield ProcessedResponse(content=chunk.to_bytes())
+
+                    return StreamingResponseEnvelope(
+                        content=error_stream(),
+                        media_type="text/event-stream",
+                        headers={},
+                    )
+
+                # Non-streaming: raise as usual
                 raise BackendError(
                     message=error_message,
                     backend_name=backend_type,

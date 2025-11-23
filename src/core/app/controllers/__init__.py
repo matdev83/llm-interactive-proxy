@@ -649,10 +649,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     ):
 
                         async def _empty_stream() -> AsyncIterator[Any]:
+                            # This function is an empty async generator
                             return
-                            # This function is a generator due to the yield below, but returns immediately
-                            # vulture: ignore
-                            yield None  # type: ignore
+                            yield  # type: ignore  # pragma: no cover
 
                         stream_iterator: AsyncIterator[Any]
                         content = getattr(result, "content", None)

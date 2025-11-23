@@ -541,8 +541,7 @@ class ResponsesController:
 
             async def _empty_chunk_iterator() -> AsyncIterator[Any]:
                 return
-                # vulture: ignore
-                yield None
+                yield  # type: ignore  # pragma: no cover
 
             chunk_iterator: AsyncIterator[Any] = (
                 response.content

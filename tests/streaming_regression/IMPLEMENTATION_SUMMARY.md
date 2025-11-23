@@ -9,22 +9,26 @@ A comprehensive testing infrastructure to detect streaming regressions in the LL
 ### 1. Backend Emulators (`emulators/`)
 
 **Base Emulator** (`base_emulator.py`):
+
 - Abstract base class for all streaming emulators
 - Tracks timing statistics to detect buffering
 - Simulates realistic network delays between chunks
 - Records timestamps for each chunk sent
 
 **OpenAI Emulator** (`openai_emulator.py`):
+
 - Generates SSE-formatted streaming responses
 - Supports text chunks, tool calls, and reasoning content
 - Creates realistic OpenAI API streaming format
 
 **Anthropic Emulator** (`anthropic_emulator.py`):
+
 - Generates Anthropic message streaming format
 - Supports text deltas, tool calls, and thinking content
 - Uses event-based SSE format (message_start, content_block_delta, etc.)
 
 **Gemini Emulator** (`gemini_emulator.py`):
+
 - Generates Gemini streaming format
 - Supports text chunks and function calls
 - Uses JSON-line format
@@ -32,12 +36,14 @@ A comprehensive testing infrastructure to detect streaming regressions in the LL
 ### 2. Core Streaming Tests (`test_streaming_core.py`)
 
 Tests basic streaming functionality for each backend:
+
 - **Incremental Delivery Tests**: Verify chunks arrive over time, not all at once
 - **Timing Verification**: Assert delays between chunks are preserved
 - **Tool Call Streaming**: Verify tool calls stream correctly
 - **Content Integrity**: Verify final assembled content matches expected
 
 Each test:
+
 1. Creates realistic chunks with delays
 2. Injects mock backend into test app
 3. Makes streaming request
@@ -47,6 +53,7 @@ Each test:
 ### 3. Cross-Protocol Translation Tests (`test_streaming_translation.py`)
 
 Tests streaming with protocol translation (6 combinations):
+
 - OpenAI frontend → Gemini backend
 - OpenAI frontend → Anthropic backend
 - Anthropic frontend → OpenAI backend
@@ -59,6 +66,7 @@ Critical because translation layers can accidentally buffer streams.
 ### 4. Advanced Features Tests (`test_streaming_features.py`)
 
 Tests streaming with proxy features:
+
 - **API Key Redaction**: Verify redaction works without buffering
 - **Think Tags Fix**: Verify tag stripping works in streaming
 - **Tool Call Reactor**: Verify reactors process streaming tool calls
@@ -68,6 +76,7 @@ Tests streaming with proxy features:
 ### 5. Hybrid Backend Tests (`test_streaming_hybrid.py`)
 
 Tests streaming in hybrid reasoning scenarios:
+
 - Reasoning phase streaming
 - Execution phase streaming
 - Combined streaming across both phases
@@ -106,6 +115,7 @@ stats = backend.get_timing_stats()
 ### Realistic Simulation
 
 Emulators simulate real backend behavior:
+
 - Configurable delays between chunks (default 20ms)
 - Realistic chunk sizes (10-15 characters)
 - Proper SSE/streaming format
@@ -118,6 +128,7 @@ Emulators simulate real backend behavior:
 **Problem**: The loop detector is interfering with streaming tests by cancelling responses when it detects repeated patterns.
 
 **Evidence**: Test output shows:
+
 ```
 "[Response cancelled: Loop detected - Pattern 'Long pattern detected: data: {...' repeated 3 times]"
 ```
@@ -126,7 +137,8 @@ Emulators simulate real backend behavior:
 
 **Attempted Fix**: Setting `LOOP_DETECTION_ENABLED=false` in test helper, but loop detector still initializes.
 
-**Proper Fix Needed**: 
+**Proper Fix Needed**:
+
 1. Modify `src/core/app/stages/infrastructure.py` to check config before registering loop detector
 2. OR: Modify `src/core/app/stages/processor.py` to skip loop detection middleware when disabled
 3. OR: Add test-specific configuration to completely bypass loop detection
@@ -210,6 +222,7 @@ Once loop detection issue is resolved, add to CI pipeline:
 ## Success Criteria
 
 Tests are successful when:
+
 - All tests pass without loop detection interference
 - Timing assertions detect buffering regressions
 - Tests run in CI/CD pipeline

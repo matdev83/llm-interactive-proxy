@@ -45,7 +45,10 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiBackend(LLMBackend, UsageCalculationMixin):
-    """LLMBackend implementation for Google's Gemini API."""
+    """LLMBackend implementation for Google's Gemini API.
+
+    Implements StreamProducer protocol for streaming pipeline integration.
+    """
 
     backend_type: str = "gemini"
 
@@ -275,7 +278,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         request_id = request_headers.get("x-goog-request-id") or uuid.uuid4().hex
         request_headers.setdefault("x-goog-request-id", request_id)
 
-        url = f"{base_url}:streamGenerateContent"
+        url = f"{base_url}/streamGenerateContent"
         try:
             request = self.client.build_request(
                 "POST", url, json=payload, headers=request_headers
@@ -425,18 +428,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         gemini_api_base_url: str | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        # Resolve base configuration
-        base_api_url, headers = await self._resolve_gemini_api_config(
-            gemini_api_base_url,
-            openrouter_api_base_url,
-            api_key,
-            openrouter_headers_provider=openrouter_headers_provider,
-            key_name=key_name,
-            **kwargs,
-        )
-        if identity:
-            headers.update(identity.get_resolved_headers(None))
-
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
         # (the frontend controller converts from frontend-specific format to domain format)
         # Backends should ONLY convert FROM domain TO backend-specific format
@@ -452,6 +443,46 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             )
         # Cast to CanonicalChatRequest for mypy compatibility with translation service signature
         domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
+
+        try:
+            # Resolve base configuration
+            base_api_url, headers = await self._resolve_gemini_api_config(
+                gemini_api_base_url,
+                openrouter_api_base_url,
+                api_key,
+                openrouter_headers_provider=openrouter_headers_provider,
+                key_name=key_name,
+                **kwargs,
+            )
+        except Exception as e:
+            # If streaming was requested, we must return a streaming error response
+            # instead of letting the exception bubble up (which would result in a JSON response)
+            if domain_request.stream:
+                from src.core.ports.streaming_contracts import handle_streaming_error
+
+                # Bind e to err to preserve it after except block exits
+                async def error_generator(
+                    err: Exception = e,
+                ) -> AsyncGenerator[ProcessedResponse, None]:
+                    chunk = await handle_streaming_error(
+                        err,
+                        getattr(domain_request, "session_id", None),
+                        self.get_provider_name(),
+                    )
+                    # Convert to SSE bytes and wrap in ProcessedResponse
+                    chunk_bytes = chunk.to_bytes()
+                    logger.debug(f"Gemini streaming error chunk bytes: {chunk_bytes!r}")
+                    yield ProcessedResponse(content=chunk_bytes)
+
+                return StreamingResponseEnvelope(
+                    content=error_generator(),
+                    media_type="text/event-stream",
+                    headers={},
+                )
+            raise
+
+        if identity:
+            headers.update(identity.get_resolved_headers(None))
 
         # Translate CanonicalChatRequest to Gemini request using the translation service
         payload = self.translation_service.from_domain_request(
@@ -523,15 +554,43 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         # Streaming vs non-streaming
         if domain_request.stream:
-            stream_handle = await self._handle_gemini_streaming_response(
-                model_url, payload, headers, effective_model
-            )
-            return StreamingResponseEnvelope(
-                content=stream_handle.iterator,
-                media_type="text/event-stream",
-                headers=stream_handle.headers or {},
-                cancel_callback=stream_handle.cancel_callback,
-            )
+            # Use the new streaming pipeline orchestrator
+            # This integrates: Backend → Normalizer → Processors → Assembler
+            try:
+                # To pass protocol-constrained parameters to stream_completion,
+                # we create a copy of the request and embed them in extra_body.
+                extra_data: dict[str, Any] = {
+                    "gemini_api_base_url": gemini_api_base_url,
+                    "api_key": api_key,
+                    "key_name": key_name,
+                    "openrouter_api_base_url": openrouter_api_base_url,
+                }
+
+                new_extra_body = (domain_request.extra_body or {}).copy()
+                new_extra_body.update(extra_data)
+
+                streaming_request = domain_request.model_copy(
+                    update={"extra_body": new_extra_body}
+                )
+
+                # Get raw stream from backend via StreamProducer protocol
+                raw_stream = self.stream_completion(streaming_request)
+
+                # Integrate with streaming pipeline
+                from src.core.ports.streaming_integration import (
+                    integrate_streaming_pipeline,
+                )
+
+                return await integrate_streaming_pipeline(
+                    raw_stream=raw_stream,
+                    provider=self.get_provider_name(),
+                    stream_id=getattr(domain_request, "session_id", None),
+                    enable_loop_detection=True,
+                    enable_tool_call_repair=True,
+                    enable_think_tags=True,
+                )
+            except Exception:
+                raise
 
         response_envelope = await self._handle_gemini_non_streaming_response(
             model_url, payload, headers, effective_model
@@ -824,6 +883,193 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         except Exception as e:
             logger.debug(f"Failed to extract Gemini usage: {e}")
             return None
+
+    # StreamProducer protocol implementation
+    async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:
+        """Yield raw streaming chunks from the backend.
+
+        This method implements the StreamProducer protocol for integration
+        with the streaming pipeline refactor.
+
+        Args:
+            request: The chat completion request
+
+        Yields:
+            Raw streaming chunks from the backend (JSON-lines format)
+        """
+        # Prepare payload
+        from typing import cast
+
+        from src.core.domain.chat import CanonicalChatRequest
+
+        if not isinstance(request, CanonicalChatRequest):
+            request = cast(CanonicalChatRequest, request)
+
+        # Get processed messages and effective model
+        processed_messages = getattr(request, "messages", [])
+        effective_model = getattr(request, "model", "gemini-1.5-flash")
+
+        extra_body = getattr(request, "extra_body", {}) or {}
+
+        try:
+            base_api_url, headers = await self._resolve_gemini_api_config(
+                gemini_api_base_url=extra_body.get("gemini_api_base_url"),
+                openrouter_api_base_url=extra_body.get("openrouter_api_base_url"),
+                api_key=extra_body.get("api_key"),
+                key_name=extra_body.get("key_name"),
+                effective_model=effective_model,
+            )
+        except HTTPException as e:
+            raise BackendError(
+                message=e.detail, code="config_error", status_code=e.status_code
+            ) from e
+
+        # Prepare payload
+        payload = self.translation_service.from_domain_request(
+            request, target_format="gemini"
+        )
+
+        # Apply generation config including temperature clamping
+        from src.core.domain.chat import ChatRequest
+
+        domain_request: ChatRequest = cast(ChatRequest, request)
+        self._apply_generation_config(payload, domain_request)
+
+        # Apply contents
+        payload["contents"] = self._prepare_gemini_contents(processed_messages)
+
+        # Normalize model name and build URL
+        model_name = self._normalize_model_name(effective_model)
+        url = f"{base_api_url}/v1beta/models/{model_name}:streamGenerateContent"
+
+        # Prepare headers
+        request_headers = ensure_loop_guard_header(headers)
+        request_id = request_headers.get("x-goog-request-id") or uuid.uuid4().hex
+        request_headers.setdefault("x-goog-request-id", request_id)
+
+        # Build and send request
+        try:
+            http_request = self.client.build_request(
+                "POST", url, json=payload, headers=request_headers
+            )
+            response = await self.client.send(http_request, stream=True)
+        except httpx.RequestError as e:
+            logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+
+        # Check for errors
+        if response.status_code >= 400:
+            try:
+                if hasattr(response, "aread"):
+                    body_bytes = await response.aread()  # type: ignore[no-untyped-call]
+                else:
+                    body_bytes = b""
+                body_text = body_bytes.decode("utf-8", errors="ignore")
+            except Exception:
+                body_text = ""
+            finally:
+                if hasattr(response, "aclose"):
+                    await response.aclose()
+            logger.error(
+                "HTTP error during Gemini stream: %s - %s",
+                response.status_code,
+                body_text,
+            )
+            raise BackendError(
+                message=f"Gemini stream error: {response.status_code} - {body_text}",
+                code="gemini_error",
+                status_code=response.status_code,
+            )
+
+        # Stream JSON-lines chunks
+        try:
+            async for raw_chunk in response.aiter_text():
+                # Yield raw chunks (JSON-lines format)
+                yield raw_chunk
+        except httpx.RequestError as stream_error:
+            logger.error(
+                "Request error while streaming from Gemini: %s",
+                stream_error,
+                exc_info=True,
+            )
+            raise ServiceUnavailableError(
+                message=f"Gemini streaming connection error ({stream_error})"
+            ) from stream_error
+        finally:
+            with contextlib.suppress(Exception):
+                await response.aclose()
+
+    def _get_base_url(self) -> str:
+        """Get the base URL for Gemini API requests.
+
+        Returns:
+            The base URL for Gemini API requests
+        """
+        if not hasattr(self, "gemini_api_base_url") or self.gemini_api_base_url is None:
+            raise AttributeError(
+                "gemini_api_base_url is not set. Call initialize() first."
+            )
+        base_url: str = self.gemini_api_base_url
+        return base_url
+
+    def _get_headers(self) -> dict[str, str]:
+        """Get the headers for Gemini API requests.
+
+        Returns:
+            Dictionary of headers for API requests
+        """
+        headers: dict[str, str] = {}
+        if hasattr(self, "api_key") and self.api_key:
+            key_name = getattr(self, "key_name", "x-goog-api-key")
+            if isinstance(key_name, str):
+                headers[key_name] = str(self.api_key)
+        return headers
+
+    async def _prepare_payload(
+        self, request: Any, processed_messages: list[Any], effective_model: str
+    ) -> dict[str, Any]:
+        """Prepare the payload for Gemini API requests.
+
+        Args:
+            request: The chat completion request
+            processed_messages: Processed message list
+            effective_model: The model to use
+
+        Returns:
+            Prepared payload dictionary
+        """
+        # Resolve base configuration
+        base_api_url, headers = await self._resolve_gemini_api_config(
+            getattr(request, "gemini_api_base_url", None),
+            getattr(request, "openrouter_api_base_url", None),
+            getattr(request, "api_key", None),
+            effective_model=effective_model,
+        )
+
+        # Apply generation config
+        payload: dict[str, Any] = {
+            "model": f"models/{effective_model}",
+            "contents": self._prepare_gemini_contents(processed_messages),
+        }
+
+        # Apply generation config including temperature clamping
+        # Type assertion: we know from architectural design that request_data is ChatRequest-like
+        from typing import cast
+
+        from src.core.domain.chat import ChatRequest
+
+        domain_request: ChatRequest = cast(ChatRequest, request)
+        self._apply_generation_config(payload, domain_request)
+
+        return payload
+
+    def get_provider_name(self) -> str:
+        """Return the provider name for logging/metrics.
+
+        Returns:
+            Provider name ("gemini")
+        """
+        return "gemini"
 
 
 backend_registry.register_backend("gemini", GeminiBackend)

@@ -35,6 +35,7 @@ async def test_cline_non_streaming_response_includes_headers():
     connector.api_key = "test_key"
     connector.api_base_url = "https://api.cline.bot/api/v1"
     connector._token_cache = {"idToken": "test_token", "expiresAt": 9999999999}
+    connector._enable_cline_backend_debugging_override = True  # Bypass validation
 
     # Mock response with usage headers
     mock_response = MagicMock()
@@ -78,6 +79,7 @@ async def test_cline_non_streaming_response_includes_headers():
         processed_messages=request.messages,
         effective_model="gpt-4",
         identity=None,
+        incoming_headers={"User-Agent": "Cline VSCode Extension"},
     )
 
     # Assert
@@ -119,6 +121,7 @@ async def test_cline_response_headers_available_for_usage_tracking():
     connector.api_key = "test_key"
     connector.api_base_url = "https://api.cline.bot/api/v1"
     connector._token_cache = {"idToken": "test_token", "expiresAt": 9999999999}
+    connector._enable_cline_backend_debugging_override = True  # Bypass validation
 
     # Mock response with custom usage headers (simulating provider-specific headers)
     mock_response = MagicMock()
@@ -161,6 +164,7 @@ async def test_cline_response_headers_available_for_usage_tracking():
         processed_messages=request.messages,
         effective_model="gpt-4",
         identity=None,
+        incoming_headers={"User-Agent": "Cline VSCode Extension"},
     )
 
     # Assert - headers should be preserved for usage tracking

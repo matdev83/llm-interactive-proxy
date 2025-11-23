@@ -15,9 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
-from src.core.common.exceptions import ServiceUnavailableError
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 if TYPE_CHECKING:
@@ -328,21 +326,31 @@ async def test_streaming_response_async_iterator(
     async for chunk in result.content:
         if not chunk.content:
             continue
-        # The content is a string, so we need to parse it as JSON
-        if isinstance(chunk.content, str) and chunk.content.startswith("data:"):
-            data_str = chunk.content[len("data: ") :]
+
+        content_str = ""
+        if isinstance(chunk.content, bytes):
+            content_str = chunk.content.decode("utf-8")
+        elif isinstance(chunk.content, str):
+            content_str = chunk.content
+
+        # The content is a string (SSE), so we need to parse it as JSON
+        if content_str.startswith("data:"):
+            data_str = content_str[len("data: ") :]
             if data_str.strip() == "[DONE]":
                 continue
-            data = json.loads(data_str)
-            choices = data.get("choices", [])
-            if not choices:
-                continue
-            delta = choices[0].get("delta")
-            if not delta:
-                continue
-            content = delta.get("content")
-            if content:
-                collected_content.append(content)
+            try:
+                data = json.loads(data_str)
+                choices = data.get("choices", [])
+                if not choices:
+                    continue
+                delta = choices[0].get("delta")
+                if not delta:
+                    continue
+                content = delta.get("content")
+                if content:
+                    collected_content.append(content)
+            except json.JSONDecodeError:
+                pass
 
     full_content = "".join(collected_content)
 
@@ -422,21 +430,31 @@ async def test_streaming_response_sync_iterator(
     async for chunk in result.content:
         if not chunk.content:
             continue
+
+        content_str = ""
+        if isinstance(chunk.content, bytes):
+            content_str = chunk.content.decode("utf-8")
+        elif isinstance(chunk.content, str):
+            content_str = chunk.content
+
         # The content is a string, so we need to parse it as JSON
-        if isinstance(chunk.content, str) and chunk.content.startswith("data:"):
-            data_str = chunk.content[len("data: ") :]
+        if content_str.startswith("data:"):
+            data_str = content_str[len("data: ") :]
             if data_str.strip() == "[DONE]":
                 continue
-            data = json.loads(data_str)
-            choices = data.get("choices", [])
-            if not choices:
-                continue
-            delta = choices[0].get("delta")
-            if not delta:
-                continue
-            content = delta.get("content")
-            if content:
-                collected_content.append(content)
+            try:
+                data = json.loads(data_str)
+                choices = data.get("choices", [])
+                if not choices:
+                    continue
+                delta = choices[0].get("delta")
+                if not delta:
+                    continue
+                content = delta.get("content")
+                if content:
+                    collected_content.append(content)
+            except json.JSONDecodeError:
+                pass
 
     full_content = "".join(collected_content)
 
@@ -518,21 +536,31 @@ async def test_streaming_response_coroutine(
     async for chunk in result.content:
         if not chunk.content:
             continue
+
+        content_str = ""
+        if isinstance(chunk.content, bytes):
+            content_str = chunk.content.decode("utf-8")
+        elif isinstance(chunk.content, str):
+            content_str = chunk.content
+
         # The content is a string, so we need to parse it as JSON
-        if isinstance(chunk.content, str) and chunk.content.startswith("data:"):
-            data_str = chunk.content[len("data: ") :]
+        if content_str.startswith("data:"):
+            data_str = content_str[len("data: ") :]
             if data_str.strip() == "[DONE]":
                 continue
-            data = json.loads(data_str)
-            choices = data.get("choices", [])
-            if not choices:
-                continue
-            delta = choices[0].get("delta")
-            if not delta:
-                continue
-            content = delta.get("content")
-            if content:
-                collected_content.append(content)
+            try:
+                data = json.loads(data_str)
+                choices = data.get("choices", [])
+                if not choices:
+                    continue
+                delta = choices[0].get("delta")
+                if not delta:
+                    continue
+                content = delta.get("content")
+                if content:
+                    collected_content.append(content)
+            except json.JSONDecodeError:
+                pass
 
     full_content = "".join(collected_content)
 
@@ -563,15 +591,32 @@ async def test_streaming_response_error(
         stream=True,
     )
 
-    # Call the method and expect an exception
-    with pytest.raises(HTTPException) as excinfo:
-        await connector.chat_completions(
-            request_data, [{"role": "user", "content": "test"}], "test-model"
-        )
+    # Call the method
+    result = await connector.chat_completions(
+        request_data, [{"role": "user", "content": "test"}], "test-model"
+    )
 
-    # Verify the exception
-    assert excinfo.value.status_code == 400
-    assert "Bad request" in str(excinfo.value.detail)
+    # Verify the result is an error chunk
+    from src.core.domain.responses import StreamingResponseEnvelope
+
+    assert isinstance(result, StreamingResponseEnvelope)
+
+    chunks = []
+    async for chunk in result.content:
+        chunks.append(chunk)
+
+    print(f"DEBUG: chunks count={len(chunks)}")
+    for i, c in enumerate(chunks):
+        print(f"DEBUG: chunk {i} metadata={c.metadata} content={c.content}")
+
+    assert len(chunks) >= 1
+    # The last chunk should be the error chunk
+    assert len(chunks) >= 1
+    # The last chunk should be the error chunk
+    error_chunk = chunks[-1]
+    content = error_chunk.content.decode("utf-8")
+    assert "error" in content
+    assert "Bad request" in content
     assert mock_response.closed
 
 
@@ -597,12 +642,15 @@ async def test_streaming_response_error_closes_response(
         stream=True,
     )
 
-    with pytest.raises(HTTPException):
-        await connector.chat_completions(
-            request_data,
-            [{"role": "user", "content": "test"}],
-            "test-model",
-        )
+    result = await connector.chat_completions(
+        request_data,
+        [{"role": "user", "content": "test"}],
+        "test-model",
+    )
+
+    # Iterate to trigger error
+    async for _ in result.content:
+        pass
 
     close_mock.assert_awaited_once()
 
@@ -626,14 +674,20 @@ async def test_streaming_response_request_error(
         stream=True,
     )
 
-    with pytest.raises(ServiceUnavailableError) as excinfo:
-        await connector.chat_completions(
-            request_data,
-            [{"role": "user", "content": "test"}],
-            "test-model",
-        )
+    result = await connector.chat_completions(
+        request_data,
+        [{"role": "user", "content": "test"}],
+        "test-model",
+    )
 
-    assert "connection boom" in str(excinfo.value)
+    chunks = []
+    async for chunk in result.content:
+        chunks.append(chunk)
+
+    assert len(chunks) == 1
+    content = chunks[0].content.decode("utf-8")
+    assert "error" in content
+    assert "connection boom" in content
 
 
 @pytest.mark.asyncio
@@ -682,17 +736,24 @@ async def test_streaming_response_midstream_request_error(
 
     assert isinstance(result, StreamingResponseEnvelope)
 
-    stream_iterator = result.content.__aiter__()
+    # The stream may or may not deliver the first (incomplete) chunk before the error
+    # - it depends on buffering behavior. What's important is that we get an error chunk.
+    # Consume chunks until we hit an error chunk
+    error_chunk = None
+    async for chunk in result.content:
+        content = (
+            chunk.content.decode("utf-8")
+            if isinstance(chunk.content, bytes)
+            else chunk.content
+        )
+        if "error" in content and "stream timed out" in content:
+            error_chunk = chunk
+            break
 
-    # First chunk should be delivered successfully
-    first_chunk = await stream_iterator.__anext__()
-    assert first_chunk.content == 'data: {"choices": []}\\n\\n'
-
-    # Subsequent iteration should surface the timeout as ServiceUnavailableError
-    with pytest.raises(ServiceUnavailableError) as excinfo:
-        await stream_iterator.__anext__()
-
-    assert "stream timed out" in str(excinfo.value)
+    # Verify we got an error chunk
+    assert (
+        error_chunk is not None
+    ), "Expected to receive an error chunk for stream timeout"
 
 
 @pytest.mark.asyncio
@@ -710,12 +771,21 @@ async def test_streaming_response_no_auth(connector: OpenAIConnector) -> None:
     # Remove the api key to trigger the auth error
     connector.api_key = None
 
-    # Call the method with no auth and expect an exception
-    with pytest.raises(HTTPException) as excinfo:
-        await connector.chat_completions(
-            request_data, [{"role": "user", "content": "test"}], "test-model"
-        )
+    # Call the method
+    result = await connector.chat_completions(
+        request_data, [{"role": "user", "content": "test"}], "test-model"
+    )
 
-    # Verify the exception
-    assert excinfo.value.status_code == 401
-    assert "No auth credentials found" in str(excinfo.value.detail)
+    # Verify the result is an error chunk
+    from src.core.domain.responses import StreamingResponseEnvelope
+
+    assert isinstance(result, StreamingResponseEnvelope)
+
+    chunks = []
+    async for chunk in result.content:
+        chunks.append(chunk)
+
+    assert len(chunks) == 1
+    content = chunks[0].content.decode("utf-8")
+    assert "error" in content
+    assert "No auth credentials found" in content

@@ -369,7 +369,7 @@ class ToolCallRepairService:
     def _extract_xml_tool_call(self, content: str) -> dict[str, Any] | None:
         """Detect and convert XML-formatted tool calls."""
         stripped = content.strip()
-        if not stripped.startswith("<") or "</" not in stripped:
+        if "<" not in stripped or "</" not in stripped:
             return None
 
         self._last_tool_snippet = None
@@ -398,7 +398,17 @@ class ToolCallRepairService:
                     return fallback
                 continue
 
-            if root.tag in {"tool_name", "tool_arguments"}:
+            if root.tag in {
+                "tool_name",
+                "tool_arguments",
+                "path",
+                "diff",
+                "patch_content",
+                "patch",
+                "content",
+                "arguments",
+                "args",
+            }:
                 continue
 
             if root.tag == "use_mcp_tool":
@@ -441,10 +451,6 @@ class ToolCallRepairService:
             arguments_raw = self._element_children_to_dict(root)
             if not isinstance(arguments_raw, dict):
                 arguments_raw = {"content": arguments_raw} if arguments_raw else {}
-            # Ensure the detected snippet corresponds to a top-level tool invocation.
-            leading = stripped.lstrip()
-            if not leading.lower().startswith(f"<{root.tag.lower()}"):
-                continue
             self._last_tool_snippet = xml_snippet
             arguments = self._normalize_tool_arguments(root.tag, arguments_raw, root)
             return self._format_openai_tool_call(root.tag, arguments)

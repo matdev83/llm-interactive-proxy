@@ -35,6 +35,7 @@ async def test_cline_usage_data_in_client_response():
     connector.api_key = "test_key"
     connector.api_base_url = "https://api.cline.bot/api/v1"
     connector._token_cache = {"idToken": "test_token", "expiresAt": 9999999999}
+    connector._enable_cline_backend_debugging_override = True  # Bypass validation
 
     # Mock backend response with usage data
     mock_response = MagicMock()
@@ -76,6 +77,7 @@ async def test_cline_usage_data_in_client_response():
         processed_messages=request.messages,
         effective_model="gpt-4",
         identity=None,
+        incoming_headers={"User-Agent": "Cline VSCode Extension"},
     )
 
     # Convert to FastAPI response (simulating what happens in the controller)
@@ -163,6 +165,7 @@ async def test_cline_usage_calculated_after_transformations():
         processed_messages=request.messages,
         effective_model="gpt-4",
         identity=None,
+        incoming_headers={"User-Agent": "Cline VSCode Extension"},
     )
 
     # Assert - Usage should match what the backend reported (post-transformation)

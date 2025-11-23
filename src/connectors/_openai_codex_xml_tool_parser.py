@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -492,12 +493,33 @@ class XMLToolParser:
         # Extract arguments - try to find <arguments> block
         args_content = self._extract_nested_tag(content, "arguments")
         if args_content:
-            # Parse nested arguments
             tool_args = self._parse_nested_arguments(args_content)
+            # Support JSON-encoded arguments inside <arguments> when no child tags are present
+            if not tool_args:
+                cleaned = args_content.strip()
+                if cleaned:
+                    try:
+                        parsed_json = json.loads(cleaned)
+                        if isinstance(parsed_json, dict):
+                            tool_args = parsed_json
+                        else:
+                            tool_args = {"content": parsed_json}
+                    except json.JSONDecodeError:
+                        tool_args = {"content": cleaned}
             arguments["tool_arguments"] = tool_args
         else:
-            # No nested arguments
-            arguments["tool_arguments"] = {}
+            cleaned_content = content.strip()
+            if cleaned_content:
+                try:
+                    parsed_json = json.loads(cleaned_content)
+                    if isinstance(parsed_json, dict):
+                        arguments["tool_arguments"] = parsed_json
+                    else:
+                        arguments["tool_arguments"] = {"content": parsed_json}
+                except json.JSONDecodeError:
+                    arguments["tool_arguments"] = {"content": cleaned_content}
+            else:
+                arguments["tool_arguments"] = {}
 
         return ParsedToolInvocation(
             canonical_name="use_mcp_tool",

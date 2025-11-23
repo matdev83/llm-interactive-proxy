@@ -47,6 +47,8 @@ class OpenAIConnector(LLMBackend):
     It supports an optional `headers_override` kwarg and treats streaming
     responses that expose `aiter_bytes()` as streamable even if returned by
     test doubles.
+
+    Implements StreamProducer protocol for streaming pipeline integration.
     """
 
     backend_type: str = "openai"
@@ -105,6 +107,7 @@ class OpenAIConnector(LLMBackend):
         from src.core.di.services import (
             get_or_build_service_provider,
             get_service_collection,
+            register_core_services,
             set_service_provider,
         )
 
@@ -113,6 +116,7 @@ class OpenAIConnector(LLMBackend):
         if service is None:
             # Rebuild provider to ensure TranslationService registration in isolated contexts
             services = get_service_collection()
+            register_core_services(services)
             provider = services.build_service_provider()
             set_service_provider(provider)
             service = provider.get_required_service(TranslationService)
@@ -390,23 +394,27 @@ class OpenAIConnector(LLMBackend):
         url = f"{api_base.rstrip('/')}/chat/completions"
 
         if domain_request.stream:
-            # Return a domain-level streaming envelope (raw bytes iterator)
+            # Use the new streaming pipeline orchestrator
+            # This integrates: Backend → Normalizer → Processors → Assembler
             try:
-                stream_handle = await self._handle_streaming_response(
-                    url,
-                    payload,
-                    headers,
-                    domain_request.session_id or "",
-                    "openai",
+                # Get raw stream from backend via StreamProducer protocol
+                raw_stream = self.stream_completion(domain_request)
+
+                # Integrate with streaming pipeline
+                from src.core.ports.streaming_integration import (
+                    integrate_streaming_pipeline,
+                )
+
+                return await integrate_streaming_pipeline(
+                    raw_stream=raw_stream,
+                    provider=self.get_provider_name(),
+                    stream_id=domain_request.session_id,
+                    enable_loop_detection=True,
+                    enable_tool_call_repair=True,
+                    enable_think_tags=True,
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
-            return StreamingResponseEnvelope(
-                content=stream_handle.iterator,
-                media_type="text/event-stream",
-                headers={},
-                cancel_callback=stream_handle.cancel_callback,
-            )
         else:
             # Return a domain ResponseEnvelope for non-streaming
             return await self._handle_non_streaming_response(
@@ -1026,6 +1034,136 @@ class OpenAIConnector(LLMBackend):
         response.raise_for_status()
         result = response.json()
         return result  # type: ignore[no-any-return]  # type: ignore[no-any-return]
+
+    # StreamProducer protocol implementation
+    async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:
+        """Yield raw streaming chunks from the backend.
+
+        This method implements the StreamProducer protocol for integration
+        with the streaming pipeline refactor.
+
+        Args:
+            request: The chat completion request
+
+        Yields:
+            Raw streaming chunks from the backend (SSE format strings)
+        """
+        # Build the request URL and payload
+        api_base = getattr(request, "api_base", None) or self.api_base_url
+        url = f"{api_base.rstrip('/')}/chat/completions"
+
+        # Get headers
+        identity = getattr(request, "identity", None)
+        headers = self.get_headers(identity=identity)
+
+        if not headers or not headers.get("Authorization"):
+            raise AuthenticationError(message="No auth credentials found")
+
+        guarded_headers = ensure_loop_guard_header(headers)
+
+        # Prepare payload
+        from typing import cast
+
+        from src.core.domain.chat import CanonicalChatRequest
+
+        if not isinstance(request, CanonicalChatRequest):
+            # Try to convert if possible
+            request = cast(CanonicalChatRequest, request)
+
+        # Get processed messages and effective model
+        processed_messages = getattr(request, "messages", [])
+        effective_model = getattr(request, "model", "gpt-3.5-turbo")
+
+        payload = await self._prepare_payload(
+            request, processed_messages, effective_model
+        )
+
+        # Ensure streaming is enabled
+        payload["stream"] = True
+
+        # Build and send request
+        http_request = self.client.build_request(
+            "POST", url, json=payload, headers=guarded_headers
+        )
+
+        try:
+            response = await self.client.send(http_request, stream=True)
+        except httpx.RequestError as exc:
+            raise ServiceUnavailableError(
+                message=f"Could not connect to backend ({exc})"
+            ) from exc
+
+        # Check for errors
+        status_code = (
+            int(response.status_code) if hasattr(response, "status_code") else 200
+        )
+        if status_code >= 400:
+            body = ""
+            try:
+                body_bytes = await response.aread()
+                body = body_bytes.decode("utf-8")
+            except Exception:
+                body = str(getattr(response, "text", ""))
+            finally:
+                with contextlib.suppress(Exception):
+                    await response.aclose()
+
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "message": body,
+                    "type": "openai_error",
+                    "code": status_code,
+                },
+            )
+
+        # Stream SSE messages
+        try:
+            buffer = ""
+            separator = "\n\n"
+            alt_separator = "\r\n\r\n"
+
+            async for chunk_bytes in response.aiter_bytes():
+                chunk_text = (
+                    chunk_bytes.decode("utf-8", errors="replace")
+                    if isinstance(chunk_bytes, bytes | bytearray)
+                    else str(chunk_bytes)
+                )
+                buffer += chunk_text
+
+                while True:
+                    if alt_separator in buffer:
+                        event, buffer = buffer.split(alt_separator, 1)
+                        separator_used = alt_separator
+                    elif separator in buffer:
+                        event, buffer = buffer.split(separator, 1)
+                        separator_used = separator
+                    else:
+                        break
+
+                    if event:
+                        # Yield the raw SSE message (including separator)
+                        yield event + separator_used
+
+            # Yield any remaining buffer
+            if buffer:
+                yield buffer
+
+        except httpx.RequestError as exc:
+            raise ServiceUnavailableError(
+                message=f"Streaming connection interrupted ({exc})"
+            ) from exc
+        finally:
+            with contextlib.suppress(Exception):
+                await response.aclose()
+
+    def get_provider_name(self) -> str:
+        """Return the provider name for logging/metrics.
+
+        Returns:
+            Provider name ("openai")
+        """
+        return "openai"
 
 
 backend_registry.register_backend("openai", OpenAIConnector)

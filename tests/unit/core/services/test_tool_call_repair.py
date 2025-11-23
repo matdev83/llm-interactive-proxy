@@ -155,6 +155,20 @@ print(x > y)
         assert arguments["path"] == "src/example.py"
         assert 'print("updated")' in arguments["patch_content"]
 
+    def test_repair_tool_calls_xml_with_prefix_text(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        content = """
+        I'll use the patch-file tool now.
+        <patch_file>
+            <path>src/example.py</path>
+            <patch_content>print("hello world")</patch_content>
+        </patch_file>
+        """
+        repaired = repair_service.repair_tool_calls(content)
+        assert repaired is not None
+        assert repaired["function"]["name"] == "patch_file"
+
     def test_repair_tool_calls_no_match(
         self, repair_service: ToolCallRepairService
     ) -> None:

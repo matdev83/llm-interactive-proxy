@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import subprocess
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -243,6 +243,15 @@ class UniversalToolExecutor:
 
         # Extract tool arguments
         tool_arguments = arguments.get("tool_arguments", {})
+        if not tool_arguments and "arguments" in arguments:
+            raw_args = arguments["arguments"]
+            if isinstance(raw_args, str):
+                try:
+                    tool_arguments = json.loads(raw_args)
+                except json.JSONDecodeError:
+                    tool_arguments = {"content": raw_args}
+            elif isinstance(raw_args, Mapping):
+                tool_arguments = dict(raw_args)
         if isinstance(tool_arguments, str):
             try:
                 tool_arguments = json.loads(tool_arguments)

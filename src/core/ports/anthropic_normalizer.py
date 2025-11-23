@@ -1,0 +1,339 @@
+"""
+Anthropic stream normalizer.
+
+This module provides normalization of Anthropic-specific streaming formats
+to the unified StreamingContent representation.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import AsyncIterator
+from typing import Any
+
+from src.core.ports.streaming_contracts import (
+    BaseStreamNormalizer,
+    SentinelManager,
+    StreamingContent,
+    handle_streaming_error,
+)
+from src.core.ports.streaming_metrics import get_metrics_instance
+
+logger = logging.getLogger(__name__)
+
+
+class AnthropicStreamNormalizer(BaseStreamNormalizer):
+    """Normalizer for Anthropic streaming responses.
+
+    This normalizer handles Anthropic's event-based SSE format:
+    - Parses event-based SSE format (message_start, content_block_delta, etc.)
+    - Extracts thinking content as reasoning_content
+    - Maps stop_reason to finish_reason
+    - Handles message_stop event
+    """
+
+    def __init__(self) -> None:
+        """Initialize the Anthropic normalizer."""
+        super().__init__(provider="anthropic")
+
+    async def normalize_stream(
+        self, stream: AsyncIterator[Any], provider: str
+    ) -> AsyncIterator[StreamingContent]:
+        """Convert Anthropic-specific stream to StreamingContent.
+
+        Args:
+            stream: Raw stream from Anthropic backend
+            provider: Provider name (should be "anthropic")
+
+        Yields:
+            Normalized StreamingContent chunks
+        """
+        stream_id: str | None = None
+        message_id: str | None = None
+        model: str | None = None
+        role: str | None = None
+        metrics = get_metrics_instance()
+
+        try:
+            async for raw_chunk in stream:
+                # Handle different input types
+                if isinstance(raw_chunk, bytes):
+                    chunk_str = raw_chunk.decode("utf-8", errors="replace")
+                elif isinstance(raw_chunk, str):
+                    chunk_str = raw_chunk
+                else:
+                    # Skip non-string/bytes chunks
+                    logger.warning(
+                        "Skipping non-string/bytes chunk",
+                        extra={
+                            "provider": self.provider,
+                            "type": type(raw_chunk).__name__,
+                        },
+                    )
+                    continue
+
+                # Parse SSE events
+                for event_type, event_data in self._parse_sse_events(chunk_str):
+                    # Handle different event types
+                    if event_type == "message_start":
+                        # Extract message metadata
+                        message = event_data.get("message", {})
+                        message_id = message.get("id")
+                        model = message.get("model")
+                        role = message.get("role")
+
+                        # Use message_id as stream_id
+                        if message_id:
+                            stream_id = message_id
+                            # Start tracking metrics for this stream
+                            metrics.start_stream(stream_id)
+
+                        # Emit initial chunk with role
+                        if role:
+                            chunk = self.create_normalized_chunk(
+                                content="",
+                                metadata={
+                                    "role": role,
+                                    "model": model,
+                                    "id": message_id,
+                                },
+                                is_empty=True,
+                                stream_id=stream_id,
+                            )
+                            # Track chunk emission
+                            metrics.increment_chunks_sent(stream_id)
+                            yield chunk
+
+                    elif event_type == "content_block_start":
+                        # Content block started - may contain type info
+                        # For thinking blocks, we'll extract content in delta events
+                        # No need to emit a chunk here
+                        continue
+
+                    elif event_type == "content_block_delta":
+                        # Extract delta content
+                        delta = event_data.get("delta", {})
+                        delta_type = delta.get("type")
+
+                        # Get the index to track which content block this is
+                        index = event_data.get("index", 0)
+
+                        if delta_type == "text_delta":
+                            # Regular text content
+                            text = delta.get("text", "")
+
+                            chunk = self.create_normalized_chunk(
+                                content=text,
+                                metadata={
+                                    "model": model,
+                                    "id": message_id,
+                                    "index": index,
+                                },
+                                stream_id=stream_id,
+                            )
+                            # Track chunk emission
+                            metrics.increment_chunks_sent(stream_id)
+                            yield chunk
+
+                        elif delta_type == "input_json_delta":
+                            # Tool use input (partial JSON)
+                            partial_json = delta.get("partial_json", "")
+
+                            # Emit as content for now - tool call assembly happens in middleware
+                            chunk = self.create_normalized_chunk(
+                                content=partial_json,
+                                metadata={
+                                    "model": model,
+                                    "id": message_id,
+                                    "index": index,
+                                    "delta_type": "input_json_delta",
+                                },
+                                stream_id=stream_id,
+                            )
+                            # Track chunk emission
+                            metrics.increment_chunks_sent(stream_id)
+                            yield chunk
+
+                    elif event_type == "content_block_stop":
+                        # Content block ended
+                        # No action needed - just marks end of a content block
+                        pass
+
+                    elif event_type == "message_delta":
+                        # Message-level delta (contains stop_reason, usage, etc.)
+                        delta = event_data.get("delta", {})
+                        stop_reason = delta.get("stop_reason")
+
+                        # Map stop_reason to finish_reason
+                        finish_reason = self._map_stop_reason(stop_reason)
+
+                        # Extract usage if present
+                        usage = event_data.get("usage")
+
+                        # Emit chunk with finish_reason
+                        if finish_reason:
+                            chunk = self.create_normalized_chunk(
+                                content="",
+                                metadata={
+                                    "model": model,
+                                    "id": message_id,
+                                    "finish_reason": finish_reason,
+                                },
+                                is_done=True,
+                                is_empty=True,
+                                stream_id=stream_id,
+                            )
+
+                            # Add usage if present
+                            if usage:
+                                chunk.usage = usage
+
+                            # Track chunk emission
+                            metrics.increment_chunks_sent(stream_id)
+                            yield chunk
+
+                    elif event_type == "message_stop":
+                        # Message completed - emit final done marker
+                        done_chunk = SentinelManager.create_done_chunk()
+
+                        # Preserve stream_id and metadata
+                        if stream_id:
+                            done_chunk.stream_id = stream_id
+                            done_chunk.metadata["stream_id"] = stream_id
+
+                        done_chunk.metadata["provider"] = self.provider
+
+                        if model:
+                            done_chunk.metadata["model"] = model
+
+                        if message_id:
+                            done_chunk.metadata["id"] = message_id
+
+                        # Track sentinel emission
+                        metrics.increment_sentinels_emitted(stream_id)
+                        yield done_chunk
+
+                    elif event_type == "ping":
+                        # Ping event - ignore
+                        pass
+
+                    elif event_type == "error":
+                        # Error event
+                        error_data = event_data.get("error", {})
+                        error_type = error_data.get("type", "unknown")
+                        error_message = error_data.get("message", "Unknown error")
+
+                        # Track error termination
+                        if stream_id:
+                            metrics.increment_error_terminations(stream_id)
+
+                        # Create error exception and handle it
+                        error = Exception(f"{error_type}: {error_message}")
+                        error_chunk = await handle_streaming_error(
+                            error, stream_id, self.provider
+                        )
+                        yield error_chunk
+                        return
+
+                    else:
+                        # Unknown event type - log and skip
+                        logger.warning(
+                            "Unknown Anthropic event type",
+                            extra={
+                                "provider": self.provider,
+                                "event_type": event_type,
+                            },
+                        )
+
+        except Exception as e:
+            # Track error termination
+            if stream_id:
+                metrics.increment_error_terminations(stream_id)
+            # Emit error chunk
+            error_chunk = await handle_streaming_error(e, stream_id, self.provider)
+            yield error_chunk
+
+    def _parse_sse_events(self, sse_data: str) -> list[tuple[str, dict[str, Any]]]:
+        """Parse Anthropic SSE format data into events.
+
+        Anthropic uses event-based SSE format:
+        event: message_start
+        data: {"type":"message_start","message":{...}}
+
+        Args:
+            sse_data: Raw SSE data string
+
+        Returns:
+            List of (event_type, event_data) tuples
+        """
+        events: list[tuple[str, dict[str, Any]]] = []
+
+        # Split by double newline to get individual events
+        raw_events = sse_data.split("\n\n")
+
+        for raw_event in raw_events:
+            if not raw_event.strip():
+                continue
+
+            # Handle both \n\n and \r\n\r\n separators
+            raw_event = raw_event.replace("\r\n", "\n")
+
+            # Parse event and data lines
+            lines = raw_event.split("\n")
+            event_type: str | None = None
+            data_lines: list[str] = []
+
+            for line in lines:
+                line = line.strip()
+
+                if line.startswith("event:"):
+                    # Extract event type
+                    event_type = line[6:].strip()
+
+                elif line.startswith("data:"):
+                    # Extract data content
+                    data_content = line[5:].strip()
+                    data_lines.append(data_content)
+
+            # Parse data as JSON
+            if event_type and data_lines:
+                data_str = " ".join(data_lines)
+
+                try:
+                    event_data = json.loads(data_str)
+                    events.append((event_type, event_data))
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        "Failed to parse Anthropic event data as JSON",
+                        extra={
+                            "provider": self.provider,
+                            "event_type": event_type,
+                            "error": str(e),
+                            "data_preview": data_str[:200] if data_str else "",
+                        },
+                    )
+
+        return events
+
+    def _map_stop_reason(self, stop_reason: str | None) -> str | None:
+        """Map Anthropic stop_reason to OpenAI-style finish_reason.
+
+        Args:
+            stop_reason: Anthropic stop_reason value
+
+        Returns:
+            Mapped finish_reason value
+        """
+        if stop_reason is None:
+            return None
+
+        # Map Anthropic stop reasons to OpenAI finish reasons
+        mapping = {
+            "end_turn": "stop",
+            "max_tokens": "length",
+            "stop_sequence": "stop",
+            "tool_use": "tool_calls",
+        }
+
+        return mapping.get(stop_reason, stop_reason)

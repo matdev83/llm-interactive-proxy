@@ -339,10 +339,17 @@ class TestQwenOAuthToolCallingUnit:
             b"data: [DONE]\n\n",
         ]
 
-        mock_response.aiter_bytes = AsyncMock(return_value=streaming_chunks)
+        # Create an async generator for aiter_bytes
+        async def mock_aiter_bytes():
+            for chunk in streaming_chunks:
+                yield chunk
+
+        mock_response.aiter_bytes = mock_aiter_bytes
         mock_response.aclose = AsyncMock()
 
-        mock_client.build_request = MagicMock()
+        # Create a mock request object that build_request will return
+        mock_request = MagicMock()
+        mock_client.build_request = MagicMock(return_value=mock_request)
         mock_client.send = AsyncMock(return_value=mock_response)
 
         with patch.object(connector, "_refresh_token_if_needed", return_value=True):
@@ -358,9 +365,19 @@ class TestQwenOAuthToolCallingUnit:
             assert isinstance(result, StreamingResponseEnvelope)
             assert result.media_type == "text/event-stream"
 
+            # For streaming responses, we need to consume at least one chunk to trigger the request
+            async for _ in result.content:
+                break
+
             # Verify the request included tools
             call_args = mock_client.build_request.call_args
-            sent_payload = call_args[1]["json"]
+            assert call_args is not None, "build_request was not called"
+            # build_request is called as: build_request("POST", url, json=payload, headers=headers)
+            # So json is in kwargs
+            sent_payload = call_args.kwargs.get("json")
+            assert (
+                sent_payload is not None
+            ), f"No JSON payload found in build_request call. Args: {call_args.args}, Kwargs: {call_args.kwargs}"
             assert "tools" in sent_payload
             assert sent_payload["tool_choice"] == "auto"
 

@@ -554,128 +554,135 @@ def to_fastapi_streaming_response(
 ) -> StreamingResponse:
     """Convert a domain streaming response envelope to a FastAPI streaming response.
 
+    This function uses the new streaming pipeline with SSEAssembler to convert
+    internal StreamingContent to SSE format. It ensures proper event loop yielding
+    and maintains async path purity.
+
     Args:
         domain_response: The domain streaming response envelope
 
     Returns:
         A FastAPI streaming response
     """
+    from src.core.ports.sse_assembler import SSEAssembler
+    from src.core.ports.streaming_contracts import StreamingContent
 
-    # Ensure the async iterator yields bytes (some backends yield str)
-    # Ensure the async iterator yields bytes (some backends yield str)
-    async def _byte_streamer(
+    async def _streaming_adapter(
         it: AsyncIterator[Any] | Iterable[Any] | None,
     ) -> AsyncIterator[bytes]:
+        """Adapt the input stream to use the new streaming pipeline.
+
+        This adapter converts ProcessedResponse chunks to StreamingContent,
+        applies reasoning metadata injection, and uses SSEAssembler for
+        proper SSE formatting.
+        """
         if it is None:
             return
-        try:
-            chunk_count = 0
-            done_sent = False
-            async for chunk in it:  # type: ignore
-                chunk_count += 1
+
+        # Create SSE assembler for output formatting
+        assembler = SSEAssembler()
+
+        async def _convert_to_streaming_content() -> AsyncIterator[StreamingContent]:
+            """Convert input chunks to StreamingContent format."""
+            try:
+                chunk_count = 0
+                async for chunk in it:  # type: ignore
+                    chunk_count += 1
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL, "[STREAMING] Processing chunk #%s", chunk_count
+                        )
+
+                    # Extract content and metadata from ProcessedResponse
+                    if isinstance(chunk, ProcessedResponse):
+                        metadata = chunk.metadata or {}
+                        content = chunk.content
+                    else:
+                        metadata = {}
+                        content = chunk
+
+                    # Check if content is already SSE formatted (legacy path)
+                    if isinstance(content, str) and content.strip().startswith(
+                        "data: "
+                    ):
+                        # For legacy SSE-formatted content, pass through as-is
+                        # by wrapping in StreamingContent
+                        is_done = _chunk_signals_done(content, metadata)
+                        yield StreamingContent(
+                            content=content, metadata=metadata, is_done=is_done
+                        )
+                        if is_done:
+                            break
+                        continue
+
+                    # Inject reasoning metadata for OpenAI-style payloads
+                    enriched = _inject_reasoning_metadata(
+                        content, metadata, streaming=True
+                    )
+
+                    # Check if this chunk signals completion
+                    is_done = _chunk_signals_done(enriched, metadata)
+
+                    # Create StreamingContent directly
+                    streaming_content = StreamingContent(
+                        content=enriched,
+                        metadata=metadata,
+                        is_done=is_done,
+                        stream_id=metadata.get("stream_id"),
+                    )
+
+                    yield streaming_content
+
+                    # Yield control to event loop (Requirement 9.4)
+                    await asyncio.sleep(0)
+
+                    if is_done:
+                        break
+
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
-                        TRACE_LEVEL, "[STREAMING] Yielding chunk #%s", chunk_count
+                        TRACE_LEVEL,
+                        "[STREAMING] Stream completed with %s chunks",
+                        chunk_count,
                     )
-                # Extract content from ProcessedResponse if needed
-                if isinstance(chunk, ProcessedResponse):
-                    metadata = chunk.metadata
-                    content = chunk.content
-                else:
-                    metadata = None
-                    content = chunk
 
-                # Check if content is already SSE formatted (e.g. from emulator)
-                if isinstance(content, str) and content.strip().startswith("data: "):
-                    if _chunk_signals_done(content, metadata):
-                        done_sent = True
-                    yield content.encode("utf-8")
-                    await asyncio.sleep(0)
-                    if done_sent:
-                        break
-                    continue
-
-                enriched = _inject_reasoning_metadata(content, metadata, streaming=True)
-                formatted = _format_chunk_as_sse(enriched)
-                yield formatted
-                # Add explicit flush point to ensure immediate delivery
-                # This helps prevent buffering by yielding control to the event loop
-                await asyncio.sleep(0)
-                if _chunk_signals_done(content, metadata):
-                    done_sent = True
-                    if isinstance(content, bytes | bytearray | str):
-                        text_str = (
-                            content.decode("utf-8", errors="ignore")
-                            if isinstance(content, bytes | bytearray)
-                            else content
-                        )
-                        stripped = text_str.strip()
-                        if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
-                            break
-                    yield b"data: [DONE]\n\n"
-                    break
-            if logger.isEnabledFor(TRACE_LEVEL):
-                logger.log(
-                    TRACE_LEVEL,
-                    "[STREAMING] Stream completed with %s chunks",
-                    chunk_count,
+            except Exception as e:
+                # Log unexpected errors during streaming
+                logger.error(
+                    "Error during streaming content conversion: %s", e, exc_info=True
                 )
-            if not done_sent:
-                yield b"data: [DONE]\n\n"
-        except TypeError:
-            # Not an async iterator; handle as sync iterable
-            done_sent = False
-            for chunk in it:  # type: ignore
-                # Extract content from ProcessedResponse if needed
-                if isinstance(chunk, ProcessedResponse):
-                    metadata = chunk.metadata
-                    content = chunk.content
-                else:
-                    metadata = None
-                    content = chunk
+                # Yield an error chunk
+                yield StreamingContent(
+                    content="",
+                    metadata={"error": str(e), "finish_reason": "error"},
+                    is_done=True,
+                )
 
-                # Check if content is already SSE formatted
-                if isinstance(content, str) and content.strip().startswith("data: "):
-                    if _chunk_signals_done(content, metadata):
-                        done_sent = True
-                    yield content.encode("utf-8")
-                    if done_sent:
-                        break
-                    continue
+        # Convert to StreamingContent and assemble as SSE
+        streaming_content_iter = _convert_to_streaming_content()
+        sse_bytes_iter = assembler.assemble_stream(streaming_content_iter, format="sse")
 
-                enriched = _inject_reasoning_metadata(content, metadata, streaming=True)
-                yield _format_chunk_as_sse(enriched)
-                if _chunk_signals_done(content, metadata):
-                    done_sent = True
-                    if isinstance(content, bytes | bytearray | str):
-                        text_str = (
-                            content.decode("utf-8", errors="ignore")
-                            if isinstance(content, bytes | bytearray)
-                            else content
-                        )
-                        stripped = text_str.strip()
-                        if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
-                            break
-                    yield b"data: [DONE]\n\n"
-                    break
-            if not done_sent:
-                yield b"data: [DONE]\n\n"
+        # Yield SSE-formatted bytes with event loop yielding
+        async for sse_chunk in sse_bytes_iter:
+            yield sse_chunk
+            # Ensure event loop yielding for responsiveness (Requirement 9.4)
+            await asyncio.sleep(0)
 
     content_iter = domain_response.content
     if content_iter is None:
         # Create empty iterator if content is None
         async def _empty_streamer() -> AsyncIterator[bytes]:
             return
-            # vulture: ignore
-            yield b""
+            yield  # type: ignore  # pragma: no cover
 
         return StreamingResponse(
             content=_empty_streamer(),
             media_type=getattr(domain_response, "media_type", "text/event-stream"),
             headers=domain_response.headers or {},
         )
+
     return StreamingResponse(
-        content=_byte_streamer(content_iter),
+        content=_streaming_adapter(content_iter),
         media_type=getattr(domain_response, "media_type", "text/event-stream"),
         headers=domain_response.headers or {},
     )

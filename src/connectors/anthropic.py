@@ -45,7 +45,10 @@ ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
 
 
 class AnthropicBackend(LLMBackend):
-    """LLMBackend implementation for Anthropic's Messages API."""
+    """LLMBackend implementation for Anthropic's Messages API.
+
+    Implements StreamProducer protocol for streaming pipeline integration.
+    """
 
     backend_type: str = "anthropic"
 
@@ -189,16 +192,27 @@ class AnthropicBackend(LLMBackend):
         logger.debug("Anthropic payload: %s", json.dumps(anthropic_payload, indent=2))
 
         if domain_request.stream:
-            stream_handle = await self._handle_streaming_response(
-                url, anthropic_payload, request_headers, effective_model
-            )
-            # Return a domain-level streaming envelope
-            return StreamingResponseEnvelope(
-                content=stream_handle.iterator,
-                media_type="text/event-stream",
-                headers={},
-                cancel_callback=stream_handle.cancel_callback,
-            )
+            # Use the new streaming pipeline orchestrator
+            # This integrates: Backend → Normalizer → Processors → Assembler
+            try:
+                # Get raw stream from backend via StreamProducer protocol
+                raw_stream = self.stream_completion(domain_request)
+
+                # Integrate with streaming pipeline
+                from src.core.ports.streaming_integration import (
+                    integrate_streaming_pipeline,
+                )
+
+                return await integrate_streaming_pipeline(
+                    raw_stream=raw_stream,
+                    provider=self.get_provider_name(),
+                    stream_id=getattr(domain_request, "session_id", None),
+                    enable_loop_detection=True,
+                    enable_tool_call_repair=True,
+                    enable_think_tags=True,
+                )
+            except AuthenticationError:
+                raise
         else:
             response_envelope = await self._handle_non_streaming_response(
                 url, anthropic_payload, request_headers, domain_request.model
@@ -669,6 +683,128 @@ class AnthropicBackend(LLMBackend):
             logger.warning(f"Failed to parse Anthropic model list: {e}")
             self.available_models = []
         return cast(list[dict[str, Any]], models)
+
+    def _get_headers(
+        self, identity: IAppIdentityConfig | None = None
+    ) -> dict[str, str]:
+        """Get headers for Anthropic API requests."""
+        headers = {
+            self.auth_header_name: self.api_key or "",
+            "anthropic-version": ANTHROPIC_VERSION_HEADER,
+            "content-type": "application/json",
+        }
+        if identity:
+            headers.update(identity.get_resolved_headers(None))
+        return headers
+
+    async def _cancel_message(self, message_id: str) -> None:
+        """Cancel an in-progress message."""
+        base_url = (
+            getattr(self, "anthropic_api_base_url", None) or ANTHROPIC_DEFAULT_BASE_URL
+        )
+        url = f"{base_url}/messages/{message_id}/cancel"
+        headers = self._get_headers()
+
+        try:
+            await self.client.post(url, headers=headers)
+        except Exception as e:
+            logger.warning(f"Failed to cancel Anthropic message {message_id}: {e}")
+
+    # StreamProducer protocol implementation
+    async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:
+        """Yield raw streaming chunks from the backend.
+
+        This method implements the StreamProducer protocol for integration
+        with the streaming pipeline refactor.
+
+        Args:
+            request: The chat completion request
+
+        Yields:
+            Raw streaming chunks from the backend (SSE format strings)
+        """
+        # Build the request URL and payload
+        base_url = (
+            getattr(self, "anthropic_api_base_url", None) or ANTHROPIC_DEFAULT_BASE_URL
+        )
+        url = f"{base_url}/messages"
+
+        # Get headers
+        headers = self._get_headers()
+        request_headers = ensure_loop_guard_header(headers)
+
+        # Prepare payload
+        from typing import cast
+
+        from src.core.domain.chat import CanonicalChatRequest
+
+        if not isinstance(request, CanonicalChatRequest):
+            request = cast(CanonicalChatRequest, request)
+
+        # Get processed messages and effective model
+        processed_messages = getattr(request, "messages", [])
+        effective_model = getattr(request, "model", "claude-3-5-sonnet-20241022")
+
+        project = getattr(request, "project", None)
+        payload = self._prepare_anthropic_payload(
+            request, processed_messages, effective_model, project
+        )
+
+        # Ensure streaming is enabled
+        payload["stream"] = True
+
+        # Build and send request
+        http_request = self.client.build_request(
+            "POST", url, json=payload, headers=request_headers
+        )
+
+        try:
+            response = await self.client.send(http_request, stream=True)
+        except httpx.RequestError as e:
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Anthropic API: {e}"
+            )
+
+        # Check for errors before streaming
+        if response.status_code >= 400:
+            from src.core.common.exceptions import BackendError
+
+            try:
+                body_text = (await response.aread()).decode("utf-8")
+                logger.error(f"Anthropic API error {response.status_code}: {body_text}")
+            except (UnicodeDecodeError, httpx.ReadError) as e:
+                logger.warning(f"Failed to read Anthropic error response body: {e}")
+                body_text = ""
+            finally:
+                await response.aclose()
+
+            raise BackendError(
+                message=body_text,
+                code="anthropic_error",
+                status_code=response.status_code,
+            )
+
+        # Stream SSE messages
+        try:
+            async for line in response.aiter_lines():
+                if line:
+                    # Yield raw SSE lines
+                    yield line
+        except httpx.RequestError as e:
+            raise ServiceUnavailableError(
+                message=f"Streaming connection interrupted: {e}"
+            )
+        finally:
+            with contextlib.suppress(Exception):
+                await response.aclose()
+
+    def get_provider_name(self) -> str:
+        """Return the provider name for logging/metrics.
+
+        Returns:
+            Provider name ("anthropic")
+        """
+        return "anthropic"
 
 
 backend_registry.register_backend("anthropic", AnthropicBackend)

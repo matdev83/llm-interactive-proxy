@@ -362,12 +362,24 @@ def _parse_use_mcp_tool_invocation(text: str) -> TextToolInvocation | None:
     # Extract content and other attributes
     content_match = _USE_MCP_TOOL_PATTERN.search(text)
     arguments = {"tool_name": tool_name}
+    tool_arguments: dict[str, Any] = {}
 
     # Add content if present
     if content_match:
         content = content_match.group(1).strip()
         if content:
             arguments["arguments"] = content
+            try:
+                parsed_content = json.loads(content)
+                if isinstance(parsed_content, dict):
+                    tool_arguments = parsed_content
+                else:
+                    tool_arguments = {"content": parsed_content}
+            except json.JSONDecodeError:
+                # Leave tool_arguments empty; caller may still use raw content
+                tool_arguments = {}
+
+    arguments["tool_arguments"] = tool_arguments
 
     # Extract any other attributes (path, etc.)
     path_match = _FILE_PATH_ATTR_PATTERN.search(text)
@@ -375,8 +387,17 @@ def _parse_use_mcp_tool_invocation(text: str) -> TextToolInvocation | None:
         arguments["path"] = path_match.group(1).strip()
 
     # For patch_file operations, include special handling but let universal executor decide
-    if tool_name == "patch_file" and "arguments" in arguments:
-        arguments["patch_content"] = arguments["arguments"]
+    if tool_name == "patch_file":
+        patch_source = None
+        if tool_arguments:
+            for candidate_key in ("patch_content", "patch", "diff", "content"):
+                if candidate_key in tool_arguments:
+                    patch_source = tool_arguments[candidate_key]
+                    break
+        if not patch_source and "arguments" in arguments:
+            patch_source = arguments["arguments"]
+        if patch_source:
+            arguments["patch_content"] = patch_source
 
     return TextToolInvocation(
         canonical_name="use_mcp_tool",

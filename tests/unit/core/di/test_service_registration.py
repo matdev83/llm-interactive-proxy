@@ -1,5 +1,4 @@
 from collections.abc import Iterator  # Added import
-from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -82,26 +81,21 @@ class TestServiceRegistration:
         normalizer = global_provider.get_required_service(IStreamNormalizer)  # type: ignore[type-abstract]
         assert isinstance(normalizer, StreamNormalizer)
 
-    def test_get_service_collection_raises_when_core_registration_fails(
+    def test_get_service_collection_returns_empty_collection(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Ensure DI core registration failures raise ServiceResolutionError."""
+        """Ensure get_service_collection returns an empty ServiceCollection."""
 
         import src.core.di.services as services_module
 
         monkeypatch.setattr(services_module, "_service_collection", None, raising=False)
 
-        def _fail_register(_: ServiceCollection, __: Any | None = None) -> None:
-            raise RuntimeError("boom")
+        collection = services_module.get_service_collection()
 
-        monkeypatch.setattr(services_module, "register_core_services", _fail_register)
-
-        with pytest.raises(ServiceResolutionError) as exc_info:
-            services_module.get_service_collection()
-
-        assert "Failed to register core services" in str(exc_info.value)
-        assert exc_info.value.details.get("error_type") == "RuntimeError"
-        assert services_module._service_collection is None
+        # Should return a ServiceCollection without any services registered
+        assert isinstance(collection, ServiceCollection)
+        # The collection should be empty initially (only descriptors dict exists)
+        assert hasattr(collection, "_descriptors")
 
     def test_get_service_provider_recovers_tool_call_services(
         self, monkeypatch: pytest.MonkeyPatch
@@ -119,7 +113,6 @@ class TestServiceRegistration:
         minimal_provider = minimal_services.build_service_provider()
         services_module.set_service_provider(minimal_provider)
 
-        from src.core.common.exceptions import ServiceResolutionError
         from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
         with pytest.raises(ServiceResolutionError):

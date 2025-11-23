@@ -355,6 +355,24 @@ class TestXMLToolParserMCPTools:
         assert "diff" in result.arguments["tool_arguments"]
         assert "path" in result.arguments["tool_arguments"]
 
+    def test_parse_use_mcp_tool_with_json_arguments(self):
+        """Test parsing use_mcp_tool when arguments are JSON encoded."""
+        parser = XMLToolParser()
+        xml = (
+            '<use_mcp_tool name="read_file">'
+            '{"path": "src/example.py", "extra": "value"}'
+            "</use_mcp_tool>"
+        )
+
+        result = parser.parse(xml)
+
+        assert result is not None
+        assert result.arguments["tool_name"] == "read_file"
+        assert result.arguments["tool_arguments"] == {
+            "path": "src/example.py",
+            "extra": "value",
+        }
+
     def test_parse_use_mcp_tool_missing_name_raises_error(self):
         """Test that missing tool name raises XMLParseError."""
         parser = XMLToolParser()

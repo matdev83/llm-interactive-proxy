@@ -274,6 +274,7 @@ async def test_chat_completions_reloads_updated_token(
             chat_request,
             chat_request.messages,
             "cline/test",
+            incoming_headers={"User-Agent": "Cline VSCode Extension"},
         )
 
     assert result.ok
@@ -321,7 +322,10 @@ async def test_chat_completions_retries_after_401(
         ),
     ):
         result = await connector.chat_completions(
-            chat_request, chat_request.messages, "cline/test"
+            chat_request,
+            chat_request.messages,
+            "cline/test",
+            incoming_headers={"User-Agent": "Cline VSCode Extension"},
         )
 
     assert result.ok
@@ -370,5 +374,399 @@ async def test_chat_completions_raises_after_double_401(
         pytest.raises(AuthenticationError),
     ):
         await connector.chat_completions(
-            chat_request, chat_request.messages, "cline/test"
+            chat_request,
+            chat_request.messages,
+            "cline/test",
+            incoming_headers={"User-Agent": "Cline VSCode Extension"},
         )
+
+
+# Tests for Cline agent validation in cline_new.py
+@pytest.mark.asyncio
+async def test_validate_cline_agent_valid_user_agent(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test validation passes with Cline in User-Agent."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)
+
+    # Valid User-Agent with Cline
+    headers = {"User-Agent": "Cline VSCode Extension"}
+    connector._validate_cline_agent(headers)  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_validate_cline_agent_valid_x_title(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test validation passes with Cline in X-Title."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)
+
+    # Valid X-Title with Cline
+    headers = {"X-Title": "Cline - AI Assistant"}
+    connector._validate_cline_agent(headers)  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_validate_cline_agent_case_insensitive(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test validation is case insensitive."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)
+
+    # Test different case variations
+    test_cases = [
+        {"User-Agent": "CLINE vscode extension"},
+        {"User-Agent": "Cline VSCode Extension"},
+        {"User-Agent": "cLiNe assistant"},
+        {"X-Title": "CLINE AI TOOL"},
+        {"X-Title": "cline-powered editor"},
+    ]
+
+    for headers in test_cases:
+        connector._validate_cline_agent(headers)  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_validate_cline_agent_invalid_user_agent(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test validation fails without Cline in User-Agent or X-Title."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)
+
+    # Invalid headers without Cline
+    headers = {"User-Agent": "VSCode Extension", "X-Title": "AI Assistant"}
+
+    with pytest.raises(HTTPException) as exc_info:
+        connector._validate_cline_agent(headers)
+
+    assert exc_info.value.status_code == 403
+    assert "Forbidden" in exc_info.value.detail
+    assert "Cline clients" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_validate_cline_agent_logs_warning(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test that rejected requests generate warning logs."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)
+
+    # Invalid headers
+    headers = {"User-Agent": "VSCode Extension", "X-Title": "AI Assistant"}
+
+    with pytest.raises(HTTPException):
+        connector._validate_cline_agent(headers)
+
+    # Check warning was logged
+    warning_logs = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_logs) == 1
+    assert "Rejected request" in warning_logs[0].message
+    assert "missing 'Cline'" in warning_logs[0].message
+    assert "--enable-cline-backend-debugging-override" in warning_logs[0].message
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_with_debug_override(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test that debug override flag bypasses validation."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(
+        secrets_path=secrets_path, enable_cline_backend_debugging_override=True
+    )
+
+    chat_request = ChatRequest(
+        model="cline/test",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    # Even with invalid headers, should not raise due to debug override
+    incoming_headers = {"User-Agent": "VSCode Extension", "X-Title": "AI Assistant"}
+
+    with patch.object(
+        OpenAIConnector,
+        "chat_completions",
+        new=AsyncMock(return_value=SimpleNamespace(ok=True)),
+    ):
+        await connector.chat_completions(
+            chat_request,
+            chat_request.messages,
+            "cline/test",
+            incoming_headers=incoming_headers,
+        )
+
+        # Should not log warning since override is enabled
+        warning_logs = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warning_logs) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_without_debug_override(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test that requests without debug override are validated."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)  # No override
+
+    chat_request = ChatRequest(
+        model="cline/test",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    # Invalid headers should trigger validation error
+    incoming_headers = {"User-Agent": "VSCode Extension", "X-Title": "AI Assistant"}
+
+    with pytest.raises(HTTPException) as exc_info:
+        await connector.chat_completions(
+            chat_request,
+            chat_request.messages,
+            "cline/test",
+            incoming_headers=incoming_headers,
+        )
+
+    assert exc_info.value.status_code == 403
+
+    # Should log warning
+    warning_logs = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_logs) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_valid_cline_agent(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test that valid Cline agents pass validation and make successful requests."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)
+
+    chat_request = ChatRequest(
+        model="cline/test",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    # Valid Cline headers
+    incoming_headers = {"User-Agent": "Cline VSCode Extension"}
+
+    with patch.object(
+        OpenAIConnector,
+        "chat_completions",
+        new=AsyncMock(return_value=SimpleNamespace(ok=True)),
+    ):
+        await connector.chat_completions(
+            chat_request,
+            chat_request.messages,
+            "cline/test",
+            incoming_headers=incoming_headers,
+        )
+
+        # Should not log warnings
+        warning_logs = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warning_logs) == 0
+
+
+@pytest.mark.asyncio
+async def test_validate_cline_agent_empty_headers(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test validation with empty headers."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)
+
+    # Empty headers
+    headers = {}
+
+    with pytest.raises(HTTPException) as exc_info:
+        connector._validate_cline_agent(headers)
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_validate_cline_agent_mixed_case_match(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test validation with mixed case Cline in both headers."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(secrets_path=secrets_path)
+
+    # Both headers have Cline in different cases
+    headers = {"User-Agent": "cLiNe VsCoDe ExTeNsIoN", "X-Title": "CLINE AI Assistant"}
+    connector._validate_cline_agent(headers)  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_debug_override_configuration_from_kwargs(
+    http_client, config, translation_service, tmp_path, caplog
+):
+    """Test that debug override can be configured via kwargs."""
+    secrets_path = tmp_path / "secrets.json"
+    _write_auth_payload(
+        secrets_path,
+        {
+            "idToken": "test-token",
+            "refreshToken": "refresh",
+            "expiresAt": time.time() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        },
+    )
+
+    # Test configuration via kwargs
+    connector = ClineConnector(http_client, config, translation_service)
+    await connector.initialize(
+        secrets_path=secrets_path, enable_cline_backend_debugging_override=True
+    )
+
+    assert connector._enable_cline_backend_debugging_override is True
+
+    chat_request = ChatRequest(
+        model="cline/test",
+        messages=[ChatMessage(role="user", content="Hello")],
+        stream=False,
+    )
+
+    # Should not validate with override enabled
+    incoming_headers = {"User-Agent": "Non-Cline Client"}
+
+    with patch.object(
+        OpenAIConnector,
+        "chat_completions",
+        new=AsyncMock(return_value=SimpleNamespace(ok=True)),
+    ):
+        await connector.chat_completions(
+            chat_request,
+            chat_request.messages,
+            "cline/test",
+            incoming_headers=incoming_headers,
+        )
+
+        # Should succeed without validation error
+        # Note: result.ok assertion removed as result is not used

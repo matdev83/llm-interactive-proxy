@@ -56,6 +56,10 @@ class StreamNormalizer(IStreamNormalizer):
         Yields:
             An async iterator of the processed stream in the requested format.
         """
+        # Reset all processors before processing a new stream to ensure
+        # per-stream state isolation (Requirement 7.5)
+        self.reset()
+
         stream_id = uuid4().hex
 
         async for chunk in stream:

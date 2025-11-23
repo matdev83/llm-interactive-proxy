@@ -54,6 +54,7 @@ class TestBackendAutoDiscovery:
                 "gemini-cli-cloud-project",
                 "gemini-oauth-free",
                 "gemini-oauth-plan",
+                "gemini-oauth-antigravity",
                 "hybrid",
                 "minimax",
                 "openai",

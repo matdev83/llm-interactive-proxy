@@ -492,7 +492,7 @@ class TestDIContainerUsage:
             if v.get("type") not in ["analysis_error", "syntax_error"]
             and not (
                 v.get("class_name") == "TranslationService"
-                and "controllers\\__init__.py" in v.get("file", "")
+                and "controllers/__init__.py" in v.get("file", "")
             )
             and not (
                 v.get("class_name") == "ConversationFingerprintService"
@@ -501,6 +501,15 @@ class TestDIContainerUsage:
                     "core\\services\\intelligent_session_resolver.py",
                     "core\\services\\session_manager_service.py",
                 ]
+            )
+            and not (
+                v.get("class_name")
+                in [
+                    "LoopDetectionProcessor",
+                    "ToolCallRepairProcessor",
+                    "ThinkTagsProcessor",
+                ]
+                and "core\\ports\\streaming_integration.py" in v.get("file", "")
             )
         ]
 

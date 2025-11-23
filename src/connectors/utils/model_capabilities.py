@@ -19,6 +19,7 @@ SYSTEM_MESSAGE_SUPPORT: dict[str, bool] = {
     "gemini": False,  # Gemini uses different system instruction mechanism
     "gemini-oauth-free": False,
     "gemini-oauth-plan": False,
+    "gemini-oauth-antigravity": False,
     "gemini-cli-acp": False,
     "gemini-cloud-project": False,
 }
@@ -34,6 +35,7 @@ REASONING_TAG_FORMAT: dict[str, tuple[str, str]] = {
     "gemini": ("<thinking>", "</thinking>"),
     "gemini-oauth-plan": ("<thinking>", "</thinking>"),
     "gemini-oauth-free": ("<thinking>", "</thinking>"),
+    "gemini-oauth-antigravity": ("<thinking>", "</thinking>"),
     "gemini-cli-acp": ("<thinking>", "</thinking>"),
     "gemini-cli-cloud-project": ("<thinking>", "</thinking>"),
     # Default for others

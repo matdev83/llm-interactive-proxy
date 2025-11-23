@@ -129,6 +129,46 @@ class TestStreamNormalizer:
     """Tests for the StreamNormalizer class."""
 
     @pytest.mark.asyncio
+    async def test_reset_called_before_stream(self) -> None:
+        """Test that reset() is called on all processors before processing a stream."""
+
+        # Create a processor that tracks reset calls
+        class ResetTrackingProcessor(IStreamProcessor):
+            def __init__(self):
+                self.reset_count = 0
+                self.process_count = 0
+
+            def reset(self):
+                self.reset_count += 1
+
+            async def process(self, content: StreamingContent) -> StreamingContent:
+                self.process_count += 1
+                return content
+
+        # Create processors
+        processor1 = ResetTrackingProcessor()
+        processor2 = ResetTrackingProcessor()
+        normalizer = StreamNormalizer([processor1, processor2])
+
+        # Create a simple stream
+        async def mock_stream():
+            yield "Hello"
+            yield "world"
+
+        # Process the stream
+        chunks = []
+        async for chunk in normalizer.process_stream(
+            mock_stream(), output_format="objects"
+        ):
+            chunks.append(chunk)
+
+        # Verify reset was called on both processors before processing
+        assert processor1.reset_count == 1, "Processor 1 reset should be called once"
+        assert processor2.reset_count == 1, "Processor 2 reset should be called once"
+        assert processor1.process_count == 2, "Processor 1 should process 2 chunks"
+        assert processor2.process_count == 2, "Processor 2 should process 2 chunks"
+
+    @pytest.mark.asyncio
     async def test_normalize_stream(self) -> None:
         """Test normalizing a stream of different formats."""
 

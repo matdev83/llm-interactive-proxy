@@ -100,6 +100,7 @@ class TestBackendImportsIntegration:
             "gemini-cli-cloud-project",
             "gemini-oauth-free",
             "gemini-oauth-plan",
+            "gemini-oauth-antigravity",
             "openai",
             "openai-codex",
             "openrouter",
