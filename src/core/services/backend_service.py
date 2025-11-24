@@ -240,13 +240,36 @@ class BackendService(IBackendService):
                 text = content.decode("utf-8", errors="ignore").strip()
                 if text == "[DONE]" or text.startswith("data: [DONE]"):
                     return True
+                if text == '["DONE"]' or text.startswith('data: ["DONE"]'):
+                    return True
             elif isinstance(content, str):
                 stripped = content.strip()
                 if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
                     return True
+                if stripped == '["DONE"]' or stripped.startswith('data: ["DONE"]'):
+                    return True
 
             if metadata and metadata.get("finish_reason"):
-                return True
+                if content is None or content == "":
+                    return True
+                if isinstance(content, dict):
+                    choices = content.get("choices") or []
+                    if choices:
+                        delta = (
+                            choices[0].get("delta")
+                            if isinstance(choices[0], dict)
+                            else {}
+                        )
+                        if not delta or all(
+                            not delta.get(key)
+                            for key in (
+                                "content",
+                                "tool_calls",
+                                "reasoning_content",
+                                "reasoning",
+                            )
+                        ):
+                            return True
 
             if isinstance(content, dict):
                 content_metadata = content.get("metadata")
@@ -262,6 +285,30 @@ class BackendService(IBackendService):
 
             return False
 
+        def _format_as_sse(content: Any) -> bytes:
+            """Normalize arbitrary content to SSE-framed bytes."""
+            if isinstance(content, bytes | bytearray):
+                stripped_bytes = bytes(content).strip()
+                if stripped_bytes.startswith(b"data:"):
+                    return bytes(content)
+                if stripped_bytes in (b"[DONE]", b'["DONE"]'):
+                    return b"data: [DONE]\n\n"
+                text_val = content.decode("utf-8", errors="replace")
+                return f"data: {text_val}\n\n".encode()
+
+            if isinstance(content, str):
+                stripped_text = content.strip()
+                if stripped_text.startswith("data:"):
+                    return content.encode("utf-8")
+                if stripped_text in ("[DONE]", '["DONE"]'):
+                    return b"data: [DONE]\n\n"
+                return f"data: {content}\n\n".encode()
+
+            if isinstance(content, dict):
+                return f"data: {json.dumps(content)}\n\n".encode()
+
+            return f"data: {content}\n\n".encode()
+
         async def _adapter() -> Any:
             done_sent = False
             async for chunk in it:  # type: ignore
@@ -271,15 +318,7 @@ class BackendService(IBackendService):
                 metadata = (
                     chunk.metadata if isinstance(chunk, ProcessedResponse) else {}
                 )
-                if isinstance(content, dict):
-                    line = f"data: {json.dumps(content)}\n\n".encode()
-                    yield line
-                elif isinstance(content, str):
-                    yield content.encode("utf-8")
-                elif isinstance(content, bytes):
-                    yield content
-                else:
-                    yield str(content).encode("utf-8")
+                yield _format_as_sse(content)
 
                 if _chunk_signals_done(content, metadata):
                     done_sent = True
@@ -290,7 +329,9 @@ class BackendService(IBackendService):
                             else content
                         )
                         stripped = text_str.strip()
-                        if stripped == "[DONE]" or stripped.startswith("data: [DONE]"):
+                        if stripped in ("[DONE]", '["DONE"]'):
+                            break
+                        if stripped.startswith(("data: [DONE]", 'data: ["DONE"]')):
                             break
                     yield b"data: [DONE]\n\n"
                     break
@@ -1068,7 +1109,10 @@ class BackendService(IBackendService):
                             getattr(request, "session_id", None),
                             backend_type,
                         )
-                        yield ProcessedResponse(content=chunk.to_bytes())
+                        # Yield as string so response_adapters legacy SSE check passes
+                        yield ProcessedResponse(
+                            content=chunk.to_bytes().decode("utf-8")
+                        )
 
                     return StreamingResponseEnvelope(
                         content=error_stream(),

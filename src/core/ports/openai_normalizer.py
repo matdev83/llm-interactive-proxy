@@ -108,10 +108,14 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
 
                     # Convert to StreamingContent
                     normalized_chunk = self._normalize_chunk(event_data, stream_id)
-                    if normalized_chunk:
-                        # Track chunk emission
+                    if normalized_chunk and self.validate_chunk(normalized_chunk):
                         metrics.increment_chunks_sent(stream_id)
                         yield normalized_chunk
+                    elif normalized_chunk is not None:
+                        logger.warning(
+                            "Dropping invalid normalized chunk",
+                            extra={"provider": self.provider, "stream_id": stream_id},
+                        )
 
         except Exception as e:
             # Track error termination

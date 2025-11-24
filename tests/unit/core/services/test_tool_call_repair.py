@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator  # Added import
 import pytest
 from pytest_mock import MockerFixture
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
 )
@@ -665,6 +665,7 @@ class TestStreamingToolCallRepairProcessor:
         assert len(results) == 3
         assert results[0].content == "Hello, "
         assert results[1].content is not None
+        assert isinstance(results[1].content, str)
         repaired_tool_call = json.loads(results[1].content)
         assert repaired_tool_call["function"]["name"] == "tool1"
         assert json.loads(repaired_tool_call["function"]["arguments"]) == {
@@ -679,9 +680,10 @@ class TestStreamingToolCallRepairProcessor:
 
         assert len(actual_calls) == 4
         assert actual_calls[0].content == "Hello, "
-        assert json.loads(actual_calls[1].content) == json.loads(
-            mock_chunks_data[1].content
-        )
+        chunk_payload = actual_calls[1].content
+        assert isinstance(chunk_payload, str)
+        assert isinstance(mock_chunks_data[1].content, str)
+        assert json.loads(chunk_payload) == json.loads(mock_chunks_data[1].content)
         assert actual_calls[2].content == "World."
         assert actual_calls[3].is_done is True and actual_calls[3].content == ""
 

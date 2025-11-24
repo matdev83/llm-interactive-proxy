@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -50,7 +51,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         metadata = dict(content.metadata or {})
         detected_tool_calls: list[dict[str, Any]] = []
 
-        chunk_text = content.content or ""
+        chunk_text = self._normalize_chunk_text(content.content)
         reasoning_segments: list[str] = []
         for key in ("reasoning_content", "reasoning"):
             value = metadata.get(key)
@@ -247,3 +248,19 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
         flush_len = len(buffer) - max_marker
         return buffer[:flush_len], buffer[flush_len:]
+
+    @staticmethod
+    def _normalize_chunk_text(chunk: Any) -> str:
+        """Convert arbitrary chunk payloads into a text buffer."""
+        if chunk is None:
+            return ""
+        if isinstance(chunk, str):
+            return chunk
+        if isinstance(chunk, bytes | bytearray):
+            return chunk.decode("utf-8", errors="ignore")
+        if isinstance(chunk, dict):
+            try:
+                return json.dumps(chunk)
+            except (TypeError, ValueError):
+                return str(chunk)
+        return str(chunk)

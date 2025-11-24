@@ -10,6 +10,7 @@ This service provides complete loop breaking functionality as originally intende
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
 from typing import Any, cast
 
@@ -20,7 +21,7 @@ from src.core.domain.request_context import RequestContext
 from src.core.interfaces.assessment_service_interface import IAssessmentService
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.loop_detector_interface import ILoopDetector
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.assessment_prompts import get_steering_template
 
 logger = get_logger(__name__)
@@ -76,7 +77,13 @@ class LoopBreakingService:
             return content, False
 
         # Process content for loop detection
-        content_str = content.content
+        raw_content = content.content
+        if isinstance(raw_content, bytes):
+            content_str = raw_content.decode("utf-8", errors="ignore")
+        elif isinstance(raw_content, dict):
+            content_str = json.dumps(raw_content)
+        else:
+            content_str = str(raw_content or "")
         detection_event = self.loop_detector.process_chunk(content_str)
 
         if not detection_event:

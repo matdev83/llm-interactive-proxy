@@ -11,6 +11,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.ports.streaming_contracts import (
     IStreamAssembler,
     SentinelManager,
@@ -53,10 +54,16 @@ class SSEAssembler(IStreamAssembler):
             raise ValueError(f"Unsupported format: {format}. Only 'sse' is supported.")
 
         done_emitted = False
+        last_stream_id: str | None = None
         metrics = get_metrics_instance()
 
         try:
             async for chunk in stream:
+                current_stream_id = chunk.stream_id or chunk.metadata.get("stream_id")
+                if current_stream_id:
+                    last_stream_id = current_stream_id
+                stream_id_for_metrics = current_stream_id or last_stream_id
+
                 # Skip empty chunks unless they're done markers or have errors
                 if chunk.is_empty and not chunk.is_done:
                     continue
@@ -72,7 +79,16 @@ class SSEAssembler(IStreamAssembler):
                 if chunk.is_done and (has_error or has_cancellation):
                     # Error or cancellation chunk - serialize with metadata
                     chunk_bytes = chunk.to_bytes()
-                    metrics.increment_chunks_sent(chunk.stream_id)
+                    metrics.increment_chunks_sent(stream_id_for_metrics)
+                    metrics.increment_sentinels_emitted(stream_id_for_metrics)
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "[STREAMING][SSE] Emitting terminal chunk for stream %s (error=%s cancellation=%s)",
+                            stream_id_for_metrics,
+                            has_error,
+                            has_cancellation,
+                        )
                     yield chunk_bytes
                     # Mark that we've emitted a done marker (these include [DONE])
                     done_emitted = True
@@ -84,7 +100,13 @@ class SSEAssembler(IStreamAssembler):
                     if not done_emitted:
                         yield SentinelManager.format_sse_done()
                         # Track sentinel emission
-                        metrics.increment_sentinels_emitted(chunk.stream_id)
+                        metrics.increment_sentinels_emitted(stream_id_for_metrics)
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "[STREAMING][SSE] Emitting done sentinel for stream %s",
+                                stream_id_for_metrics,
+                            )
                         done_emitted = True
                     break
 
@@ -92,9 +114,16 @@ class SSEAssembler(IStreamAssembler):
                 chunk_bytes = chunk.to_bytes()
 
                 # Track chunk emission
-                metrics.increment_chunks_sent(chunk.stream_id)
+                metrics.increment_chunks_sent(stream_id_for_metrics)
 
                 # Yield the chunk
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "[STREAMING][SSE] Emitting chunk for stream %s (%s bytes)",
+                        stream_id_for_metrics,
+                        len(chunk_bytes),
+                    )
                 yield chunk_bytes
 
                 # Yield control to event loop for responsiveness
@@ -104,4 +133,11 @@ class SSEAssembler(IStreamAssembler):
             # Ensure [DONE] is always emitted, even if stream ends unexpectedly
             if not done_emitted:
                 yield SentinelManager.format_sse_done()
-                # Note: We don't track sentinel here since we don't have stream_id in finally block
+                sentinel_stream_id = last_stream_id or "anonymous-stream"
+                metrics.increment_sentinels_emitted(sentinel_stream_id)
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "[STREAMING][SSE] Emitting fallback done sentinel for stream %s",
+                        sentinel_stream_id,
+                    )

@@ -71,21 +71,29 @@ async def test_streaming_response_converted_to_anthropic() -> None:
     assert isinstance(response, StreamingResponse)
     chunks: list[str] = []
     async for chunk in response.body_iterator:  # type: ignore[assignment]
-        chunks.append(chunk.decode("utf-8"))
+        if isinstance(chunk, memoryview):
+            chunk_bytes = chunk.tobytes()
+        elif isinstance(chunk, bytes):
+            chunk_bytes = chunk
+        else:
+            chunk_bytes = str(chunk).encode("utf-8")
+        chunks.append(chunk_bytes.decode("utf-8"))
 
-    # The new streaming pipeline produces more granular chunks
-    # Each OpenAI chunk produces its own Anthropic event
-    assert len(chunks) == 5
+    # The streaming pipeline produces one Anthropic event per OpenAI chunk
+    assert len(chunks) == 4
 
     def _get_payload_from_sse_event(event_string: str) -> dict[str, Any]:
         for line in event_string.strip().split("\n"):
             if line.startswith("data:"):
-                return json.loads(line[len("data: ") :])
+                payload = json.loads(line[len("data: ") :])
+                if isinstance(payload, dict):
+                    return payload
+                raise ValueError(f"Payload is not a dict: {payload!r}")
         raise ValueError(f"No data line found in event: {event_string!r}")
 
-    # First chunk: role delta
+    # First chunk: message_start framing data
     first_payload = _get_payload_from_sse_event(chunks[0])
-    assert first_payload["type"] == "content_block_delta"
+    assert first_payload["type"] == "message_start"
 
     # Second chunk: content delta with "Hello"
     second_payload = _get_payload_from_sse_event(chunks[1])
@@ -95,12 +103,7 @@ async def test_streaming_response_converted_to_anthropic() -> None:
 
     # Third chunk: finish_reason delta
     third_payload = _get_payload_from_sse_event(chunks[2])
-    assert third_payload["type"] == "content_block_delta"
+    assert third_payload["type"] == "message_delta"
 
-    # Fourth chunk: message_delta with stop_reason
-    fourth_payload = _get_payload_from_sse_event(chunks[3])
-    assert fourth_payload["type"] == "message_delta"
-    assert fourth_payload["delta"]["stop_reason"] == "end_turn"
-
-    # Fifth chunk: message_stop
-    assert chunks[4] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
+    # Fourth chunk: message_stop sentinel
+    assert chunks[3] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'

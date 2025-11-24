@@ -44,9 +44,9 @@ class LoopDetectionProcessor(IStreamProcessor):
 
     def __init__(
         self,
-        content_loop_threshold: int = 10,
-        content_chunk_size: int = 50,
-        max_history_length: int = 1000,
+        content_loop_threshold: int = 8,
+        content_chunk_size: int = 128,
+        max_history_length: int = 2000,
     ) -> None:
         """Initialize the loop detection processor.
 

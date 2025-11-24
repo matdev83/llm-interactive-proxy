@@ -15,7 +15,9 @@ rest of the project and test suite.
 
 from __future__ import annotations
 
-from src.core.ports.streaming import StreamingContent as _StreamingContent
+from src.core.ports.streaming_contracts import (
+    StreamingContent as _StreamingContent,
+)
 
 __all__ = ["StreamingContent"]
 

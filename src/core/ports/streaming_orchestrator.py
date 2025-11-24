@@ -99,8 +99,6 @@ class StreamingPipeline:
 
             # Step 4: Yield formatted bytes
             async for chunk_bytes in assembled_stream:
-                if stream_id:
-                    self._metrics.increment_chunks_sent(stream_id)
                 yield chunk_bytes
 
         except Exception as e:

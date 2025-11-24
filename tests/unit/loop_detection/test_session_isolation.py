@@ -7,7 +7,7 @@ preventing state contamination and ensuring each session has independent loop de
 
 import pytest
 from src.core.domain.streaming_response_processor import LoopDetectionProcessor
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 

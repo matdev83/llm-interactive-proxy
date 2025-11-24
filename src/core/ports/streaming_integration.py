@@ -9,17 +9,21 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.ports.streaming_contracts import IStreamProcessor
+from src.core.ports.streaming_contracts import IStreamProcessor, handle_streaming_error
 from src.core.ports.streaming_orchestrator import create_pipeline_for_provider
 from src.core.ports.streaming_processors import (
-    LoopDetectionProcessor,
+    LoopDetectionProcessor as PortsLoopDetectionProcessor,
+)
+from src.core.ports.streaming_processors import (
     ThinkTagsProcessor,
-    ToolCallRepairProcessor,
+)
+from src.core.ports.streaming_processors import (
+    ToolCallRepairProcessor as PortsToolCallRepairProcessor,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,56 +58,67 @@ async def integrate_streaming_pipeline(
     Returns:
         StreamingResponseEnvelope with processed chunks
     """
-    from src.core.di.services import get_or_build_service_provider
-
-    # Get service provider for resolving processors from DI container
-    get_or_build_service_provider()
-
     processors: list[IStreamProcessor] = []
 
-    try:
-        from src.core.di.services import get_required_service
+    def _resolve_processor(
+        service_type: type[IStreamProcessor],
+        fallback_factory: Callable[[], IStreamProcessor],
+    ) -> IStreamProcessor:
+        from src.core.di.services import get_or_build_service_provider
 
-        if enable_loop_detection:
-            processors.append(get_required_service(LoopDetectionProcessor))
-        if enable_tool_call_repair:
-            processors.append(get_required_service(ToolCallRepairProcessor))
-        if enable_think_tags:
-            processors.append(get_required_service(ThinkTagsProcessor))
-    except Exception as e:
-        logger.warning("Failed to get stream processors from DI container: %s", e)
-        # Fallback to direct instantiation for tests
+        provider = None
         try:
-            if enable_loop_detection:
-                processors.append(LoopDetectionProcessor())  # noqa: DI-bypass
-            if enable_tool_call_repair:
-                processors.append(ToolCallRepairProcessor())  # noqa: DI-bypass
-            if enable_think_tags:
-                processors.append(ThinkTagsProcessor())
-        except Exception as fallback_error:
-            logger.warning(
-                "Failed to instantiate processors directly: %s", fallback_error
+            provider = get_or_build_service_provider()
+            resolved = provider.get_service(service_type)
+            if resolved:
+                return resolved
+        except Exception:
+            logger.debug(
+                "Unable to resolve %s from DI provider; falling back to local instance.",
+                service_type.__name__,
+                exc_info=True,
             )
-            # Continue without processors - they're optional for basic streaming
+
+        return fallback_factory()
+
+    def _default_loop_detection_processor() -> IStreamProcessor:
+        return PortsLoopDetectionProcessor()
+
+    def _default_tool_call_repair_processor() -> IStreamProcessor:
+        return PortsToolCallRepairProcessor()
+
+    if enable_loop_detection:
+        processors.append(
+            _resolve_processor(
+                PortsLoopDetectionProcessor, _default_loop_detection_processor
+            )
+        )
+    if enable_tool_call_repair:
+        processors.append(
+            _resolve_processor(
+                PortsToolCallRepairProcessor, _default_tool_call_repair_processor
+            )
+        )
+    if enable_think_tags:
+        processors.append(_resolve_processor(ThinkTagsProcessor, ThinkTagsProcessor))
 
     # Create pipeline for the provider
     try:
         pipeline = create_pipeline_for_provider(provider, processors=processors)
     except ValueError as e:
-        logger.warning(
-            "Failed to create pipeline for provider %s: %s. "
-            "Falling back to pass-through mode.",
+        logger.error(
+            "Failed to create streaming pipeline for provider %s: %s. No legacy fallback available.",
             provider,
             e,
         )
 
-        # Fall back to pass-through mode
-        async def passthrough_stream() -> AsyncIterator[ProcessedResponse]:
-            async for chunk in raw_stream:
-                yield ProcessedResponse(content=chunk)
+        error_chunk = await handle_streaming_error(e, stream_id, provider)
+
+        async def error_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=error_chunk.to_bytes())
 
         return StreamingResponseEnvelope(
-            content=passthrough_stream(),
+            content=error_stream(),
             media_type="text/event-stream",
             headers={},
         )
@@ -131,11 +146,9 @@ async def integrate_streaming_pipeline(
                     "error": str(e),
                 },
             )
-            # Yield error chunk
-            yield ProcessedResponse(
-                content=b"data: [DONE]\n\n",
-                metadata={"error": str(e), "finish_reason": "error"},
-            )
+            error_chunk = await handle_streaming_error(e, stream_id, provider)
+            yield ProcessedResponse(content=error_chunk.to_bytes())
+            return
         finally:
             # Ensure raw stream is closed
             # Suppress errors for already-closed streams or streams that don't support aclose

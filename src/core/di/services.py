@@ -17,7 +17,9 @@ from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
-    LoopDetectionProcessor,
+)
+from src.core.domain.streaming_response_processor import (
+    LoopDetectionProcessor as DomainLoopDetectionProcessor,
 )
 from src.core.interfaces.agent_response_formatter_interface import (
     IAgentResponseFormatter,
@@ -37,6 +39,7 @@ from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.middleware_application_manager_interface import (
     IMiddlewareApplicationManager,
 )
@@ -67,7 +70,9 @@ from src.core.interfaces.tool_call_repair_service_interface import (
 )
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.interfaces.wire_capture_interface import IWireCapture
-from src.core.ports.streaming_processors import ThinkTagsProcessor
+from src.core.ports.streaming_processors import (
+    ThinkTagsProcessor,
+)
 from src.core.services.angel_service import AngelService
 from src.core.services.app_settings_service import AppSettings
 from src.core.services.application_state_service import ApplicationStateService
@@ -740,6 +745,64 @@ def register_core_services(
             middleware_list=middleware_manager._middleware,
         )
 
+    # Register loop detector and bind to interface
+    def _loop_detector_factory(provider: IServiceProvider) -> ILoopDetector:
+        config = provider.get_service(AppConfig)
+        if (
+            config
+            and hasattr(config, "session")
+            and hasattr(config.session, "loop_detection")
+        ):
+            loop_config = config.session.loop_detection
+            if not loop_config or not loop_config.get("enabled", True):
+                # Return NoOpLoopDetector if disabled
+                from src.loop_detection.detector import NoOpLoopDetector
+
+                return NoOpLoopDetector()
+        # Return active HybridLoopDetector
+        from src.loop_detection.config import (
+            InternalLoopDetectionConfig,
+            PatternThresholds,
+        )
+        from src.loop_detection.hybrid_detector import HybridLoopDetector
+
+        internal_config = InternalLoopDetectionConfig()
+        long_threshold = internal_config.long_pattern_threshold or PatternThresholds(
+            min_repetitions=3,
+            min_total_length=300,
+        )
+        short_config = {
+            "content_loop_threshold": internal_config.content_loop_threshold,
+            "content_chunk_size": internal_config.content_chunk_size,
+            "max_history_length": internal_config.max_history_length,
+        }
+        long_config = {
+            "min_pattern_length": long_threshold.min_total_length,
+            "max_pattern_length": internal_config.max_pattern_length,
+            "min_repetitions": long_threshold.min_repetitions,
+            "max_history": internal_config.max_history_length,
+        }
+
+        return HybridLoopDetector(
+            short_detector_config=short_config,
+            long_detector_config=long_config,
+        )
+
+    # Register concrete LoopDetector
+    from src.loop_detection.hybrid_detector import HybridLoopDetector
+
+    _add_singleton(HybridLoopDetector, implementation_factory=_loop_detector_factory)
+
+    # Register ILoopDetector interface
+    try:
+        services.add_singleton(
+            cast(type, ILoopDetector),
+            implementation_factory=_loop_detector_factory,
+        )  # type: ignore[type-abstract]
+    except Exception as e:
+        logger.warning(f"Failed to register ILoopDetector interface: {e}")
+        # Continue if concrete LoopDetector is registered
+
     # Register response processor and bind to interface
     _add_singleton(
         ResponseProcessor, implementation_factory=_response_processor_factory
@@ -950,7 +1013,7 @@ def register_core_services(
             loop_detection_processor = None
             try:
                 loop_detection_processor = provider.get_required_service(
-                    LoopDetectionProcessor
+                    DomainLoopDetectionProcessor
                 )
                 logger.debug(
                     "LoopDetectionProcessor successfully registered for streaming"
@@ -1031,7 +1094,7 @@ def register_core_services(
     # Register individual stream processors
     def _loop_detection_processor_factory(
         provider: IServiceProvider,
-    ) -> LoopDetectionProcessor:
+    ) -> DomainLoopDetectionProcessor:
         from src.core.interfaces.loop_detector_interface import ILoopDetector
 
         # Create a factory function that creates new detector instances
@@ -1039,10 +1102,40 @@ def register_core_services(
         def create_detector() -> ILoopDetector:
             return provider.get_required_service(cast(type, ILoopDetector))
 
-        return LoopDetectionProcessor(loop_detector_factory=create_detector)
+        return DomainLoopDetectionProcessor(loop_detector_factory=create_detector)
 
     _add_singleton(
-        LoopDetectionProcessor, implementation_factory=_loop_detection_processor_factory
+        DomainLoopDetectionProcessor,
+        implementation_factory=_loop_detection_processor_factory,
+    )
+
+    def _tool_call_repair_processor_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallRepairProcessor:
+        repair_service = provider.get_required_service(ToolCallRepairService)
+        return ToolCallRepairProcessor(tool_call_repair_service=repair_service)
+
+    _add_singleton(
+        ToolCallRepairProcessor,
+        implementation_factory=_tool_call_repair_processor_factory,
+    )
+
+    def _ports_tool_call_repair_processor_factory(
+        provider: IServiceProvider,
+    ) -> IStreamProcessor:
+        from src.core.ports.streaming_processors import (
+            ToolCallRepairProcessor as PortsToolCallRepairProcessor,
+        )
+
+        return PortsToolCallRepairProcessor()
+
+    from src.core.ports.streaming_processors import (
+        ToolCallRepairProcessor as PortsToolCallRepairProcessor,
+    )
+
+    _add_singleton(
+        PortsToolCallRepairProcessor,
+        implementation_factory=_ports_tool_call_repair_processor_factory,
     )
 
     def _think_tags_processor_factory(
@@ -1061,6 +1154,29 @@ def register_core_services(
 
     _add_singleton(
         ThinkTagsProcessor, implementation_factory=_think_tags_processor_factory
+    )
+
+    # Register LoopDetectionProcessor from ports.streaming_processors for streaming integration
+    def _ports_loop_detection_processor_factory(
+        provider: IServiceProvider,
+    ) -> IStreamProcessor:
+        from src.core.ports.streaming_processors import (
+            LoopDetectionProcessor as PortsLoopDetectionProcessor,
+        )
+
+        return PortsLoopDetectionProcessor(
+            content_loop_threshold=10,
+            content_chunk_size=50,
+            max_history_length=1000,
+        )
+
+    from src.core.ports.streaming_processors import (
+        LoopDetectionProcessor as PortsLoopDetectionProcessor,
+    )
+
+    _add_singleton(
+        PortsLoopDetectionProcessor,
+        implementation_factory=_ports_loop_detection_processor_factory,
     )
 
     # Register ContentAccumulationProcessor with configured buffer limit
@@ -1265,22 +1381,6 @@ def register_core_services(
     except Exception as e:
         logger.warning(f"Failed to register IToolCallRepairService interface: {e}")
         # Continue if concrete ToolCallRepairService is registered
-
-    # Register tool call repair processor
-    def _tool_call_repair_processor_factory(
-        provider: IServiceProvider,
-    ) -> ToolCallRepairProcessor:
-        # ToolCallRepairProcessor from streaming/tool_call_repair_processor.py
-        # takes tool_call_repair_service parameter
-        tool_call_repair_service = provider.get_required_service(ToolCallRepairService)
-        return ToolCallRepairProcessor(
-            cast(IToolCallRepairService, tool_call_repair_service)
-        )
-
-    _add_singleton(
-        ToolCallRepairProcessor,
-        implementation_factory=_tool_call_repair_processor_factory,
-    )
 
     # Register dangerous command service
     def _dangerous_command_service_factory(

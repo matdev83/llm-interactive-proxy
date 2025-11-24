@@ -58,7 +58,7 @@ class JsonRepairProcessor(IStreamProcessor):
         state = self._states.setdefault(stream_id, _JsonStreamState())
 
         out_parts: list[str] = []
-        text = content.content or ""
+        text = self._normalize_chunk_text(content.content)
         i = 0
         n = len(text)
 
@@ -235,3 +235,19 @@ class JsonRepairProcessor(IStreamProcessor):
             if self._strict_mode
             else "json_repair.streaming.best_effort_fail"
         )
+
+    @staticmethod
+    def _normalize_chunk_text(chunk: Any) -> str:
+        """Normalize mixed streaming payloads into text."""
+        if chunk is None:
+            return ""
+        if isinstance(chunk, str):
+            return chunk
+        if isinstance(chunk, bytes | bytearray):
+            return chunk.decode("utf-8", errors="ignore")
+        if isinstance(chunk, dict):
+            try:
+                return json.dumps(chunk)
+            except (TypeError, ValueError):
+                return str(chunk)
+        return str(chunk)

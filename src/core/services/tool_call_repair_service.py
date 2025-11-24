@@ -6,6 +6,9 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from src.core.interfaces.tool_call_repair_service_interface import (
+    IToolCallRepairService,
+)
 from src.core.utils.message_processing_utils import (
     find_last_assistant_message,
     is_message_processed,
@@ -15,7 +18,7 @@ from src.core.utils.message_processing_utils import (
 logger = logging.getLogger(__name__)
 
 
-class ToolCallRepairService:
+class ToolCallRepairService(IToolCallRepairService):
     """
     A service to detect and repair tool calls embedded as text in LLM responses,
     converting them into a structured OpenAI-compatible tool_calls format.

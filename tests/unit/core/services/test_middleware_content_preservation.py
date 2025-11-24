@@ -7,7 +7,7 @@ from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
@@ -70,11 +70,11 @@ async def test_streaming_preserves_falsy_content() -> None:
 
 @pytest.mark.asyncio
 async def test_stream_processor_preserves_falsy_content() -> None:
-    middleware = _FalsyContentMiddleware(0)
+    middleware = _FalsyContentMiddleware("0")
     processor = MiddlewareApplicationProcessor([middleware])
     chunk = StreamingContent(content="initial", metadata={"session_id": "s"})
 
     processed = await processor.process(chunk)
 
-    assert processed.content == 0
+    assert processed.content == "0"
     assert processed.metadata == {"session_id": "s"}

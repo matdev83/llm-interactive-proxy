@@ -1294,27 +1294,37 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                         )
 
                         if is_quota_error:
-                            # Mark backend as unusable for quota exhaustion
-                            # Note: GeminiCloudProjectConnector doesn't have _mark_backend_unusable
-                            # but this is handled at a higher level
+                            # Extract user-friendly error message
+                            user_message = "Quota exhausted. Please try again later."
+                            if isinstance(error_detail, dict):
+                                user_message = error_detail.get("error", {}).get(
+                                    "message", user_message
+                                )
                             # Yield quota error chunk instead of raising exception
+                            quota_code = 503
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
                                 "object": "chat.completion.chunk",
                                 "created": int(time.time()),
                                 "model": effective_model,
                                 "choices": [
-                                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                                    {"index": 0, "delta": {}, "finish_reason": "error"}
                                 ],
                                 "error": {
-                                    "message": f"Quota exhausted: {error_detail}",
+                                    "message": user_message,
                                     "type": "quota_exceeded",
-                                    "code": 429,
+                                    "code": quota_code,
                                 },
                             }
                             yield ProcessedResponse(content=error_chunk)
                             return
                         else:
+                            # Extract user-friendly error message
+                            user_message = "An API error occurred. Please try again."
+                            if isinstance(error_detail, dict):
+                                user_message = error_detail.get("error", {}).get(
+                                    "message", user_message
+                                )
                             # Yield general error chunk instead of raising exception
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
@@ -1322,10 +1332,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                 "created": int(time.time()),
                                 "model": effective_model,
                                 "choices": [
-                                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                                    {"index": 0, "delta": {}, "finish_reason": "error"}
                                 ],
                                 "error": {
-                                    "message": f"API error: {error_detail}",
+                                    "message": user_message,
                                     "type": "api_error",
                                     "code": response.status_code,
                                 },

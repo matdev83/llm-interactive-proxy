@@ -101,9 +101,17 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 is_empty=True,
                                 stream_id=stream_id,
                             )
-                            # Track chunk emission
-                            metrics.increment_chunks_sent(stream_id)
-                            yield chunk
+                            if self.validate_chunk(chunk):
+                                metrics.increment_chunks_sent(stream_id)
+                                yield chunk
+                            else:
+                                logger.warning(
+                                    "Dropping invalid role chunk",
+                                    extra={
+                                        "provider": self.provider,
+                                        "stream_id": stream_id,
+                                    },
+                                )
 
                     elif event_type == "content_block_start":
                         # Content block started - may contain type info
@@ -132,9 +140,17 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 },
                                 stream_id=stream_id,
                             )
-                            # Track chunk emission
-                            metrics.increment_chunks_sent(stream_id)
-                            yield chunk
+                            if self.validate_chunk(chunk):
+                                metrics.increment_chunks_sent(stream_id)
+                                yield chunk
+                            else:
+                                logger.warning(
+                                    "Dropping invalid text delta chunk",
+                                    extra={
+                                        "provider": self.provider,
+                                        "stream_id": stream_id,
+                                    },
+                                )
 
                         elif delta_type == "input_json_delta":
                             # Tool use input (partial JSON)
@@ -151,9 +167,17 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 },
                                 stream_id=stream_id,
                             )
-                            # Track chunk emission
-                            metrics.increment_chunks_sent(stream_id)
-                            yield chunk
+                            if self.validate_chunk(chunk):
+                                metrics.increment_chunks_sent(stream_id)
+                                yield chunk
+                            else:
+                                logger.warning(
+                                    "Dropping invalid tool input chunk",
+                                    extra={
+                                        "provider": self.provider,
+                                        "stream_id": stream_id,
+                                    },
+                                )
 
                     elif event_type == "content_block_stop":
                         # Content block ended
@@ -189,9 +213,17 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                             if usage:
                                 chunk.usage = usage
 
-                            # Track chunk emission
-                            metrics.increment_chunks_sent(stream_id)
-                            yield chunk
+                            if self.validate_chunk(chunk):
+                                metrics.increment_chunks_sent(stream_id)
+                                yield chunk
+                            else:
+                                logger.warning(
+                                    "Dropping invalid finish chunk",
+                                    extra={
+                                        "provider": self.provider,
+                                        "stream_id": stream_id,
+                                    },
+                                )
 
                     elif event_type == "message_stop":
                         # Message completed - emit final done marker

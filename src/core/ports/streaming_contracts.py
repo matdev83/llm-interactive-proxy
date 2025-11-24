@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 import httpx
+
 from src.core.common.exceptions import (
     APIConnectionError,
     APITimeoutError,
@@ -39,7 +41,7 @@ class StreamingContent:
     content: str | dict | bytes = ""
     metadata: dict[str, Any] = field(default_factory=dict)
     is_done: bool = False
-    is_empty: bool = False
+    is_empty: bool | None = None
     stream_id: str | None = None
     is_cancellation: bool = False
     usage: dict[str, Any] | None = None
@@ -47,7 +49,39 @@ class StreamingContent:
 
     def __post_init__(self) -> None:
         """Validate the streaming content after initialization."""
+        if self.is_empty is None:
+            self.is_empty = self._compute_is_empty()
+        else:
+            self.is_empty = bool(self.is_empty)
         self._validate()
+        self._synchronize_stream_id()
+        self._synchronize_completion_state()
+
+    def _synchronize_stream_id(self) -> None:
+        """Ensure stream_id is reflected in both attribute and metadata."""
+        meta_stream_id = self.metadata.get("stream_id")
+        if (
+            self.stream_id is None
+            and isinstance(meta_stream_id, str)
+            and meta_stream_id
+        ):
+            self.stream_id = meta_stream_id
+        elif self.stream_id and not self.metadata.get("stream_id"):
+            self.metadata["stream_id"] = self.stream_id
+
+    def _synchronize_completion_state(self) -> None:
+        """Align completion flags based on metadata hints."""
+        metadata_done = self.metadata.get("is_done")
+        if isinstance(metadata_done, bool) and metadata_done:
+            self.is_done = True
+
+        finish_reason = self.metadata.get("finish_reason")
+        if (
+            not self.is_done
+            and isinstance(finish_reason, str)
+            and finish_reason.strip()
+        ):
+            self.is_done = True
 
     def _validate(self) -> None:
         """Validate chunk structure and metadata.
@@ -100,6 +134,29 @@ class StreamingContent:
                 tool_calls = self.metadata["tool_calls"]
                 if not isinstance(tool_calls, list):
                     raise ValueError("metadata['tool_calls'] must be list")
+
+    def _compute_is_empty(self) -> bool:
+        """Compute whether the chunk is empty based on its content and metadata."""
+        if self.content:
+            if isinstance(self.content, str):
+                if self.content.strip():
+                    return False
+            else:
+                return False
+
+        if self.metadata.get("role") == "tool":
+            return False
+
+        tool_calls = self.metadata.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            return False
+
+        reasoning_content = self.metadata.get("reasoning_content")
+        if isinstance(reasoning_content, str) and reasoning_content.strip():
+            return False
+
+        reasoning = self.metadata.get("reasoning")
+        return not (isinstance(reasoning, str) and reasoning.strip())
 
     def to_bytes(self) -> bytes:
         """Convert this chunk to bytes for transport.
@@ -222,6 +279,248 @@ class StreamingContent:
             "usage": self.usage,
         }
 
+    @classmethod
+    def from_raw(cls, raw_data: Any) -> StreamingContent:
+        """Create a StreamingContent instance from raw backend data."""
+        content: str | dict | bytes = ""
+        is_done = False
+        metadata: dict[str, Any] = {}
+        usage: dict[str, Any] | None = None
+
+        from src.core.interfaces.response_processor_interface import (
+            ProcessedResponse,
+        )
+
+        if isinstance(raw_data, ProcessedResponse):
+            metadata = dict(raw_data.metadata) if raw_data.metadata else {}
+            usage = raw_data.usage
+            content_val = raw_data.content
+
+            def _finalize(result: StreamingContent) -> StreamingContent:
+                merged_metadata = dict(result.metadata)
+                merged_metadata.update(metadata)
+                result.metadata = merged_metadata
+                if usage is not None:
+                    result.usage = usage
+                result.raw_data = raw_data
+                if bool(metadata.get("is_done")):
+                    result.is_done = True
+                if bool(metadata.get("is_cancellation")):
+                    result.is_cancellation = True
+                return result
+
+            if isinstance(content_val, StreamingContent):
+                copied = StreamingContent(
+                    content=content_val.content,
+                    is_done=content_val.is_done,
+                    is_cancellation=content_val.is_cancellation,
+                    metadata=dict(content_val.metadata),
+                    usage=content_val.usage,
+                    raw_data=content_val.raw_data,
+                )
+                return _finalize(copied)
+
+            if isinstance(content_val, ProcessedResponse):
+                return _finalize(cls.from_raw(content_val))
+
+            if isinstance(content_val, dict | str | bytes | bytearray | list):
+                return _finalize(cls.from_raw(content_val))
+
+            content_str = ""
+            if content_val is not None:
+                if isinstance(content_val, bytes):
+                    try:
+                        content_str = content_val.decode("utf-8")
+                    except UnicodeDecodeError:
+                        logger.warning(
+                            "Could not decode bytes in ProcessedResponse: %r",
+                            content_val,
+                        )
+                        content_str = ""
+                else:
+                    content_str = str(content_val)
+
+            return _finalize(
+                cls(
+                    content=content_str,
+                    metadata={},
+                )
+            )
+
+        if isinstance(raw_data, dict):
+            if raw_data.get("type") == "content_block_delta":
+                delta = raw_data.get("delta", {})
+                if delta.get("type") == "text_delta":
+                    content = delta.get("text", "")
+            elif raw_data.get("type") == "message_delta":
+                usage = raw_data.get("usage")
+                is_done = True
+            else:
+                is_done = bool(raw_data.get("done", False))
+                finish_reason = None
+
+                candidates = raw_data.get("candidates")
+                if isinstance(candidates, list) and candidates:
+                    candidate = candidates[0]
+                    if isinstance(candidate, dict):
+                        finish_reason = candidate.get("finishReason", finish_reason)
+                        content_block = candidate.get("content") or {}
+                        if isinstance(content_block, dict):
+                            parts = content_block.get("parts")
+                            if isinstance(parts, list) and parts:
+                                first_part = parts[0]
+                                if isinstance(first_part, dict):
+                                    text_val = first_part.get("text")
+                                    if isinstance(text_val, str):
+                                        content = text_val
+                                    function_call = first_part.get("functionCall")
+                                    if isinstance(function_call, dict):
+                                        metadata["tool_calls"] = [
+                                            {
+                                                "id": function_call.get("id")
+                                                or f"call_{uuid.uuid4().hex[:8]}",
+                                                "type": "function",
+                                                "function": function_call,
+                                            }
+                                        ]
+                                        finish_reason = finish_reason or "tool_calls"
+                                elif isinstance(first_part, str):
+                                    content = first_part
+                            role = content_block.get("role")
+                            if role:
+                                metadata["role"] = role
+                else:
+                    choices = raw_data.get("choices")
+                    if choices and isinstance(choices, list) and len(choices) > 0:
+                        choice = choices[0]
+                        if isinstance(choice, dict):
+                            finish_reason = choice.get("finish_reason", finish_reason)
+                            if "delta" in choice:
+                                delta = choice["delta"]
+                                if isinstance(delta, dict):
+                                    reasoning_value = delta.get(
+                                        "reasoning_content"
+                                    ) or delta.get("reasoning")
+                                    if reasoning_value:
+                                        normalized_reasoning = (
+                                            reasoning_value
+                                            if isinstance(reasoning_value, str)
+                                            else str(reasoning_value)
+                                        )
+                                        metadata["reasoning_content"] = (
+                                            normalized_reasoning
+                                        )
+                                        metadata.setdefault(
+                                            "reasoning", normalized_reasoning
+                                        )
+                                    content_value = delta.get("content")
+                                    if content_value is not None:
+                                        content = content_value
+                                    tool_calls_val = delta.get("tool_calls")
+                                    if (
+                                        isinstance(tool_calls_val, list)
+                                        and tool_calls_val
+                                    ):
+                                        metadata["tool_calls"] = tool_calls_val
+                            elif "message" in choice:
+                                message = choice["message"]
+                                if isinstance(message, dict) and "content" in message:
+                                    content_value = message.get("content")
+                                    content = (
+                                        content_value
+                                        if content_value is not None
+                                        else ""
+                                    )
+                                if isinstance(message, dict):
+                                    tool_calls_val = message.get("tool_calls")
+                                    if (
+                                        isinstance(tool_calls_val, list)
+                                        and tool_calls_val
+                                    ):
+                                        metadata["tool_calls"] = tool_calls_val
+                            elif "text" in choice:
+                                content_value = choice.get("text")
+                                content = (
+                                    content_value if content_value is not None else ""
+                                )
+
+                if finish_reason is not None:
+                    metadata["finish_reason"] = finish_reason
+                    if str(finish_reason):
+                        is_done = True
+
+                if "id" in raw_data:
+                    metadata["id"] = raw_data["id"]
+                if "model" in raw_data:
+                    metadata["model"] = raw_data["model"]
+                if "created" in raw_data:
+                    metadata["created"] = raw_data["created"]
+
+                usage_metadata = raw_data.get("usageMetadata")
+                if isinstance(usage_metadata, dict):
+                    usage = {
+                        "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
+                        "completion_tokens": usage_metadata.get(
+                            "candidatesTokenCount", 0
+                        ),
+                        "total_tokens": usage_metadata.get("totalTokenCount", 0),
+                    }
+                else:
+                    usage = raw_data.get("usage")
+
+        elif isinstance(raw_data, str):
+            if raw_data.strip().startswith(("{", "[")):
+                try:
+                    parsed_json = json.loads(raw_data)
+                    return cls.from_raw(parsed_json)
+                except json.JSONDecodeError:
+                    content = raw_data
+            elif raw_data.strip().startswith("data: "):
+                # Handle Server-Sent Events format
+                sse_part = raw_data.strip()[6:]  # Remove "data: " prefix
+                if sse_part.strip() == "[DONE]":
+                    return cls(is_done=True, raw_data=raw_data)
+                else:
+                    try:
+                        parsed_json = json.loads(sse_part)
+                        return cls.from_raw(parsed_json)
+                    except json.JSONDecodeError:
+                        content = sse_part
+            else:
+                content = raw_data
+
+        elif isinstance(raw_data, bytes | bytearray):
+            try:
+                decoded_str = bytes(raw_data).decode("utf-8").strip()
+                if decoded_str.startswith("data: "):
+                    json_part = decoded_str[6:]
+                    if json_part.strip() == "[DONE]":
+                        return cls(is_done=True, raw_data=raw_data)
+                    else:
+                        try:
+                            parsed_json = json.loads(json_part)
+                            return cls.from_raw(parsed_json)
+                        except json.JSONDecodeError:
+                            content = json_part
+                else:
+                    return cls.from_raw(decoded_str)
+            except UnicodeDecodeError:
+                logger.warning(f"Could not decode bytes: {raw_data!r}")
+                content = ""
+        else:
+            logger.warning(
+                f"Unsupported raw data type for StreamingContent: {type(raw_data)}"
+            )
+            content = str(raw_data)
+
+        return cls(
+            content=content,
+            is_done=is_done,
+            metadata=metadata,
+            usage=usage,
+            raw_data=raw_data,
+        )
+
 
 class StreamProducer(Protocol):
     """Protocol that all streaming backends must implement.
@@ -292,7 +591,8 @@ class BaseStreamNormalizer(IStreamNormalizer):
     """
 
     # Metadata schema definition
-    METADATA_SCHEMA = {
+    METADATA_FIELD_TYPE = type[Any] | tuple[type[Any], ...]
+    METADATA_SCHEMA: ClassVar[dict[str, METADATA_FIELD_TYPE]] = {
         "stream_id": str,
         "provider": str,
         "model": (str, type(None)),

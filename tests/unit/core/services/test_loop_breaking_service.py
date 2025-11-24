@@ -11,12 +11,13 @@ Tests the complete loop breaking functionality including:
 from __future__ import annotations
 
 import time
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.assessment_prompts import initialize_prompts
 from src.core.services.loop_breaking_service import LoopBreakingService
 from src.loop_detection.event import LoopDetectionEvent
@@ -33,7 +34,7 @@ class MockLoopDetector:
         self.should_detect_loop = should_detect_loop
         self.mock_event = mock_event
         self.reset_calls = 0
-        self.process_chunk_calls = []
+        self.process_chunk_calls: list[str] = []
 
     def reset(self) -> None:
         """Track reset calls."""
@@ -68,7 +69,7 @@ class MockAssessmentService:
     def __init__(self, confidence: float = 0.95, should_fail: bool = False):
         self.confidence = confidence
         self.should_fail = should_fail
-        self.assess_calls = []
+        self.assess_calls: list[tuple[Any, str]] = []
 
     async def assess_conversation(self, history, session_id: str):
         """Mock assess_conversation method."""
@@ -100,7 +101,7 @@ class MockBackendProcessor:
     def __init__(self, should_fail_retry: bool = False, retry_response=None):
         self.should_fail_retry = should_fail_retry
         self.retry_response = retry_response
-        self.process_calls = []
+        self.process_calls: list[tuple[ChatRequest, str, dict | None]] = []
 
     async def process_backend_request(
         self, request: ChatRequest, session_id: str, context: dict | None = None

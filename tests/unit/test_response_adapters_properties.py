@@ -1,12 +1,14 @@
-"""
-Property-based tests for response adapters.
-
-This module contains property-based tests for the response adapter functions,
-focusing on event loop yielding and async path purity.
+""" 
+Property-based tests for response adapters. 
+ 
+This module contains property-based tests for the response adapter functions, 
+focusing on event loop yielding and async path purity. 
 """
 
 import asyncio
 import inspect
+import json
+from collections.abc import AsyncGenerator
 
 import pytest
 from hypothesis import given, settings
@@ -312,3 +314,59 @@ class TestAsyncPathPurity:
         assert (
             len(progress_markers) >= consumed_chunks
         ), "Insufficient interleaving - streaming may be blocking"
+
+
+class TestSSENormalization:
+    """Regression tests ensuring SSE inputs are normalized and completed."""
+
+    @pytest.mark.asyncio
+    async def test_sse_chunks_are_normalized_and_done_appended(self) -> None:
+        """Ensure SSE chunks without sentinels are normalized and completed."""
+
+        async def chunk_generator() -> AsyncGenerator[ProcessedResponse, None]:
+            yield ProcessedResponse(
+                content=b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+            )
+
+        envelope = StreamingResponseEnvelope(
+            content=chunk_generator(), media_type="text/event-stream"
+        )
+
+        response = to_fastapi_streaming_response(envelope)
+
+        emitted_chunks: list[bytes] = []
+        async for body_chunk in response.body_iterator:
+            if isinstance(body_chunk, str):
+                emitted_chunks.append(body_chunk.encode())
+            else:
+                emitted_chunks.append(bytes(body_chunk))
+
+        assert len(emitted_chunks) == 2
+        first_payload = emitted_chunks[0].decode("utf-8").strip()
+        assert first_payload.startswith("data: ")
+        payload_body = first_payload.split("data:", 1)[1].strip()
+        payload_json = json.loads(payload_body)
+        assert payload_json["choices"][0]["delta"]["content"] == "hi"
+        assert emitted_chunks[1] == b"data: [DONE]\n\n"
+
+    @pytest.mark.asyncio
+    async def test_existing_done_chunk_not_duplicated(self) -> None:
+        """Ensure `[DONE]` chunks upstream are not duplicated downstream."""
+
+        async def chunk_generator() -> AsyncGenerator[ProcessedResponse, None]:
+            yield ProcessedResponse(content=b"data: [DONE]\n\n")
+
+        envelope = StreamingResponseEnvelope(
+            content=chunk_generator(), media_type="text/event-stream"
+        )
+
+        response = to_fastapi_streaming_response(envelope)
+
+        emitted_chunks: list[bytes] = []
+        async for body_chunk in response.body_iterator:
+            if isinstance(body_chunk, str):
+                emitted_chunks.append(body_chunk.encode())
+            else:
+                emitted_chunks.append(bytes(body_chunk))
+
+        assert emitted_chunks == [b"data: [DONE]\n\n"]

@@ -5,7 +5,7 @@ Tests for the Gemini OAuth Antigravity connector.
 import json
 import sqlite3
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -162,3 +162,69 @@ class TestGeminiOAuthAntigravityConnector:
         await connector._ensure_models_loaded()
 
         assert connector.available_models
+
+    @pytest.mark.asyncio
+    async def test_streaming_rate_limit_yields_error_chunk(
+        self, connector, monkeypatch
+    ):
+        """Streaming 429 should emit an error chunk immediately."""
+
+        # Minimal wiring to pass validation
+        connector._oauth_credentials = {"access_token": "token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        connector._discover_project_id = AsyncMock(return_value="project-id")  # type: ignore[attr-defined]
+        connector.translation_service.from_domain_to_gemini_request = Mock(
+            return_value={
+                "contents": [],
+                "generationConfig": {},
+            }
+        )
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        quota_error = {
+            "error": {
+                "code": 429,
+                "message": "You have exhausted your capacity on this model. Your quota will reset after 1s.",
+                "status": "RESOURCE_EXHAUSTED",
+            }
+        }
+
+        mock_response = Mock()
+        mock_response.status_code = 429
+        mock_response.json.return_value = quota_error
+        mock_response.text = json.dumps(quota_error)
+
+        async_to_thread = AsyncMock(return_value=mock_response)
+
+        class DummySession:
+            def __init__(self) -> None:
+                self.request = Mock()
+                self.headers: dict[str, str] = {}
+
+        dummy_session = DummySession()
+
+        monkeypatch.setattr(
+            "google.auth.transport.requests.AuthorizedSession",
+            lambda *args, **kwargs: dummy_session,
+        )
+        monkeypatch.setattr(
+            "src.connectors.gemini_oauth_base.asyncio.to_thread", async_to_thread
+        )
+
+        request = Mock()
+        request.stream = True
+        request.messages = []
+        request.extra_body = {}
+
+        envelope = await connector._chat_completions_code_assist_streaming(
+            request, [], "gemini-2.5-flash"
+        )
+
+        stream = envelope.content
+        first_chunk = await stream.__anext__()
+
+        assert first_chunk.metadata.get("finish_reason") == "error"
+        assert isinstance(first_chunk.content, dict)
+        assert first_chunk.content["error"]["code"] == 503
+        assert first_chunk.content["error"]["type"] == "quota_exceeded"
+        assert "exhausted your capacity" in first_chunk.content["error"]["message"]

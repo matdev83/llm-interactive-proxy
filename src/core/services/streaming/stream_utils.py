@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 
 
 def get_stream_id(content: StreamingContent) -> str:

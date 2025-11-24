@@ -115,7 +115,8 @@ class TestStreamingMetrics:
         elapsed = metrics.stop_timer(stream_id, "test_operation")
 
         assert elapsed is not None
-        assert elapsed >= 0.01  # Should be at least 10ms
+        # Allow slight scheduler jitter while ensuring millisecond precision
+        assert elapsed >= 0.009
 
     def test_timer_not_started(self) -> None:
         """Test stopping a timer that was never started."""

@@ -8,7 +8,7 @@ Feature: streaming-pipeline-refactor
 """
 
 import json
-from typing import Any
+from typing import Any, cast
 from unittest.mock import Mock
 
 import httpx
@@ -27,11 +27,13 @@ def valid_content_strategy(draw: Any) -> str | dict | bytes:
     """Generate valid content values."""
     content_type = draw(st.sampled_from(["str", "dict", "bytes"]))
     if content_type == "str":
-        return draw(st.text())
+        return cast(str, draw(st.text()))
     elif content_type == "dict":
-        return draw(st.dictionaries(st.text(), st.text(), max_size=5))
+        return cast(
+            dict[str, str], draw(st.dictionaries(st.text(), st.text(), max_size=5))
+        )
     else:  # bytes
-        return draw(st.binary())
+        return cast(bytes, draw(st.binary()))
 
 
 @st.composite
@@ -240,6 +242,36 @@ def test_property_metadata_schema_conformance(chunk: StreamingContent) -> None:
         assert isinstance(chunk.metadata["id"], str), "id must be string"
 
 
+def test_streaming_content_inherits_stream_id_from_metadata() -> None:
+    """Chunks should adopt stream_id from metadata when not provided explicitly."""
+    metadata = {"stream_id": "stream-123"}
+    chunk = StreamingContent(content="", metadata=dict(metadata))
+
+    assert chunk.stream_id == "stream-123"
+    assert chunk.metadata["stream_id"] == "stream-123"
+
+
+def test_streaming_content_populates_metadata_stream_id_when_missing() -> None:
+    """Chunks with explicit stream_id should mirror it into metadata."""
+    chunk = StreamingContent(content="", metadata={}, stream_id="stream-456")
+
+    assert chunk.metadata["stream_id"] == "stream-456"
+
+
+@pytest.mark.parametrize(
+    "finish_reason", ["stop", "length", "tool_calls", "content_filter", "error"]
+)
+def test_finish_reason_marks_chunk_done(finish_reason: str) -> None:
+    """Chunks with finish_reason metadata should default to terminal state."""
+    chunk = StreamingContent(
+        content="",
+        metadata={"finish_reason": finish_reason},
+        is_done=False,
+    )
+
+    assert chunk.is_done is True
+
+
 # Additional validation tests for edge cases
 @given(
     content=st.one_of(st.integers(), st.floats(), st.lists(st.text())),
@@ -371,6 +403,7 @@ async def test_property_error_terminal_chunks(
     from src.core.ports.streaming_contracts import handle_streaming_error
 
     # Create the appropriate error based on error_type
+    error: Exception
     if error_type == "timeout":
         error = httpx.TimeoutException("Timeout")
     elif error_type == "http_error":
@@ -451,6 +484,8 @@ def test_property_error_mapping_consistency(
     from src.core.ports.streaming_contracts import StreamingErrorMapper
 
     # Create the appropriate error based on error_type
+    error: Exception
+    expected_type: type[LLMProxyError]
     if error_type == "timeout":
         error = httpx.TimeoutException("Timeout")
         expected_type = APITimeoutError
@@ -534,6 +569,7 @@ async def test_property_structured_error_responses(
     from src.core.ports.streaming_contracts import handle_streaming_error
 
     # Create the appropriate error based on error_type
+    error: Exception
     if error_type == "timeout":
         error = httpx.TimeoutException("Timeout")
     elif error_type == "http_error":
@@ -756,11 +792,16 @@ async def test_property_streaming_content_structure_stability(
 
     Validates: Requirements 7.1
     """
-    from src.core.ports.streaming import StreamingContent as ActualStreamingContent
+    from src.core.ports.streaming_contracts import (
+        IStreamProcessor,
+    )
+    from src.core.ports.streaming_contracts import (
+        StreamingContent as ActualStreamingContent,
+    )
     from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
     # Create a simple pass-through processor to simulate middleware
-    class PassThroughProcessor:
+    class PassThroughProcessor(IStreamProcessor):
         async def process(
             self, content: ActualStreamingContent
         ) -> ActualStreamingContent:
@@ -786,6 +827,9 @@ async def test_property_streaming_content_structure_stability(
             ), "is_cancellation must be bool"
 
             return content
+
+        def reset(self) -> None:  # pragma: no cover - no state to reset
+            return None
 
     # Create a normalizer with the pass-through processor
     processor = PassThroughProcessor()

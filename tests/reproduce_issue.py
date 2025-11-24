@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import sys
 
@@ -6,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 
 
 # Mock JsonRepairProcessor (simplified)
@@ -15,7 +16,14 @@ class JsonRepairProcessor:
         self._states = {}
 
     async def process(self, content: StreamingContent):
-        text = content.content or ""
+        raw_content = content.content
+        if isinstance(raw_content, bytes):
+            text = raw_content.decode("utf-8", errors="ignore")
+        elif isinstance(raw_content, dict):
+            text = json.dumps(raw_content)
+        else:
+            text = str(raw_content or "")
+
         i = 0
         # This is the line causing error
         try:

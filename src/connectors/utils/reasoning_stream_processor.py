@@ -16,7 +16,7 @@ from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 
 logger = logging.getLogger(__name__)
 

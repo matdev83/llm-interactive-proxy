@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 import pytest
 from src.core.domain.streaming_response_processor import LoopDetectionProcessor
@@ -10,7 +11,7 @@ from src.core.interfaces.loop_detector_interface import (
     ILoopDetector,
     LoopDetectionResult,
 )
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
@@ -34,12 +35,14 @@ async def test_content_accumulation_isolates_parallel_streams() -> None:
                 await asyncio.sleep(0)
                 yield chunk
             await asyncio.sleep(0)
-            yield b"data: [DONE]\n\n"
+            yield "data: [DONE]\n\n"
 
         collected: list[str] = []
         async for item in normalizer.process_stream(stream(), output_format="objects"):
-            if item.content:
-                collected.append(item.content)
+            streaming_chunk = cast(StreamingContent, item)
+            chunk_content = streaming_chunk.content
+            if isinstance(chunk_content, str):
+                collected.append(chunk_content)
         return "".join(collected)
 
     left, right = await asyncio.gather(
@@ -52,21 +55,52 @@ async def test_content_accumulation_isolates_parallel_streams() -> None:
 
 
 @pytest.mark.asyncio
+async def test_content_accumulation_preserves_metadata() -> None:
+    processor = ContentAccumulationProcessor()
+    stream_id = "meta-stream"
+
+    first_chunk = StreamingContent(
+        content="partial ",
+        metadata={
+            "stream_id": stream_id,
+            "tool_calls": [
+                {"id": "call_1", "function": {"name": "plan", "arguments": "{}"}}
+            ],
+        },
+    )
+    await processor.process(first_chunk)
+
+    final_chunk = await processor.process(
+        StreamingContent(
+            content="result",
+            metadata={"stream_id": stream_id, "finish_reason": "stop"},
+            is_done=True,
+        )
+    )
+
+    tool_calls = final_chunk.metadata.get("tool_calls")
+    assert isinstance(tool_calls, list) and tool_calls
+    assert tool_calls[0]["function"]["name"] == "plan"
+    assert final_chunk.metadata.get("accumulated_content") == "partial result"
+
+
+@pytest.mark.asyncio
 async def test_tool_call_repair_isolates_parallel_streams() -> None:
     repair_processor = ToolCallRepairProcessor(ToolCallRepairService())
     normalizer = StreamNormalizer([repair_processor])
 
-    async def run_stream(name: str) -> dict[str, object]:
+    async def run_stream(name: str) -> dict[str, Any]:
         async def stream() -> AsyncGenerator[str, None]:
             await asyncio.sleep(0)
             yield f'TOOL CALL: {name} {{"arg": 1}}'
             await asyncio.sleep(0)
-            yield b"data: [DONE]\n\n"
+            yield "data: [DONE]\n\n"
 
-        tool_calls: list[dict[str, object]] = []
+        tool_calls: list[dict[str, Any]] = []
         async for item in normalizer.process_stream(stream(), output_format="objects"):
+            streaming_chunk = cast(StreamingContent, item)
             # Check for tool calls in metadata, not content
-            item_tool_calls = item.metadata.get("tool_calls")
+            item_tool_calls = streaming_chunk.metadata.get("tool_calls")
             if isinstance(item_tool_calls, list):
                 tool_calls.extend(item_tool_calls)
         assert tool_calls, "Expected repaired tool call"
@@ -85,18 +119,25 @@ async def test_json_repair_isolates_parallel_streams() -> None:
     )
     normalizer = StreamNormalizer([json_processor])
 
-    async def run_stream(prefix: str, value: int) -> list[dict[str, object]]:
+    async def run_stream(prefix: str, value: int) -> list[dict[str, Any]]:
         async def stream() -> AsyncGenerator[object, None]:
             await asyncio.sleep(0)
             yield prefix
             await asyncio.sleep(0)
             yield f"{{'value': {value},}}"
             await asyncio.sleep(0)
-            yield b"data: [DONE]\n\n"
+            yield "data: [DONE]\n\n"
 
-        parsed_chunks: list[dict[str, object]] = []
+        parsed_chunks: list[dict[str, Any]] = []
         async for item in normalizer.process_stream(stream(), output_format="objects"):
-            content = item.content or ""
+            streaming_chunk = cast(StreamingContent, item)
+            raw_content = streaming_chunk.content
+            if isinstance(raw_content, bytes):
+                content = raw_content.decode("utf-8", errors="ignore")
+            elif isinstance(raw_content, str):
+                content = raw_content
+            else:
+                content = str(raw_content or "")
             brace_idx = content.find("{")
             if brace_idx != -1:
                 try:
@@ -201,6 +242,7 @@ async def test_loop_detection_isolates_sessions() -> None:
 
     assert set(processor._session_detectors.keys()) == {"session-1", "session-2"}
     for session_id, detector in processor._session_detectors.items():
+        assert isinstance(detector, _DummyLoopDetector)
         assert all(chunk.startswith(f"{session_id}:") for chunk in detector.chunks)
 
     await asyncio.gather(
@@ -221,7 +263,10 @@ async def test_loop_detection_assigns_stream_id_when_missing() -> None:
 
 @pytest.mark.asyncio
 async def test_loop_detection_cancellation_does_not_leak_text() -> None:
-    processor = LoopDetectionProcessor(loop_detector_factory=_TriggeringLoopDetector)
+    processor = LoopDetectionProcessor(
+        loop_detector_factory=_TriggeringLoopDetector,
+        min_chunks_before_detection=1,
+    )
 
     # First chunk triggers loop detection
     cancellation = await processor.process(

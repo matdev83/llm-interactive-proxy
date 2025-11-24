@@ -74,7 +74,7 @@ class TestGeminiGracefulErrorHandling:
             required_fields = [
                 '"object": "chat.completion.chunk"',
                 '"choices":',
-                '"finish_reason": "stop"',
+                '"finish_reason": "error"',
                 '"error":',
                 '"message":',
                 '"type":',

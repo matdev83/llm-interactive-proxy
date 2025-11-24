@@ -470,12 +470,7 @@ class ResponseProcessor(IResponseProcessor):
 
                 async for processed_chunk in stream_processor:
                     if isinstance(processed_chunk, StreamingContent):
-                        # Ensure content is always a string
-                        content = (
-                            processed_chunk.content
-                            if processed_chunk.content is not None
-                            else ""
-                        )
+                        content = self._normalize_chunk_text(processed_chunk.content)
                         source_metadata = processed_chunk.metadata or {}
                         metadata = dict(source_metadata)
                         if session_id:
@@ -494,19 +489,9 @@ class ResponseProcessor(IResponseProcessor):
                         # Handle cases where processed_chunk might be ProcessedResponse or other types
                         if isinstance(processed_chunk, ProcessedResponse):
                             # Extract content from ProcessedResponse
-                            content_val = processed_chunk.content
-                            if isinstance(content_val, bytes):
-                                try:
-                                    content = content_val.decode("utf-8")
-                                except UnicodeDecodeError:
-                                    logger.warning(
-                                        f"Could not decode bytes in ProcessedResponse: {content_val!r}"
-                                    )
-                                    content = ""
-                            elif content_val is not None:
-                                content = str(content_val)
-                            else:
-                                content = ""
+                            content = self._normalize_chunk_text(
+                                processed_chunk.content
+                            )
 
                             metadata = (
                                 dict(processed_chunk.metadata)
@@ -576,3 +561,22 @@ class ResponseProcessor(IResponseProcessor):
                     **({"session_id": session_id} if session_id else {}),
                 },
             )
+
+    @staticmethod
+    def _normalize_chunk_text(chunk: Any) -> str:
+        """Normalize streaming payloads into string form."""
+        if chunk is None:
+            return ""
+        if isinstance(chunk, str):
+            return chunk
+        if isinstance(chunk, bytes | bytearray):
+            try:
+                return chunk.decode("utf-8")
+            except UnicodeDecodeError:
+                return chunk.decode("utf-8", errors="ignore")
+        if isinstance(chunk, dict):
+            try:
+                return json.dumps(chunk)
+            except (TypeError, ValueError):
+                return str(chunk)
+        return str(chunk)

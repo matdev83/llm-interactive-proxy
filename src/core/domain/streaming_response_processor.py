@@ -7,14 +7,17 @@ responses in a consistent way, regardless of the source or format.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
-from src.core.ports.streaming import IStreamProcessor, StreamingContent
+from src.core.ports.streaming_contracts import IStreamProcessor, StreamingContent
 
 logger = logging.getLogger(__name__)
+
+_SSE_PREFIXES = ("event:", "data:")
 
 
 from src.core.interfaces.loop_detector_interface import ILoopDetector
@@ -36,6 +39,8 @@ class LoopDetectionProcessor(IStreamProcessor):
         self,
         loop_detector_factory: Callable[[], ILoopDetector],
         cancel_callback: Callable[[], Awaitable[None]] | None = None,
+        *,
+        min_chunks_before_detection: int = 2,
     ) -> None:
         """Initialize loop detection processor.
 
@@ -49,6 +54,8 @@ class LoopDetectionProcessor(IStreamProcessor):
         self._session_detectors: dict[str, ILoopDetector] = {}
         # Track sessions that have already triggered cancellation to suppress duplicates
         self._cancelled_sessions: set[str] = set()
+        self._stream_chunk_counts: dict[str, int] = {}
+        self._min_chunks_before_detection = max(1, min_chunks_before_detection)
 
     def _get_detector_for_session(self, session_id: str) -> ILoopDetector:
         """Get or create a loop detector for the given session.
@@ -75,6 +82,7 @@ class LoopDetectionProcessor(IStreamProcessor):
             del self._session_detectors[session_id]
             logger.debug(f"Cleaned up loop detector for session {session_id}")
         self._cancelled_sessions.discard(session_id)
+        self._stream_chunk_counts.pop(session_id, None)
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process a streaming content chunk and check for loops.
@@ -94,6 +102,8 @@ class LoopDetectionProcessor(IStreamProcessor):
         # Prefer an explicit session identifier when provided; otherwise fall back to stream.
         raw_session = content.metadata.get("session_id") or content.metadata.get("id")
         session_id = str(raw_session) if raw_session else str(stream_id)
+        chunk_count = self._stream_chunk_counts.get(session_id, 0) + 1
+        self._stream_chunk_counts[session_id] = chunk_count
 
         if session_id in self._cancelled_sessions:
             if content.is_done:
@@ -112,7 +122,21 @@ class LoopDetectionProcessor(IStreamProcessor):
 
         # Process the content for loop detection
         # Ensure content is a string for loop detector
-        content_str = content.content
+        content_value = content.content
+        if isinstance(content_value, bytes):
+            try:
+                content_str = content_value.decode("utf-8")
+            except UnicodeDecodeError:
+                content_str = content_value.decode("latin-1", errors="ignore")
+        elif isinstance(content_value, dict):
+            content_str = json.dumps(content_value)
+        else:
+            content_str = str(content_value or "")
+        stripped_content = content_str.lstrip()
+
+        if stripped_content.startswith(_SSE_PREFIXES):
+            return content
+
         if logger.isEnabledFor(TRACE_LEVEL):
             logger.log(
                 TRACE_LEVEL,
@@ -125,6 +149,15 @@ class LoopDetectionProcessor(IStreamProcessor):
             self.cleanup_session(session_id)
 
         if detection_event:
+            if chunk_count < self._min_chunks_before_detection and not content.is_done:
+                logger.debug(
+                    "Suppressing loop detection for session %s until minimum chunk count reached (%s < %s)",
+                    session_id,
+                    chunk_count,
+                    self._min_chunks_before_detection,
+                )
+                return content
+
             logger.warning(
                 f"Loop detected in streaming response by LoopDetectionProcessor: pattern='{detection_event.pattern[:50]}...', "
                 f"repetitions={detection_event.repetition_count}, total_length={detection_event.total_length}"

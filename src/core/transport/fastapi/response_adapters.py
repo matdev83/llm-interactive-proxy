@@ -41,11 +41,40 @@ def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
     if text_value:
         if text_value == "[DONE]":
             return True
+        if text_value == '["DONE"]':
+            return True
         if text_value.startswith("data: [DONE]"):
             return True
+        if text_value.startswith('data: ["DONE"]'):
+            return True
 
-    if metadata and metadata.get("finish_reason"):
-        return True
+    normalized_event: str | None = None
+    if metadata:
+        event_type = metadata.get("event_type")
+        if isinstance(event_type, str):
+            normalized_event = event_type.strip().lower()
+
+    finish_reason_present = bool(metadata and metadata.get("finish_reason"))
+    if finish_reason_present and (
+        not normalized_event or normalized_event in {"message_stop", "message_done"}
+    ):
+        # Only treat as done when there is no payload content/delta
+        if content is None or content == "":
+            return True
+        if isinstance(content, dict):
+            choices = content.get("choices") or []
+            if choices:
+                delta = choices[0].get("delta") if isinstance(choices[0], dict) else {}
+                if not delta or all(
+                    not delta.get(key)
+                    for key in (
+                        "content",
+                        "tool_calls",
+                        "reasoning_content",
+                        "reasoning",
+                    )
+                ):
+                    return True
 
     if isinstance(content, dict):
         content_metadata = content.get("metadata")
@@ -572,58 +601,138 @@ def to_fastapi_streaming_response(
     ) -> AsyncIterator[bytes]:
         """Adapt the input stream to use the new streaming pipeline.
 
-        This adapter converts ProcessedResponse chunks to StreamingContent,
-        applies reasoning metadata injection, and uses SSEAssembler for
-        proper SSE formatting.
+        This adapter converts ProcessedResponse chunks to StreamingContent when needed
+        and uses SSEAssembler for proper formatting. When the upstream already emits
+        SSE-formatted bytes (new pipeline), it passes them through without re-wrapping.
         """
         if it is None:
             return
 
-        # Create SSE assembler for output formatting
         assembler = SSEAssembler()
 
-        async def _convert_to_streaming_content() -> AsyncIterator[StreamingContent]:
-            """Convert input chunks to StreamingContent format."""
+        async def _ensure_async_iterator(
+            source: AsyncIterator[Any] | Iterable[Any],
+        ) -> AsyncIterator[Any]:
+            if hasattr(source, "__aiter__"):
+                async for item in source:  # type: ignore[async-for]
+                    yield item
+            else:
+                for item in source:  # type: ignore[union-attr]
+                    yield item
+
+        def _extract_payload_and_metadata(
+            chunk: Any,
+        ) -> tuple[Any, dict[str, Any]]:
+            if isinstance(chunk, ProcessedResponse):
+                return chunk.content, chunk.metadata or {}
+            return chunk, {}
+
+        def _merge_metadata_from_payload(
+            payload: Any, metadata: dict[str, Any] | None
+        ) -> dict[str, Any]:
+            merged: dict[str, Any] = dict(metadata) if metadata else {}
+
+            if isinstance(payload, dict):
+                if "finish_reason" not in merged:
+                    finish_reason = payload.get("finish_reason")
+                    if not finish_reason:
+                        choices = payload.get("choices")
+                        if isinstance(choices, list):
+                            for choice in choices:
+                                if isinstance(choice, dict):
+                                    finish_reason = choice.get("finish_reason")
+                                    if finish_reason:
+                                        break
+                    if finish_reason:
+                        merged["finish_reason"] = finish_reason
+
+                if "error" not in merged and isinstance(payload.get("error"), dict):
+                    merged["error"] = payload["error"]
+
+                for key in ("id", "model", "created"):
+                    if key not in merged and key in payload:
+                        merged[key] = payload[key]
+
+            return merged
+
+        def _decode_sse_payload(
+            payload: Any,
+        ) -> tuple[Any, dict[str, Any], bool]:
+            """Decode SSE-formatted payloads into structured content."""
+            text_payload: str | None = None
+            if isinstance(payload, bytes | bytearray):
+                try:
+                    text_payload = payload.decode("utf-8")
+                except UnicodeDecodeError:
+                    return payload, {}, False
+            elif isinstance(payload, str):
+                text_payload = payload
+            else:
+                return payload, {}, False
+
+            stripped = text_payload.strip()
+            if "data:" not in stripped:
+                return payload, {}, False
+
+            data_lines: list[str] = []
+            for line in stripped.splitlines():
+                if line.startswith("data:"):
+                    data_lines.append(line[5:].lstrip())
+
+            if not data_lines:
+                return payload, {}, False
+
+            data_body = "\n".join(data_lines).strip()
+            if data_body in ("[DONE]", '["DONE"]'):
+                return "", {"finish_reason": "stop"}, True
+
+            try:
+                decoded = json.loads(data_body)
+            except json.JSONDecodeError:
+                return data_body, {}, False
+
+            metadata_hint: dict[str, Any] = {}
+            finish_reason = decoded.get("finish_reason")
+            if finish_reason:
+                metadata_hint["finish_reason"] = finish_reason
+            event_type = decoded.get("type")
+            if isinstance(event_type, str):
+                metadata_hint["event_type"] = event_type.strip().lower()
+
+            return decoded, metadata_hint, False
+
+        async def _convert_to_streaming_content(
+            source: AsyncIterator[Any],
+        ) -> AsyncIterator[StreamingContent]:
             try:
                 chunk_count = 0
-                async for chunk in it:  # type: ignore
+                async for chunk in source:
                     chunk_count += 1
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.log(
                             TRACE_LEVEL, "[STREAMING] Processing chunk #%s", chunk_count
                         )
 
-                    # Extract content and metadata from ProcessedResponse
-                    if isinstance(chunk, ProcessedResponse):
-                        metadata = chunk.metadata or {}
-                        content = chunk.content
-                    else:
-                        metadata = {}
-                        content = chunk
+                    payload, metadata = _extract_payload_and_metadata(chunk)
+                    decoded_payload, sse_metadata, forced_done = _decode_sse_payload(
+                        payload
+                    )
 
-                    # Check if content is already SSE formatted (legacy path)
-                    if isinstance(content, str) and content.strip().startswith(
-                        "data: "
-                    ):
-                        # For legacy SSE-formatted content, pass through as-is
-                        # by wrapping in StreamingContent
-                        is_done = _chunk_signals_done(content, metadata)
-                        yield StreamingContent(
-                            content=content, metadata=metadata, is_done=is_done
-                        )
-                        if is_done:
-                            break
-                        continue
+                    if sse_metadata:
+                        updated_metadata = dict(metadata) if metadata else {}
+                        updated_metadata.update(sse_metadata)
+                        metadata = updated_metadata
+
+                    metadata = _merge_metadata_from_payload(decoded_payload, metadata)
 
                     # Inject reasoning metadata for OpenAI-style payloads
                     enriched = _inject_reasoning_metadata(
-                        content, metadata, streaming=True
+                        decoded_payload, metadata, streaming=True
                     )
 
                     # Check if this chunk signals completion
-                    is_done = _chunk_signals_done(enriched, metadata)
+                    is_done = forced_done or _chunk_signals_done(enriched, metadata)
 
-                    # Create StreamingContent directly
                     streaming_content = StreamingContent(
                         content=enriched,
                         metadata=metadata,
@@ -633,7 +742,6 @@ def to_fastapi_streaming_response(
 
                     yield streaming_content
 
-                    # Yield control to event loop (Requirement 9.4)
                     await asyncio.sleep(0)
 
                     if is_done:
@@ -647,25 +755,21 @@ def to_fastapi_streaming_response(
                     )
 
             except Exception as e:
-                # Log unexpected errors during streaming
                 logger.error(
                     "Error during streaming content conversion: %s", e, exc_info=True
                 )
-                # Yield an error chunk
                 yield StreamingContent(
                     content="",
                     metadata={"error": str(e), "finish_reason": "error"},
                     is_done=True,
                 )
 
-        # Convert to StreamingContent and assemble as SSE
-        streaming_content_iter = _convert_to_streaming_content()
+        iterator = _ensure_async_iterator(it)
+        streaming_content_iter = _convert_to_streaming_content(iterator)
         sse_bytes_iter = assembler.assemble_stream(streaming_content_iter, format="sse")
 
-        # Yield SSE-formatted bytes with event loop yielding
         async for sse_chunk in sse_bytes_iter:
             yield sse_chunk
-            # Ensure event loop yielding for responsiveness (Requirement 9.4)
             await asyncio.sleep(0)
 
     content_iter = domain_response.content

@@ -308,9 +308,18 @@ class HybridLoopDetector(ILoopDetector):
         original_state = self._save_state()
 
         try:
-            # Reset and process entire content
+            # Reset and process the content in streaming-sized slices
             self.reset()
-            event = self.process_chunk(content)
+            chunk_span = 1
+            event: LoopDetectionEvent | None = None
+            for index in range(0, len(content), chunk_span):
+                chunk_slice = content[index : index + chunk_span]
+                event = self.process_chunk(chunk_slice)
+                if event:
+                    break
+
+            if event is None:
+                event = self._detect_simple_repeat_loop(content)
 
             if event is None:
                 return LoopDetectionResult(has_loop=False)
@@ -340,6 +349,36 @@ class HybridLoopDetector(ILoopDetector):
         finally:
             # Restore state
             self._restore_state(original_state)
+
+    def _detect_simple_repeat_loop(self, content: str) -> LoopDetectionEvent | None:
+        """Fallback detection for perfectly repeated short patterns."""
+        normalized = content
+        if not normalized:
+            return None
+
+        max_pattern_length = min(len(normalized) // 2, 200)
+        for pattern_length in range(5, max_pattern_length + 1):
+            if len(normalized) % pattern_length != 0:
+                continue
+            repetitions = len(normalized) // pattern_length
+            if repetitions < 3:
+                continue
+
+            pattern = normalized[:pattern_length]
+            if pattern * repetitions == normalized:
+                event = LoopDetectionEvent(
+                    pattern=pattern,
+                    pattern_length=pattern_length,
+                    repetition_count=repetitions,
+                    total_length=pattern_length * repetitions,
+                    confidence=0.75,
+                    buffer_content=normalized[-200:],
+                    timestamp=time.time(),
+                )
+                self._loop_events.append(event)
+                return event
+
+        return None
 
     def enable(self) -> None:
         """Enable loop detection."""

@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 from src.core.common.exceptions import ValidationError
-from src.core.ports.streaming import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.json_repair_service import JsonRepairResult, JsonRepairService
 from src.core.services.streaming.json_repair_processor import JsonRepairProcessor
 

@@ -13,7 +13,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -49,10 +49,10 @@ from src.core.domain.gemini_metadata import (
     create_gemini_response_metadata,
 )
 from src.core.domain.responses import (
-    ProcessedResponse,
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.translation_service import TranslationService
 
@@ -117,22 +117,55 @@ class GracefulDegradationConfig:
     @classmethod
     def from_config(cls, config: AppConfig) -> "GracefulDegradationConfig":
         """Create configuration from AppConfig."""
+
+        # AppConfig exposes attributes rather than dict-like `.get()` in some contexts
+        def _coerce_list(value: Any, default: Sequence[float]) -> list[float]:
+            if isinstance(value, list | tuple):
+                return [float(v) for v in value]
+            if value is None:
+                return list(default)
+            try:
+                return [float(v) for v in list(value)]
+            except Exception:
+                return list(default)
+
         return cls(
-            enabled=config.get("graceful_degradation_enabled", True),
-            retry_delays=config.get(
-                "graceful_degradation_retry_delays", DEFAULT_RETRY_DELAYS
+            enabled=bool(getattr(config, "graceful_degradation_enabled", True)),
+            retry_delays=_coerce_list(
+                getattr(
+                    config,
+                    "graceful_degradation_retry_delays",
+                    DEFAULT_RETRY_DELAYS,
+                ),
+                DEFAULT_RETRY_DELAYS,
             ),
-            max_total_attempts=config.get(
-                "graceful_degradation_max_attempts", DEFAULT_MAX_TOTAL_ATTEMPTS
+            max_total_attempts=int(
+                getattr(
+                    config,
+                    "graceful_degradation_max_attempts",
+                    DEFAULT_MAX_TOTAL_ATTEMPTS,
+                )
             ),
-            cooldown_duration=config.get(
-                "graceful_degradation_cooldown", DEFAULT_COOLDOWN_DURATION
+            cooldown_duration=float(
+                getattr(
+                    config,
+                    "graceful_degradation_cooldown",
+                    DEFAULT_COOLDOWN_DURATION,
+                )
             ),
-            enable_recovery_probing=config.get(
-                "graceful_degradation_recovery_probing", True
+            enable_recovery_probing=bool(
+                getattr(
+                    config,
+                    "graceful_degradation_recovery_probing",
+                    True,
+                )
             ),
-            recovery_probe_interval=config.get(
-                "graceful_degradation_probe_interval", DEFAULT_RECOVERY_PROBE_INTERVAL
+            recovery_probe_interval=float(
+                getattr(
+                    config,
+                    "graceful_degradation_probe_interval",
+                    DEFAULT_RECOVERY_PROBE_INTERVAL,
+                )
             ),
         )
 
@@ -521,6 +554,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             if limit_value > 0:
                 normalized_prefixes.append((normalized_prefix, limit_value))
         self._prompt_limit_prefix_overrides = tuple(normalized_prefixes)
+        # Debounce credentials reload events to avoid noisy filesystem churn
+        self._last_reload_event_ts: float = 0.0
 
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
@@ -892,6 +927,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload when the credentials file changes."""
+        now = time.time()
+        # Drop duplicate events that happen too frequently (e.g., editor/temp-file noise)
+        if now - self._last_reload_event_ts < 5.0:
+            return
+        self._last_reload_event_ts = now
+
         with self._reload_task_lock:
             if (
                 self._pending_reload_task is not None
@@ -1929,6 +1970,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         returning a StreamingResponseEnvelope that provides an async iterator
         of SSE-formatted response chunks.
         """
+
+        from src.core.ports.streaming_contracts import handle_streaming_error
+
         try:
             # Ensure token is refreshed before making the API call
             if not await self._refresh_token_if_needed():
@@ -2053,9 +2097,66 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     prompt_tokens = 0
 
             async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
+                import json
+
+                import google.auth.exceptions
+
                 response = None
                 generated_text = ""
                 error_json_buffer: str | None = None
+                done_reasons_to_skip = {"stop", "length", "cancelled"}
+
+                def _should_skip_chunk(chunk: dict[str, Any]) -> bool:
+                    """Filter out empty deltas so clients don't receive blank messages."""
+                    if not chunk:
+                        return True
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        return True
+                    choice = choices[0] or {}
+                    delta = choice.get("delta") or {}
+                    finish_reason = choice.get("finish_reason")
+
+                    # Normalize finish_reason to lowercase for consistency
+                    if isinstance(finish_reason, str):
+                        finish_reason = finish_reason.lower()
+                        choice["finish_reason"] = finish_reason
+
+                    has_content = bool(delta.get("content"))
+                    has_tools = bool(delta.get("tool_calls"))
+                    has_reasoning = bool(
+                        delta.get("reasoning_content") or delta.get("reasoning")
+                    )
+
+                    if has_tools and not finish_reason:
+                        choice["finish_reason"] = "tool_calls"
+                        return False
+
+                    if has_content or has_tools or has_reasoning:
+                        return False
+
+                    # Preserve explicit terminal states even without content
+                    if finish_reason in {"error", "tool_calls"}:
+                        return False
+                    if finish_reason in done_reasons_to_skip:
+                        return True
+                    return True
+
+                def _build_error_chunk(
+                    message: str, *, code: int = 500, error_type: str = "api_error"
+                ) -> dict[str, Any]:
+                    now = int(time.time())
+                    return {
+                        "id": f"chatcmpl-error-{now}",
+                        "object": "chat.completion.chunk",
+                        "created": now,
+                        "model": effective_model,
+                        "choices": [
+                            {"index": 0, "delta": {}, "finish_reason": "error"}
+                        ],
+                        "error": {"message": message, "type": error_type, "code": code},
+                    }
+
                 try:
                     try:
                         response = await asyncio.to_thread(
@@ -2072,10 +2173,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         logger.error(
                             f"Streaming timeout calling {url}: {te}", exc_info=True
                         )
+                        error_chunk = _build_error_chunk(
+                            "Gateway timeout reaching Code Assist streaming endpoint.",
+                            code=504,
+                        )
                         yield ProcessedResponse(
-                            content=self.translation_service.to_domain_stream_chunk(
-                                chunk=None, source_format="code_assist"
-                            )
+                            content=error_chunk,
+                            metadata={
+                                "finish_reason": "error",
+                                "error": error_chunk["error"],
+                                "id": error_chunk["id"],
+                                "model": error_chunk["model"],
+                                "created": error_chunk["created"],
+                            },
                         )
                         return
                     except requests.exceptions.RequestException as rexc:
@@ -2083,162 +2193,149 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             f"Streaming connection error calling {url}: {rexc}",
                             exc_info=True,
                         )
+                        error_chunk = _build_error_chunk(
+                            "Connection error reaching Code Assist streaming endpoint.",
+                            code=503,
+                        )
                         yield ProcessedResponse(
-                            content=self.translation_service.to_domain_stream_chunk(
-                                chunk=None, source_format="code_assist"
-                            )
+                            content=error_chunk,
+                            metadata={
+                                "finish_reason": "error",
+                                "error": error_chunk["error"],
+                                "id": error_chunk["id"],
+                                "model": error_chunk["model"],
+                                "created": error_chunk["created"],
+                            },
+                        )
+                        return
+                    except google.auth.exceptions.GoogleAuthError as gae:
+                        logger.error(
+                            f"Streaming auth error calling {url}: {gae}",
+                            exc_info=True,
+                        )
+                        error_chunk = {
+                            "id": f"chatcmpl-error-{int(time.time())}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": effective_model,
+                            "choices": [
+                                {"index": 0, "delta": {}, "finish_reason": "error"}
+                            ],
+                            "error": {
+                                "message": "Authentication failed. Please check your credentials.",
+                                "type": "auth_error",
+                                "code": 401,
+                            },
+                        }
+                        yield ProcessedResponse(
+                            content=error_chunk,
+                            metadata={
+                                "finish_reason": "error",
+                                "error": error_chunk["error"],
+                                "id": error_chunk["id"],
+                                "model": error_chunk["model"],
+                                "created": error_chunk["created"],
+                            },
                         )
                         return
 
-                    if response.status_code >= 400:
+                    if response.status_code != 200:
+                        logger.warning(
+                            f"Gemini streaming error response: {response.status_code}"
+                        )
                         # Handle 429 with graceful degradation
                         if response.status_code == 429:
-                            logger.info(
-                                f"Received 429 response in streaming, attempting graceful degradation for model {effective_model}"
-                            )
-                            try:
-                                degraded_response = (
-                                    await self._handle_429_with_graceful_degradation(
+                            if self._degradation_config.enabled:
+                                try:
+                                    fallback_response = await self._handle_429_with_graceful_degradation(
                                         original_model=effective_model,
                                         request_data=request_data,
                                         processed_messages=processed_messages,
                                         **kwargs,
                                     )
-                                )
-                                logger.info(
-                                    f"Graceful degradation succeeded for model {effective_model}"
-                                )
-
-                                # If the degraded response is streaming, yield its chunks
-                                degraded_usage: dict[str, Any] | None = None
-                                if isinstance(
-                                    degraded_response, StreamingResponseEnvelope
-                                ):
-                                    stream_content = degraded_response.content
-                                    streamed_chunks = False
-                                    if stream_content is not None:
-                                        async for chunk in stream_content:
-                                            streamed_chunks = True
-                                            yield chunk
-                                    if streamed_chunks:
-                                        return
-                                    degraded_usage = getattr(
-                                        degraded_response, "usage", None
-                                    )
+                                except BackendError:
+                                    fallback_response = None
                                 else:
-                                    degraded_usage = getattr(
-                                        degraded_response, "usage", None
-                                    )
-                                    response_text = ""
-                                    content_value = getattr(
-                                        degraded_response, "content", None
-                                    )
-                                    if isinstance(content_value, str):
-                                        response_text = content_value
-                                    elif content_value is not None:
-                                        try:
-                                            response_text = json.dumps(
-                                                content_value, ensure_ascii=False
-                                            )
-                                        except Exception:
-                                            response_text = str(content_value)
-                                    response_text = response_text.strip()
-                                    if response_text:
-                                        degraded_chunk = self.translation_service.to_domain_stream_chunk(
-                                            chunk={
-                                                "response": {
-                                                    "candidates": [
-                                                        {
-                                                            "content": {
-                                                                "role": "model",
-                                                                "parts": [
-                                                                    {
-                                                                        "text": response_text
-                                                                    }
-                                                                ],
-                                                            },
-                                                            "finishReason": "STOP",
-                                                        }
-                                                    ]
-                                                }
-                                            },
-                                            source_format="code_assist",
+                                    if isinstance(
+                                        fallback_response, StreamingResponseEnvelope
+                                    ):
+                                        if fallback_response.content is not None:
+                                            async for (
+                                                fallback_chunk
+                                            ) in fallback_response.content:
+                                                yield fallback_chunk
+                                    elif isinstance(
+                                        fallback_response, ResponseEnvelope
+                                    ):
+                                        yield self._response_envelope_to_stream_chunk(
+                                            fallback_response, effective_model
                                         )
-                                        degraded_chunk["model"] = effective_model
-                                        yield ProcessedResponse(content=degraded_chunk)
-                                        final_chunk = self.translation_service.to_domain_stream_chunk(
-                                            chunk=None, source_format="code_assist"
-                                        )
-                                        final_chunk["model"] = effective_model
-                                        yield ProcessedResponse(
-                                            content=final_chunk,
-                                            usage=degraded_usage,
-                                        )
-                                        return
+                                    return
 
-                                logger.warning(
-                                    "No chunks were yielded during streaming, sending fallback response"
-                                )
-                                fallback_chunk = self.translation_service.to_domain_stream_chunk(
-                                    chunk={
-                                        "response": {
-                                            "candidates": [
-                                                {
-                                                    "content": {
-                                                        "role": "model",
-                                                        "parts": [
-                                                            {
-                                                                "text": "I apologize, but there was an issue with the streaming response. Please try again."
-                                                            }
-                                                        ],
-                                                    },
-                                                    "finishReason": "STOP",
-                                                }
-                                            ]
-                                        }
-                                    },
-                                    source_format="code_assist",
-                                )
-                                fallback_chunk["model"] = effective_model
-                                yield ProcessedResponse(content=fallback_chunk)
-                                final_chunk = (
-                                    self.translation_service.to_domain_stream_chunk(
-                                        chunk=None, source_format="code_assist"
-                                    )
-                                )
-                                final_chunk["model"] = effective_model
-                                yield ProcessedResponse(
-                                    content=final_chunk,
-                                    usage=degraded_usage,
-                                )
-                                return
-                            except Exception as e:
-                                # If graceful degradation fails, return a user-friendly error instead of raw 429
-                                logger.warning(
-                                    f"Graceful degradation failed for model {effective_model}: {e}"
+                            error_detail: Any
+                            try:
+                                error_detail = response.json()
+                            except Exception:
+                                error_detail = response.text
+
+                            error_message = (
+                                "Service temporarily unavailable due to rate limiting."
+                            )
+                            error_code: int | None = 429
+                            error_type = "rate_limit_exceeded"
+
+                            if isinstance(error_detail, dict):
+                                detail_error = error_detail.get("error") or {}
+                                status_val = str(detail_error.get("status", "")).upper()
+                                if status_val == "RESOURCE_EXHAUSTED":
+                                    error_type = "quota_exceeded"
+
+                                message_val = detail_error.get("message")
+                                if isinstance(message_val, str) and message_val.strip():
+                                    if error_type == "quota_exceeded":
+                                        error_message = (
+                                            "Service temporarily unavailable due to rate limiting. "
+                                            f"Details: {message_val}"
+                                        )
+                                    else:
+                                        error_message = message_val
+
+                                error_code = cast(
+                                    int | None, detail_error.get("code", error_code)
                                 )
 
-                                # Return a user-friendly error message instead of the raw 429 error
-                                error_chunk = {
-                                    "id": f"chatcmpl-error-{int(time.time())}",
-                                    "object": "chat.completion.chunk",
-                                    "created": int(time.time()),
-                                    "model": effective_model,
-                                    "choices": [
-                                        {
-                                            "index": 0,
-                                            "delta": {},
-                                            "finish_reason": "stop",
-                                        }
-                                    ],
-                                    "error": {
-                                        "message": "Service temporarily unavailable due to rate limiting. Please try again in a few minutes.",
-                                        "type": "service_unavailable",
-                                        "code": 503,  # Use 503 instead of 429 to indicate service unavailability
-                                    },
-                                }
-                                yield ProcessedResponse(content=error_chunk)
-                                return
+                            if error_type == "quota_exceeded":
+                                error_code = 503
+
+                            error_chunk = {
+                                "id": f"chatcmpl-error-{int(time.time())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": effective_model,
+                                "choices": [
+                                    {"index": 0, "delta": {}, "finish_reason": "error"}
+                                ],
+                                "error": {
+                                    "message": error_message,
+                                    "type": error_type,
+                                    "code": error_code,
+                                },
+                            }
+                            # Surface the 429 immediately instead of blocking on retries
+                            yield ProcessedResponse(
+                                content=error_chunk,
+                                metadata={
+                                    "finish_reason": "error",
+                                    "error": error_chunk["error"],
+                                    "id": error_chunk["id"],
+                                    "model": error_chunk["model"],
+                                    "created": error_chunk["created"],
+                                },
+                            )
+                            # Mark backend unusable for quota-style errors
+                            if error_type == "quota_exceeded":
+                                self._mark_backend_unusable()
+                            return
 
                         # For non-429 errors, yield error chunk
                         # Graceful error handling - yield error chunk instead of raising exception
@@ -2266,24 +2363,47 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                         if is_quota_error:
                             self._mark_backend_unusable()
+                            # Extract user-friendly error message
+                            user_message = (
+                                "Service temporarily unavailable due to rate limiting."
+                            )
+                            if isinstance(error_detail, dict):
+                                detail_msg = error_detail.get("error", {}).get(
+                                    "message"
+                                )
+                                if isinstance(detail_msg, str) and detail_msg.strip():
+                                    if is_quota_error:
+                                        user_message = (
+                                            "Service temporarily unavailable due to rate limiting. "
+                                            f"Details: {detail_msg}"
+                                        )
+                                    else:
+                                        user_message = detail_msg
                             # Yield quota error chunk instead of raising exception
+                            quota_code = 503
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
                                 "object": "chat.completion.chunk",
                                 "created": int(time.time()),
                                 "model": effective_model,
                                 "choices": [
-                                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                                    {"index": 0, "delta": {}, "finish_reason": "error"}
                                 ],
                                 "error": {
-                                    "message": f"Quota exhausted: {error_detail}",
+                                    "message": user_message,
                                     "type": "quota_exceeded",
-                                    "code": 429,
+                                    "code": quota_code,
                                 },
                             }
                             yield ProcessedResponse(content=error_chunk)
                             return
                         else:
+                            # Extract user-friendly error message
+                            user_message = "An API error occurred. Please try again."
+                            if isinstance(error_detail, dict):
+                                user_message = error_detail.get("error", {}).get(
+                                    "message", user_message
+                                )
                             # Yield general error chunk instead of raising exception
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
@@ -2291,10 +2411,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 "created": int(time.time()),
                                 "model": effective_model,
                                 "choices": [
-                                    {"index": 0, "delta": {}, "finish_reason": "stop"}
+                                    {"index": 0, "delta": {}, "finish_reason": "error"}
                                 ],
                                 "error": {
-                                    "message": f"API error: {error_detail}",
+                                    "message": user_message,
                                     "type": "api_error",
                                     "code": response.status_code,
                                 },
@@ -2305,23 +2425,33 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     line_buffer = ""
                     done = False
                     for chunk in response.iter_content(
-                        chunk_size=512, decode_unicode=False
+                        chunk_size=4096, decode_unicode=False
                     ):
                         if done:
                             break
 
                         try:
-                            chunk_str = (chunk if isinstance(chunk, bytes) else str(chunk).encode()).decode("utf-8")  # type: ignore[union-attr]
+                            chunk_str = (
+                                chunk
+                                if isinstance(chunk, bytes)
+                                else str(chunk).encode()
+                            ).decode(
+                                "utf-8"
+                            )  # type: ignore[union-attr]
                         except (UnicodeDecodeError, AttributeError):
                             continue
 
-                        for char in chunk_str:
-                            line_buffer += char
-                            if char != "\n":
-                                continue
+                        line_buffer += chunk_str
+                        lines = line_buffer.splitlines(keepends=True)
 
-                            decoded_line = line_buffer.rstrip("\r\n")
+                        # If the last line is incomplete (no newline), keep it buffered
+                        if lines and not lines[-1].endswith(("\n", "\r")):
+                            line_buffer = lines.pop()  # keep partial
+                        else:
                             line_buffer = ""
+
+                        for line in lines:
+                            decoded_line = line.rstrip("\r\n")
 
                             if decoded_line.startswith("data: "):
                                 data_str = decoded_line[6:].strip()
@@ -2346,10 +2476,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                         logger.error(
                                             "Detected incomplete JSON chunk, yielding error response"
                                         )
-                                        error_chunk = self.translation_service.to_domain_stream_chunk(
-                                            chunk=None, source_format="code_assist"
+                                        error_chunk = _build_error_chunk(
+                                            "Malformed streaming chunk from Code Assist.",
+                                            code=502,
                                         )
-                                        yield ProcessedResponse(content=error_chunk)
+                                        yield ProcessedResponse(
+                                            content=error_chunk,
+                                            metadata={
+                                                "finish_reason": "error",
+                                                "error": error_chunk["error"],
+                                                "id": error_chunk["id"],
+                                                "model": error_chunk["model"],
+                                                "created": error_chunk["created"],
+                                            },
+                                        )
                                         done = True
                                         break
                                     continue
@@ -2360,21 +2500,33 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                             chunk=data, source_format="code_assist"
                                         )
                                     )
+                                    if domain_chunk is not None:
+                                        domain_chunk["model"] = effective_model
                                 except Exception as e:
                                     logger.error(
                                         "Failed to process streaming chunk: %s", str(e)
                                     )
                                     # Yield an error chunk to prevent empty responses
-                                    error_chunk = (
-                                        self.translation_service.to_domain_stream_chunk(
-                                            chunk=None, source_format="code_assist"
-                                        )
+                                    error_chunk = _build_error_chunk(
+                                        "Failed to parse streaming chunk from Code Assist.",
+                                        code=500,
                                     )
-                                    yield ProcessedResponse(content=error_chunk)
+                                    yield ProcessedResponse(
+                                        content=error_chunk,
+                                        metadata={
+                                            "finish_reason": "error",
+                                            "error": error_chunk["error"],
+                                            "id": error_chunk["id"],
+                                            "model": error_chunk["model"],
+                                            "created": error_chunk["created"],
+                                        },
+                                    )
                                     done = True
                                     break
 
                                 if domain_chunk and domain_chunk.get("choices"):
+                                    if _should_skip_chunk(domain_chunk):
+                                        continue
                                     choice = domain_chunk["choices"][0]
                                     delta = choice.get("delta", {}) or {}
                                     text_piece = delta.get("content")
@@ -2403,7 +2555,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                                     error_info = (
                                                         parsed_error.get("error") or {}
                                                     )
-                                                    error_code = error_info.get("code")
+                                                    error_code = cast(
+                                                        int | None,
+                                                        error_info.get("code"),
+                                                    )
                                                     error_status = str(
                                                         error_info.get("status", "")
                                                     ).upper()
@@ -2415,92 +2570,38 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                                         error_status
                                                         == "RESOURCE_EXHAUSTED"
                                                     ):
-                                                        if logger.isEnabledFor(
-                                                            logging.INFO
-                                                        ):
-                                                            logger.info(
-                                                                "Detected inline 429 payload during streaming; invoking graceful degradation for model %s",
-                                                                effective_model,
-                                                            )
+                                                        error_chunk = _build_error_chunk(
+                                                            error_message
+                                                            or "Service temporarily unavailable due to rate limiting. Please try again in a few minutes.",
+                                                            code=int(error_code or 429),
+                                                            error_type=(
+                                                                "quota_exceeded"
+                                                                if error_status
+                                                                == "RESOURCE_EXHAUSTED"
+                                                                else "rate_limit_exceeded"
+                                                            ),
+                                                        )
                                                         with contextlib.suppress(
                                                             Exception
                                                         ):
                                                             response.close()
-                                                        try:
-                                                            degraded_response = await self._handle_429_with_graceful_degradation(
-                                                                original_model=effective_model,
-                                                                request_data=request_data,
-                                                                processed_messages=processed_messages,
-                                                                **kwargs,
-                                                            )
-                                                            if logger.isEnabledFor(
-                                                                logging.INFO
-                                                            ):
-                                                                logger.info(
-                                                                    "Graceful degradation succeeded for model %s",
-                                                                    effective_model,
-                                                                )
-                                                            if isinstance(
-                                                                degraded_response,
-                                                                StreamingResponseEnvelope,
-                                                            ):
-                                                                stream_content = (
-                                                                    degraded_response.content
-                                                                )
-                                                                if (
-                                                                    stream_content
-                                                                    is not None
-                                                                ):
-                                                                    async for (
-                                                                        chunk
-                                                                    ) in stream_content:
-                                                                        yield chunk
-                                                            else:
-                                                                final_chunk = self.translation_service.to_domain_stream_chunk(
-                                                                    chunk=None,
-                                                                    source_format="code_assist",
-                                                                )
-                                                                yield ProcessedResponse(
-                                                                    content=final_chunk
-                                                                )
-                                                            return
-                                                        except Exception as e:
-                                                            if logger.isEnabledFor(
-                                                                logging.WARNING
-                                                            ):
-                                                                logger.warning(
-                                                                    "Graceful degradation failed for model %s after inline 429 payload: %s",
-                                                                    effective_model,
-                                                                    e,
-                                                                )
-                                                            error_chunk = {
-                                                                "id": f"chatcmpl-error-{int(time.time())}",
-                                                                "object": "chat.completion.chunk",
-                                                                "created": int(
-                                                                    time.time()
-                                                                ),
-                                                                "model": effective_model,
-                                                                "choices": [
-                                                                    {
-                                                                        "index": 0,
-                                                                        "delta": {},
-                                                                        "finish_reason": "stop",
-                                                                    }
+                                                        yield ProcessedResponse(
+                                                            content=error_chunk,
+                                                            metadata={
+                                                                "finish_reason": "error",
+                                                                "error": error_chunk[
+                                                                    "error"
                                                                 ],
-                                                                "error": {
-                                                                    "message": "Service temporarily unavailable due to rate limiting. Please try again in a few minutes.",
-                                                                    "type": "service_unavailable",
-                                                                    "code": 503,
-                                                                },
-                                                            }
-                                                            with contextlib.suppress(
-                                                                Exception
-                                                            ):
-                                                                response.close()
-                                                            yield ProcessedResponse(
-                                                                content=error_chunk
-                                                            )
-                                                            return
+                                                                "id": error_chunk["id"],
+                                                                "model": error_chunk[
+                                                                    "model"
+                                                                ],
+                                                                "created": error_chunk[
+                                                                    "created"
+                                                                ],
+                                                            },
+                                                        )
+                                                        return
 
                                                     # Non-429 structured error payload
                                                     error_message = (
@@ -2521,7 +2622,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                                             {
                                                                 "index": 0,
                                                                 "delta": {},
-                                                                "finish_reason": "stop",
+                                                                "finish_reason": "error",
                                                             }
                                                         ],
                                                         "error": {
@@ -2535,7 +2636,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                                     with contextlib.suppress(Exception):
                                                         response.close()
                                                     yield ProcessedResponse(
-                                                        content=error_chunk
+                                                        content=error_chunk,
+                                                        metadata={
+                                                            "finish_reason": "error",
+                                                            "error": error_chunk[
+                                                                "error"
+                                                            ],
+                                                            "id": error_chunk["id"],
+                                                            "model": error_chunk[
+                                                                "model"
+                                                            ],
+                                                            "created": error_chunk[
+                                                                "created"
+                                                            ],
+                                                        },
                                                     )
                                                     return
                                                 else:
@@ -2566,12 +2680,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     metadata=metadata,
                                 )
                             elif decoded_line.strip():
-                                yield ProcessedResponse(
-                                    content=self.translation_service.to_domain_stream_chunk(
+                                passthrough_chunk = (
+                                    self.translation_service.to_domain_stream_chunk(
                                         chunk={"text": decoded_line},
                                         source_format="raw_text",
                                     )
                                 )
+                                if passthrough_chunk and not _should_skip_chunk(
+                                    passthrough_chunk
+                                ):
+                                    yield ProcessedResponse(content=passthrough_chunk)
 
                     try:
                         completion_tokens = len(encoding.encode(generated_text))
@@ -2624,7 +2742,23 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 f"Authentication error during streaming API call: {e}",
                 exc_info=True,
             )
-            raise
+            error = e
+
+            # Return SSE error stream instead of raising to prevent empty responses
+            async def auth_error_stream() -> AsyncGenerator[ProcessedResponse, None]:
+                chunk = await handle_streaming_error(
+                    error,
+                    getattr(request_data, "session_id", None),
+                    effective_model,
+                )
+                # Yield as string so response_adapters legacy SSE check passes
+                yield ProcessedResponse(content=chunk.to_bytes().decode("utf-8"))
+
+            return StreamingResponseEnvelope(
+                content=auth_error_stream(),
+                media_type="text/event-stream",
+                headers={},
+            )
         except BackendError as e:
             if self._is_rate_limit_like_error(e):
                 logger.info("Backend rate limited during streaming API call: %s", e)
@@ -2641,6 +2775,55 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 f"Unexpected error during streaming API call: {e}", exc_info=True
             )
             raise BackendError(f"Unexpected error during streaming API call: {e}")
+
+    def _response_envelope_to_stream_chunk(
+        self, response: ResponseEnvelope, model: str
+    ) -> ProcessedResponse:
+        """Convert a non-streaming response into a single streaming chunk."""
+        created_ts = int(time.time())
+        chunk_id = f"chatcmpl-fallback-{created_ts}"
+
+        text_content: str
+        if isinstance(response.content, str):
+            text_content = response.content
+        elif isinstance(response.content, dict):
+            text_content = (
+                response.content.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+            if not text_content:
+                text_content = json.dumps(response.content)
+        else:
+            text_content = str(response.content or "")
+
+        payload = {
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "created": created_ts,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"content": text_content},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        metadata: dict[str, Any] = {
+            "finish_reason": "stop",
+            "id": chunk_id,
+            "model": model,
+            "created": created_ts,
+            "graceful_degradation": True,
+        }
+        if response.usage:
+            metadata["usage"] = response.usage
+
+        return ProcessedResponse(
+            content=payload, metadata=metadata, usage=response.usage
+        )
 
     def _generate_user_prompt_id(self, request_data: Any) -> str:
         """Generate a unique user_prompt_id for Code Assist requests."""
