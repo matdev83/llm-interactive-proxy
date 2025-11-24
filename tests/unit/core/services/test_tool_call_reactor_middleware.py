@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -7,6 +8,7 @@ from src.core.domain.responses import ProcessedResponse
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.tool_call_reactor_interface import (
     IToolCallReactor,
+    ToolCallContext,
     ToolCallReactionResult,
 )
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
@@ -15,7 +17,10 @@ from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddle
 @pytest.fixture
 def mock_tool_call_reactor() -> AsyncMock:
     """Fixture for a mock tool call reactor."""
-    return AsyncMock(spec=IToolCallReactor)
+    reactor = AsyncMock(spec=IToolCallReactor)
+    reactor.process_tool_call.return_value = None
+    reactor.get_registered_handlers.return_value = []
+    return reactor
 
 
 @pytest.fixture
@@ -115,7 +120,7 @@ async def test_middleware_skips_already_processed_tool_calls(
         type="function",
     )
     # Mark the tool call object as processed
-    tool_call._already_processed = True
+    tool_call._already_processed = True  # type: ignore[attr-defined]
 
     message = ChatMessage(role="assistant", tool_calls=[tool_call])
     context = {"session_id": "test_session"}
@@ -142,7 +147,7 @@ async def test_middleware_processes_only_new_tool_calls(
         function=FunctionCall(name="shell", arguments='{"command": "ls"}'),
         type="function",
     )
-    processed_tool_call._already_processed = True
+    processed_tool_call._already_processed = True  # type: ignore[attr-defined]
 
     new_tool_call = ToolCall(
         id="call_456",
@@ -184,6 +189,7 @@ async def test_middleware_marks_tool_calls_as_processed(
         response=message, session_id="test_session", context=context
     )
 
+    assert message.tool_calls is not None
     # Tool call should be marked as processed
     assert getattr(message.tool_calls[0], "_already_processed", False) is True
 
@@ -211,6 +217,7 @@ async def test_middleware_marks_tool_calls_as_processed_even_on_error(
         response=message, session_id="test_session", context=context
     )
 
+    assert message.tool_calls is not None
     # Tool call should still be marked as processed to avoid retry loops
     assert getattr(message.tool_calls[0], "_already_processed", False) is True
     # Should return the original response
@@ -242,6 +249,143 @@ async def test_middleware_no_duplicate_reactor_executions(
 
     # Reactor should only be called once
     mock_tool_call_reactor.process_tool_call.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_deduplicated_within_same_stream(
+    tool_call_reactor_middleware: ToolCallReactorMiddleware,
+    mock_tool_call_reactor: AsyncMock,
+) -> None:
+    """Duplicate tool calls arriving on the same stream should only execute once."""
+    context = {"session_id": "test_session", "stream_id": "stream-1"}
+    first_call = ChatMessage(
+        role="assistant",
+        tool_calls=[
+            ToolCall(
+                id="call_abc",
+                function=FunctionCall(name="shell", arguments='{"command": "ls"}'),
+                type="function",
+            )
+        ],
+    )
+    duplicate_call = ChatMessage(
+        role="assistant",
+        tool_calls=[
+            ToolCall(
+                id="call_abc",
+                function=FunctionCall(name="shell", arguments='{"command": "ls"}'),
+                type="function",
+            )
+        ],
+    )
+
+    await tool_call_reactor_middleware.process(
+        response=first_call,
+        session_id="test_session",
+        context=context,
+        is_streaming=True,
+    )
+    await tool_call_reactor_middleware.process(
+        response=duplicate_call,
+        session_id="test_session",
+        context=context,
+        is_streaming=True,
+    )
+
+    mock_tool_call_reactor.process_tool_call.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_processed_again_on_new_stream(
+    tool_call_reactor_middleware: ToolCallReactorMiddleware,
+    mock_tool_call_reactor: AsyncMock,
+) -> None:
+    """Identical tool calls should be executed again when a new stream starts."""
+    first_context = {"session_id": "test_session", "stream_id": "stream-1"}
+    second_context = {"session_id": "test_session", "stream_id": "stream-2"}
+    tool_call = ToolCall(
+        id="call_xyz",
+        function=FunctionCall(name="readFile", arguments='{"path": "file.txt"}'),
+        type="function",
+    )
+
+    await tool_call_reactor_middleware.process(
+        response=ChatMessage(role="assistant", tool_calls=[tool_call]),
+        session_id="test_session",
+        context=first_context,
+        is_streaming=True,
+    )
+
+    await tool_call_reactor_middleware.process(
+        response=ChatMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="call_xyz",
+                    function=FunctionCall(
+                        name="readFile", arguments='{"path": "file.txt"}'
+                    ),
+                    type="function",
+                )
+            ],
+        ),
+        session_id="test_session",
+        context=second_context,
+        is_streaming=True,
+    )
+
+    assert mock_tool_call_reactor.process_tool_call.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_stream_state_clears_on_done_chunk(
+    tool_call_reactor_middleware: ToolCallReactorMiddleware,
+    mock_tool_call_reactor: AsyncMock,
+) -> None:
+    """Once a stream signals completion, subsequent tool calls should be treated as new."""
+    context = {"session_id": "test_session", "stream_id": "stream-reset"}
+    tool_call = ToolCall(
+        id="call_reset",
+        function=FunctionCall(name="shell", arguments='{"command": "ls"}'),
+        type="function",
+    )
+
+    await tool_call_reactor_middleware.process(
+        response=ChatMessage(role="assistant", tool_calls=[tool_call]),
+        session_id="test_session",
+        context=context,
+        is_streaming=True,
+    )
+
+    # Final chunk with no tool calls but marks stream as done
+    await tool_call_reactor_middleware.process(
+        response=ProcessedResponse(
+            content="",
+            metadata={"stream_id": "stream-reset", "is_done": True},
+        ),
+        session_id="test_session",
+        context=context,
+        is_streaming=True,
+    )
+
+    # New tool call on the same stream id should execute again
+    await tool_call_reactor_middleware.process(
+        response=ChatMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="call_reset",
+                    function=FunctionCall(name="shell", arguments='{"command": "ls"}'),
+                    type="function",
+                )
+            ],
+        ),
+        session_id="test_session",
+        context=context,
+        is_streaming=True,
+    )
+
+    assert mock_tool_call_reactor.process_tool_call.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -308,10 +452,26 @@ async def test_process_with_tool_calls_swallowed_empty_string(
 async def test_middleware_repairs_multiline_json_and_records_telemetry() -> None:
     """Ensure multiline JSON arguments are parsed via relaxed mode and telemetry is recorded."""
 
-    class ReactorDouble:
+    class ReactorDouble(IToolCallReactor):
         def __init__(self) -> None:
-            self.process_tool_call = AsyncMock()
+            self.mock_process_tool_call = AsyncMock()
             self.record_tool_argument_repair_outcome = MagicMock()
+
+        async def register_handler(
+            self, handler: Any
+        ) -> None:  # pragma: no cover - test double
+            return None
+
+        async def unregister_handler(
+            self, handler_name: str
+        ) -> None:  # pragma: no cover - test double
+            return None
+
+        async def process_tool_call(
+            self, context: ToolCallContext
+        ) -> ToolCallReactionResult | None:
+            result = await self.mock_process_tool_call(context)
+            return cast(ToolCallReactionResult | None, result)
 
         def get_registered_handlers(self) -> list[str]:
             return []
@@ -333,8 +493,8 @@ async def test_middleware_repairs_multiline_json_and_records_telemetry() -> None
         context={"session_id": "session-telemetry"},
     )
 
-    assert reactor.process_tool_call.called
-    context_arg = reactor.process_tool_call.call_args[0][0]
+    assert reactor.mock_process_tool_call.called
+    context_arg = reactor.mock_process_tool_call.call_args[0][0]
     assert isinstance(context_arg.tool_arguments, dict)
     assert "patch_content" in context_arg.tool_arguments
     reactor.record_tool_argument_repair_outcome.assert_called()

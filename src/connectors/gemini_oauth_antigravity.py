@@ -392,6 +392,9 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
                 self._oauth_credentials = credentials
                 self._credentials_path = path
                 self._last_modified = current_modified or time.time()
+                self._credentials_fingerprint = self._compute_credentials_fingerprint(
+                    credentials
+                )
                 logger.info(
                     "Loaded Antigravity OAuth credentials from %s%s",
                     path,

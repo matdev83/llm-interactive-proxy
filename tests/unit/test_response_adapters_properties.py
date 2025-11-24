@@ -370,3 +370,75 @@ class TestSSENormalization:
                 emitted_chunks.append(bytes(body_chunk))
 
         assert emitted_chunks == [b"data: [DONE]\n\n"]
+
+    @pytest.mark.asyncio
+    async def test_execute_command_chunks_are_buffered_until_complete(self) -> None:
+        """Ensure execute_command XML blocks are not streamed as partial fragments."""
+
+        def build_chunk(content: str, role: str | None = None) -> bytes:
+            payload = {
+                "id": "chatcmpl-buffer-test",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "delta": {"role": role or "assistant", "content": content},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            return f"data: {json.dumps(payload)}\n\n".encode()
+
+        async def chunk_generator() -> AsyncGenerator[ProcessedResponse, None]:
+            intro_and_partial = "Intro text\n<execute_command>\n<command>./."
+            remainder = (
+                "venv/Scripts/python.exe -m pytest</command>\n</execute_command>"
+            )
+
+            yield ProcessedResponse(
+                content=build_chunk(intro_and_partial, role="assistant")
+            )
+            yield ProcessedResponse(content=build_chunk(remainder, role=None))
+
+        envelope = StreamingResponseEnvelope(
+            content=chunk_generator(), media_type="text/event-stream"
+        )
+
+        response = to_fastapi_streaming_response(envelope)
+
+        emitted_chunks: list[str] = []
+        async for body_chunk in response.body_iterator:
+            emitted_chunks.append(
+                body_chunk.decode("utf-8")
+                if isinstance(body_chunk, bytes)
+                else str(body_chunk)
+            )
+
+        # Expect two payload chunks plus the [DONE] sentinel
+        payload_chunks = [
+            chunk for chunk in emitted_chunks if "[DONE]" not in chunk.strip()
+        ]
+        assert len(payload_chunks) == 2
+
+        def extract_content(chunk: str) -> str | None:
+            stripped = chunk.strip()
+            if not stripped.startswith("data:"):
+                return None
+            data_body = stripped.split("data:", 1)[1].strip()
+            payload_json = json.loads(data_body)
+            choices = payload_json.get("choices") or []
+            if not choices:
+                return None
+            delta = choices[0].get("delta") or {}
+            return delta.get("content")
+
+        first_content = extract_content(payload_chunks[0])
+        second_content = extract_content(payload_chunks[1])
+
+        assert first_content == "Intro text\n"
+        assert second_content is not None
+        assert "<execute_command>" in second_content
+        assert second_content.count("<execute_command>") == 1
+        assert second_content.count("</execute_command>") == 1
+        assert "./.venv/Scripts/python.exe -m pytest" in second_content

@@ -609,6 +609,7 @@ def to_fastapi_streaming_response(
             return
 
         assembler = SSEAssembler()
+        execute_command_buffers: dict[str, str] = {}
 
         async def _ensure_async_iterator(
             source: AsyncIterator[Any] | Iterable[Any],
@@ -701,6 +702,96 @@ def to_fastapi_streaming_response(
 
             return decoded, metadata_hint, False
 
+        def _extract_delta_from_payload(payload: Any) -> dict[str, Any] | None:
+            if not isinstance(payload, dict):
+                return None
+            choices = payload.get("choices")
+            if not isinstance(choices, list) or not choices:
+                return None
+            first_choice = choices[0]
+            if not isinstance(first_choice, dict):
+                return None
+            delta = first_choice.get("delta")
+            if isinstance(delta, dict):
+                return delta
+            return None
+
+        def _resolve_stream_key(metadata: dict[str, Any]) -> str:
+            for candidate_key in ("stream_id", "id"):
+                value = metadata.get(candidate_key)
+                if isinstance(value, str) and value:
+                    return value
+            return "anonymous-stream"
+
+        def _split_execute_command_segments(buffer: str) -> tuple[str, str]:
+            if not buffer:
+                return "", ""
+
+            parts: list[str] = []
+            idx = 0
+            length = len(buffer)
+            pending_tail = ""
+
+            while idx < length:
+                start = buffer.find("<execute_command", idx)
+                if start == -1:
+                    parts.append(buffer[idx:])
+                    pending_tail = ""
+                    break
+
+                if start > idx:
+                    parts.append(buffer[idx:start])
+
+                end = buffer.find("</execute_command>", start)
+                if end == -1:
+                    pending_tail = buffer[start:]
+                    break
+
+                end += len("</execute_command>")
+                parts.append(buffer[start:end])
+                idx = end
+
+                if idx >= length:
+                    pending_tail = ""
+                    break
+
+            return "".join(parts), pending_tail
+
+        def _sanitize_execute_command_content(stream_key: str, payload: Any) -> None:
+            delta = _extract_delta_from_payload(payload)
+            if not delta:
+                return
+
+            text_value = delta.get("content")
+            if not isinstance(text_value, str) or not text_value:
+                return
+
+            buffer = execute_command_buffers.get(stream_key, "")
+            buffer += text_value
+
+            emit_text, pending_tail = _split_execute_command_segments(buffer)
+            execute_command_buffers[stream_key] = pending_tail
+
+            if emit_text != text_value:
+                delta["content"] = emit_text
+
+        def _flush_pending_execute_command(stream_key: str, payload: Any) -> None:
+            pending_tail = execute_command_buffers.pop(stream_key, "")
+            if not pending_tail:
+                return
+
+            delta = _extract_delta_from_payload(payload)
+            if not delta:
+                return
+
+            existing = delta.get("content")
+            if isinstance(existing, str):
+                delta["content"] = existing + pending_tail
+            elif existing is None:
+                delta["content"] = pending_tail
+            else:
+                delta["content"] = f"{existing}{pending_tail}"
+
         async def _convert_to_streaming_content(
             source: AsyncIterator[Any],
         ) -> AsyncIterator[StreamingContent]:
@@ -725,6 +816,9 @@ def to_fastapi_streaming_response(
 
                     metadata = _merge_metadata_from_payload(decoded_payload, metadata)
 
+                    stream_key = _resolve_stream_key(metadata)
+                    _sanitize_execute_command_content(stream_key, decoded_payload)
+
                     # Inject reasoning metadata for OpenAI-style payloads
                     enriched = _inject_reasoning_metadata(
                         decoded_payload, metadata, streaming=True
@@ -732,6 +826,9 @@ def to_fastapi_streaming_response(
 
                     # Check if this chunk signals completion
                     is_done = forced_done or _chunk_signals_done(enriched, metadata)
+
+                    if is_done:
+                        _flush_pending_execute_command(stream_key, decoded_payload)
 
                     streaming_content = StreamingContent(
                         content=enriched,

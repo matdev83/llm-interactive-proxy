@@ -5,6 +5,7 @@ Base class for Gemini OAuth connectors.
 import abc
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import random
@@ -238,6 +239,20 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                 )
 
                 if credentials_path and event_path == credentials_path:
+                    try:
+                        current_mtime = event_path.stat().st_mtime
+                    except OSError:
+                        current_mtime = None
+
+                    last_mtime = self.connector._last_credentials_event_mtime
+                    if (
+                        current_mtime is not None
+                        and last_mtime is not None
+                        and current_mtime == last_mtime
+                    ):
+                        return
+
+                    self.connector._last_credentials_event_mtime = current_mtime
                     logger.info(f"Credentials file modified: {event.src_path}")
 
                     # Schedule credential reload in the connector's event loop in a thread-safe way
@@ -556,6 +571,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._prompt_limit_prefix_overrides = tuple(normalized_prefixes)
         # Debounce credentials reload events to avoid noisy filesystem churn
         self._last_reload_event_ts: float = 0.0
+        self._credentials_fingerprint: str | None = None
+        self._last_credentials_event_mtime: float | None = None
 
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
@@ -1026,6 +1043,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         try:
             logger.info("Handling credentials file change...")
 
+            previous_fingerprint = self._credentials_fingerprint
+
             # Validate file first
             ok, errs = self._validate_credentials_file_exists()
             if not ok:
@@ -1037,6 +1056,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             # Attempt to reload with force_reload=True to bypass cache
             if await self._load_oauth_credentials(force_reload=True):
+                if (
+                    previous_fingerprint is not None
+                    and previous_fingerprint == self._credentials_fingerprint
+                ):
+                    logger.debug(
+                        "Credentials file change detected but contents are unchanged; skipping reload."
+                    )
+                    return
                 refreshed = await self._refresh_token_if_needed()
                 if refreshed:
                     self._recover()
@@ -1277,6 +1304,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         except OSError as e:
             logger.error(f"Error saving Gemini OAuth credentials: {e}", exc_info=True)
 
+    @staticmethod
+    def _compute_credentials_fingerprint(credentials: dict[str, Any]) -> str:
+        """Return a stable fingerprint for the currently loaded credentials."""
+        relevant = {
+            "access_token": credentials.get("access_token", ""),
+            "refresh_token": credentials.get("refresh_token", ""),
+            "expiry_date": credentials.get("expiry_date"),
+        }
+        payload = json.dumps(relevant, sort_keys=True, default=str)
+        return hashlib.sha256(payload.encode("utf-8", "ignore")).hexdigest()
+
     async def _load_oauth_credentials(self, force_reload: bool = False) -> bool:
         """Load OAuth credentials from oauth_creds.json file.
 
@@ -1334,6 +1372,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 return False
 
             self._oauth_credentials = credentials
+            self._credentials_fingerprint = self._compute_credentials_fingerprint(
+                credentials
+            )
             if logger.isEnabledFor(logging.INFO):
                 log_msg = "Successfully loaded Gemini OAuth credentials"
                 if force_reload:
