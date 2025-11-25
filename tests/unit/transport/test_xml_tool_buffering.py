@@ -176,16 +176,16 @@ async def test_all_tool_tags_are_buffered():
                         if isinstance(elt, ast.Constant):
                             buffered_tags.append(elt.value)
         # Handle annotated assignment: BUFFERED_TOOL_TAGS: tuple[str, ...] = (...)
-        elif isinstance(node, ast.AnnAssign):
-            if (
-                isinstance(node.target, ast.Name)
-                and node.target.id == "BUFFERED_TOOL_TAGS"
-                and node.value is not None
-                and isinstance(node.value, ast.Tuple)
-            ):
-                for elt in node.value.elts:
-                    if isinstance(elt, ast.Constant):
-                        buffered_tags.append(elt.value)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "BUFFERED_TOOL_TAGS"
+            and node.value is not None
+            and isinstance(node.value, ast.Tuple)
+        ):
+            for elt in node.value.elts:
+                if isinstance(elt, ast.Constant):
+                    buffered_tags.append(elt.value)
 
     # Verify all critical tags are buffered
     for tag in critical_tool_tags:

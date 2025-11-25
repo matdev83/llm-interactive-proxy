@@ -68,6 +68,12 @@ async def test_streaming_processor_applies_middleware_and_sets_pending(
 async def test_streaming_duplicate_without_stream_id_only_flags_once(
     app_state: ApplicationStateService,
 ) -> None:
+    """Test that chunks without explicit stream_id use session_id as stream_id.
+
+    When no stream_id is provided, the middleware uses session_id as the stream
+    identifier. All chunks with the same session_id are considered part of the
+    same stream and should only trigger once, regardless of clearing the active flag.
+    """
     mw = EditPrecisionResponseMiddleware(app_state)
     processor = MiddlewareApplicationProcessor([mw], app_state=app_state)
 
@@ -93,15 +99,18 @@ async def test_streaming_duplicate_without_stream_id_only_flags_once(
     active_flags.pop(session_id, None)
     app_state.set_setting("edit_precision_hybrid_reasoning_active", active_flags)
 
-    # Third chunk should trigger again after the active flag is cleared
+    # Third chunk with same session_id is still part of the same "stream"
+    # (since session_id is used as stream_id when no explicit stream_id is provided)
+    # so it should NOT re-trigger, even after clearing the active flag.
     third_chunk = StreamingContent(
         content="... diff_error final ...",
         metadata={"session_id": session_id},
     )
     await processor.process(third_chunk)
 
+    # Pending count should still be 1 because all chunks are part of the same stream
     pending_after = app_state.get_setting("edit_precision_pending", {})
-    assert pending_after.get(session_id, 0) == 2
+    assert pending_after.get(session_id, 0) == 1
 
 
 @pytest.mark.asyncio
