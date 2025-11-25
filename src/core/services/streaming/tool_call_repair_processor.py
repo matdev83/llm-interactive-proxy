@@ -101,9 +101,21 @@ class ToolCallRepairProcessor(IStreamProcessor):
         else:
             if content.is_done:
                 if buffer_text:
+                    # Known XML tool tags that need synthetic closing when truncated
+                    # IMPORTANT: Include ALL tools that use XML format to prevent
+                    # incorrect parsing of inner tags (e.g., <command> inside <execute_command>)
                     synthetic_calls = (
                         ("<use_mcp_tool", "</use_mcp_tool>"),
                         ("<patch_file", "</patch_file>"),
+                        ("<execute_command", "</execute_command>"),
+                        ("<read_file", "</read_file>"),
+                        ("<write_to_file", "</write_to_file>"),
+                        ("<ask_followup_question", "</ask_followup_question>"),
+                        ("<attempt_completion", "</attempt_completion>"),
+                        ("<list_files", "</list_files>"),
+                        ("<search_files", "</search_files>"),
+                        ("<codebase_search", "</codebase_search>"),
+                        ("<access_mcp_resource", "</access_mcp_resource>"),
                     )
                     handled = False
                     for opener, closer in synthetic_calls:
@@ -147,7 +159,21 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     not has_reasoning and self._max_buffer_bytes > 1024
                 )
                 if should_flush_streaming:
-                    markers = ("<use_mcp_tool", "<patch_file")
+                    # Markers for XML tool tags that should NOT be flushed prematurely
+                    # Must match the tags in synthetic_calls above
+                    markers = (
+                        "<use_mcp_tool",
+                        "<patch_file",
+                        "<execute_command",
+                        "<read_file",
+                        "<write_to_file",
+                        "<ask_followup_question",
+                        "<attempt_completion",
+                        "<list_files",
+                        "<search_files",
+                        "<codebase_search",
+                        "<access_mcp_resource",
+                    )
                     flush_text = ""
                     if not any(
                         marker in buffer_state.pending_text for marker in markers
@@ -251,7 +277,20 @@ class ToolCallRepairProcessor(IStreamProcessor):
         if not buffer:
             return "", ""
 
-        markers = ("<use_mcp_tool", "<patch_file")
+        # Must match the markers used in process() to prevent premature flushing
+        markers = (
+            "<use_mcp_tool",
+            "<patch_file",
+            "<execute_command",
+            "<read_file",
+            "<write_to_file",
+            "<ask_followup_question",
+            "<attempt_completion",
+            "<list_files",
+            "<search_files",
+            "<codebase_search",
+            "<access_mcp_resource",
+        )
         positions = [buffer.find(marker) for marker in markers if marker in buffer]
         if positions:
             marker_pos = min(pos for pos in positions if pos >= 0)

@@ -3460,14 +3460,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._cli_refresh_process = None
 
         # Cancel recovery probe task if running
+        # During shutdown, we need to cancel the task without trying to schedule it
+        # on the event loop, which may already be closed
         if self._recovery_probe_task and not self._recovery_probe_task.done():
+            # Simply cancel without awaiting - the task will be cleaned up
+            # We suppress all exceptions because during interpreter shutdown,
+            # the logging system may already be torn down
             with contextlib.suppress(Exception):
-                # Check if event loop is still running before cancelling
-                try:
-                    loop = asyncio.get_running_loop()
-                    if loop and not loop.is_closed():
-                        self._recovery_probe_task.cancel()
-                except RuntimeError:
-                    # No event loop running, task will be cleaned up by garbage collector
-                    pass
+                self._recovery_probe_task.cancel()
         self._recovery_probe_task = None

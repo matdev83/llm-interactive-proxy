@@ -430,6 +430,8 @@ class ToolCallRepairService(IToolCallRepairService):
                     return fallback
                 continue
 
+            # Skip inner/child tags that are NOT actual tool calls
+            # These are typically parameter tags inside tool calls
             if root.tag in {
                 "tool_name",
                 "tool_arguments",
@@ -440,6 +442,16 @@ class ToolCallRepairService(IToolCallRepairService):
                 "content",
                 "arguments",
                 "args",
+                "command",  # Inner tag of <execute_command>
+                "file",  # Inner tag of <read_file>, <write_to_file>
+                "question",  # Inner tag of <ask_followup_question>
+                "result",  # Inner tag of <attempt_completion>
+                "regex",  # Inner tag of <search_files>
+                "query",  # Inner tag of <codebase_search>
+                "uri",  # Inner tag of <access_mcp_resource>
+                "server_name",  # Inner tag of various MCP tools
+                "directory",  # Inner tag of <list_files>
+                "recursive",  # Inner tag of <list_files>
             }:
                 continue
 
