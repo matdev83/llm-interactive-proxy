@@ -528,10 +528,10 @@ def test_detector_stats():
     detector = TokenWindowLoopDetector()
     stats = detector.get_stats()
 
-    assert "is_enabled" in stats
-    assert "config" in stats
-    assert stats["config"]["content_chunk_size"] == CONTENT_CHUNK_SIZE
-    assert stats["config"]["content_loop_threshold"] == CONTENT_LOOP_THRESHOLD
+    assert hasattr(stats, "is_enabled")
+    assert hasattr(stats, "config")
+    assert stats.config.content_chunk_size == CONTENT_CHUNK_SIZE
+    assert stats.config.content_loop_threshold == CONTENT_LOOP_THRESHOLD
 
 
 def test_enable_disable():

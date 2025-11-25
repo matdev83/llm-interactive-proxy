@@ -192,7 +192,29 @@ class StreamingContent:
                         data[key] = self.metadata[key]
                 return f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode()
 
-            return b"data: [DONE]\n\n"
+            # Check if there's actual content to emit with the done marker
+            # This handles cases where the final chunk has both content and is_done=True
+            # BUT: if content is just "[DONE]" string, treat it as a pure done marker
+            content_is_done_marker = (
+                self.content == "[DONE]"
+                or self.content == SentinelManager.DONE_MARKER
+                or self.content == b"[DONE]"
+            )
+
+            if (
+                self.content is not None
+                and self.content != ""
+                and not content_is_done_marker
+            ):
+                # If content is already an OpenAI-formatted chunk, emit it then [DONE]
+                if isinstance(self.content, dict) and "choices" in self.content:
+                    return (
+                        f"data: {json.dumps(self.content)}\n\ndata: [DONE]\n\n".encode()
+                    )
+                # Otherwise, fall through to normal content handling below
+            else:
+                # No meaningful content or content is just "[DONE]", emit [DONE]
+                return b"data: [DONE]\n\n"
 
         # Build delta object
         delta: dict[str, Any] = {}
@@ -232,7 +254,11 @@ class StreamingContent:
                 # Check if this is already an OpenAI-formatted chunk
                 # If so, use it directly instead of wrapping it again
                 if "choices" in self.content:
-                    return f"data: {json.dumps(self.content)}\n\n".encode()
+                    result = f"data: {json.dumps(self.content)}\n\n"
+                    # Append [DONE] if this is the final chunk
+                    if self.is_done:
+                        result += "data: [DONE]\n\n"
+                    return result.encode()
                 delta["content"] = json.dumps(self.content)
             else:
                 delta["content"] = str(self.content)
@@ -249,7 +275,11 @@ class StreamingContent:
             if key in self.metadata:
                 data[key] = self.metadata[key]
 
-        return f"data: {json.dumps(data)}\n\n".encode()
+        result = f"data: {json.dumps(data)}\n\n"
+        # Append [DONE] if this is the final chunk
+        if self.is_done:
+            result += "data: [DONE]\n\n"
+        return result.encode()
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation.
@@ -286,6 +316,17 @@ class StreamingContent:
         is_done = False
         metadata: dict[str, Any] = {}
         usage: dict[str, Any] | None = None
+
+        # Handle StreamingContent directly - just return a copy
+        if isinstance(raw_data, StreamingContent):
+            return StreamingContent(
+                content=raw_data.content,
+                is_done=raw_data.is_done,
+                is_cancellation=raw_data.is_cancellation,
+                metadata=dict(raw_data.metadata),
+                usage=raw_data.usage,
+                raw_data=raw_data.raw_data,
+            )
 
         from src.core.interfaces.response_processor_interface import (
             ProcessedResponse,

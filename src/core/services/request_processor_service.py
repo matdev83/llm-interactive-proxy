@@ -102,6 +102,39 @@ class RequestProcessor(IRequestProcessor):
             f"Request data type: {type(request_data)}, model: {getattr(request_data, 'model', 'unknown')}"
         )
 
+        # Populate allowed tools in streaming registry for dynamic tool detection
+        try:
+            allowed_tools: list[str] = []
+            tools = getattr(request_data, "tools", None)
+            if tools:
+                for tool in tools:
+                    if isinstance(tool, dict):
+                        func = tool.get("function")
+                        if isinstance(func, dict):
+                            name = func.get("name")
+                            if name:
+                                allowed_tools.append(name)
+                    elif hasattr(tool, "function"):
+                        # Pydantic model
+                        func = getattr(tool, "function", None)
+                        name = getattr(func, "name", None)
+                        if name:
+                            allowed_tools.append(name)
+
+            if allowed_tools:
+                from src.core.services.streaming.stream_context_registry import (
+                    get_global_streaming_context_registry,
+                )
+
+                registry = get_global_streaming_context_registry()
+                buffer = registry.get_tool_call_buffer(session_id)
+                buffer.allowed_tools = allowed_tools
+                logger.debug(
+                    f"Registered allowed tools for session {session_id}: {allowed_tools}"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to register allowed tools: {e}", exc_info=True)
+
         # Auto-detect project directory if needed
         if (
             self._app_state is not None

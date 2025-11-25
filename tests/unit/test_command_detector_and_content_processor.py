@@ -8,10 +8,10 @@ def test_command_detector_detects_command():
     detector = CommandDetector()
     info = detector.detect("Hi !/help() there")
     assert info is not None
-    assert info["cmd_name"] == "help"
-    assert info["args_str"] is None
-    assert isinstance(info["match_start"], int)
-    assert isinstance(info["match_end"], int)
+    assert info.cmd_name == "help"
+    assert info.args_str is None
+    assert isinstance(info.match_start, int)
+    assert isinstance(info.match_end, int)
 
 
 def test_content_processor_sanitizes_part():

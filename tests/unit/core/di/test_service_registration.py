@@ -12,9 +12,6 @@ from src.core.di.services import (
 from src.core.domain.streaming_response_processor import LoopDetectionProcessor
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.middleware_application_manager_interface import (
-    IMiddlewareApplicationManager,
-)
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import IResponseProcessor
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
@@ -125,12 +122,15 @@ class TestServiceRegistration:
 
     def test_response_processor_streaming_pipeline_setup(self) -> None:
         """
-        Test that ResponseProcessor is configured with StreamNormalizer and ToolCallRepairProcessor
-        when streaming pipeline is enabled.
+        Test that ResponseProcessor is configured with StreamNormalizer and ToolCallRepairProcessor.
+
+        After unified pipeline refactoring, ResponseProcessor uses the same streaming pipeline
+        for both streaming and non-streaming responses. The middleware_application_manager
+        parameter has been removed.
         """
         services = ServiceCollection()
 
-        # Mock IApplicationState to enable streaming pipeline
+        # Mock IApplicationState
         mock_app_state = Mock(spec=IApplicationState)
         mock_app_state.get_use_streaming_pipeline.return_value = True
         services.add_instance(IApplicationState, mock_app_state)
@@ -154,41 +154,31 @@ class TestServiceRegistration:
         def response_processor_factory_for_test(
             provider: IServiceProvider,
         ) -> ResponseProcessor:
-            app_state: IApplicationState = provider.get_required_service(
-                IApplicationState  # type: ignore[type-abstract]
-            )
             response_parser: IResponseParser = provider.get_required_service(
                 IResponseParser  # type: ignore[type-abstract]
             )
-            middleware_application_manager: (
-                IMiddlewareApplicationManager
-            ) = provider.get_required_service(
-                IMiddlewareApplicationManager  # type: ignore[type-abstract]
+
+            processors: list[IStreamProcessor] = []
+
+            tool_call_repair_service = provider.get_required_service(
+                IToolCallRepairService  # type: ignore[type-abstract]
+            )
+            processors.append(ToolCallRepairProcessor(tool_call_repair_service))
+
+            processors.append(
+                LoopDetectionProcessor(
+                    loop_detector_factory=lambda: HybridLoopDetector()
+                )
             )
 
-            stream_normalizer_instance: IStreamNormalizer | None = None
-            if app_state.get_use_streaming_pipeline():
-                processors: list[IStreamProcessor] = []
+            stream_normalizer_instance = StreamNormalizer(processors=processors)
 
-                tool_call_repair_service = provider.get_required_service(
-                    IToolCallRepairService  # type: ignore[type-abstract]
-                )
-                processors.append(ToolCallRepairProcessor(tool_call_repair_service))
-
-                processors.append(
-                    LoopDetectionProcessor(
-                        loop_detector_factory=lambda: HybridLoopDetector()
-                    )
-                )
-
-                stream_normalizer_instance = StreamNormalizer(processors=processors)
-
-            # The 'middleware' and 'detector' arguments were removed from ResponseProcessor's __init__
-            # Use the new stream_normalizer_instance and other services directly
+            # ResponseProcessor now uses unified pipeline (no middleware_application_manager)
             return ResponseProcessor(
                 response_parser=response_parser,
-                middleware_application_manager=middleware_application_manager,
-                app_state=app_state,
+                app_state=provider.get_required_service(
+                    IApplicationState  # type: ignore[type-abstract]
+                ),
                 stream_normalizer=stream_normalizer_instance,
                 loop_detector=HybridLoopDetector(),
             )
@@ -208,11 +198,8 @@ class TestServiceRegistration:
             cast(type, IResponseProcessor),
             implementation_factory=response_processor_factory_for_test,
         )
-        # Add mock services for the new required arguments
+        # Add mock service for required argument
         services.add_instance(IResponseParser, Mock(spec=IResponseParser))
-        services.add_instance(
-            IMiddlewareApplicationManager, Mock(spec=IMiddlewareApplicationManager)
-        )
 
         provider = services.build_service_provider()
 
@@ -232,3 +219,7 @@ class TestServiceRegistration:
         # Assert that ToolCallRepairProcessor received the correct IToolCallRepairService
         expected_repair_service = provider.get_required_service(IToolCallRepairService)  # type: ignore[type-abstract]
         assert tool_call_processor.tool_call_repair_service is expected_repair_service
+
+        # Assert that unified pipeline is configured
+        assert hasattr(response_processor, "_unified_pipeline")
+        assert response_processor._unified_pipeline is not None

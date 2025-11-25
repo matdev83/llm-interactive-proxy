@@ -135,6 +135,75 @@ async def test_ask_followup_question_buffered_prevents_xml_leakage():
 
 
 @pytest.mark.asyncio
+async def test_execute_command_buffered_across_different_chunk_ids():
+    """
+    Test that execute_command tool calls are properly buffered even when
+    chunks have different 'id' fields (as seen with Gemini backend).
+
+    This is a regression test for the bug where tool calls were split across
+    chunks with different IDs, causing the buffering system to fail to correlate
+    them, resulting in partial command execution like "./.venv/Scripts" instead
+    of "./.venv/Scripts/python.exe -m pytest".
+    """
+    from src.core.domain.responses import StreamingResponseEnvelope
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
+    from src.core.transport.fastapi.response_adapters import (
+        to_fastapi_streaming_response,
+    )
+
+    # Simulate what was seen in wire_capture.log - chunks with DIFFERENT IDs
+    # This is the actual bug scenario from Gemini
+    async def mock_stream_with_different_ids() -> AsyncIterator[ProcessedResponse]:
+        """Simulate Gemini-style streaming where each chunk has different id."""
+        # Use consistent session_id (this is the fix - we now use session_id for correlation)
+        session_id = "test-session-123"
+
+        # Chunk 1: Start of execute_command (different id than chunk 2)
+        yield ProcessedResponse(
+            content='data: {"id": "chatcmpl-663a40db142b4bc7", "object": "chat.completion.chunk", "created": 1764074247, "model": "gemini-2.5-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "I will run the test suite.\\n<execute_command>\\n<command>./.venv/Scripts"}, "finish_reason": null}]}\n\n',
+            metadata={"session_id": session_id},
+        )
+
+        # Chunk 2: Completion of execute_command (DIFFERENT id!)
+        yield ProcessedResponse(
+            content='data: {"id": "chatcmpl-ef671950e3f24896", "object": "chat.completion.chunk", "created": 1764074247, "model": "gemini-2.5-pro", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "/python.exe -m pytest</command>\\n</execute_command>"}, "finish_reason": "stop"}]}\n\n',
+            metadata={"session_id": session_id},
+        )
+
+    # Create streaming response
+    envelope = StreamingResponseEnvelope(
+        content=mock_stream_with_different_ids(),
+        media_type="text/event-stream",
+        headers={},
+    )
+
+    response = to_fastapi_streaming_response(envelope)
+
+    # Collect all chunks
+    chunks: list[bytes] = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk)
+
+    # Convert to text for analysis
+    full_output = b"".join(chunks).decode("utf-8")
+
+    # CRITICAL: The full command should be present in the output
+    # Before fix: Only "./.venv/Scripts" would appear (second part lost due to different id)
+    # After fix: Full command "./.venv/Scripts/python.exe -m pytest" should appear
+    assert "./.venv/Scripts/python.exe -m pytest" in full_output, (
+        f"Full command not found in output! Tool call was likely split incorrectly.\n"
+        f"This indicates the buffering is not correlating chunks properly.\n"
+        f"Output:\n{full_output}"
+    )
+
+    # Verify the complete tool call structure
+    assert "<execute_command>" in full_output, "Opening execute_command tag missing"
+    assert "</execute_command>" in full_output, "Closing execute_command tag missing"
+    assert "<command>" in full_output, "Opening command tag missing"
+    assert "</command>" in full_output, "Closing command tag missing"
+
+
+@pytest.mark.asyncio
 async def test_all_tool_tags_are_buffered():
     """Verify that all XML tool tags are included in buffering logic."""
     import ast

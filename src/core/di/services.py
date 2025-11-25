@@ -40,9 +40,9 @@ from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.loop_detector_interface import ILoopDetector
-from src.core.interfaces.middleware_application_manager_interface import (
-    IMiddlewareApplicationManager,
-)
+
+# Note: IMiddlewareApplicationManager interface is no longer used after unified pipeline refactoring
+# MiddlewareApplicationManager is still used to configure the middleware list for streaming processors
 from src.core.interfaces.path_validator_interface import IPathValidator
 from src.core.interfaces.rate_limiter_interface import IRateLimiter
 from src.core.interfaces.repositories_interface import ISessionRepository
@@ -660,16 +660,8 @@ def register_core_services(
         MiddlewareApplicationManager,
         implementation_factory=_middleware_application_manager_factory,
     )
-    try:
-        services.add_singleton(
-            cast(type, IMiddlewareApplicationManager),
-            implementation_factory=_middleware_application_manager_factory,
-        )  # type: ignore[type-abstract]
-    except Exception as e:
-        logger.warning(
-            f"Failed to register IMiddlewareApplicationManager interface: {e}"
-        )
-        # Continue if concrete MiddlewareApplicationManager is registered
+    # Note: IMiddlewareApplicationManager interface registration removed after unified pipeline refactoring
+    # The concrete MiddlewareApplicationManager is still used to configure middleware for streaming processors
 
     # Register MiddlewareApplicationProcessor used inside the streaming pipeline
     def _middleware_application_processor_factory(
@@ -713,7 +705,7 @@ def register_core_services(
         implementation_factory=_middleware_application_processor_factory,
     )
 
-    # Register response processor
+    # Register response processor (unified pipeline for both streaming and non-streaming)
     def _response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
         from typing import cast
 
@@ -726,27 +718,18 @@ def register_core_services(
         response_parser: IResponseParser = provider.get_required_service(
             cast(type, IResponseParser)
         )
-        middleware_application_manager: IMiddlewareApplicationManager = (
-            provider.get_required_service(cast(type, IMiddlewareApplicationManager))
-        )
-
-        # Get the middleware manager to access the middleware list
-        middleware_manager: MiddlewareApplicationManager = (
-            provider.get_required_service(MiddlewareApplicationManager)
-        )
 
         # Get loop detector for non-streaming responses
         from src.core.interfaces.loop_detector_interface import ILoopDetector
 
         loop_detector = provider.get_service(cast(type, ILoopDetector))
 
+        # ResponseProcessor now uses unified pipeline - no separate middleware manager needed
         return ResponseProcessor(
             response_parser=response_parser,
-            middleware_application_manager=middleware_application_manager,
             app_state=app_state,
             loop_detector=loop_detector,
             stream_normalizer=stream_normalizer,
-            middleware_list=middleware_manager._middleware,
         )
 
     # Register loop detector and bind to interface

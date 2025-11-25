@@ -49,11 +49,11 @@ class TestMetricsService:
         metrics_service.record_duration("test.timer", 0.75)
 
         stats = metrics_service.get_timer_stats("test.timer")
-        assert stats["count"] == 3
-        assert stats["total"] == 2.25
-        assert stats["average"] == 0.75
-        assert stats["min"] == 0.5
-        assert stats["max"] == 1.0
+        assert stats.count == 3
+        assert stats.total == 2.25
+        assert stats.average == 0.75
+        assert stats.min == 0.5
+        assert stats.max == 1.0
 
     def test_timer_context_manager(self):
         """Test the timer context manager."""
@@ -61,18 +61,18 @@ class TestMetricsService:
             time.sleep(0.01)  # Sleep for 10ms
 
         stats = metrics_service.get_timer_stats("test.operation")
-        assert stats["count"] == 1
-        assert stats["total"] >= 0.01  # Should be at least 10ms
-        assert stats["average"] >= 0.01
+        assert stats.count == 1
+        assert stats.total >= 0.01  # Should be at least 10ms
+        assert stats.average >= 0.01
 
     def test_timer_stats_empty(self):
         """Test getting stats for a timer with no measurements."""
         stats = metrics_service.get_timer_stats("nonexistent.timer")
-        assert stats["count"] == 0
-        assert stats["total"] == 0.0
-        assert stats["average"] == 0.0
-        assert stats["min"] == 0.0
-        assert stats["max"] == 0.0
+        assert stats.count == 0
+        assert stats.total == 0.0
+        assert stats.average == 0.0
+        assert stats.min == 0.0
+        assert stats.max == 0.0
 
     def test_get_all_timer_stats(self):
         """Test getting stats for all timers."""
@@ -82,8 +82,8 @@ class TestMetricsService:
         all_stats = metrics_service.get_all_timer_stats()
         assert "timer1" in all_stats
         assert "timer2" in all_stats
-        assert all_stats["timer1"]["count"] == 1
-        assert all_stats["timer2"]["count"] == 1
+        assert all_stats["timer1"].count == 1
+        assert all_stats["timer2"].count == 1
 
     def test_tool_call_processing_metrics(self):
         """Test metrics specific to tool call processing."""

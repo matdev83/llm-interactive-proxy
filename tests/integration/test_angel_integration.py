@@ -10,9 +10,6 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.middleware_application_manager_interface import (
-    IMiddlewareApplicationManager,
-)
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.angel_service import ANGEL_PROMPT
@@ -38,19 +35,6 @@ class _DummyParser:
 
     def extract_metadata(self, response: Any) -> Any:
         return response.get("metadata")
-
-
-class _DummyMiddlewareManager:
-    async def apply_middleware(
-        self,
-        content: Any,
-        middleware_list: list[Any] | None = None,
-        is_streaming: bool = False,
-        stop_event: Any = None,
-        session_id: str = "",
-        context: dict[str, Any] | None = None,
-    ) -> Any:
-        return content
 
 
 class _StubBackendProcessor:
@@ -117,12 +101,10 @@ class _DummyAppState:
 
 
 def _make_response_processor(config: AppConfig) -> ResponseProcessor:
+    """Create a ResponseProcessor using the unified pipeline architecture."""
     stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
     processor = ResponseProcessor(
         response_parser=cast(IResponseParser, _DummyParser()),
-        middleware_application_manager=cast(
-            IMiddlewareApplicationManager, _DummyMiddlewareManager()
-        ),
         stream_normalizer=stream_normalizer,
     )
     processor._app_state = _DummyAppState(config)  # type: ignore[attr-defined]

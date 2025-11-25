@@ -25,6 +25,12 @@ from src.core.interfaces.loop_detector_interface import (
     LoopDetectionResult,
 )
 from src.loop_detection.event import LoopDetectionEvent
+from src.loop_detection.types import (
+    LoopDetectorConfig,
+    LoopDetectorInternalState,
+    LoopDetectorState,
+    LoopDetectorStats,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -392,34 +398,34 @@ class TokenWindowLoopDetector(ILoopDetector):
         self._loop_events.clear()
         logger.debug("Loop detector state reset")
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> LoopDetectorStats:
         """Get detector statistics."""
-        return {
-            "is_enabled": self._is_enabled,
-            "loop_detected": self.loop_detected,
-            "history_length": len(self.stream_content_history),
-            "in_code_block": self.in_code_block,
-            "tracked_chunks": len(self.content_stats),
-            "config": {
-                "content_chunk_size": self.content_chunk_size,
-                "content_loop_threshold": self.content_loop_threshold,
-                "max_history_length": self.max_history_length,
-            },
-        }
+        return LoopDetectorStats(
+            is_enabled=self._is_enabled,
+            loop_detected=self.loop_detected,
+            history_length=len(self.stream_content_history),
+            in_code_block=self.in_code_block,
+            tracked_chunks=len(self.content_stats),
+            config=LoopDetectorConfig(
+                content_chunk_size=self.content_chunk_size,
+                content_loop_threshold=self.content_loop_threshold,
+                max_history_length=self.max_history_length,
+            ),
+        )
 
     def get_loop_history(self) -> list[LoopDetectionEvent]:
         """Get history of detected loops."""
         return self._loop_events.copy()
 
-    def get_current_state(self) -> dict[str, Any]:
+    def get_current_state(self) -> LoopDetectorState:
         """Get current internal state."""
-        return {
-            "stream_content_history_length": len(self.stream_content_history),
-            "last_content_index": self.last_content_index,
-            "loop_detected": self.loop_detected,
-            "in_code_block": self.in_code_block,
-            "content_stats_size": len(self.content_stats),
-        }
+        return LoopDetectorState(
+            stream_content_history_length=len(self.stream_content_history),
+            last_content_index=self.last_content_index,
+            loop_detected=self.loop_detected,
+            in_code_block=self.in_code_block,
+            content_stats_size=len(self.content_stats),
+        )
 
     def update_config(self, new_config: Any) -> None:
         """
@@ -446,23 +452,23 @@ class TokenWindowLoopDetector(ILoopDetector):
         # Reset state after configuration change
         self.reset()
 
-    def _save_state(self) -> dict[str, Any]:
+    def _save_state(self) -> LoopDetectorInternalState:
         """Save current state for restoration."""
-        return {
-            "stream_content_history": self.stream_content_history,
-            "content_stats": {
+        return LoopDetectorInternalState(
+            stream_content_history=self.stream_content_history,
+            content_stats={
                 hash_hex: indices.copy()
                 for hash_hex, indices in self.content_stats.items()
             },
-            "last_content_index": self.last_content_index,
-            "loop_detected": self.loop_detected,
-            "in_code_block": self.in_code_block,
-        }
+            last_content_index=self.last_content_index,
+            loop_detected=self.loop_detected,
+            in_code_block=self.in_code_block,
+        )
 
-    def _restore_state(self, state: dict[str, Any]) -> None:
+    def _restore_state(self, state: LoopDetectorInternalState) -> None:
         """Restore saved state."""
-        self.stream_content_history = state["stream_content_history"]
-        self.content_stats = state["content_stats"]
-        self.last_content_index = state["last_content_index"]
-        self.loop_detected = state["loop_detected"]
-        self.in_code_block = state["in_code_block"]
+        self.stream_content_history = state.stream_content_history
+        self.content_stats = state.content_stats
+        self.last_content_index = state.last_content_index
+        self.loop_detected = state.loop_detected
+        self.in_code_block = state.in_code_block

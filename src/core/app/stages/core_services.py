@@ -14,18 +14,11 @@ from __future__ import annotations
 import contextlib
 import logging
 
-from src.core.app.middleware.tool_call_repair_middleware import ToolCallRepairMiddleware
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.middleware_application_manager_interface import (
-    IMiddlewareApplicationManager,
-)
 from src.core.interfaces.response_parser_interface import IResponseParser
-from src.core.interfaces.response_processor_interface import (
-    IResponseMiddleware,
-)
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 
@@ -95,41 +88,27 @@ class CoreServicesStage(InitializationStage):
         )
 
         # Register ResponseProcessor as a singleton
-        def response_processor_factory(provider: IServiceProvider) -> ResponseProcessor:
+        # ResponseProcessor is registered in services.py using unified pipeline
+        # The factory below is kept for reference but not used
+        def _response_processor_factory_reference(
+            provider: IServiceProvider,
+        ) -> ResponseProcessor:
+            """Factory reference - actual registration is in services.py."""
             app_state: IApplicationState = provider.get_required_service(
                 IApplicationState  # type: ignore[type-abstract]
             )
-
             stream_normalizer: IStreamNormalizer = provider.get_required_service(
                 IStreamNormalizer  # type: ignore[type-abstract]
             )
-
-            middleware_list: list[IResponseMiddleware] = []
-
-            if config.session.tool_call_repair_enabled:
-                tool_call_repair_service = provider.get_required_service(
-                    ToolCallRepairService
-                )
-                tool_call_middleware = ToolCallRepairMiddleware(
-                    config, tool_call_repair_service
-                )
-                middleware_list.append(tool_call_middleware)
-
-            processor = ResponseProcessor(
+            # ResponseProcessor now uses unified pipeline - no separate middleware manager
+            return ResponseProcessor(
                 app_state=app_state,
                 response_parser=provider.get_required_service(IResponseParser),  # type: ignore[type-abstract]
-                middleware_application_manager=provider.get_required_service(
-                    IMiddlewareApplicationManager  # type: ignore[type-abstract]
-                ),
                 stream_normalizer=stream_normalizer,
             )
-            return processor
 
-        # ResponseProcessor is registered in services.py to avoid duplication
-        # services.add_singleton(
-        #     ResponseProcessor, implementation_factory=response_processor_factory
-        # )
-        # logger.debug("Registered ResponseProcessor with ToolCallRepairMiddleware")
+        # Suppress unused variable warning - this is intentionally kept as documentation
+        _ = _response_processor_factory_reference
 
         # Register session repository
         self._register_session_repository(services)

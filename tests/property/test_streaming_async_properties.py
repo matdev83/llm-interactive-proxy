@@ -32,7 +32,8 @@ async def test_property_27_incremental_middleware_processing(
     """
     Property 27: Incremental middleware processing.
 
-    StreamNormalizer must emit a chunk for every input chunk without buffering.
+    StreamNormalizer must emit a chunk for every non-empty input chunk without buffering.
+    Empty chunks are filtered out by the normalizer.
     """
 
     # Ensure only the last chunk is marked as done to mimic pipeline behavior.
@@ -44,13 +45,21 @@ async def test_property_27_incremental_middleware_processing(
         "finish_reason", "stop"
     )
 
+    # Ensure chunks have non-empty content so they are not filtered out
+    # Empty chunks without is_done=True are skipped by StreamNormalizer
+    for i, chunk in enumerate(chunks):
+        if not chunk.content and not chunk.is_done:
+            chunk.content = f"chunk_{i}"
+
     normalizer = StreamNormalizer([_PassthroughProcessor()])
     stream = async_iter(chunks)
     outputs = [
         chunk
         async for chunk in normalizer.process_stream(stream, output_format="objects")
     ]
-    assert len(outputs) == len(chunks)
+    # Non-empty chunks plus the final done marker should all be emitted
+    non_empty_or_done = [c for c in chunks if c.content or c.is_done]
+    assert len(outputs) == len(non_empty_or_done)
 
 
 @pytest.mark.asyncio

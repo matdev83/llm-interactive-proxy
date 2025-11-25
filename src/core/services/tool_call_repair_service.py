@@ -50,7 +50,10 @@ class ToolCallRepairService(IToolCallRepairService):
         return self._max_buffer_bytes
 
     def repair_tool_calls(
-        self, response_content: str, force_reprocess: bool = False
+        self,
+        response_content: str,
+        force_reprocess: bool = False,
+        allowed_tools: list[str] | None = None,
     ) -> dict[str, Any] | None:
         """
         Detects tool calls within the given response content (string) and converts
@@ -60,6 +63,7 @@ class ToolCallRepairService(IToolCallRepairService):
             response_content: The string content of the LLM response.
             force_reprocess: If True, bypass processing marker checks and force
                            reprocessing. Useful for debugging scenarios.
+            allowed_tools: Optional list of allowed tool names to prioritize during detection.
 
         Returns:
             A dictionary representing the OpenAI-compatible tool_calls structure
@@ -91,7 +95,7 @@ class ToolCallRepairService(IToolCallRepairService):
                 return self._process_json_match(match.group(1))
 
         # Attempt to detect using XML patterns (Kilo MCP tool format)
-        xml_tool_call = self._extract_xml_tool_call(content)
+        xml_tool_call = self._extract_xml_tool_call(content, allowed_tools)
         if xml_tool_call:
             return xml_tool_call
         self._last_tool_snippet = None
@@ -369,7 +373,9 @@ class ToolCallRepairService(IToolCallRepairService):
             },
         }
 
-    def _extract_xml_tool_call(self, content: str) -> dict[str, Any] | None:
+    def _extract_xml_tool_call(
+        self, content: str, allowed_tools: list[str] | None = None
+    ) -> dict[str, Any] | None:
         """Detect and convert XML-formatted tool calls."""
         # Use content directly to ensure snippets match original text for removal
         if "<" not in content or "</" not in content:
@@ -378,21 +384,26 @@ class ToolCallRepairService(IToolCallRepairService):
         self._last_tool_snippet = None
 
         # Priority matching for known tool tags (to avoid matching inner tags like <command>)
-        known_tools = [
-            "use_mcp_tool",
-            "execute_command",
-            "patch_file",
-            "ask_followup_question",
-            "attempt_completion",
-            "read_file",
-            "list_files",
-            "codebase_search",
-            "search_files",
-            "access_mcp_resource",
-        ]
+        # Use allowed_tools if provided, otherwise fallback to known_tools
+        target_tools = (
+            allowed_tools
+            if allowed_tools is not None
+            else [
+                "use_mcp_tool",
+                "execute_command",
+                "patch_file",
+                "ask_followup_question",
+                "attempt_completion",
+                "read_file",
+                "list_files",
+                "codebase_search",
+                "search_files",
+                "access_mcp_resource",
+            ]
+        )
 
         candidate_snippets = []
-        for tool_tag in known_tools:
+        for tool_tag in target_tools:
             pattern = rf"<{tool_tag}(?:\s[^>]*)?>.*?</{tool_tag}>"
             match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
             if match:

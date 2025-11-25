@@ -6,9 +6,6 @@ from typing import Any, cast
 import pytest
 from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.interfaces.middleware_application_manager_interface import (
-    IMiddlewareApplicationManager,
-)
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.streaming.content_accumulation_processor import (
@@ -31,19 +28,6 @@ class _DummyParser:
         return response.get("metadata")
 
 
-class _DummyMiddlewareManager:
-    async def apply_middleware(
-        self,
-        content: Any,
-        middleware_list: list[Any] | None = None,
-        is_streaming: bool = False,
-        stop_event: Any = None,
-        session_id: str = "",
-        context: dict[str, Any] | None = None,
-    ) -> Any:
-        return content
-
-
 class _DummyAppState:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
@@ -55,12 +39,10 @@ class _DummyAppState:
 
 
 def _make_processor(config: AppConfig) -> ResponseProcessor:
+    """Create a ResponseProcessor with the unified pipeline architecture."""
     stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
     processor = ResponseProcessor(
         response_parser=cast(IResponseParser, _DummyParser()),
-        middleware_application_manager=cast(
-            IMiddlewareApplicationManager, _DummyMiddlewareManager()
-        ),
         stream_normalizer=stream_normalizer,
     )
     processor._app_state = _DummyAppState(config)  # type: ignore[attr-defined]
@@ -79,26 +61,20 @@ async def test_angel_disabled_does_not_call_backend(
     def _provider() -> None:
         nonlocal provider_called
         provider_called = True
-        raise AssertionError("Angel backend should not be resolved when disabled")
+        pytest.fail("Backend service should not have been requested")
 
-    monkeypatch.setattr(
-        "src.core.di.services.get_service_provider",
-        _provider,
-        raising=False,
+    monkeypatch.setattr("src.core.di.services.get_service_provider", _provider)
+
+    original_request = ChatRequest(
+        model="any",
+        messages=[ChatMessage(role="user", content="Hello")],
     )
-
-    response = await processor.process_response(
-        response={"content": "plain"},
-        session_id="sess",
-        context={
-            "original_request": ChatRequest(
-                model="fake",
-                messages=[ChatMessage(role="user", content="hi")],
-            )
-        },
+    result = await processor.process_response(
+        {"content": "World"},
+        session_id="s1",
+        context={"original_request": original_request},
     )
-
-    assert response.content == "plain"
+    assert result.content == "World"
     assert provider_called is False
 
 
@@ -106,115 +82,110 @@ async def test_angel_disabled_does_not_call_backend(
 async def test_override_marker_never_reaches_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = AppConfig(session=SessionConfig(angel_model="fake_backend:guardian"))
+    config = AppConfig(session=SessionConfig(angel_model="demo"))
     processor = _make_processor(config)
 
-    class _Backend:
-        def __init__(self) -> None:
-            self.calls = 0
+    class DummyBackendService:
+        calls = 0
 
-        async def chat_completions(
-            self, request: ChatRequest, **_: Any
-        ) -> SimpleNamespace:
+        async def chat_completions(self, req: Any, *args: Any, **kwargs: Any) -> Any:
             self.calls += 1
             if self.calls == 1:
                 return SimpleNamespace(
-                    content="\n<angels_steering_message>Fix</angels_steering_message>\n"
+                    content="<angels_steering_message>Something</angels_steering_message>"
                 )
             return SimpleNamespace(content="<override_angel>True</override_angel>")
 
-    backend = _Backend()
+    service = DummyBackendService()
+
+    class DummyProvider:
+        def get_required_service(self, t: Any) -> Any:
+            return service
 
     monkeypatch.setattr(
-        "src.core.di.services.get_service_provider",
-        lambda: SimpleNamespace(get_required_service=lambda _t: backend),
-        raising=False,
+        "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )
 
+    original_request = ChatRequest(
+        model="any",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
     result = await processor.process_response(
-        response={"content": "original"},
-        session_id="sess",
-        context={
-            "original_request": ChatRequest(
-                model="fake_backend:primary",
-                messages=[ChatMessage(role="user", content="Hello")],
-            )
-        },
+        {"content": "Initial"},
+        session_id="s2",
+        context={"original_request": original_request},
     )
 
-    assert result.content == "original"
-    assert "override_angel" not in result.content
-    assert backend.calls == 2
+    assert "<override_angel>" not in (result.content or "")
+    assert result.content == "Initial"
+    assert service.calls == 2
 
 
 @pytest.mark.asyncio
 async def test_client_never_sees_angel_xml(monkeypatch: pytest.MonkeyPatch) -> None:
-    config = AppConfig(session=SessionConfig(angel_model="fake_backend:guardian"))
+    config = AppConfig(session=SessionConfig(angel_model="demo"))
     processor = _make_processor(config)
 
-    class _Backend:
-        def __init__(self) -> None:
-            self.calls = 0
+    class DummyBackendService:
+        calls = 0
 
-        async def chat_completions(
-            self, request: ChatRequest, **_: Any
-        ) -> SimpleNamespace:
+        async def chat_completions(self, req: Any, *args: Any, **kwargs: Any) -> Any:
             self.calls += 1
             if self.calls == 1:
                 return SimpleNamespace(
-                    content="\n<angels_steering_message>Improve answer</angels_steering_message>\n"
+                    content="<angels_steering_message>Fix</angels_steering_message>"
                 )
-            return SimpleNamespace(content="Corrected summary")
+            return SimpleNamespace(content="Final answer")
 
-    backend = _Backend()
+    service = DummyBackendService()
+
+    class DummyProvider:
+        def get_required_service(self, t: Any) -> Any:
+            return service
+
     monkeypatch.setattr(
-        "src.core.di.services.get_service_provider",
-        lambda: SimpleNamespace(get_required_service=lambda _t: backend),
-        raising=False,
+        "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )
 
+    original_request = ChatRequest(
+        model="any",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
     result = await processor.process_response(
-        response={"content": "Bad draft"},
-        session_id="sess",
-        context={
-            "original_request": ChatRequest(
-                model="fake_backend:primary",
-                messages=[ChatMessage(role="user", content="Task")],
-            )
-        },
+        {"content": "Initial"},
+        session_id="s3",
+        context={"original_request": original_request},
     )
 
-    assert "<angels_steering_message>" not in str(result.content)
-    assert result.content == "Corrected summary"
-    assert backend.calls == 2
+    assert "<angels_steering_message>" not in (result.content or "")
+    assert "<angels_decision>" not in (result.content or "")
+    assert result.content == "Final answer"
 
 
 @pytest.mark.asyncio
 async def test_angel_frequency_can_skip_turns(monkeypatch: pytest.MonkeyPatch) -> None:
-    config = AppConfig(
-        session=SessionConfig(angel_model="fake_backend:guardian", angel_frequency=4)
-    )
+    config = AppConfig(session=SessionConfig(angel_model="demo", angel_frequency=10))
     processor = _make_processor(config)
 
-    class _Backend:
-        async def chat_completions(self, *_, **__):
-            pytest.fail("Angel should not run before reaching configured frequency")
+    class DummyBackendService:
+        async def chat_completions(self, req: Any, *args: Any, **kwargs: Any) -> Any:
+            pytest.fail("Backend should not be called due to frequency check")
+
+    class DummyProvider:
+        def get_required_service(self, t: Any) -> Any:
+            return DummyBackendService()
 
     monkeypatch.setattr(
-        "src.core.di.services.get_service_provider",
-        lambda: SimpleNamespace(get_required_service=lambda _t: _Backend()),
-        raising=False,
+        "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )
 
+    original_request = ChatRequest(
+        model="any",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
     result = await processor.process_response(
-        response={"content": "First reply"},
-        session_id="freq",
-        context={
-            "original_request": ChatRequest(
-                model="fake_backend:primary",
-                messages=[ChatMessage(role="user", content="Hello there")],
-            )
-        },
+        {"content": "First turn"},
+        session_id="s4",
+        context={"original_request": original_request},
     )
-
-    assert result.content == "First reply"
+    assert result.content == "First turn"

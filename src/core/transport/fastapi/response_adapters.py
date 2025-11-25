@@ -720,7 +720,10 @@ def to_fastapi_streaming_response(
             return None
 
         def _resolve_stream_key(metadata: dict[str, Any]) -> str:
-            for candidate_key in ("stream_id", "id"):
+            # Priority: stream_id (from StreamNormalizer) > session_id (consistent per request) > id (per-chunk, NOT suitable for buffering)
+            # IMPORTANT: Do NOT use "id" as it's different for each chunk (e.g., chatcmpl-xxx)
+            # and will break tool call buffering across chunks
+            for candidate_key in ("stream_id", "session_id"):
                 value = metadata.get(candidate_key)
                 if isinstance(value, str) and value:
                     return value
@@ -791,6 +794,17 @@ def to_fastapi_streaming_response(
 
             return "".join(parts), pending_tail
 
+        def _get_target_tags(stream_key: str) -> tuple[str, ...]:
+            """Get target tool tags, preferring dynamic ones from registry."""
+            # Try to get dynamic tools from registry
+            try:
+                buffer_state = context_registry.get_tool_call_buffer(stream_key)
+                if buffer_state.allowed_tools:
+                    return tuple(buffer_state.allowed_tools)
+            except Exception:
+                pass
+            return BUFFERED_TOOL_TAGS
+
         def _apply_tag_buffer(stream_key: str, tag_name: str, text_value: str) -> str:
             buffer_key = f"tool-block:{tag_name}"
             buffer = context_registry.get_fragment(stream_key, buffer_key)
@@ -812,7 +826,8 @@ def to_fastapi_streaming_response(
                 return
 
             updated_text = text_value
-            for tag in BUFFERED_TOOL_TAGS:
+            target_tags = _get_target_tags(stream_key)
+            for tag in target_tags:
                 updated_text = _apply_tag_buffer(stream_key, tag, updated_text)
 
             if updated_text != text_value:
@@ -820,7 +835,8 @@ def to_fastapi_streaming_response(
 
         def _flush_pending_tool_blocks(stream_key: str, payload: Any) -> None:
             pending_fragments: list[str] = []
-            for tag in BUFFERED_TOOL_TAGS:
+            target_tags = _get_target_tags(stream_key)
+            for tag in target_tags:
                 buffer_key = f"tool-block:{tag}"
                 fragment = context_registry.get_fragment(stream_key, buffer_key)
                 if fragment:

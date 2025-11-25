@@ -17,9 +17,6 @@ from typing import cast
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.middleware_application_manager_interface import (
-    IMiddlewareApplicationManager,
-)
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
 
@@ -198,7 +195,7 @@ class ProcessorStage(InitializationStage):
                     except ImportError:
                         logger.warning("Loop detection middleware not available")
 
-                # Always resolve stream normalizer since it's needed for loop detection
+                # Always resolve stream normalizer since it's needed for unified pipeline
                 stream_normalizer: IStreamNormalizer = provider.get_required_service(
                     cast(type, IStreamNormalizer)
                 )
@@ -207,16 +204,11 @@ class ProcessorStage(InitializationStage):
                 response_parser: IResponseParser = provider.get_required_service(
                     cast(type, IResponseParser)
                 )
-                middleware_application_manager: IMiddlewareApplicationManager = (
-                    provider.get_required_service(
-                        cast(type, IMiddlewareApplicationManager)
-                    )
-                )
 
+                # ResponseProcessor uses unified pipeline - no separate middleware manager
                 return ResponseProcessor(  # noqa: DI-bypass
                     app_state=app_state,
                     response_parser=response_parser,
-                    middleware_application_manager=middleware_application_manager,
                     stream_normalizer=stream_normalizer,
                 )
 

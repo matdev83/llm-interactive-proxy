@@ -77,7 +77,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
         buffer_text = buffer_state.pending_text
 
         repaired_json = (
-            self.tool_call_repair_service.repair_tool_calls(buffer_text)
+            self.tool_call_repair_service.repair_tool_calls(
+                buffer_text, allowed_tools=buffer_state.allowed_tools
+            )
             if buffer_text
             else None
         )

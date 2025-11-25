@@ -24,6 +24,30 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
         self.config = config
         self.tool_call_repair_service = tool_call_repair_service
 
+    def _extract_allowed_tools(self, request: Any) -> list[str] | None:
+        """Extract allowed tool names from the request."""
+        if not request:
+            return None
+
+        tools = getattr(request, "tools", None)
+        if not tools:
+            return None
+
+        allowed_tools = []
+        for tool in tools:
+            if isinstance(tool, dict):
+                func = tool.get("function")
+                if isinstance(func, dict):
+                    name = func.get("name")
+                    if name:
+                        allowed_tools.append(name)
+            elif hasattr(tool, "function"):
+                func = getattr(tool, "function", None)
+                name = getattr(func, "name", None)
+                if name:
+                    allowed_tools.append(name)
+        return allowed_tools
+
     async def process(
         self,
         response: Any,
@@ -40,8 +64,9 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
 
         # Only attempt repair if the content is a string
         if isinstance(response.content, str):
+            allowed_tools = self._extract_allowed_tools(context.get("original_request"))
             repaired_tool_call = self.tool_call_repair_service.repair_tool_calls(
-                response.content
+                response.content, allowed_tools=allowed_tools
             )
             if repaired_tool_call:
                 logger.info(f"Tool call detected and repaired for session {session_id}")

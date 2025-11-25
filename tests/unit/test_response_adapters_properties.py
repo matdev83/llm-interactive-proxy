@@ -370,7 +370,11 @@ class TestSSENormalization:
             else:
                 emitted_chunks.append(bytes(body_chunk))
 
-        assert emitted_chunks == [b"data: [DONE]\n\n"]
+        # The stream should end with exactly one [DONE] marker
+        full_output = b"".join(emitted_chunks)
+        done_count = full_output.count(b"data: [DONE]\n\n")
+        assert done_count == 1, f"Expected exactly one [DONE], got {done_count}"
+        assert full_output.endswith(b"data: [DONE]\n\n")
 
     @pytest.mark.asyncio
     async def test_execute_command_chunks_are_buffered_until_complete(self) -> None:

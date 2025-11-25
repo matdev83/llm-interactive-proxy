@@ -33,6 +33,7 @@ class ToolCallBufferState:
     detected_canonical_ids: set[str] = field(default_factory=set)
     loop_cursor: int = 0
     reactor_cursor: int = 0
+    allowed_tools: list[str] | None = None
 
 
 @dataclass

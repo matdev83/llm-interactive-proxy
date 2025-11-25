@@ -1,17 +1,37 @@
-## Streaming Pipeline Architecture Overview
+## Unified Response Pipeline Architecture
 
-The proxy now routes **all** streaming traffic through the refactored pipeline described
-in `.kiro/specs/streaming-pipeline-refactor`. Every streaming response flows through these
-layers in order:
+The proxy now routes **all** response traffic (streaming and non-streaming) through a unified
+pipeline described in `.kiro/specs/streaming-pipeline-refactor`. This architecture treats
+non-streaming responses as a special case of streaming (single chunk with `is_done=True`),
+ensuring consistent middleware application and eliminating code duplication.
 
-1. **Provider Stream Producer** – backend connector implements `StreamProducer` and yields
-   raw provider chunks.
-2. **StreamNormalizer Orchestrator** – selects the provider-specific normalizer, applies the
-   registered `IStreamProcessor` chain, and emits canonical `StreamingContent`.
-3. **Streaming Assemblers** – currently `SSEAssembler` converts canonical chunks into the
-   transport format (SSE) with deterministic sentinel management, metrics, and error mapping.
-4. **Transport Adapter** – `to_fastapi_streaming_response` wraps the assembled bytes in the
-   FastAPI response, preserving streaming semantics without touching provider‐specific logic.
+### Unified Processing Flow
+
+Every response flows through the same `UnifiedResponsePipeline`:
+
+1. **Provider Backend** – backend connector generates the response (streaming or complete).
+2. **NonStreamingAdapter (non-streaming only)** – wraps complete responses as single-chunk
+   `StreamingContent` with `is_done=True` and `metadata.non_streaming=True`.
+3. **StreamNormalizer Orchestrator** – applies the registered `IStreamProcessor` chain to all
+   chunks, including tool call repair, loop detection, content accumulation, and middleware.
+4. **Streaming Assemblers** – `SSEAssembler` converts chunks to SSE format for streaming clients.
+5. **NonStreamingAdapter.unwrap (non-streaming only)** – extracts the final `ProcessedResponse`
+   from the processed stream.
+6. **Transport Adapter** – `to_fastapi_streaming_response` wraps streaming bytes for FastAPI.
+
+### Key Benefits of Unified Pipeline
+
+- **DRY**: All middleware logic (tool call repair, loop detection, content filtering) lives in
+  one place - the `IStreamProcessor` chain.
+- **Consistency**: Same processing guarantees for both streaming and non-streaming responses.
+- **Maintainability**: Changes to middleware only need to be made once.
+- **Testability**: Single pipeline to test covers all response modes.
+
+### Legacy Code Removal
+
+The legacy non-streaming processor (`MiddlewareApplicationManager` as a response processor) has
+been deprecated. It now serves only as a configuration holder for the middleware list, which is
+injected into `MiddlewareApplicationProcessor` within the unified streaming pipeline.
 
 The legacy "pass-through" streaming path has been removed: if the orchestrator cannot be
 constructed we emit an error chunk instead of bypassing the new pipeline.
@@ -113,6 +133,21 @@ session:
 The sampler is configured during application startup in the infrastructure stage.
 
 ## Recent Enhancements (Nov 2025)
+
+### Unified Response Pipeline (Major Refactor)
+
+- **Single code path for all responses.** The `UnifiedResponsePipeline` now processes both
+  streaming and non-streaming responses through the same `IStreamProcessor` chain. Non-streaming
+  responses are wrapped as single-chunk streams via `NonStreamingAdapter`, processed through all
+  middleware, then unwrapped back to `ProcessedResponse`.
+- **Removed duplicate processing logic.** The legacy `MiddlewareApplicationManager` no longer
+  processes responses directly. It serves only as a configuration holder for the middleware list,
+  which is injected into `MiddlewareApplicationProcessor` within the unified streaming pipeline.
+- **Consistent middleware application.** All `IResponseMiddleware` implementations (tool call
+  repair, loop detection, content filtering, redaction) are applied consistently regardless of
+  whether the original response was streaming or not.
+
+### Streaming Infrastructure
 
 - **Streaming observability.** `StreamingSampler` now captures bounded request/response samples
   directly inside `SSEAssembler`, giving operators insight into the first emitted chunk, terminal

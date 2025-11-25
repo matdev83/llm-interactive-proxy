@@ -20,6 +20,12 @@ from src.core.interfaces.loop_detector_interface import (
 )
 from src.loop_detection.event import LoopDetectionEvent
 from src.loop_detection.token_window_loop_detector import TokenWindowLoopDetector
+from src.loop_detection.types import (
+    HybridDetectorInternalState,
+    HybridDetectorState,
+    HybridDetectorStats,
+    LongDetectorStats,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -403,33 +409,33 @@ class HybridLoopDetector(ILoopDetector):
         self._loop_events.clear()
         logger.debug("Hybrid loop detector state reset")
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> HybridDetectorStats:
         """Get detector statistics."""
         short_stats = self.short_detector.get_stats()
-        return {
-            "is_enabled": self._is_enabled,
-            "detection_method": "hybrid",
-            "short_detector": short_stats,
-            "long_detector": {
-                "content_length": len(self.long_detector.content),
-                "min_pattern_length": self.long_detector.min_pattern_length,
-                "max_pattern_length": self.long_detector.max_pattern_length,
-                "min_repetitions": self.long_detector.min_repetitions,
-            },
-            "total_events": len(self._loop_events),
-        }
+        return HybridDetectorStats(
+            is_enabled=self._is_enabled,
+            detection_method="hybrid",
+            short_detector=short_stats,
+            long_detector=LongDetectorStats(
+                content_length=len(self.long_detector.content),
+                min_pattern_length=self.long_detector.min_pattern_length,
+                max_pattern_length=self.long_detector.max_pattern_length,
+                min_repetitions=self.long_detector.min_repetitions,
+            ),
+            total_events=len(self._loop_events),
+        )
 
     def get_loop_history(self) -> list[LoopDetectionEvent]:
         """Get history of detected loops."""
         return self._loop_events.copy()
 
-    def get_current_state(self) -> dict[str, Any]:
+    def get_current_state(self) -> HybridDetectorState:
         """Get current internal state."""
-        return {
-            "short_detector_state": self.short_detector.get_current_state(),
-            "long_detector_content_length": len(self.long_detector.content),
-            "total_events": len(self._loop_events),
-        }
+        return HybridDetectorState(
+            short_detector_state=self.short_detector.get_current_state(),
+            long_detector_content_length=len(self.long_detector.content),
+            total_events=len(self._loop_events),
+        )
 
     def update_config(self, new_config: Any) -> None:
         """
@@ -462,16 +468,23 @@ class HybridLoopDetector(ILoopDetector):
         # Reset state after configuration change
         self.reset()
 
-    def _save_state(self) -> dict[str, Any]:
+    def _save_state(self) -> HybridDetectorInternalState:
         """Save current state for restoration."""
-        return {
-            "short_detector_state": self.short_detector._save_state(),
-            "long_detector_content": self.long_detector.content,
-            "loop_events": self._loop_events.copy(),
-        }
+        # Note: short_detector._save_state() returns LoopDetectorInternalState,
+        # but we store it as dict in HybridDetectorInternalState for simplicity/compatibility
+        # or we should update HybridDetectorInternalState to use LoopDetectorInternalState
+        return HybridDetectorInternalState(
+            short_detector_state=self.short_detector._save_state().model_dump(),
+            long_detector_content=self.long_detector.content,
+            loop_events=self._loop_events.copy(),
+        )
 
-    def _restore_state(self, state: dict[str, Any]) -> None:
+    def _restore_state(self, state: HybridDetectorInternalState) -> None:
         """Restore saved state."""
-        self.short_detector._restore_state(state["short_detector_state"])
-        self.long_detector.content = state["long_detector_content"]
-        self._loop_events = state["loop_events"]
+        # We need to convert the dict back to LoopDetectorInternalState if we used model_dump()
+        from src.loop_detection.types import LoopDetectorInternalState
+
+        short_state = LoopDetectorInternalState(**state.short_detector_state)
+        self.short_detector._restore_state(short_state)
+        self.long_detector.content = state.long_detector_content
+        self._loop_events = state.loop_events

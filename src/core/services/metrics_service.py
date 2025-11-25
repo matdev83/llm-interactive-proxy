@@ -6,7 +6,6 @@ import time
 from collections import defaultdict
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -80,36 +79,39 @@ def timer(name: str) -> Generator[None, None, None]:
         record_duration(name, duration)
 
 
-def get_timer_stats(name: str) -> dict[str, Any]:
+from src.core.domain.metrics import TimerStats
+
+
+def get_timer_stats(name: str) -> TimerStats:
     """Get statistics for a timer metric.
 
     Args:
         name: The name of the timer metric
 
     Returns:
-        A dictionary containing count, total, average, min, and max durations
+        TimerStats containing count, total, average, min, and max durations
     """
     with _lock:
         durations = _timers.get(name, [])
         if not durations:
-            return {
-                "count": 0,
-                "total": 0.0,
-                "average": 0.0,
-                "min": 0.0,
-                "max": 0.0,
-            }
+            return TimerStats(
+                count=0,
+                total=0.0,
+                average=0.0,
+                min=0.0,
+                max=0.0,
+            )
 
-        return {
-            "count": len(durations),
-            "total": sum(durations),
-            "average": sum(durations) / len(durations),
-            "min": min(durations),
-            "max": max(durations),
-        }
+        return TimerStats(
+            count=len(durations),
+            total=sum(durations),
+            average=sum(durations) / len(durations),
+            min=min(durations),
+            max=max(durations),
+        )
 
 
-def get_all_timer_stats() -> dict[str, dict[str, Any]]:
+def get_all_timer_stats() -> dict[str, TimerStats]:
     """Get statistics for all timer metrics.
 
     Returns:
@@ -139,11 +141,11 @@ def log_performance_stats() -> None:
 
     # Log timing stats if available
     processing_stats = get_timer_stats("tool_call.processing.duration")
-    if processing_stats["count"] > 0:
+    if processing_stats.count > 0:
         logger.info(
             f"Tool call processing timing: "
-            f"count={processing_stats['count']}, "
-            f"avg={processing_stats['average']*1000:.2f}ms, "
-            f"min={processing_stats['min']*1000:.2f}ms, "
-            f"max={processing_stats['max']*1000:.2f}ms"
+            f"count={processing_stats.count}, "
+            f"avg={processing_stats.average*1000:.2f}ms, "
+            f"min={processing_stats.min*1000:.2f}ms, "
+            f"max={processing_stats.max*1000:.2f}ms"
         )

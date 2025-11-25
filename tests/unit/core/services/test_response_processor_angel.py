@@ -1,18 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from typing import Any, cast
 
 import pytest
-from src.core.interfaces.middleware_application_manager_interface import (
-    IMiddlewareApplicationManager,
-)
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.response_processor_service import ResponseProcessor
-from src.core.services.streaming.content_accumulation_processor import (
-    ContentAccumulationProcessor,
-)
-from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 
 class DummyParser:
@@ -29,17 +25,23 @@ class DummyParser:
         return response.get("metadata")
 
 
-class DummyMiddlewareManager:
-    async def apply_middleware(
-        self,
-        content: Any,
-        middleware_list: list[Any] | None = None,
-        is_streaming: bool = False,
-        stop_event: Any = None,
-        session_id: str = "",
-        context: dict[str, Any] | None = None,
-    ) -> Any:
-        return content
+class DummyStreamNormalizer:
+    """Minimal stream normalizer that passes through content."""
+
+    def __init__(self, content: str = "initial") -> None:
+        self._content = content
+
+    async def process_stream(
+        self, stream: Any, output_format: str = "objects", cancel_callback: Any = None
+    ) -> AsyncGenerator[StreamingContent, None]:
+        yield StreamingContent(
+            content=self._content,
+            is_done=True,
+            metadata={},
+        )
+
+    def reset(self) -> None:
+        pass
 
 
 class DummyAppState:
@@ -63,19 +65,13 @@ class DummyAppState:
         return None
 
 
-def _build_stream_normalizer() -> StreamNormalizer:
-    return StreamNormalizer([ContentAccumulationProcessor()])
-
-
 @pytest.mark.asyncio
 async def test_response_processor_calls_angel_when_configured(monkeypatch) -> None:
-    # Prepare processor
+    """Test that Angel verification is called and can modify responses."""
+    # Prepare processor with a normalizer that returns initial content
     proc = ResponseProcessor(
         response_parser=cast(IResponseParser, DummyParser()),
-        middleware_application_manager=cast(
-            IMiddlewareApplicationManager, DummyMiddlewareManager()
-        ),
-        stream_normalizer=_build_stream_normalizer(),
+        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
     )
 
     proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
@@ -140,12 +136,10 @@ async def test_response_processor_calls_angel_when_configured(monkeypatch) -> No
 
 @pytest.mark.asyncio
 async def test_response_processor_keeps_original_on_pass(monkeypatch) -> None:
+    """Test that Angel decision 'Pass' keeps original content."""
     proc = ResponseProcessor(
         response_parser=cast(IResponseParser, DummyParser()),
-        middleware_application_manager=cast(
-            IMiddlewareApplicationManager, DummyMiddlewareManager()
-        ),
-        stream_normalizer=_build_stream_normalizer(),
+        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
     )
 
     proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
@@ -193,12 +187,10 @@ async def test_response_processor_keeps_original_on_pass(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_response_processor_respects_override(monkeypatch) -> None:
+    """Test that override_angel marker keeps original content."""
     proc = ResponseProcessor(
         response_parser=cast(IResponseParser, DummyParser()),
-        middleware_application_manager=cast(
-            IMiddlewareApplicationManager, DummyMiddlewareManager()
-        ),
-        stream_normalizer=_build_stream_normalizer(),
+        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
     )
 
     proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
@@ -254,12 +246,10 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_response_processor_respects_angel_frequency(monkeypatch) -> None:
+    """Test that Angel verification respects frequency setting."""
     proc = ResponseProcessor(
         response_parser=cast(IResponseParser, DummyParser()),
-        middleware_application_manager=cast(
-            IMiddlewareApplicationManager, DummyMiddlewareManager()
-        ),
-        stream_normalizer=_build_stream_normalizer(),
+        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("unverified")),
     )
 
     proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=5)

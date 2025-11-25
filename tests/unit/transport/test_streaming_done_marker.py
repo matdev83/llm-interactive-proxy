@@ -41,7 +41,11 @@ async def test_streaming_response_does_not_duplicate_done() -> None:
 
     chunks = [chunk async for chunk in response.body_iterator]
 
-    assert chunks == [b"data: [DONE]\n\n"]
+    # The stream should end with exactly one [DONE] marker
+    full_output = b"".join(chunks)
+    done_count = full_output.count(b"data: [DONE]\n\n")
+    assert done_count == 1, f"Expected exactly one [DONE], got {done_count}"
+    assert full_output.endswith(b"data: [DONE]\n\n")
 
 
 @pytest.mark.asyncio

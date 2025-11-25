@@ -16,9 +16,6 @@ from src.core.domain.streaming_response_processor import (
     StreamingContent,
 )
 from src.core.interfaces.loop_detector_interface import ILoopDetector
-from src.core.interfaces.middleware_application_manager_interface import (
-    IMiddlewareApplicationManager,
-)
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
@@ -26,6 +23,7 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+from src.core.services.response_pipeline import UnifiedResponsePipeline
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
@@ -33,16 +31,29 @@ from src.core.services.streaming.stream_context_registry import (
     get_global_streaming_context_registry,
 )
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
-from src.core.utils.json_intent import infer_expected_json
 
 logger = logging.getLogger(__name__)
 
 
 class ResponseProcessor(IResponseProcessor):
+    """Unified response processor for both streaming and non-streaming responses.
+
+    This processor uses a single code path for all response processing by treating
+    non-streaming responses as a special case of streaming (single chunk with is_done=True).
+
+    Architecture:
+        Non-streaming: Response -> UnifiedResponsePipeline -> ProcessedResponse
+        Streaming: AsyncIterator -> StreamNormalizer -> AsyncIterator[ProcessedResponse]
+
+    Benefits:
+        - DRY: All middleware logic lives in one place (streaming processors)
+        - Consistent: Same processing guarantees for both modes
+        - Maintainable: Changes only need to be made once
+    """
+
     def __init__(
         self,
         response_parser: IResponseParser,
-        middleware_application_manager: IMiddlewareApplicationManager,
         app_state: Any | None = None,
         loop_detector: ILoopDetector | None = None,
         stream_normalizer: IStreamNormalizer | None = None,
@@ -54,9 +65,8 @@ class ResponseProcessor(IResponseProcessor):
     ) -> None:
         self._app_state = app_state
         self._background_tasks: list[asyncio.Task[Any]] = []
-        self._loop_detector = loop_detector  # Set loop detector
+        self._loop_detector = loop_detector
         self._response_parser = response_parser
-        self._middleware_application_manager = middleware_application_manager
         self._middleware_list = middleware_list or []
 
         # Angel feature wiring
@@ -94,6 +104,9 @@ class ResponseProcessor(IResponseProcessor):
                 "ResponseProcessor requires an IStreamNormalizer; "
                 "ensure the streaming pipeline is registered."
             )
+
+        # Create unified pipeline for both streaming and non-streaming
+        self._unified_pipeline = UnifiedResponsePipeline(self._stream_normalizer)
 
     async def _apply_angel_verification(
         self, original_request: Any, content: Any
@@ -217,18 +230,23 @@ class ResponseProcessor(IResponseProcessor):
         session_id: str,
         context: dict[str, Any] | None = None,
     ) -> ProcessedResponse:
-        """Process a non-streaming response.
+        """Process a non-streaming response through the unified pipeline.
+
+        This method wraps the response as a single-chunk stream, processes it
+        through the same middleware chain as streaming responses, then unwraps
+        the result back to a single ProcessedResponse.
 
         Args:
             response: The response object from the backend.
             session_id: The ID of the current session.
+            context: Optional context dictionary with additional metadata.
 
         Returns:
             A ProcessedResponse object.
 
         Raises:
-            BackendError: If there is an error processing the response.
             LoopDetectionError: If a loop is detected in the response.
+            ParsingError: If there is an error parsing the response.
         """
         try:
             # Parse the raw response using the injected parser
@@ -237,34 +255,40 @@ class ResponseProcessor(IResponseProcessor):
             usage = self._response_parser.extract_usage(parsed_data)
             metadata = self._response_parser.extract_metadata(parsed_data) or {}
 
-            # Check for loops if loop detector is available
-            if self._loop_detector is not None and isinstance(
-                content, str
-            ):  # Ensure content is string for loop detection
-                loop_result = await self._loop_detector.check_for_loops(content)
-                if loop_result.has_loop:
-                    # Add loop detection metadata
-                    metadata["loop_detected"] = True
-                    metadata["loop_pattern"] = loop_result.pattern
-                    metadata["loop_repetitions"] = loop_result.repetitions
-                    # For tests expecting an exception, raise LoopDetectionError
-                    # In a future release, this behavior should be configurable
-                    raise LoopDetectionError(
-                        message=f"Loop detected: {loop_result.pattern} repeated {loop_result.repetitions} times",
-                        details={
-                            "pattern": loop_result.pattern,
-                            "repetitions": loop_result.repetitions,
-                            "session_id": session_id,
-                        },
-                    )
-
-            # Leave status as-is; allow upstream layers to decide error mapping.
-
-            processed_response = ProcessedResponse(
-                content=content, usage=usage, metadata=metadata
+            # Build initial ProcessedResponse for pipeline
+            initial_response = ProcessedResponse(
+                content=content,
+                usage=usage,
+                metadata=metadata,
             )
 
-            # Angel verification for non-streaming responses
+            # Prepare context metadata for the pipeline
+            pipeline_metadata: dict[str, Any] = {
+                "original_response": parsed_data,
+                **(context or {}),
+            }
+
+            # Process through unified pipeline (wraps as single-chunk stream)
+            processed_response = await self._unified_pipeline.process_non_streaming(
+                initial_response,
+                session_id,
+                metadata=pipeline_metadata,
+            )
+
+            # Check for loop detection in pipeline output
+            if processed_response.metadata.get("loop_detected"):
+                raise LoopDetectionError(
+                    message=f"Loop detected: {processed_response.metadata.get('pattern', 'unknown')}",
+                    details={
+                        "pattern": processed_response.metadata.get("pattern"),
+                        "repetitions": processed_response.metadata.get(
+                            "repetition_count"
+                        ),
+                        "session_id": session_id,
+                    },
+                )
+
+            # Angel verification for non-streaming responses (post-pipeline)
             try:
                 original_request = None
                 if context and isinstance(context, dict):
@@ -276,68 +300,14 @@ class ResponseProcessor(IResponseProcessor):
                     )
                     if decision and decision.get("action") == "steer":
                         corrected = decision.get("corrected_content", "")
-                        processed_response.content = corrected
+                        processed_response = ProcessedResponse(
+                            content=corrected,
+                            usage=processed_response.usage,
+                            metadata=processed_response.metadata,
+                        )
             except Exception:
                 # Be conservative: do not break normal flow on Angel errors
                 logger.debug("Angel verification failed; continuing", exc_info=True)
-
-            # Apply middleware using the new manager if available
-            if self._middleware_application_manager is not None:
-                # Prepare metadata for middleware
-                enriched_metadata: dict[str, Any] = {
-                    "session_id": session_id,
-                    "non_streaming": True,
-                    **processed_response.metadata,
-                }
-                if "expected_json" not in enriched_metadata and infer_expected_json(
-                    enriched_metadata, processed_response.content
-                ):
-                    enriched_metadata["expected_json"] = True
-
-                middleware_context: dict[str, Any] = {
-                    "stop_event": None,
-                    "original_response": parsed_data,
-                }
-                if context:
-                    middleware_context.update(context)
-
-                # Assuming middleware application manager can handle non-streaming content directly
-                processed_content = (
-                    await self._middleware_application_manager.apply_middleware(
-                        content=processed_response.content or "",
-                        middleware_list=self._middleware_list,
-                        is_streaming=False,
-                        stop_event=None,
-                        session_id=session_id,
-                        context=middleware_context,
-                    )
-                )
-
-                # Update processed_response with the result from middleware
-                processed_response = ProcessedResponse(
-                    content=processed_content,
-                    usage=processed_response.usage,  # Usage and original metadata remain
-                    metadata={
-                        k: v
-                        for k, v in enriched_metadata.items()
-                        if k not in ("session_id", "non_streaming")
-                    },
-                )
-
-                # If tool calls were detected by reactor, ensure they are persisted into metadata
-                try:
-                    detected_tool_calls = middleware_context.get("detected_tool_calls")
-                    if isinstance(detected_tool_calls, list):
-                        processed_response.metadata.setdefault("tool_calls", [])
-                        if not processed_response.metadata["tool_calls"]:
-                            processed_response.metadata["tool_calls"] = list(
-                                detected_tool_calls
-                            )
-                except Exception:
-                    logger.debug(
-                        "Failed to persist detected tool calls into response metadata",
-                        exc_info=True,
-                    )
 
             return processed_response
 
@@ -365,7 +335,7 @@ class ResponseProcessor(IResponseProcessor):
     async def process_streaming_response(
         self, response_iterator: AsyncIterator[Any], session_id: str
     ) -> AsyncIterator[ProcessedResponse]:
-        """Process a streaming response using the configured stream normalizer.
+        """Process a streaming response through the unified pipeline.
 
         Args:
             response_iterator: An async iterator yielding raw response chunks.
@@ -378,20 +348,6 @@ class ResponseProcessor(IResponseProcessor):
         # to prevent contamination across different requests
         if self._loop_detector is not None:
             self._loop_detector.reset()
-
-        # Ensure stream processors start clean for each streaming request so
-        # buffered content from previous sessions cannot leak forward.
-        if self._stream_normalizer is not None:
-            reset_method = getattr(self._stream_normalizer, "reset", None)
-            if callable(reset_method):
-                try:
-                    reset_method()
-                except Exception as exc:
-                    logger.debug(
-                        "Failed to reset stream normalizer state: %s",
-                        exc,
-                        exc_info=True,
-                    )
 
         # For the basic streaming tests without a mock normalizer, we need to handle
         # the raw chunks directly
@@ -466,108 +422,77 @@ class ResponseProcessor(IResponseProcessor):
                     )
             return
 
-        # Process the stream using the normalizer
+        # Process the stream using the unified pipeline
         try:
-            # Process the stream using the normalizer
-            try:
-                stream_processor = self._stream_normalizer.process_stream(
-                    response_iterator,
-                    output_format="objects",
-                    cancel_callback=None,
-                )
-
-                # stream_processor is already an async generator, no need to await
-
-                async for processed_chunk in stream_processor:
-                    if isinstance(processed_chunk, StreamingContent):
-                        content = self._normalize_chunk_text(processed_chunk.content)
-                        source_metadata = processed_chunk.metadata or {}
-                        metadata = dict(source_metadata)
-                        if session_id:
-                            metadata.setdefault("session_id", session_id)
-                        metadata.setdefault("model", source_metadata.get("model"))
-                        metadata.setdefault("id", source_metadata.get("id"))
-                        metadata.setdefault("created", source_metadata.get("created"))
-                        metadata["is_done"] = processed_chunk.is_done
-                        metadata["is_cancellation"] = processed_chunk.is_cancellation
-                        yield ProcessedResponse(
-                            content=content,
-                            usage=processed_chunk.usage,  # Preserve usage when provided
-                            metadata=metadata,
-                        )
-                    else:
-                        # Handle cases where processed_chunk might be ProcessedResponse or other types
-                        if isinstance(processed_chunk, ProcessedResponse):
-                            # Extract content from ProcessedResponse
-                            content = self._normalize_chunk_text(
-                                processed_chunk.content
-                            )
-
-                            metadata = (
-                                dict(processed_chunk.metadata)
-                                if processed_chunk.metadata
-                                else {}
-                            )
-                            if session_id:
-                                metadata.setdefault("session_id", session_id)
-
-                            yield ProcessedResponse(
-                                content=content,
-                                usage=processed_chunk.usage,
-                                metadata=metadata,
-                            )
-                        else:
-                            # Handle unexpected types
-                            logger.warning(
-                                f"Unexpected chunk type from stream normalizer: {type(processed_chunk)}"
-                            )
-                            metadata = {"session_id": session_id} if session_id else {}
-                            yield ProcessedResponse(
-                                content=str(processed_chunk),
-                                usage=None,
-                                metadata=metadata,
-                            )
-            except (
-                TypeError,
-                ValueError,
-                json.JSONDecodeError,
-                AttributeError,
-                KeyError,
-            ) as inner_e:
-                # Catch common expected exceptions; others will be caught by the global error handler
-                logger.error(f"Error in stream processing: {inner_e}", exc_info=True)
-                yield ProcessedResponse(
-                    content=f"Error in stream processing: {inner_e}",
-                    usage=None,
-                    metadata={
-                        "error": True,
-                        **({"session_id": session_id} if session_id else {}),
-                    },
-                )
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"JSON decoding error in streaming response: {e}", exc_info=True
+            stream_processor = self._unified_pipeline.process_streaming(
+                response_iterator,
+                session_id,
+                output_format="objects",
+                cancel_callback=None,
             )
+
+            async for processed_chunk in stream_processor:
+                if isinstance(processed_chunk, StreamingContent):
+                    content = self._normalize_chunk_text(processed_chunk.content)
+                    source_metadata = processed_chunk.metadata or {}
+                    metadata = dict(source_metadata)
+                    if session_id:
+                        metadata.setdefault("session_id", session_id)
+                    metadata.setdefault("model", source_metadata.get("model"))
+                    metadata.setdefault("id", source_metadata.get("id"))
+                    metadata.setdefault("created", source_metadata.get("created"))
+                    metadata["is_done"] = processed_chunk.is_done
+                    metadata["is_cancellation"] = processed_chunk.is_cancellation
+                    # Preserve stream_id for downstream buffering correlation
+                    if processed_chunk.stream_id:
+                        metadata["stream_id"] = processed_chunk.stream_id
+                    elif "stream_id" in source_metadata:
+                        metadata["stream_id"] = source_metadata["stream_id"]
+                    yield ProcessedResponse(
+                        content=content,
+                        usage=processed_chunk.usage,
+                        metadata=metadata,
+                    )
+                elif isinstance(processed_chunk, ProcessedResponse):
+                    # Extract content from ProcessedResponse
+                    content = self._normalize_chunk_text(processed_chunk.content)
+                    metadata = (
+                        dict(processed_chunk.metadata)
+                        if processed_chunk.metadata
+                        else {}
+                    )
+                    if session_id:
+                        metadata.setdefault("session_id", session_id)
+                    yield ProcessedResponse(
+                        content=content,
+                        usage=processed_chunk.usage,
+                        metadata=metadata,
+                    )
+                else:
+                    # Handle unexpected types
+                    logger.warning(
+                        f"Unexpected chunk type from stream normalizer: {type(processed_chunk)}"
+                    )
+                    metadata = {"session_id": session_id} if session_id else {}
+                    yield ProcessedResponse(
+                        content=str(processed_chunk),
+                        usage=None,
+                        metadata=metadata,
+                    )
+
+        except (
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+            AttributeError,
+            KeyError,
+        ) as e:
+            logger.error(f"Error in stream processing: {e}", exc_info=True)
             yield ProcessedResponse(
-                content=f"Error decoding JSON in stream: {e}",
+                content=f"Error in stream processing: {e}",
                 usage=None,
                 metadata={
                     "error": True,
-                    "original_error": str(e),
-                    **({"session_id": session_id} if session_id else {}),
-                },
-            )
-        except (TypeError, ValueError, AttributeError, KeyError) as e:
-            # Catch common expected exceptions for data processing
-            logger.error(
-                f"Data processing error in streaming response: {e}", exc_info=True
-            )
-            yield ProcessedResponse(
-                content=f"Error processing streaming data: {e}",
-                usage=None,
-                metadata={
-                    "error": True,
-                    "original_error": str(e),
                     **({"session_id": session_id} if session_id else {}),
                 },
             )

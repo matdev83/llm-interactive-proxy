@@ -162,12 +162,49 @@ class SSEAssembler(IStreamAssembler):
                     done_emitted = True
                     break
 
-                # Check if this is a simple done marker (no error, no cancellation)
-                if SentinelManager.is_done_marker(chunk):
-                    # Emit the standardized [DONE] marker
+                # Convert chunk to bytes using StreamingContent's to_bytes method
+                chunk_bytes = chunk.to_bytes()
+
+                # Check if this is a done marker (but may still have content to emit)
+                is_final_chunk = SentinelManager.is_done_marker(chunk)
+
+                # Yield the chunk (only if it has content)
+                # Skip empty chunks that are just done markers
+                has_content = bool(
+                    chunk_bytes
+                    and chunk_bytes.strip()
+                    and chunk_bytes.strip() != b"data: [DONE]"
+                )
+
+                # Check if chunk already contains [DONE] (from to_bytes() when is_done=True)
+                chunk_contains_done = b"data: [DONE]" in chunk_bytes
+
+                if has_content:
+                    # Track chunk emission (only for chunks with actual content)
+                    _ensure_stream_started(stream_id_for_metrics)
+                    metrics.increment_chunks_sent(stream_id_for_metrics)
+                    if not sample_emitted:
+                        _maybe_sample("chunk", chunk_bytes, stream_id_for_metrics)
+                        sample_emitted = True
+
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "[STREAMING][SSE] Emitting chunk for stream %s (%s bytes)",
+                            stream_id_for_metrics,
+                            len(chunk_bytes),
+                        )
+                    yield chunk_bytes
+
+                    # If chunk already contains [DONE], mark as emitted
+                    if chunk_contains_done:
+                        done_emitted = True
+                        metrics.increment_sentinels_emitted(stream_id_for_metrics)
+
+                # If this is the final chunk, emit [DONE] and stop
+                if is_final_chunk:
                     if not done_emitted:
                         yield SentinelManager.format_sse_done()
-                        # Track sentinel emission
                         metrics.increment_sentinels_emitted(stream_id_for_metrics)
                         if logger.isEnabledFor(TRACE_LEVEL):
                             logger.log(
@@ -177,26 +214,6 @@ class SSEAssembler(IStreamAssembler):
                             )
                         done_emitted = True
                     break
-
-                # Convert chunk to bytes using StreamingContent's to_bytes method
-                chunk_bytes = chunk.to_bytes()
-
-                # Track chunk emission
-                _ensure_stream_started(stream_id_for_metrics)
-                metrics.increment_chunks_sent(stream_id_for_metrics)
-                if not sample_emitted:
-                    _maybe_sample("chunk", chunk_bytes, stream_id_for_metrics)
-                    sample_emitted = True
-
-                # Yield the chunk
-                if logger.isEnabledFor(TRACE_LEVEL):
-                    logger.log(
-                        TRACE_LEVEL,
-                        "[STREAMING][SSE] Emitting chunk for stream %s (%s bytes)",
-                        stream_id_for_metrics,
-                        len(chunk_bytes),
-                    )
-                yield chunk_bytes
 
                 # Yield control to event loop for responsiveness
                 await asyncio.sleep(0)

@@ -119,28 +119,25 @@ async def test_sentinel_utility_usage_property(chunks: list[StreamingContent]) -
         result_chunks.append(chunk_bytes)
 
     # Assert
-    # The last chunk should be the standardized [DONE] marker
+    # The stream should end with the standardized [DONE] marker
+    # Note: With the unified pipeline, the [DONE] may be appended to the last content chunk
     assert len(result_chunks) > 0, "Stream should emit at least one chunk"
 
     last_chunk = result_chunks[-1]
     expected_done = SentinelManager.format_sse_done()
 
-    # Verify the sentinel is exactly what SentinelManager produces
-    assert last_chunk == expected_done, (
-        f"Last chunk should be SentinelManager.format_sse_done(), "
-        f"got {last_chunk!r}, expected {expected_done!r}"
+    # Verify the stream ends with [DONE] (either as separate chunk or appended)
+    assert last_chunk.endswith(expected_done), (
+        f"Last chunk should end with SentinelManager.format_sse_done(), "
+        f"got {last_chunk!r}, expected to end with {expected_done!r}"
     )
 
-    # Verify the sentinel format is correct SSE format
+    # Verify [DONE] appears exactly once in the entire stream
+    full_output = b"".join(result_chunks)
+    done_count = full_output.count(b"data: [DONE]\n\n")
     assert (
-        last_chunk == b"data: [DONE]\n\n"
-    ), "Sentinel should be in proper SSE format: 'data: [DONE]\\n\\n'"
-
-    # Verify no other chunks contain ad-hoc [DONE] strings
-    for i, chunk_bytes in enumerate(result_chunks[:-1]):
-        # Check that [DONE] doesn't appear in non-terminal chunks
-        if b"data: [DONE]\n\n" in chunk_bytes:
-            pytest.fail(f"Chunk {i} contains ad-hoc [DONE] marker: {chunk_bytes!r}")
+        done_count == 1
+    ), f"Stream should contain exactly one [DONE] marker, found {done_count}"
 
 
 @pytest.mark.asyncio
@@ -187,27 +184,13 @@ async def test_sentinel_format_consistency_property(
     # Assert
     assert len(sentinel_chunks) > 0, "Should have collected at least one sentinel"
 
-    # All sentinels should be identical
-    first_sentinel = sentinel_chunks[0]
-    for i, sentinel in enumerate(sentinel_chunks[1:], start=1):
-        assert sentinel == first_sentinel, (
-            f"Sentinel {i} differs from first sentinel. "
-            f"Expected {first_sentinel!r}, got {sentinel!r}"
-        )
-
-    # All sentinels should match the SentinelManager format
+    # All last chunks should end with the same [DONE] marker
+    # Note: With the unified pipeline, [DONE] may be appended to content chunks
     expected_sentinel = SentinelManager.format_sse_done()
-    for i, sentinel in enumerate(sentinel_chunks):
-        assert sentinel == expected_sentinel, (
-            f"Sentinel {i} does not match SentinelManager.format_sse_done(). "
-            f"Expected {expected_sentinel!r}, got {sentinel!r}"
-        )
-
-    # Verify the format is exactly "data: [DONE]\n\n"
-    for i, sentinel in enumerate(sentinel_chunks):
-        assert sentinel == b"data: [DONE]\n\n", (
-            f"Sentinel {i} has incorrect format. "
-            f"Expected b'data: [DONE]\\n\\n', got {sentinel!r}"
+    for i, last_chunk in enumerate(sentinel_chunks):
+        assert last_chunk.endswith(expected_sentinel), (
+            f"Last chunk {i} does not end with SentinelManager.format_sse_done(). "
+            f"Expected to end with {expected_sentinel!r}, got {last_chunk!r}"
         )
 
 
@@ -239,13 +222,14 @@ async def test_sse_format_framing(chunks: list[StreamingContent]) -> None:
     for i, chunk in enumerate(result_chunks):
         assert isinstance(chunk, bytes), f"Chunk {i} should be bytes, got {type(chunk)}"
 
-    # The last chunk should be the [DONE] sentinel
-    assert (
-        result_chunks[-1] == b"data: [DONE]\n\n"
-    ), "Last chunk should be [DONE] sentinel"
+    # The last chunk should end with the [DONE] sentinel
+    # Note: With the unified pipeline, [DONE] may be appended to content chunks
+    assert result_chunks[-1].endswith(
+        b"data: [DONE]\n\n"
+    ), f"Last chunk should end with [DONE] sentinel, got {result_chunks[-1]!r}"
 
-    # All non-sentinel chunks should have SSE framing
-    for i, chunk in enumerate(result_chunks[:-1]):
+    # All chunks should have SSE framing
+    for i, chunk in enumerate(result_chunks):
         # Should start with "data: "
         assert chunk.startswith(
             b"data: "
@@ -281,10 +265,11 @@ async def test_sentinel_always_emitted(chunks: list[StreamingContent]) -> None:
     # Assert
     assert len(result_chunks) > 0, "Stream should emit at least one chunk"
 
-    # The last chunk should always be the [DONE] sentinel
-    assert result_chunks[-1] == b"data: [DONE]\n\n", (
-        "Last chunk should always be [DONE] sentinel, even if input stream "
-        "doesn't contain a done marker"
+    # The last chunk should end with the [DONE] sentinel
+    # Note: With the unified pipeline, [DONE] may be appended to content chunks
+    assert result_chunks[-1].endswith(b"data: [DONE]\n\n"), (
+        "Last chunk should end with [DONE] sentinel, even if input stream "
+        f"doesn't contain a done marker. Got: {result_chunks[-1]!r}"
     )
 
 
