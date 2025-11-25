@@ -11,6 +11,7 @@ from src.core.interfaces.tool_call_reactor_interface import (
     ToolCallContext,
     ToolCallReactionResult,
 )
+from src.core.services.streaming.stream_context_registry import ToolCallBufferState
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 
 
@@ -105,6 +106,35 @@ async def test_middleware_processes_tool_call_when_capability_is_not_present(
     )
 
     mock_tool_call_reactor.process_tool_call.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reactor_consumes_streaming_buffer_state(
+    tool_call_reactor_middleware: ToolCallReactorMiddleware,
+    mock_tool_call_reactor: AsyncMock,
+) -> None:
+    buffer_state = ToolCallBufferState()
+    buffered_call = {
+        "id": "call_buffer",
+        "type": "function",
+        "function": {"name": "read_file", "arguments": "{}"},
+    }
+    buffer_state.detected_calls.append(buffered_call)
+    context = {
+        "session_id": "test_session",
+        "tool_call_buffer_state": buffer_state,
+        "stream_id": "stream-buffer",
+    }
+    response = ProcessedResponse(content={}, metadata={})
+
+    await tool_call_reactor_middleware.process(
+        response=response, session_id="test_session", context=context, is_streaming=True
+    )
+
+    mock_tool_call_reactor.process_tool_call.assert_called_once()
+    assert buffer_state.reactor_cursor == 1
+    assert buffered_call.get("_already_processed") is True
+    assert buffer_state.processed_signatures
 
 
 @pytest.mark.asyncio

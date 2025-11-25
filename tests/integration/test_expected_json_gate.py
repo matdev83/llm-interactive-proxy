@@ -4,7 +4,7 @@ import pytest
 from src.core.app.middleware.json_repair_middleware import JsonRepairMiddleware
 from src.core.common.exceptions import ValidationError
 from src.core.config.app_config import AppConfig, SessionConfig
-from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.streaming.middleware_application_processor import (
     MiddlewareApplicationProcessor,

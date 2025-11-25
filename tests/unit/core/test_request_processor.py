@@ -1222,6 +1222,101 @@ async def test_process_request_with_commands(
 
 
 @pytest.mark.asyncio
+async def test_command_only_path_records_sanitized_prompt() -> None:
+    """Command-only responses should log sanitized prompts in session history."""
+
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session = Session(session_id="test-session")
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+    session_manager.update_session_agent.return_value = session
+
+    noisy_prompt = "<environment_details>dbg</environment_details>\nActual task"
+    request_data = create_mock_request(
+        messages=[ChatMessage(role="user", content=noisy_prompt)]
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=[],
+            command_executed=True,
+            command_results=[],
+        )
+    )
+
+    response_manager.process_command_result.return_value = ResponseEnvelope(
+        content={"result": "ok"}
+    )
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+    )
+
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
+
+    await processor.process_request(context, request_data)
+
+    session_manager.record_command_in_session.assert_called_once()
+    recorded_request = session_manager.record_command_in_session.call_args[0][0]
+    recorded_content = recorded_request.messages[0].content
+    assert recorded_content == "Actual task"
+
+
+@pytest.mark.asyncio
+async def test_backend_request_receives_sanitized_messages() -> None:
+    """Backend requests should be prepared with sanitized user prompts."""
+
+    command_processor = MockCommandProcessor()
+    session_manager = AsyncMock()
+    backend_request_manager = AsyncMock()
+    response_manager = AsyncMock()
+
+    session = Session(session_id="test-session")
+    session_manager.resolve_session_id.return_value = "test-session"
+    session_manager.get_session.return_value = session
+    session_manager.update_session_agent.return_value = session
+
+    noisy_prompt = "<environment_details>dbg</environment_details>\nActual task"
+    request_data = create_mock_request(
+        messages=[ChatMessage(role="user", content=noisy_prompt)]
+    )
+
+    command_processor.add_result(
+        ProcessedResult(
+            modified_messages=request_data.messages,
+            command_executed=False,
+            command_results=[],
+        )
+    )
+
+    response = TestDataBuilder.create_chat_response("ok")
+    backend_request_manager.prepare_backend_request.return_value = request_data
+    backend_request_manager.process_backend_request.return_value = response
+
+    processor = RequestProcessor(
+        command_processor,
+        session_manager,
+        backend_request_manager,
+        response_manager,
+    )
+
+    context = MockRequestContext(headers={"x-session-id": "test-session"})
+
+    await processor.process_request(context, request_data)
+
+    prepared_request = backend_request_manager.prepare_backend_request.call_args[0][0]
+    prepared_content = prepared_request.messages[0].content
+    assert prepared_content == "Actual task"
+
+
+@pytest.mark.asyncio
 async def test_process_command_only_request(
     session_service: MockSessionService,
 ) -> None:

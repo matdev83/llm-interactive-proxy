@@ -9,6 +9,11 @@ from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
+from src.core.services.streaming.stream_context_registry import (
+    StreamContextState,
+    StreamingContextRegistry,
+)
+from src.core.services.streaming.stream_utils import get_stream_id
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +28,7 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
         middleware: list[IResponseMiddleware],
         default_loop_config: object | None = None,
         app_state: IApplicationState | None = None,
+        registry: StreamingContextRegistry | None = None,
     ) -> None:
         def _priority(mw: IResponseMiddleware) -> int:
             try:
@@ -34,12 +40,13 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
         self._middleware = sorted(middleware, key=_priority, reverse=True)
         self._default_loop_config = default_loop_config
         self._app_state = app_state
+        self._registry = registry
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         processed_response = ProcessedResponse(
             content=content.content, usage=content.usage, metadata=content.metadata
         )
-        # Prefer explicit session_id; fall back to chunk id when available
+        stream_id = get_stream_id(content)
         session_id_str = str(
             content.metadata.get("session_id") or content.metadata.get("id") or ""
         )
@@ -50,6 +57,7 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
             "session_id": session_id_str,
             "response_type": response_type,
             "app_state": self._app_state,
+            "stream_id": stream_id,
         }
         original_request = content.metadata.get("original_request")
         if original_request is not None:
@@ -59,6 +67,13 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
             context["expected_json"] = bool(content.metadata.get("expected_json"))
         if self._default_loop_config is not None:
             context["config"] = self._default_loop_config
+
+        if self._registry is not None:
+            stream_state: StreamContextState = self._registry.get_stream_state(
+                stream_id
+            )
+            context["stream_context_state"] = stream_state
+            context["tool_call_buffer_state"] = stream_state.tool_calls
 
         for mw in self._middleware:
             result = await mw.process(

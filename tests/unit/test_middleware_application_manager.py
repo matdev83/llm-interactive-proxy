@@ -2,8 +2,8 @@ from typing import Any  # Added this import
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
@@ -20,7 +20,9 @@ class MockMiddleware(IResponseMiddleware):
     ) -> Any:
         # Simple middleware that appends a string
         if hasattr(response, "content"):
-            response.content = (response.content or "") + "_processed"
+            existing = getattr(response, "content", "")
+            text = str(existing) if existing is not None else ""
+            response.content = text + "_processed"
         return response
 
 
@@ -35,7 +37,9 @@ class MockStreamingMiddleware(IResponseMiddleware):
     ) -> Any:
         # Simple streaming middleware that appends a string
         if isinstance(response, StreamingContent):
-            response.content = (response.content or "") + "_streamed"
+            existing = response.content
+            text = str(existing) if existing is not None else ""
+            response.content = text + "_streamed"
         return response
 
 

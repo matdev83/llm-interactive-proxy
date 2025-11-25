@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from collections.abc import AsyncIterator
+from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.ports.streaming_contracts import (
@@ -17,7 +19,10 @@ from src.core.ports.streaming_contracts import (
     SentinelManager,
     StreamingContent,
 )
-from src.core.ports.streaming_metrics import get_metrics_instance
+from src.core.ports.streaming_metrics import (
+    get_metrics_instance,
+    get_sampler_instance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +62,62 @@ class SSEAssembler(IStreamAssembler):
         last_stream_id: str | None = None
         metrics = get_metrics_instance()
 
+        sampler = get_sampler_instance()
+        sampling_decided = False
+        should_sample_stream = False
+        sample_emitted = False
+
+        def _format_sample_payload(payload: Any) -> str:
+            if isinstance(payload, bytes):
+                try:
+                    text_value = payload.decode("utf-8")
+                except UnicodeDecodeError:
+                    text_value = payload.decode("latin-1", errors="ignore")
+            else:
+                text_value = str(payload)
+            if len(text_value) > 2000:
+                text_value = f"{text_value[:2000]}…"
+            return text_value
+
+        def _maybe_sample(
+            sample_type: str, payload: Any, stream_identifier: str | None
+        ) -> None:
+            nonlocal sampling_decided, should_sample_stream
+            if not stream_identifier:
+                return
+            if not sampling_decided:
+                should_sample_stream = sampler.should_sample()
+                sampling_decided = True
+            if not should_sample_stream:
+                return
+            sampler.add_sample(
+                stream_identifier,
+                sample_type,
+                _format_sample_payload(payload),
+            )
+
+        started_stream_id: str | None = None
+        generated_stream_id = f"anonymous-{uuid.uuid4().hex}"
+
+        def _ensure_stream_started(target_stream_id: str | None) -> None:
+            nonlocal started_stream_id
+            if not target_stream_id:
+                return
+            if started_stream_id == target_stream_id:
+                return
+            metrics.start_stream(target_stream_id)
+            started_stream_id = target_stream_id
+
         try:
             async for chunk in stream:
                 current_stream_id = chunk.stream_id or chunk.metadata.get("stream_id")
                 if current_stream_id:
                     last_stream_id = current_stream_id
                 stream_id_for_metrics = current_stream_id or last_stream_id
+                if stream_id_for_metrics is None:
+                    stream_id_for_metrics = generated_stream_id
+                    if last_stream_id is None:
+                        last_stream_id = generated_stream_id
 
                 # Skip empty chunks unless they're done markers or have errors
                 if chunk.is_empty and not chunk.is_done:
@@ -79,8 +134,21 @@ class SSEAssembler(IStreamAssembler):
                 if chunk.is_done and (has_error or has_cancellation):
                     # Error or cancellation chunk - serialize with metadata
                     chunk_bytes = chunk.to_bytes()
+                    _ensure_stream_started(stream_id_for_metrics)
                     metrics.increment_chunks_sent(stream_id_for_metrics)
                     metrics.increment_sentinels_emitted(stream_id_for_metrics)
+                    if has_error:
+                        _maybe_sample(
+                            "error_chunk",
+                            chunk.metadata.get("error", chunk.content),
+                            stream_id_for_metrics,
+                        )
+                    elif has_cancellation:
+                        _maybe_sample(
+                            "cancellation_chunk",
+                            chunk.content or chunk.metadata,
+                            stream_id_for_metrics,
+                        )
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.log(
                             TRACE_LEVEL,
@@ -114,7 +182,11 @@ class SSEAssembler(IStreamAssembler):
                 chunk_bytes = chunk.to_bytes()
 
                 # Track chunk emission
+                _ensure_stream_started(stream_id_for_metrics)
                 metrics.increment_chunks_sent(stream_id_for_metrics)
+                if not sample_emitted:
+                    _maybe_sample("chunk", chunk_bytes, stream_id_for_metrics)
+                    sample_emitted = True
 
                 # Yield the chunk
                 if logger.isEnabledFor(TRACE_LEVEL):
@@ -133,8 +205,12 @@ class SSEAssembler(IStreamAssembler):
             # Ensure [DONE] is always emitted, even if stream ends unexpectedly
             if not done_emitted:
                 yield SentinelManager.format_sse_done()
-                sentinel_stream_id = last_stream_id or "anonymous-stream"
+                sentinel_stream_id = last_stream_id or generated_stream_id
+                _ensure_stream_started(sentinel_stream_id)
                 metrics.increment_sentinels_emitted(sentinel_stream_id)
+                _maybe_sample(
+                    "sentinel", SentinelManager.DONE_MARKER, sentinel_stream_id
+                )
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL,

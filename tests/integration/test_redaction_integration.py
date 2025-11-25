@@ -23,6 +23,10 @@ from src.core.services.middleware_application_manager import (
 from src.core.services.rate_limiter import InMemoryRateLimiter
 from src.core.services.response_parser_service import ResponseParser
 from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.streaming.content_accumulation_processor import (
+    ContentAccumulationProcessor,
+)
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 from tests.helpers.angel_factory_stub import AngelFactoryStub
 from tests.unit.core.test_doubles import MockSessionService
@@ -165,9 +169,11 @@ async def _build_services_with_fake_backend(
     backend_processor = BackendProcessor(backend_service, session_service, app_state)
     response_parser = ResponseParser()
     middleware_manager = MiddlewareApplicationManager(middleware=[])
+    stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
     response_processor = ResponseProcessor(
         response_parser=response_parser,
         middleware_application_manager=middleware_manager,
+        stream_normalizer=stream_normalizer,
     )
     backend_request_manager = BackendRequestManager(
         backend_processor, response_processor, AngelFactoryStub()

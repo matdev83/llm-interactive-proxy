@@ -55,7 +55,30 @@ class InfrastructureStage(InitializationStage):
         # Register loop detector
         self._register_loop_detector(services)
 
+        # Configure streaming sampler
+        self._configure_streaming_sampler(config)
+
         logger.info("Infrastructure services initialized successfully")
+
+    def _configure_streaming_sampler(self, config: AppConfig) -> None:
+        """Configure the streaming sampler with settings from AppConfig."""
+        try:
+            from src.core.ports.streaming_metrics import configure_sampler
+
+            sampler_config = config.session.streaming_sampler
+            configure_sampler(
+                sample_rate=sampler_config.sample_rate,
+                max_samples=sampler_config.max_samples,
+                enabled=sampler_config.enabled,
+            )
+            logger.debug(
+                "Configured streaming sampler: enabled=%s, rate=%s, max=%s",
+                sampler_config.enabled,
+                sampler_config.sample_rate,
+                sampler_config.max_samples,
+            )
+        except Exception as e:
+            logger.warning(f"Could not configure streaming sampler: {e}")
 
     def _register_http_client(self, services: ServiceCollection) -> None:
         """Register shared HTTP client as singleton."""

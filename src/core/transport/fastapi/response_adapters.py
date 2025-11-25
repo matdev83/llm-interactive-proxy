@@ -25,6 +25,9 @@ from src.core.domain.chat import ChatResponse, StreamingChatResponse
 # Some environments may fail mypy import resolution for local packages; silence here
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.streaming.stream_context_registry import (
+    get_global_streaming_context_registry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -609,7 +612,7 @@ def to_fastapi_streaming_response(
             return
 
         assembler = SSEAssembler()
-        execute_command_buffers: dict[str, str] = {}
+        context_registry = get_global_streaming_context_registry()
 
         async def _ensure_async_iterator(
             source: AsyncIterator[Any] | Iterable[Any],
@@ -723,7 +726,36 @@ def to_fastapi_streaming_response(
                     return value
             return "anonymous-stream"
 
-        def _split_execute_command_segments(buffer: str) -> tuple[str, str]:
+        BUFFERED_TOOL_TAGS: tuple[str, ...] = (
+            # Command execution tools
+            "execute_command",
+            # File editing tools
+            "patch_file",
+            "apply_diff",
+            "write_to_file",
+            "insert_content",
+            "delete_file",
+            # File reading tools
+            "read_file",
+            "list_files",
+            "list_code_definition_names",
+            "search_files",
+            # MCP tools
+            "use_mcp_tool",
+            "access_mcp_resource",
+            # Conversation control tools (CRITICAL: prevents leakage like "What can I help you with today?</")
+            "ask_followup_question",
+            "attempt_completion",
+            "switch_mode",
+            "new_task",
+            "update_todo_list",
+            # Browser tools
+            "browser_action",
+            # Other tools
+            "fetch_instructions",
+        )
+
+        def _split_tag_segments(buffer: str, tag_name: str) -> tuple[str, str]:
             if not buffer:
                 return "", ""
 
@@ -731,9 +763,11 @@ def to_fastapi_streaming_response(
             idx = 0
             length = len(buffer)
             pending_tail = ""
+            open_tag = f"<{tag_name}"
+            close_tag = f"</{tag_name}>"
 
             while idx < length:
-                start = buffer.find("<execute_command", idx)
+                start = buffer.find(open_tag, idx)
                 if start == -1:
                     parts.append(buffer[idx:])
                     pending_tail = ""
@@ -742,12 +776,12 @@ def to_fastapi_streaming_response(
                 if start > idx:
                     parts.append(buffer[idx:start])
 
-                end = buffer.find("</execute_command>", start)
+                end = buffer.find(close_tag, start)
                 if end == -1:
                     pending_tail = buffer[start:]
                     break
 
-                end += len("</execute_command>")
+                end += len(close_tag)
                 parts.append(buffer[start:end])
                 idx = end
 
@@ -757,7 +791,18 @@ def to_fastapi_streaming_response(
 
             return "".join(parts), pending_tail
 
-        def _sanitize_execute_command_content(stream_key: str, payload: Any) -> None:
+        def _apply_tag_buffer(stream_key: str, tag_name: str, text_value: str) -> str:
+            buffer_key = f"tool-block:{tag_name}"
+            buffer = context_registry.get_fragment(stream_key, buffer_key)
+            combined = buffer + text_value
+            emit_text, pending_tail = _split_tag_segments(combined, tag_name)
+            if pending_tail:
+                context_registry.set_fragment(stream_key, buffer_key, pending_tail)
+            else:
+                context_registry.clear_fragment(stream_key, buffer_key)
+            return emit_text
+
+        def _sanitize_multiline_tool_blocks(stream_key: str, payload: Any) -> None:
             delta = _extract_delta_from_payload(payload)
             if not delta:
                 return
@@ -766,18 +811,23 @@ def to_fastapi_streaming_response(
             if not isinstance(text_value, str) or not text_value:
                 return
 
-            buffer = execute_command_buffers.get(stream_key, "")
-            buffer += text_value
+            updated_text = text_value
+            for tag in BUFFERED_TOOL_TAGS:
+                updated_text = _apply_tag_buffer(stream_key, tag, updated_text)
 
-            emit_text, pending_tail = _split_execute_command_segments(buffer)
-            execute_command_buffers[stream_key] = pending_tail
+            if updated_text != text_value:
+                delta["content"] = updated_text
 
-            if emit_text != text_value:
-                delta["content"] = emit_text
+        def _flush_pending_tool_blocks(stream_key: str, payload: Any) -> None:
+            pending_fragments: list[str] = []
+            for tag in BUFFERED_TOOL_TAGS:
+                buffer_key = f"tool-block:{tag}"
+                fragment = context_registry.get_fragment(stream_key, buffer_key)
+                if fragment:
+                    pending_fragments.append(fragment)
+                    context_registry.clear_fragment(stream_key, buffer_key)
 
-        def _flush_pending_execute_command(stream_key: str, payload: Any) -> None:
-            pending_tail = execute_command_buffers.pop(stream_key, "")
-            if not pending_tail:
+            if not pending_fragments:
                 return
 
             delta = _extract_delta_from_payload(payload)
@@ -786,11 +836,11 @@ def to_fastapi_streaming_response(
 
             existing = delta.get("content")
             if isinstance(existing, str):
-                delta["content"] = existing + pending_tail
+                delta["content"] = existing + "".join(pending_fragments)
             elif existing is None:
-                delta["content"] = pending_tail
+                delta["content"] = "".join(pending_fragments)
             else:
-                delta["content"] = f"{existing}{pending_tail}"
+                delta["content"] = f"{existing}{''.join(pending_fragments)}"
 
         async def _convert_to_streaming_content(
             source: AsyncIterator[Any],
@@ -817,7 +867,7 @@ def to_fastapi_streaming_response(
                     metadata = _merge_metadata_from_payload(decoded_payload, metadata)
 
                     stream_key = _resolve_stream_key(metadata)
-                    _sanitize_execute_command_content(stream_key, decoded_payload)
+                    _sanitize_multiline_tool_blocks(stream_key, decoded_payload)
 
                     # Inject reasoning metadata for OpenAI-style payloads
                     enriched = _inject_reasoning_metadata(
@@ -828,7 +878,7 @@ def to_fastapi_streaming_response(
                     is_done = forced_done or _chunk_signals_done(enriched, metadata)
 
                     if is_done:
-                        _flush_pending_execute_command(stream_key, decoded_payload)
+                        _flush_pending_tool_blocks(stream_key, decoded_payload)
 
                     streaming_content = StreamingContent(
                         content=enriched,

@@ -99,6 +99,14 @@ class LoopDetectionProcessor(IStreamProcessor):
         # Ensure a stable stream identifier so metadata stays consistent across processors.
         stream_id = _get_stream_id(content)
 
+        metadata = content.metadata or {}
+        if (
+            (isinstance(metadata.get("tool_calls"), list) and metadata["tool_calls"])
+            or metadata.get("finish_reason") == "tool_calls"
+            or metadata.get("role") == "tool"
+        ):
+            return content
+
         # Prefer an explicit session identifier when provided; otherwise fall back to stream.
         raw_session = content.metadata.get("session_id") or content.metadata.get("id")
         session_id = str(raw_session) if raw_session else str(stream_id)

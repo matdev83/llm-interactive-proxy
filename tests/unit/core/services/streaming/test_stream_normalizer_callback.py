@@ -1,16 +1,19 @@
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 import pytest
-from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.ports.streaming_contracts import IStreamProcessor, StreamingContent
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 
-class _CallbackRecorder:
+class _CallbackRecorder(IStreamProcessor):
     def __init__(self) -> None:
         self.cancel_callback: Callable[[], Awaitable[None]] | None = None
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         return content
+
+    def reset(self) -> None:
+        return
 
 
 @pytest.mark.asyncio
@@ -18,7 +21,7 @@ async def test_stream_normalizer_sets_cancel_callback_on_processors() -> None:
     recorder = _CallbackRecorder()
     normalizer = StreamNormalizer(processors=[recorder])
 
-    async def dummy_stream() -> Iterable[StreamingContent]:
+    async def dummy_stream() -> AsyncIterator[StreamingContent]:
         yield StreamingContent(content="hi")
 
     flag = {"called": False}

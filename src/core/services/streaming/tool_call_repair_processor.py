@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from copy import deepcopy
 from typing import Any
 
 from src.core.domain.streaming_response_processor import (
@@ -11,7 +12,12 @@ from src.core.domain.streaming_response_processor import (
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
+from src.core.services.streaming.stream_context_registry import (
+    StreamingContextRegistry,
+    ToolCallBufferState,
+)
 from src.core.services.streaming.stream_utils import get_stream_id
+from src.tool_call_loop.lifecycle_registry import build_tool_call_signature
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         tool_call_repair_service: IToolCallRepairService,
         *,
         max_buffer_bytes: int | None = None,
+        registry: StreamingContextRegistry | None = None,
     ) -> None:
         self.tool_call_repair_service = tool_call_repair_service
         service_cap = getattr(tool_call_repair_service, "max_buffer_bytes", None)
@@ -37,7 +44,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         else:
             self._max_buffer_bytes = 64 * 1024
 
-        self._buffers: dict[str, dict[str, str]] = {}
+        self._registry = registry or StreamingContextRegistry()
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """
@@ -47,7 +54,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
             return content  # Nothing to process
 
         stream_id = get_stream_id(content)
-        state = self._buffers.get(stream_id, {"pending_text": ""})
+        buffer_state = self._get_buffer_state(stream_id)
         metadata = dict(content.metadata or {})
         detected_tool_calls: list[dict[str, Any]] = []
 
@@ -61,13 +68,13 @@ class ToolCallRepairProcessor(IStreamProcessor):
         has_reasoning = bool(reasoning_segments)
 
         if reasoning_segments:
-            state["pending_text"] += "".join(reasoning_segments)
+            buffer_state.pending_text += "".join(reasoning_segments)
 
         if chunk_text:
-            state["pending_text"] += chunk_text
+            buffer_state.pending_text += chunk_text
 
         repaired_content_parts: list[str] = []
-        buffer_text = state["pending_text"]
+        buffer_text = buffer_state.pending_text
 
         repaired_json = (
             self.tool_call_repair_service.repair_tool_calls(buffer_text)
@@ -85,10 +92,10 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     if prefix.strip():
                         repaired_content_parts.append(prefix)
                     buffer_text = suffix
-            state["pending_text"] = buffer_text
-            if content.is_done and state["pending_text"]:
-                repaired_content_parts.append(state["pending_text"])
-                state["pending_text"] = ""
+            buffer_state.pending_text = buffer_text
+            if content.is_done and buffer_state.pending_text:
+                repaired_content_parts.append(buffer_state.pending_text)
+                buffer_state.pending_text = ""
         else:
             if content.is_done:
                 if buffer_text:
@@ -125,12 +132,14 @@ class ToolCallRepairProcessor(IStreamProcessor):
                                 break
                     if not handled and buffer_text:
                         repaired_content_parts.append(buffer_text)
-                state["pending_text"] = ""
+                buffer_state.pending_text = ""
             else:
                 trimmed = self._trim_buffer(buffer_text)
                 if trimmed:
                     repaired_content_parts.append(trimmed)
-                    state["pending_text"] = state["pending_text"][len(trimmed) :]
+                    buffer_state.pending_text = buffer_state.pending_text[
+                        len(trimmed) :
+                    ]
 
                 should_flush_streaming = (
                     not has_reasoning and self._max_buffer_bytes > 1024
@@ -138,40 +147,46 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 if should_flush_streaming:
                     markers = ("<use_mcp_tool", "<patch_file")
                     flush_text = ""
-                    if not any(marker in state["pending_text"] for marker in markers):
-                        flush_text = state["pending_text"]
-                        state["pending_text"] = ""
+                    if not any(
+                        marker in buffer_state.pending_text for marker in markers
+                    ):
+                        flush_text = buffer_state.pending_text
+                        buffer_state.pending_text = ""
                     else:
                         flush_text, remainder = self._split_safe_prefix(
-                            state["pending_text"]
+                            buffer_state.pending_text
                         )
-                        state["pending_text"] = remainder
+                        buffer_state.pending_text = remainder
 
                     if flush_text:
                         repaired_content_parts.append(flush_text)
 
         if content.is_done or content.is_cancellation:
-            self._buffers.pop(stream_id, None)
-        else:
-            if state.get("pending_text"):
-                self._buffers[stream_id] = state
-            else:
-                self._buffers.pop(stream_id, None)
+            self._registry.clear_tool_call_buffer(stream_id)
 
         new_content_str = "".join(repaired_content_parts)
 
         if detected_tool_calls:
             logger.debug(
-                "ToolCallRepairProcessor captured tool call(s): %s", detected_tool_calls
+                "ToolCallRepairProcessor captured tool call(s): %s",
+                detected_tool_calls,
             )
             metadata.pop("reasoning_content", None)
             metadata.pop("reasoning", None)
-            existing_calls = metadata.get("tool_calls")
-            if isinstance(existing_calls, list):
-                metadata["tool_calls"] = existing_calls + detected_tool_calls
-            else:
-                metadata["tool_calls"] = detected_tool_calls
-            metadata.setdefault("finish_reason", "tool_calls")
+            registered_calls = self._register_tool_calls(
+                buffer_state, detected_tool_calls
+            )
+            if registered_calls:
+                metadata.setdefault("finish_reason", "tool_calls")
+                sanitized_calls = [
+                    self._sanitize_tool_call_for_metadata(call)
+                    for call in registered_calls
+                ]
+                existing_calls = metadata.get("tool_calls")
+                if isinstance(existing_calls, list) and existing_calls:
+                    metadata["tool_calls"] = existing_calls + sanitized_calls
+                else:
+                    metadata["tool_calls"] = sanitized_calls
         elif has_reasoning:
             reasoning_value = reasoning_segments[-1]
             metadata.setdefault("reasoning_content", reasoning_value)
@@ -264,3 +279,44 @@ class ToolCallRepairProcessor(IStreamProcessor):
             except (TypeError, ValueError):
                 return str(chunk)
         return str(chunk)
+
+    def _get_buffer_state(self, stream_id: str) -> ToolCallBufferState:
+        return self._registry.get_tool_call_buffer(stream_id)
+
+    @staticmethod
+    def _sanitize_tool_call_for_metadata(tool_call: dict[str, Any]) -> dict[str, Any]:
+        cloned = deepcopy(tool_call)
+        cloned.pop("_already_processed", None)
+        return cloned
+
+    def _register_tool_calls(
+        self,
+        buffer_state: ToolCallBufferState,
+        tool_calls: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Register new tool calls in shared state, deduplicating by signature."""
+
+        new_calls: list[dict[str, Any]] = []
+        for call in tool_calls:
+            signature = build_tool_call_signature(call)
+            canonical_id = self._build_canonical_id(call, signature)
+            if canonical_id in buffer_state.detected_canonical_ids:
+                continue
+            buffer_state.detected_canonical_ids.add(canonical_id)
+            buffer_state.detected_signatures.add(signature)
+            buffer_state.detected_calls.append(call)
+            call.setdefault("_already_processed", False)
+            new_calls.append(call)
+        return new_calls
+
+    @staticmethod
+    def _build_canonical_id(call: dict[str, Any], fallback_signature: str) -> str:
+        identifier = call.get("id")
+        if isinstance(identifier, str) and identifier:
+            return identifier
+        function_block = call.get("function")
+        if isinstance(function_block, dict):
+            name = function_block.get("name")
+            if isinstance(name, str) and name:
+                return name
+        return fallback_signature

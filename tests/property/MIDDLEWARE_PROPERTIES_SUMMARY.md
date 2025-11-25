@@ -90,19 +90,32 @@ All tests use Hypothesis for property-based testing with the following configura
 - **Deadline**: None (allows async operations to complete)
 - **Health Checks**: Suppressed for slow tests and large data
 
+## Additional Property Suites (2025-11-24)
+
+The following property test batteries were added to cover the remaining design
+properties from `.kiro/specs/streaming-pipeline-refactor/design.md`:
+
+| Module | Properties Covered |
+| --- | --- |
+| `tests/property/test_streaming_contract_properties.py` | 1, 3, 4, 9, 17, 18, 19, 21 |
+| `tests/property/test_streaming_sentinel_properties.py` | 2, 14, 15, 16 |
+| `tests/property/test_streaming_error_properties.py` | 10, 11 |
+| `tests/property/test_streaming_protocol_properties.py` | 5 |
+| `tests/property/test_streaming_metrics_properties.py` | 13 |
+| `tests/property/test_streaming_logging_properties.py` | 12, 29 |
+| `tests/property/test_streaming_memory_properties.py` | 26 |
+| `tests/property/test_streaming_async_properties.py` | 27, 28 |
+
+These suites run under the shared `tests/property` package and are now part of
+the CI gate for the `feat-streaming-refactor` branch.
+
 ## Test Results
 
-All 8 property tests pass successfully:
+All property tests currently pass:
 
 ```
-tests/property/test_streaming_middleware_properties.py::TestMetadataEnrichmentSafety::test_metadata_enrichment_does_not_buffer_stream PASSED
-tests/property/test_streaming_middleware_properties.py::TestMetadataEnrichmentSafety::test_metadata_enrichment_preserves_chunk_structure PASSED
-tests/property/test_streaming_middleware_properties.py::TestMetadataEnrichmentSafety::test_metadata_enrichment_incremental_processing PASSED
-tests/property/test_streaming_middleware_properties.py::TestBackendLogicIsolation::test_middleware_does_not_contain_backend_specific_logic PASSED
-tests/property/test_streaming_middleware_properties.py::TestBackendLogicIsolation::test_middleware_processes_any_provider_uniformly PASSED
-tests/property/test_streaming_middleware_properties.py::TestInfrastructureReuse::test_common_infrastructure_works_for_all_backends PASSED
-tests/property/test_streaming_middleware_properties.py::TestInfrastructureReuse::test_processor_chain_reusable_across_backends PASSED
-tests/property/test_streaming_middleware_properties.py::TestInfrastructureReuse::test_infrastructure_components_provider_agnostic PASSED
+$ .venv/Scripts/python.exe -m pytest tests/property
+============================= 28 passed in XX.XXs =============================
 ```
 
 ## Architecture Validation

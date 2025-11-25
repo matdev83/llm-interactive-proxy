@@ -41,12 +41,12 @@ class TestNormalizerMetrics:
             yield b'data: {"id":"test-123","choices":[{"delta":{"content":" world"}}]}\n\n'
             yield b"data: [DONE]\n\n"
 
-        # Normalize stream
-        chunks = []
-        async for chunk in normalizer.normalize_stream(mock_stream(), "openai"):
-            chunks.append(chunk)
+        assembler = SSEAssembler()
+        async for _ in assembler.assemble_stream(
+            normalizer.normalize_stream(mock_stream(), "openai"), format="sse"
+        ):
+            pass
 
-        # Verify chunks were tracked
         stream_metrics = metrics.get_stream_metrics("test-123")
         assert stream_metrics["chunks_sent"] == 2  # Two content chunks
         assert stream_metrics["sentinels_emitted"] == 1  # One [DONE]
@@ -63,12 +63,12 @@ class TestNormalizerMetrics:
             yield b'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}\n\n'
             yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
 
-        # Normalize stream
-        chunks = []
-        async for chunk in normalizer.normalize_stream(mock_stream(), "anthropic"):
-            chunks.append(chunk)
+        assembler = SSEAssembler()
+        async for _ in assembler.assemble_stream(
+            normalizer.normalize_stream(mock_stream(), "anthropic"), format="sse"
+        ):
+            pass
 
-        # Verify chunks were tracked
         stream_metrics = metrics.get_stream_metrics("msg-123")
         assert stream_metrics["chunks_sent"] >= 1  # At least one content chunk
         assert stream_metrics["sentinels_emitted"] == 1  # One [DONE]
@@ -84,12 +84,12 @@ class TestNormalizerMetrics:
             yield b'{"id":"gen-123","candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}\n'
             yield b'{"id":"gen-123","candidates":[{"content":{"parts":[{"text":" world"}]}}]}\n'
 
-        # Normalize stream
-        chunks = []
-        async for chunk in normalizer.normalize_stream(mock_stream(), "gemini"):
-            chunks.append(chunk)
+        assembler = SSEAssembler()
+        async for _ in assembler.assemble_stream(
+            normalizer.normalize_stream(mock_stream(), "gemini"), format="sse"
+        ):
+            pass
 
-        # Verify chunks were tracked
         stream_metrics = metrics.get_stream_metrics("gen-123")
         assert stream_metrics["chunks_sent"] == 2  # Two content chunks
         assert stream_metrics["sentinels_emitted"] == 1  # One [DONE]
@@ -251,23 +251,26 @@ class TestGlobalMetrics:
         normalizer = OpenAIStreamNormalizer()
         metrics = get_metrics_instance()
 
-        # Process first stream
+        assembler = SSEAssembler()
+
         async def mock_stream1():
             yield b'data: {"id":"stream-1","choices":[{"delta":{"content":"Hello"}}]}\n\n'
             yield b"data: [DONE]\n\n"
 
-        async for _ in normalizer.normalize_stream(mock_stream1(), "openai"):
-            pass
-
-        # Process second stream
         async def mock_stream2():
             yield b'data: {"id":"stream-2","choices":[{"delta":{"content":"World"}}]}\n\n'
             yield b"data: [DONE]\n\n"
 
-        async for _ in normalizer.normalize_stream(mock_stream2(), "openai"):
+        async for _ in assembler.assemble_stream(
+            normalizer.normalize_stream(mock_stream1(), "openai"), format="sse"
+        ):
             pass
 
-        # Verify global metrics
+        async for _ in assembler.assemble_stream(
+            normalizer.normalize_stream(mock_stream2(), "openai"), format="sse"
+        ):
+            pass
+
         global_metrics = metrics.get_global_metrics()
         assert global_metrics["chunks_sent"] == 2  # One from each stream
         assert global_metrics["sentinels_emitted"] == 2  # One from each stream

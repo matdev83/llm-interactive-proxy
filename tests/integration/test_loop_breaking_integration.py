@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
-from src.core.domain.streaming_content import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.loop_breaking_service import LoopBreakingService
 from src.loop_detection.event import LoopDetectionEvent
 

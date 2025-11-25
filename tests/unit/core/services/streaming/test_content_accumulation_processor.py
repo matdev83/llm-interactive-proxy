@@ -4,7 +4,7 @@ import pytest
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
-from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
@@ -169,3 +169,35 @@ async def test_content_accumulation_processor_reset_method_clears_buffer(
 
     assert processed_final_chunk.content == "fresh"
     assert processed_final_chunk.is_done is True
+
+
+@pytest.mark.asyncio
+async def test_accumulated_reasoning_metadata_is_preserved(
+    content_accumulation_processor,
+) -> None:
+    """Ensure reasoning fragments are preserved alongside accumulated content."""
+
+    first_chunk = StreamingContent(
+        content="Step 1.",
+        metadata={
+            "stream_id": "reasoning-stream",
+            "reasoning_content": "Thinking about step 1.",
+        },
+    )
+    final_chunk = StreamingContent(
+        content="Step 2.",
+        metadata={
+            "stream_id": "reasoning-stream",
+            "reasoning_content": "Considering next move.",
+        },
+        is_done=True,
+    )
+
+    await content_accumulation_processor.process(first_chunk)
+    result = await content_accumulation_processor.process(final_chunk)
+
+    assert result.metadata.get("accumulated_content") == "Step 1.Step 2."
+    assert (
+        result.metadata.get("accumulated_reasoning")
+        == "Thinking about step 1.Considering next move."
+    )

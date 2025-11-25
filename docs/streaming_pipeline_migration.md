@@ -89,3 +89,54 @@ To verify a deployment is running only the refactored infrastructure:
 New service owners should treat this document as the source of truth for extending or modifying
 the streaming stack.
 
+## Streaming Sampler Configuration
+
+The streaming sampler provides bounded request/response sampling for debugging streaming issues.
+Configure via environment variables or `AppConfig`:
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `STREAMING_SAMPLER_ENABLED` | `true` | Enable/disable sampling |
+| `STREAMING_SAMPLER_RATE` | `0.01` | Probability of sampling a stream (0.0-1.0) |
+| `STREAMING_SAMPLER_MAX_SAMPLES` | `100` | Maximum samples retained in memory |
+
+Or in `config.yaml`:
+
+```yaml
+session:
+  streaming_sampler:
+    enabled: true
+    sample_rate: 0.05  # Sample 5% of streams
+    max_samples: 200
+```
+
+The sampler is configured during application startup in the infrastructure stage.
+
+## Recent Enhancements (Nov 2025)
+
+- **Streaming observability.** `StreamingSampler` now captures bounded request/response samples
+  directly inside `SSEAssembler`, giving operators insight into the first emitted chunk, terminal
+  errors, and fallback sentinels without enabling verbose logging. Configuration is exposed via
+  `AppConfig.session.streaming_sampler` with environment variable support.
+- **Unified tool-call lifecycle.** Tool call detection, buffering, and processing state is now
+  centralized in `StreamingContextRegistry` with `ToolCallBufferState`. The `_already_processed`
+  marker is consistently applied across `ToolCallRepairProcessor`, `ToolCallLoopDetectionMiddleware`,
+  and `ToolCallReactorMiddleware` to prevent duplicate processing.
+- **Shared streaming context.** Processors, middleware, and transport adapters rely on a single
+  `StreamingContextRegistry`, which now tracks execute-command fragments, other XML tool buffers,
+  JSON repair state, and accumulated metadata so state never drifts between layers.
+- **Generalized tool buffering.** The FastAPI adapter buffers `<execute_command>`, `<patch_file>`,
+  `<use_mcp_tool>`, `<ask_followup_question>`, and other XML tool tags to ensure clients never
+  receive partial tool payloads.
+- **Strict DI for streaming processors.** The DI configuration now enforces strict initialization
+  for streaming processors - if any processor cannot be created, the application fails fast during
+  startup rather than silently falling back to an empty processor list.
+- **Accumulated reasoning metadata.** `ContentAccumulationProcessor` emits both the concatenated
+  assistant text (`accumulated_content`) and the combined reasoning trace
+  (`accumulated_reasoning`) for offline inspection and regression debugging.
+- **Credential watcher debouncing.** Gemini OAuth connectors hash the credentials file before
+  scheduling reloads and throttle identical filesystem events, eliminating noisy "file modified"
+  messages when nothing actually changed.
+- **Temporary debug scripts guarded.** `tmp_*.py` files are ignored at the VCS level so ad-hoc
+  probes never make it into CI or release branches again.
+

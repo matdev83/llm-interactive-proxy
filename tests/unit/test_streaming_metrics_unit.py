@@ -10,6 +10,7 @@ import time
 from src.core.ports.streaming_metrics import (
     StreamingMetrics,
     StreamingSampler,
+    configure_sampler,
     get_metrics_instance,
     get_sampler_instance,
     reset_metrics,
@@ -327,3 +328,35 @@ class TestStreamingSampler:
         sampler1.add_sample("test", "request", "data")
         samples = sampler2.get_samples()
         assert len(samples) == 1
+
+    def test_configure_sampler(self) -> None:
+        """Test configuring sampler with custom settings."""
+        # Configure with custom settings
+        sampler = configure_sampler(
+            sample_rate=0.5,
+            max_samples=50,
+            enabled=True,
+        )
+
+        # Verify settings applied
+        assert sampler.sample_rate == 0.5
+        assert sampler.max_samples == 50
+
+        # Get instance should return same configured sampler
+        assert get_sampler_instance() is sampler
+
+    def test_configure_sampler_disabled(self) -> None:
+        """Test configuring sampler when disabled sets sample_rate to 0."""
+        sampler = configure_sampler(
+            sample_rate=0.5,
+            max_samples=100,
+            enabled=False,
+        )
+
+        # When disabled, sample_rate should be 0
+        assert sampler.sample_rate == 0.0
+        assert sampler.max_samples == 100
+
+        # Should never sample when disabled
+        for _ in range(10):
+            assert sampler.should_sample() is False

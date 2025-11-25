@@ -7,7 +7,6 @@ It detects tool calls in LLM responses and passes them through registered handle
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from dataclasses import asdict, is_dataclass
@@ -20,6 +19,14 @@ from src.core.interfaces.response_processor_interface import IResponseMiddleware
 from src.core.interfaces.tool_call_reactor_interface import (
     IToolCallReactor,
     ToolCallContext,
+)
+from src.core.services.streaming.stream_context_registry import (
+    ToolCallBufferState,
+    get_global_streaming_context_registry,
+)
+from src.tool_call_loop.lifecycle_registry import (
+    ToolCallLifecycleRegistry,
+    build_tool_call_signature,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +48,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         tool_call_reactor: IToolCallReactor,
         enabled: bool = True,
         priority: int = -10,
+        lifecycle_registry: ToolCallLifecycleRegistry | None = None,
     ):
         """Initialize the tool call reactor middleware.
 
@@ -52,9 +60,9 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         self._tool_call_reactor = tool_call_reactor
         self._enabled = enabled
         self._priority = priority
-        self._processed_tool_calls: dict[str, set[str]] = {}
-        self._processed_tool_call_order: list[str] = []
-        self._max_tracked_streams = 256
+        self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry(
+            max_streams=1024
+        )
 
     @property
     def priority(self) -> int:
@@ -85,17 +93,31 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             return response
 
         stream_key = self._resolve_stream_key(session_id, context, response)
+        buffer_state = self._resolve_buffer_state(context, stream_key)
+
+        # Non-streaming responses should not retain lifecycle state between calls
+        if not is_streaming:
+            self._clear_stream_state(stream_key)
 
         # Extract tool calls from various possible locations
         tool_calls: list[dict[str, Any]] = []
         raw_tool_calls: list[Any] = []  # Keep track of original objects
+        buffered_call_count = 0  # Track how many calls came from the buffer
+
+        # For streaming responses with shared buffer state, consume buffered calls first
+        if buffer_state is not None and is_streaming:
+            buffered_calls = self._consume_buffered_calls(buffer_state)
+            if buffered_calls:
+                tool_calls.extend(buffered_calls)
+                raw_tool_calls.extend(buffered_calls)
+                buffered_call_count = len(buffered_calls)
 
         # Priority 1: Direct 'tool_calls' attribute (e.g., on ChatMessage)
         if (
             hasattr(response, "tool_calls")
             and response.tool_calls
             and isinstance(response.tool_calls, list)
-        ):
+        ) and not tool_calls:
             for raw_call in response.tool_calls:
                 normalized = self._normalize_tool_call(raw_call)
                 if normalized:
@@ -132,12 +154,6 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         # without cross-request persistence of processed state
         new_tool_calls_with_raw: list[tuple[dict[str, Any], Any]] = []
 
-        processed_signatures = self._processed_tool_calls.get(stream_key)
-        if processed_signatures is None:
-            processed_signatures = set()
-            self._processed_tool_calls[stream_key] = processed_signatures
-        self._touch_stream_key(stream_key)
-
         for i, tc in enumerate(tool_calls):
             raw_tc = raw_tool_calls[i] if i < len(raw_tool_calls) else tc
 
@@ -150,11 +166,19 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             if already_processed:
                 continue
 
-            signature = self._build_tool_call_signature(tc)
-            if signature in processed_signatures:
-                continue
+            # For buffered calls (those that came from ToolCallRepairProcessor via buffer_state),
+            # skip lifecycle dedup check since ToolCallRepairProcessor already deduplicates
+            # at buffer level using detected_signatures. Non-buffered calls (extracted from
+            # response attributes) still need lifecycle dedup check.
+            is_from_buffer = i < buffered_call_count
 
-            processed_signatures.add(signature)
+            if not is_from_buffer:
+                # Check lifecycle registry for non-buffered calls
+                signature = build_tool_call_signature(tc)
+                is_new = self._lifecycle.register_detection(stream_key, signature)
+                if not is_new:
+                    continue
+
             new_tool_calls_with_raw.append((tc, raw_tc))
 
         # Log skipped tool calls
@@ -215,6 +239,14 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         # Process each new tool call through the reactor
         for tool_call, raw_tool_call in new_tool_calls_with_raw:
+            signature = build_tool_call_signature(tool_call)
+            if self._lifecycle.is_processed(stream_key, signature):
+                logger.debug(
+                    "Skipping already-processed tool call (signature=%s) for stream %s",
+                    signature,
+                    stream_key,
+                )
+                continue
             function_payload = tool_call.get("function")
 
             if not isinstance(function_payload, dict):
@@ -263,12 +295,9 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
                 # Mark tool call as processed after reactor execution
                 # Mark both the normalized dict and the raw object
-                tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
-                if raw_tool_call is not tool_call:
-                    if isinstance(raw_tool_call, dict):
-                        raw_tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
-                    else:
-                        setattr(raw_tool_call, _TOOL_CALL_PROCESSING_MARKER, True)
+                self._mark_tool_call_processed(
+                    tool_call, raw_tool_call, stream_key, signature, buffer_state
+                )
 
                 if result and result.should_swallow:
                     logger.info(
@@ -297,13 +326,9 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     exc_info=True,
                 )
                 # Mark as processed even on error to avoid retry loops
-                # Mark both the normalized dict and the raw object
-                tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
-                if raw_tool_call is not tool_call:
-                    if isinstance(raw_tool_call, dict):
-                        raw_tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
-                    else:
-                        setattr(raw_tool_call, _TOOL_CALL_PROCESSING_MARKER, True)
+                self._mark_tool_call_processed(
+                    tool_call, raw_tool_call, stream_key, signature, buffer_state
+                )
 
         self._reset_stream_state_if_needed(stream_key, response, is_streaming)
 
@@ -376,6 +401,39 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         )
         if callable(recorder):
             recorder(outcome)
+
+    def _resolve_buffer_state(
+        self, context: dict[str, Any] | None, stream_key: str
+    ) -> ToolCallBufferState | None:
+        if not context:
+            return None
+        candidate = context.get("tool_call_buffer_state")
+        if isinstance(candidate, ToolCallBufferState):
+            return candidate
+
+        stream_identifier = (
+            context.get("stream_id") or context.get("response_stream_id") or stream_key
+        )
+        if not stream_identifier or stream_identifier == "anonymous-stream":
+            return None
+
+        try:
+            registry = get_global_streaming_context_registry()
+            return registry.get_tool_call_buffer(str(stream_identifier))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _consume_buffered_calls(
+        buffer_state: ToolCallBufferState,
+    ) -> list[dict[str, Any]]:
+        if not buffer_state.detected_calls:
+            return []
+        if buffer_state.reactor_cursor >= len(buffer_state.detected_calls):
+            return []
+        calls = buffer_state.detected_calls[buffer_state.reactor_cursor :]
+        buffer_state.reactor_cursor = len(buffer_state.detected_calls)
+        return calls
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content.
@@ -543,28 +601,6 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         # If it's a raw dict/string, return the replacement content
         return replacement_content
 
-    def _build_tool_call_signature(self, tool_call: dict[str, Any]) -> str:
-        identifier = tool_call.get("id")
-        if isinstance(identifier, str) and identifier:
-            return identifier
-
-        function_block = tool_call.get("function", {})
-        if not isinstance(function_block, dict):
-            function_block = {}
-
-        name = function_block.get("name", "unknown")
-        arguments = function_block.get("arguments", "")
-        if isinstance(arguments, dict | list):
-            try:
-                arguments_repr = json.dumps(arguments, sort_keys=True)
-            except (TypeError, ValueError):
-                arguments_repr = str(arguments)
-        else:
-            arguments_repr = str(arguments)
-
-        digest = hashlib.sha256(arguments_repr.encode("utf-8", "ignore")).hexdigest()
-        return f"{name}:{digest}"
-
     def _resolve_stream_key(
         self, session_id: str, context: dict[str, Any], response: Any
     ) -> str:
@@ -586,17 +622,6 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             return session_id
         return "anonymous-stream"
 
-    def _touch_stream_key(self, stream_key: str) -> None:
-        if stream_key in self._processed_tool_call_order:
-            self._processed_tool_call_order.remove(stream_key)
-        self._processed_tool_call_order.append(stream_key)
-        self._enforce_stream_cache_limit()
-
-    def _enforce_stream_cache_limit(self) -> None:
-        while len(self._processed_tool_call_order) > self._max_tracked_streams:
-            oldest = self._processed_tool_call_order.pop(0)
-            self._processed_tool_calls.pop(oldest, None)
-
     def _reset_stream_state_if_needed(
         self, stream_key: str, response: Any, is_streaming: bool
     ) -> None:
@@ -614,7 +639,23 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         return not is_streaming
 
     def _clear_stream_state(self, stream_key: str) -> None:
-        if stream_key in self._processed_tool_calls:
-            self._processed_tool_calls.pop(stream_key, None)
-        if stream_key in self._processed_tool_call_order:
-            self._processed_tool_call_order.remove(stream_key)
+        self._lifecycle.clear_stream(stream_key)
+
+    def _mark_tool_call_processed(
+        self,
+        tool_call: dict[str, Any],
+        raw_tool_call: Any,
+        stream_key: str,
+        signature: str,
+        buffer_state: ToolCallBufferState | None = None,
+    ) -> None:
+        tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
+        if raw_tool_call is not tool_call:
+            if isinstance(raw_tool_call, dict):
+                raw_tool_call[_TOOL_CALL_PROCESSING_MARKER] = True
+            else:
+                setattr(raw_tool_call, _TOOL_CALL_PROCESSING_MARKER, True)
+
+        self._lifecycle.mark_processed(stream_key, signature)
+        if buffer_state is not None:
+            buffer_state.processed_signatures.add(signature)

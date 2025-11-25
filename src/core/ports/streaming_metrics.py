@@ -349,6 +349,43 @@ def get_sampler_instance() -> StreamingSampler:
     return _global_sampler_instance
 
 
+def configure_sampler(
+    sample_rate: float = 0.01,
+    max_samples: int = 100,
+    enabled: bool = True,
+) -> StreamingSampler:
+    """Configure the global sampler instance with custom settings.
+
+    This function should be called during application startup to configure
+    the sampler with settings from AppConfig.
+
+    Args:
+        sample_rate: Probability of sampling a stream (0.0 to 1.0)
+        max_samples: Maximum number of samples to retain
+        enabled: Whether sampling is enabled
+
+    Returns:
+        The configured StreamingSampler instance
+    """
+    global _global_sampler_instance
+
+    # Create new instance with configured settings
+    _global_sampler_instance = StreamingSampler(
+        sample_rate=sample_rate if enabled else 0.0,
+        max_samples=max_samples,
+    )
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Configured streaming sampler: enabled=%s, sample_rate=%s, max_samples=%s",
+            enabled,
+            sample_rate,
+            max_samples,
+        )
+
+    return _global_sampler_instance
+
+
 def reset_sampler() -> None:
     """Reset the global sampler instance.
 

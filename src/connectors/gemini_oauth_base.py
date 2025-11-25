@@ -14,7 +14,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -253,7 +253,33 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                         return
 
                     self.connector._last_credentials_event_mtime = current_mtime
-                    logger.info(f"Credentials file modified: {event.src_path}")
+                    file_hash: str | None = None
+                    try:
+                        file_hash = hashlib.sha256(event_path.read_bytes()).hexdigest()
+                    except OSError:
+                        file_hash = None
+
+                    if file_hash is not None:
+                        if (
+                            file_hash == self.connector._credentials_file_hash
+                            or file_hash == self.connector._last_credentials_event_hash
+                        ):
+                            logger.debug(
+                                "Credentials file event ignored (unchanged hash): %s",
+                                event.src_path,
+                            )
+                            return
+                        self.connector._last_credentials_event_hash = file_hash
+
+                    now = time.time()
+                    if now - self.connector._last_credentials_event_log_ts >= 30:
+                        logger.info("Credentials file modified: %s", event.src_path)
+                        self.connector._last_credentials_event_log_ts = now
+                    else:
+                        logger.debug(
+                            "Credentials file modified (suppressed log window): %s",
+                            event.src_path,
+                        )
 
                     # Schedule credential reload in the connector's event loop in a thread-safe way
                     self.connector._schedule_credentials_reload()
@@ -572,6 +598,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Debounce credentials reload events to avoid noisy filesystem churn
         self._last_reload_event_ts: float = 0.0
         self._credentials_fingerprint: str | None = None
+        self._credentials_file_hash: str | None = None
+        self._last_credentials_event_hash: str | None = None
+        self._last_credentials_event_log_ts: float = 0.0
         self._last_credentials_event_mtime: float | None = None
 
     def is_backend_functional(self) -> bool:
@@ -1040,6 +1069,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         oauth_creds.json file. It forces a reload of credentials bypassing the cache
         to ensure the latest token is loaded even if the file timestamp didn't change.
         """
+        success = False
         try:
             logger.info("Handling credentials file change...")
 
@@ -1063,11 +1093,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     logger.debug(
                         "Credentials file change detected but contents are unchanged; skipping reload."
                     )
+                    success = True
                     return
                 refreshed = await self._refresh_token_if_needed()
                 if refreshed:
                     self._recover()
                     logger.info("Successfully reloaded credentials from updated file")
+                    success = True
                 else:
                     self._degrade(
                         ["Credentials refreshed from file but token remains invalid"]
@@ -1082,6 +1114,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         except Exception as e:
             self._degrade([f"Error handling credentials file change: {e}"])
             logger.error(f"Error handling credentials file change: {e}", exc_info=True)
+        finally:
+            if success:
+                self._last_credentials_event_hash = self._credentials_file_hash
+            else:
+                self._last_credentials_event_hash = None
 
     async def _validate_runtime_credentials(self) -> bool:
         """Validate credentials at runtime with throttling.
@@ -1361,8 +1398,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             except OSError:
                 pass
 
-            with open(creds_path, encoding="utf-8") as f:
-                credentials = json.load(f)
+            raw_text = creds_path.read_text(encoding="utf-8")
+            credentials = json.loads(raw_text)
 
             # Validate essential fields
             if "access_token" not in credentials:
@@ -1375,6 +1412,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             self._credentials_fingerprint = self._compute_credentials_fingerprint(
                 credentials
             )
+            self._credentials_file_hash = hashlib.sha256(
+                raw_text.encode("utf-8", "ignore")
+            ).hexdigest()
+            self._last_credentials_event_hash = self._credentials_file_hash
             if logger.isEnabledFor(logging.INFO):
                 log_msg = "Successfully loaded Gemini OAuth credentials"
                 if force_reload:
@@ -2465,6 +2506,242 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                     line_buffer = ""
                     done = False
+
+                    def _process_decoded_line(
+                        decoded_line: str,
+                    ) -> Iterable[ProcessedResponse]:
+                        nonlocal done, generated_text, error_json_buffer
+
+                        if not decoded_line:
+                            return
+
+                        if decoded_line.startswith("data: "):
+                            data_str = decoded_line[6:].strip()
+                            if data_str == "[DONE]":
+                                done = True
+                                return
+                            try:
+                                data = json.loads(data_str)
+                            except json.JSONDecodeError as e:
+                                logger.warning(
+                                    "Received malformed JSON chunk in streaming response: %s (error: %s)",
+                                    (
+                                        data_str[:100] + "..."
+                                        if len(data_str) > 100
+                                        else data_str
+                                    ),
+                                    str(e),
+                                )
+                                if data_str and not data_str.strip().endswith("}"):
+                                    logger.error(
+                                        "Detected incomplete JSON chunk, yielding error response"
+                                    )
+                                    error_chunk = _build_error_chunk(
+                                        "Malformed streaming chunk from Code Assist.",
+                                        code=502,
+                                    )
+                                    yield ProcessedResponse(
+                                        content=error_chunk,
+                                        metadata={
+                                            "finish_reason": "error",
+                                            "error": error_chunk["error"],
+                                            "id": error_chunk["id"],
+                                            "model": error_chunk["model"],
+                                            "created": error_chunk["created"],
+                                        },
+                                    )
+                                    done = True
+                                return
+
+                            try:
+                                domain_chunk = (
+                                    self.translation_service.to_domain_stream_chunk(
+                                        chunk=data, source_format="code_assist"
+                                    )
+                                )
+                                if domain_chunk is not None:
+                                    domain_chunk["model"] = effective_model
+                            except Exception as e:
+                                logger.error(
+                                    "Failed to process streaming chunk: %s", str(e)
+                                )
+                                error_chunk = _build_error_chunk(
+                                    "Failed to parse streaming chunk from Code Assist.",
+                                    code=500,
+                                )
+                                yield ProcessedResponse(
+                                    content=error_chunk,
+                                    metadata={
+                                        "finish_reason": "error",
+                                        "error": error_chunk["error"],
+                                        "id": error_chunk["id"],
+                                        "model": error_chunk["model"],
+                                        "created": error_chunk["created"],
+                                    },
+                                )
+                                done = True
+                                return
+
+                            if domain_chunk and domain_chunk.get("choices"):
+                                if _should_skip_chunk(domain_chunk):
+                                    return
+                                choice = domain_chunk["choices"][0]
+                                delta = choice.get("delta", {}) or {}
+                                text_piece = delta.get("content")
+                                if text_piece:
+                                    generated_text += text_piece
+                                    if error_json_buffer is None:
+                                        stripped_piece = text_piece.lstrip()
+                                        if stripped_piece.startswith("{"):
+                                            error_json_buffer = stripped_piece
+                                    else:
+                                        error_json_buffer += text_piece
+
+                                    if error_json_buffer:
+                                        candidate_json = error_json_buffer.strip()
+                                        try:
+                                            parsed_error = json.loads(candidate_json)
+                                        except json.JSONDecodeError:
+                                            pass
+                                        else:
+                                            error_json_buffer = None
+                                            if isinstance(parsed_error, dict) and (
+                                                "error" in parsed_error
+                                            ):
+                                                error_info = (
+                                                    parsed_error.get("error") or {}
+                                                )
+                                                error_code = cast(
+                                                    int | None, error_info.get("code")
+                                                )
+                                                error_status = str(
+                                                    error_info.get("status", "")
+                                                ).upper()
+                                                error_message = error_info.get(
+                                                    "message", ""
+                                                )
+
+                                                if error_code == 429 or (
+                                                    error_status == "RESOURCE_EXHAUSTED"
+                                                ):
+                                                    error_chunk = _build_error_chunk(
+                                                        error_message
+                                                        or "Service temporarily unavailable due to rate limiting. Please try again in a few minutes.",
+                                                        code=int(error_code or 429),
+                                                        error_type=(
+                                                            "quota_exceeded"
+                                                            if error_status
+                                                            == "RESOURCE_EXHAUSTED"
+                                                            else "rate_limit_exceeded"
+                                                        ),
+                                                    )
+                                                    with contextlib.suppress(Exception):
+                                                        response.close()
+                                                    yield ProcessedResponse(
+                                                        content=error_chunk,
+                                                        metadata={
+                                                            "finish_reason": "error",
+                                                            "error": error_chunk[
+                                                                "error"
+                                                            ],
+                                                            "id": error_chunk["id"],
+                                                            "model": error_chunk[
+                                                                "model"
+                                                            ],
+                                                            "created": error_chunk[
+                                                                "created"
+                                                            ],
+                                                        },
+                                                    )
+                                                    done = True
+                                                    return
+
+                                                error_message = (
+                                                    error_message
+                                                    or "API error received from Gemini Code Assist"
+                                                )
+                                                error_code_value = (
+                                                    error_code
+                                                    if isinstance(error_code, int)
+                                                    else 500
+                                                )
+                                                error_chunk = {
+                                                    "id": f"chatcmpl-error-{int(time.time())}",
+                                                    "object": "chat.completion.chunk",
+                                                    "created": int(time.time()),
+                                                    "model": effective_model,
+                                                    "choices": [
+                                                        {
+                                                            "index": 0,
+                                                            "delta": {},
+                                                            "finish_reason": "error",
+                                                        }
+                                                    ],
+                                                    "error": {
+                                                        "message": error_message,
+                                                        "type": "api_error",
+                                                        "code": error_code_value,
+                                                        "status": error_status or None,
+                                                    },
+                                                }
+                                                with contextlib.suppress(Exception):
+                                                    response.close()
+                                                yield ProcessedResponse(
+                                                    content=error_chunk,
+                                                    metadata={
+                                                        "finish_reason": "error",
+                                                        "error": error_chunk["error"],
+                                                        "id": error_chunk["id"],
+                                                        "model": error_chunk["model"],
+                                                        "created": error_chunk[
+                                                            "created"
+                                                        ],
+                                                    },
+                                                )
+                                                done = True
+                                                return
+                                            else:
+                                                error_json_buffer = None
+
+                            metadata = create_gemini_response_metadata(
+                                model="gemini-oauth",
+                                usage=None,
+                                key_name=getattr(self, "_key_name", None),
+                            ).model_dump()
+
+                            metadata.update(
+                                {
+                                    "raw_tool_calls": domain_chunk.get("choices", [{}])[
+                                        0
+                                    ]
+                                    .get("delta", {})
+                                    .get("tool_calls"),
+                                    "raw_finish_reason": domain_chunk.get(
+                                        "choices", [{}]
+                                    )[0].get("finish_reason"),
+                                }
+                            )
+
+                            yield ProcessedResponse(
+                                content=domain_chunk,
+                                metadata=metadata,
+                            )
+                            return
+
+                        if decoded_line.strip():
+                            passthrough_chunk = (
+                                self.translation_service.to_domain_stream_chunk(
+                                    chunk={"text": decoded_line},
+                                    source_format="raw_text",
+                                )
+                            )
+                            if passthrough_chunk and not _should_skip_chunk(
+                                passthrough_chunk
+                            ):
+                                yield ProcessedResponse(content=passthrough_chunk)
+
+                        return
+
                     for chunk in response.iter_content(
                         chunk_size=4096, decode_unicode=False
                     ):
@@ -2494,243 +2771,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         for line in lines:
                             decoded_line = line.rstrip("\r\n")
 
-                            if decoded_line.startswith("data: "):
-                                data_str = decoded_line[6:].strip()
-                                if data_str == "[DONE]":
-                                    done = True
-                                    break
-                                try:
-                                    data = json.loads(data_str)
-                                except json.JSONDecodeError as e:
-                                    # Log incomplete/malformed JSON chunks for debugging
-                                    logger.warning(
-                                        "Received malformed JSON chunk in streaming response: %s (error: %s)",
-                                        (
-                                            data_str[:100] + "..."
-                                            if len(data_str) > 100
-                                            else data_str
-                                        ),
-                                        str(e),
-                                    )
-                                    # For incomplete chunks, yield an error response to prevent empty responses
-                                    if data_str and not data_str.strip().endswith("}"):
-                                        logger.error(
-                                            "Detected incomplete JSON chunk, yielding error response"
-                                        )
-                                        error_chunk = _build_error_chunk(
-                                            "Malformed streaming chunk from Code Assist.",
-                                            code=502,
-                                        )
-                                        yield ProcessedResponse(
-                                            content=error_chunk,
-                                            metadata={
-                                                "finish_reason": "error",
-                                                "error": error_chunk["error"],
-                                                "id": error_chunk["id"],
-                                                "model": error_chunk["model"],
-                                                "created": error_chunk["created"],
-                                            },
-                                        )
-                                        done = True
-                                        break
-                                    continue
+                            for processed_chunk in _process_decoded_line(decoded_line):
+                                yield processed_chunk
+                            if done:
+                                break
 
-                                try:
-                                    domain_chunk = (
-                                        self.translation_service.to_domain_stream_chunk(
-                                            chunk=data, source_format="code_assist"
-                                        )
-                                    )
-                                    if domain_chunk is not None:
-                                        domain_chunk["model"] = effective_model
-                                except Exception as e:
-                                    logger.error(
-                                        "Failed to process streaming chunk: %s", str(e)
-                                    )
-                                    # Yield an error chunk to prevent empty responses
-                                    error_chunk = _build_error_chunk(
-                                        "Failed to parse streaming chunk from Code Assist.",
-                                        code=500,
-                                    )
-                                    yield ProcessedResponse(
-                                        content=error_chunk,
-                                        metadata={
-                                            "finish_reason": "error",
-                                            "error": error_chunk["error"],
-                                            "id": error_chunk["id"],
-                                            "model": error_chunk["model"],
-                                            "created": error_chunk["created"],
-                                        },
-                                    )
-                                    done = True
-                                    break
-
-                                if domain_chunk and domain_chunk.get("choices"):
-                                    if _should_skip_chunk(domain_chunk):
-                                        continue
-                                    choice = domain_chunk["choices"][0]
-                                    delta = choice.get("delta", {}) or {}
-                                    text_piece = delta.get("content")
-                                    if text_piece:
-                                        generated_text += text_piece
-                                        if error_json_buffer is None:
-                                            stripped_piece = text_piece.lstrip()
-                                            if stripped_piece.startswith("{"):
-                                                error_json_buffer = stripped_piece
-                                        else:
-                                            error_json_buffer += text_piece
-
-                                        if error_json_buffer:
-                                            candidate_json = error_json_buffer.strip()
-                                            try:
-                                                parsed_error = json.loads(
-                                                    candidate_json
-                                                )
-                                            except json.JSONDecodeError:
-                                                pass
-                                            else:
-                                                error_json_buffer = None
-                                                if isinstance(parsed_error, dict) and (
-                                                    "error" in parsed_error
-                                                ):
-                                                    error_info = (
-                                                        parsed_error.get("error") or {}
-                                                    )
-                                                    error_code = cast(
-                                                        int | None,
-                                                        error_info.get("code"),
-                                                    )
-                                                    error_status = str(
-                                                        error_info.get("status", "")
-                                                    ).upper()
-                                                    error_message = error_info.get(
-                                                        "message", ""
-                                                    )
-
-                                                    if error_code == 429 or (
-                                                        error_status
-                                                        == "RESOURCE_EXHAUSTED"
-                                                    ):
-                                                        error_chunk = _build_error_chunk(
-                                                            error_message
-                                                            or "Service temporarily unavailable due to rate limiting. Please try again in a few minutes.",
-                                                            code=int(error_code or 429),
-                                                            error_type=(
-                                                                "quota_exceeded"
-                                                                if error_status
-                                                                == "RESOURCE_EXHAUSTED"
-                                                                else "rate_limit_exceeded"
-                                                            ),
-                                                        )
-                                                        with contextlib.suppress(
-                                                            Exception
-                                                        ):
-                                                            response.close()
-                                                        yield ProcessedResponse(
-                                                            content=error_chunk,
-                                                            metadata={
-                                                                "finish_reason": "error",
-                                                                "error": error_chunk[
-                                                                    "error"
-                                                                ],
-                                                                "id": error_chunk["id"],
-                                                                "model": error_chunk[
-                                                                    "model"
-                                                                ],
-                                                                "created": error_chunk[
-                                                                    "created"
-                                                                ],
-                                                            },
-                                                        )
-                                                        return
-
-                                                    # Non-429 structured error payload
-                                                    error_message = (
-                                                        error_message
-                                                        or "API error received from Gemini Code Assist"
-                                                    )
-                                                    error_code_value = (
-                                                        error_code
-                                                        if isinstance(error_code, int)
-                                                        else 500
-                                                    )
-                                                    error_chunk = {
-                                                        "id": f"chatcmpl-error-{int(time.time())}",
-                                                        "object": "chat.completion.chunk",
-                                                        "created": int(time.time()),
-                                                        "model": effective_model,
-                                                        "choices": [
-                                                            {
-                                                                "index": 0,
-                                                                "delta": {},
-                                                                "finish_reason": "error",
-                                                            }
-                                                        ],
-                                                        "error": {
-                                                            "message": error_message,
-                                                            "type": "api_error",
-                                                            "code": error_code_value,
-                                                            "status": error_status
-                                                            or None,
-                                                        },
-                                                    }
-                                                    with contextlib.suppress(Exception):
-                                                        response.close()
-                                                    yield ProcessedResponse(
-                                                        content=error_chunk,
-                                                        metadata={
-                                                            "finish_reason": "error",
-                                                            "error": error_chunk[
-                                                                "error"
-                                                            ],
-                                                            "id": error_chunk["id"],
-                                                            "model": error_chunk[
-                                                                "model"
-                                                            ],
-                                                            "created": error_chunk[
-                                                                "created"
-                                                            ],
-                                                        },
-                                                    )
-                                                    return
-                                                else:
-                                                    # Parsed JSON but not an error object, reset buffer
-                                                    error_json_buffer = None
-
-                                metadata = create_gemini_response_metadata(
-                                    model="gemini-oauth",
-                                    usage=None,
-                                    key_name=getattr(self, "_key_name", None),
-                                ).model_dump()
-
-                                metadata.update(
-                                    {
-                                        "raw_tool_calls": domain_chunk.get(
-                                            "choices", [{}]
-                                        )[0]
-                                        .get("delta", {})
-                                        .get("tool_calls"),
-                                        "raw_finish_reason": domain_chunk.get(
-                                            "choices", [{}]
-                                        )[0].get("finish_reason"),
-                                    }
-                                )
-
-                                yield ProcessedResponse(
-                                    content=domain_chunk,
-                                    metadata=metadata,
-                                )
-                            elif decoded_line.strip():
-                                passthrough_chunk = (
-                                    self.translation_service.to_domain_stream_chunk(
-                                        chunk={"text": decoded_line},
-                                        source_format="raw_text",
-                                    )
-                                )
-                                if passthrough_chunk and not _should_skip_chunk(
-                                    passthrough_chunk
-                                ):
-                                    yield ProcessedResponse(content=passthrough_chunk)
+                    if not done and line_buffer:
+                        for processed_chunk in _process_decoded_line(
+                            line_buffer.rstrip("\r\n")
+                        ):
+                            yield processed_chunk
+                        line_buffer = ""
 
                     try:
                         completion_tokens = len(encoding.encode(generated_text))

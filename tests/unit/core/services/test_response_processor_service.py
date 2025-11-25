@@ -10,13 +10,13 @@ pytestmark = pytest.mark.filterwarnings(
 )
 from src.core.common.exceptions import LoopDetectionError, ParsingError
 from src.core.domain.chat import StreamingChatResponse
-from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.middleware_application_manager_interface import (
     IMiddlewareApplicationManager,
 )
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
@@ -79,24 +79,6 @@ def response_processor(
     )
 
 
-@pytest.fixture
-def response_processor_no_normalizer(
-    mock_response_parser: MagicMock,
-    mock_middleware_application_manager: AsyncMock,
-    mock_loop_detector: AsyncMock,
-) -> ResponseProcessor:
-    """Fixture for a ResponseProcessor instance without a stream normalizer."""
-    # Create a mock middleware for testing
-    mock_middleware = MagicMock()
-    return ResponseProcessor(
-        response_parser=mock_response_parser,
-        middleware_application_manager=mock_middleware_application_manager,
-        loop_detector=mock_loop_detector,
-        stream_normalizer=None,  # Explicitly pass None
-        middleware_list=[mock_middleware],
-    )
-
-
 class TestResponseProcessor:
     """Tests for the ResponseProcessor class."""
 
@@ -130,17 +112,15 @@ class TestResponseProcessor:
             for processor in processors_arg[1:]
         )
 
-    def test_does_not_initialize_stream_normalizer_without_processors(
+    def test_requires_stream_normalizer_without_processors(
         self,
         mock_response_parser: MagicMock,
         mock_middleware_application_manager: AsyncMock,
         mock_loop_detector: AsyncMock,
     ) -> None:
-        """Explicit None normalizer without processors should keep raw iterator path."""
+        """Streaming pipeline must be explicitly configured."""
 
-        with patch(
-            "src.core.services.response_processor_service.StreamNormalizer"
-        ) as mock_normalizer:
+        with pytest.raises(RuntimeError):
             ResponseProcessor(
                 response_parser=mock_response_parser,
                 middleware_application_manager=mock_middleware_application_manager,
@@ -148,8 +128,6 @@ class TestResponseProcessor:
                 stream_normalizer=None,
                 middleware_list=[MagicMock()],
             )
-
-        mock_normalizer.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_response_success(
@@ -314,105 +292,27 @@ class TestResponseProcessor:
             mock_logger.error.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_streaming_response_raw_iterator(
+    async def test_process_streaming_response_delegates_to_normalizer(
         self,
-        response_processor_no_normalizer: ResponseProcessor,
+        response_processor: ResponseProcessor,
         mock_stream_normalizer: AsyncMock,
     ) -> None:
-        """Test processing of raw async iterators without stream normalizer."""
+        """Ensure streaming path always flows through the configured normalizer."""
 
         async def raw_chunks() -> AsyncGenerator[StreamingChatResponse, None]:
-            yield StreamingChatResponse(content="raw_chunk1", model="test_model")
-            yield StreamingChatResponse(content="raw_chunk2", model="test_model")
+            yield StreamingChatResponse(content="chunk", model="test_model")
 
-        processed_responses = [
-            p
-            async for p in response_processor_no_normalizer.process_streaming_response(
+        mock_stream_normalizer.process_stream.return_value = raw_chunks()
+
+        processed = [
+            chunk
+            async for chunk in response_processor.process_streaming_response(
                 raw_chunks(), "session_id"
             )
         ]
 
-        assert len(processed_responses) == 2
-        assert processed_responses[0].content == "raw_chunk1"
-        assert processed_responses[0].metadata["model"] == "test_model"
-        assert processed_responses[1].content == "raw_chunk2"
-        assert processed_responses[1].metadata["model"] == "test_model"
-        assert all(
-            r.metadata.get("session_id") == "session_id" for r in processed_responses
-        )
-        mock_stream_normalizer.process_stream.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_process_streaming_response_raw_dict_chunks(
-        self, response_processor_no_normalizer: ResponseProcessor
-    ) -> None:
-        """Test processing raw dictionary chunks directly."""
-
-        async def dict_chunks() -> AsyncGenerator[dict, None]:
-            yield {"choices": [{"delta": {"content": "dict_chunk1"}}]}
-            yield {"choices": [{"delta": {"content": "dict_chunk2"}}]}
-
-        processed_responses = [
-            p
-            async for p in response_processor_no_normalizer.process_streaming_response(
-                dict_chunks(), "session_id"
-            )
-        ]
-
-        assert len(processed_responses) == 2
-        assert processed_responses[0].content == "dict_chunk1"
-        assert processed_responses[1].content == "dict_chunk2"
-        assert all(
-            r.metadata.get("session_id") == "session_id" for r in processed_responses
-        )
-
-    @pytest.mark.asyncio
-    async def test_process_streaming_response_raw_bytes_sse_chunks(
-        self, response_processor_no_normalizer: ResponseProcessor
-    ) -> None:
-        """Test processing raw bytes (SSE format) chunks directly."""
-
-        async def bytes_chunks() -> AsyncGenerator[bytes, None]:
-            yield b'data: {"choices": [{"delta": {"content": "byte_chunk1"}}]}\n\n'
-            yield b'data: {"choices": [{"delta": {"content": "byte_chunk2"}}]}\n\n'
-
-        processed_responses = [
-            p
-            async for p in response_processor_no_normalizer.process_streaming_response(
-                bytes_chunks(), "session_id"
-            )
-        ]
-
-        assert len(processed_responses) == 2
-        assert processed_responses[0].content == "byte_chunk1"
-        assert processed_responses[1].content == "byte_chunk2"
-        assert all(
-            r.metadata.get("session_id") == "session_id" for r in processed_responses
-        )
-
-    @pytest.mark.asyncio
-    async def test_process_streaming_response_raw_unrecognized_chunks(
-        self, response_processor_no_normalizer: ResponseProcessor
-    ) -> None:
-        """Test processing raw unrecognized chunks directly."""
-
-        async def unrecognized_chunks() -> AsyncGenerator[Any, None]:
-            yield 123  # An integer
-            yield ["list", "chunk"]  # A list
-
-        processed_responses = [
-            p
-            async for p in response_processor_no_normalizer.process_streaming_response(
-                unrecognized_chunks(), "session_id"
-            )
-        ]
-
-        assert len(processed_responses) == 2
-        assert processed_responses[0].content == "123"
-        assert processed_responses[1].content == "['list', 'chunk']"
-        assert all(
-            r.metadata.get("session_id") == "session_id" for r in processed_responses
-        )
+        mock_stream_normalizer.process_stream.assert_called_once()
+        assert processed
 
     @pytest.mark.asyncio
     async def test_streaming_reset_prevents_content_leak_between_requests(

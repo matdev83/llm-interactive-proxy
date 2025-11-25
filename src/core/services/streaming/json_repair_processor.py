@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
 from typing import Any
 
 import src.core.services.metrics_service as metrics
@@ -12,17 +11,13 @@ from src.core.domain.streaming_response_processor import (
     StreamingContent,
 )
 from src.core.services.json_repair_service import JsonRepairResult, JsonRepairService
+from src.core.services.streaming.stream_context_registry import (
+    JsonRepairBufferState,
+    StreamingContextRegistry,
+)
 from src.core.services.streaming.stream_utils import get_stream_id
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class _JsonStreamState:
-    buffer: str = ""
-    brace_level: int = 0
-    in_string: bool = False
-    json_started: bool = False
 
 
 class JsonRepairProcessor(IStreamProcessor):
@@ -35,17 +30,18 @@ class JsonRepairProcessor(IStreamProcessor):
         strict_mode: bool,
         schema: dict[str, Any] | None = None,
         enabled: bool = True,
+        registry: StreamingContextRegistry | None = None,
     ) -> None:
         self._service = repair_service
         self._buffer_cap_bytes = int(buffer_cap_bytes)
         self._strict_mode = bool(strict_mode)
         self._schema = schema
         self._enabled = bool(enabled)
-        self._states: dict[str, _JsonStreamState] = {}
+        self._registry = registry or StreamingContextRegistry()
 
     def reset(self) -> None:
         """Clear any buffered state across streams (called per new streaming session)."""
-        self._states.clear()
+        self._registry.reset()
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         if not self._enabled:
@@ -55,7 +51,7 @@ class JsonRepairProcessor(IStreamProcessor):
             return content
 
         stream_id = get_stream_id(content)
-        state = self._states.setdefault(stream_id, _JsonStreamState())
+        state = self._registry.get_json_repair_buffer(stream_id)
 
         out_parts: list[str] = []
         text = self._normalize_chunk_text(content.content)
@@ -82,9 +78,9 @@ class JsonRepairProcessor(IStreamProcessor):
             final_output = self._flush_final_buffer(state)
             if final_output:
                 out_parts.append(final_output)
-            self._states.pop(stream_id, None)
+            self._registry.clear_json_repair_buffer(stream_id)
         elif content.is_cancellation:
-            self._states.pop(stream_id, None)
+            self._registry.clear_json_repair_buffer(stream_id)
 
         new_text = "".join(out_parts)
         if new_text or content.is_done:
@@ -111,7 +107,7 @@ class JsonRepairProcessor(IStreamProcessor):
     # ---------------------------------------------------------------------
 
     def _handle_non_json_text(
-        self, state: _JsonStreamState, text: str, i: int, n: int
+        self, state: JsonRepairBufferState, text: str, i: int, n: int
     ) -> tuple[int, list[str]]:
         out_parts: list[str] = []
         brace_pos_obj = text.find("{", i)
@@ -135,7 +131,7 @@ class JsonRepairProcessor(IStreamProcessor):
         return start_pos + 1, out_parts
 
     def _process_json_character(
-        self, state: _JsonStreamState, text: str, i: int
+        self, state: JsonRepairBufferState, text: str, i: int
     ) -> int:
         ch = text[i]
         if ch == '"':
@@ -149,7 +145,7 @@ class JsonRepairProcessor(IStreamProcessor):
         state.buffer += ch
         return i + 1
 
-    def _is_current_quote_escaped(self, state: _JsonStreamState) -> bool:
+    def _is_current_quote_escaped(self, state: JsonRepairBufferState) -> bool:
         backslash_count = 0
         for existing_char in reversed(state.buffer):
             if existing_char == "\\":
@@ -158,10 +154,10 @@ class JsonRepairProcessor(IStreamProcessor):
                 break
         return backslash_count % 2 == 1
 
-    def _is_json_complete(self, state: _JsonStreamState) -> bool:
+    def _is_json_complete(self, state: JsonRepairBufferState) -> bool:
         return state.json_started and state.brace_level == 0 and not state.in_string
 
-    def _handle_json_completion(self, state: _JsonStreamState) -> JsonRepairResult:
+    def _handle_json_completion(self, state: JsonRepairBufferState) -> JsonRepairResult:
         try:
             result = self._service.repair_and_validate_json(
                 state.buffer,
@@ -188,7 +184,7 @@ class JsonRepairProcessor(IStreamProcessor):
             )
         return result
 
-    def _flush_final_buffer(self, state: _JsonStreamState) -> str | None:
+    def _flush_final_buffer(self, state: JsonRepairBufferState) -> str | None:
         if not state.json_started or not state.buffer:
             return None
 
@@ -210,13 +206,13 @@ class JsonRepairProcessor(IStreamProcessor):
         self._reset_state(state)
         return result
 
-    def _reset_state(self, state: _JsonStreamState) -> None:
+    def _reset_state(self, state: JsonRepairBufferState) -> None:
         state.buffer = ""
         state.brace_level = 0
         state.in_string = False
         state.json_started = False
 
-    def _log_buffer_capacity_warning(self, state: _JsonStreamState) -> None:
+    def _log_buffer_capacity_warning(self, state: JsonRepairBufferState) -> None:
         if state.json_started and len(state.buffer) > self._buffer_cap_bytes:
             logger.warning(
                 "Buffer capacity exceeded during JSON repair. Continuing to buffer until completion."

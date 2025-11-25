@@ -9,6 +9,7 @@ import asyncio
 import inspect
 import json
 from collections.abc import AsyncGenerator
+from typing import cast
 
 import pytest
 from hypothesis import given, settings
@@ -442,3 +443,60 @@ class TestSSENormalization:
         assert second_content.count("<execute_command>") == 1
         assert second_content.count("</execute_command>") == 1
         assert "./.venv/Scripts/python.exe -m pytest" in second_content
+
+    @pytest.mark.asyncio
+    async def test_patch_file_chunks_are_buffered_until_complete(self) -> None:
+        """Ensure other XML tool tags (e.g., patch_file) are buffered until closing tag."""
+
+        def build_chunk(content: str) -> bytes:
+            payload = {
+                "id": "chatcmpl-buffer-test",
+                "object": "chat.completion.chunk",
+                "created": 1700000001,
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "delta": {"role": "assistant", "content": content},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            return f"data: {json.dumps(payload)}\n\n".encode()
+
+        async def chunk_generator() -> AsyncGenerator[ProcessedResponse, None]:
+            partial = "<patch_file><path>src/app.py</path>\n<patch_content>diff"
+            closing = "</patch_content></patch_file>"
+            yield ProcessedResponse(content=build_chunk(partial))
+            yield ProcessedResponse(content=build_chunk(closing))
+
+        envelope = StreamingResponseEnvelope(
+            content=chunk_generator(), media_type="text/event-stream"
+        )
+        response = to_fastapi_streaming_response(envelope)
+
+        emitted_chunks: list[str] = []
+        async for body_chunk in response.body_iterator:
+            emitted_chunks.append(
+                body_chunk.decode("utf-8")
+                if isinstance(body_chunk, bytes)
+                else str(body_chunk)
+            )
+
+        payload_chunks = [
+            chunk for chunk in emitted_chunks if "[DONE]" not in chunk.strip()
+        ]
+        assert len(payload_chunks) == 2
+
+        def extract_content(chunk: str) -> str:
+            payload_json = json.loads(chunk.strip().split("data:", 1)[1])
+            content_value = payload_json["choices"][0]["delta"]["content"]
+            return cast(str, content_value)
+
+        first_content = extract_content(payload_chunks[0])
+        second_content = extract_content(payload_chunks[1])
+
+        assert "<patch_file" not in first_content
+        assert first_content == ""
+        assert "<patch_file" in second_content
+        assert second_content.count("<patch_file") == 1
+        assert second_content.count("</patch_file>") == 1

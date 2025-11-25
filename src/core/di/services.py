@@ -112,6 +112,10 @@ from src.core.services.streaming.json_repair_processor import JsonRepairProcesso
 from src.core.services.streaming.middleware_application_processor import (
     MiddlewareApplicationProcessor,
 )
+from src.core.services.streaming.stream_context_registry import (
+    StreamingContextRegistry,
+    set_global_streaming_context_registry,
+)
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor,
@@ -124,6 +128,7 @@ from src.core.services.tool_call_reactor_service import (
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 from src.core.services.translation_service import TranslationService
+from src.tool_call_loop.lifecycle_registry import ToolCallLifecycleRegistry
 
 T = TypeVar("T")
 
@@ -633,23 +638,18 @@ def register_core_services(
             )
             middlewares.append(ToolCallRepairMiddleware(cfg, tcr_service))
 
-        try:
-            middlewares.append(ToolCallLoopDetectionMiddleware())
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Error configuring ToolCallLoopDetectionMiddleware: {e}", exc_info=True
+        lifecycle_registry = provider.get_required_service(ToolCallLifecycleRegistry)
+        middlewares.append(
+            ToolCallLoopDetectionMiddleware(
+                lifecycle_registry=lifecycle_registry,
             )
+        )
 
-        # Add tool call reactor middleware
-        try:
-            tool_call_reactor_middleware = provider.get_required_service(
-                ToolCallReactorMiddleware
-            )
-            middlewares.append(tool_call_reactor_middleware)
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Error configuring ToolCallReactorMiddleware: {e}", exc_info=True
-            )
+        # Add tool call reactor middleware (fail fast if unavailable)
+        tool_call_reactor_middleware = provider.get_required_service(
+            ToolCallReactorMiddleware
+        )
+        middlewares.append(tool_call_reactor_middleware)
 
         # Dangerous command prevention will be handled by Tool Call Reactor handler.
         # Keeping old middleware disabled to avoid duplicate processing.
@@ -681,6 +681,9 @@ def register_core_services(
         app_state: IApplicationState = provider.get_required_service(
             IApplicationState  # type: ignore[type-abstract]
         )
+        registry: StreamingContextRegistry = provider.get_required_service(
+            StreamingContextRegistry
+        )
 
         import os
 
@@ -702,6 +705,7 @@ def register_core_services(
             manager._middleware,
             default_loop_config=loop_config,
             app_state=app_state,
+            registry=registry,
         )
 
     _add_singleton(
@@ -1058,11 +1062,19 @@ def register_core_services(
             # because it buffers all content until done, which breaks streaming.
             # It should only be used for non-streaming responses if needed.
         except Exception as e:
-            logger.warning(
-                f"Error creating stream processors: {e}. Using empty processor list."
+            # Fail fast: streaming pipeline must be fully configured
+            # Empty processor list fallback is no longer acceptable (P0-3 fix)
+            logger.error(
+                f"Failed to create stream processors: {e}. "
+                "Streaming pipeline requires all processors to be properly configured."
             )
-            # Use empty processor list as fallback - streaming should work without processors
-            processors = []
+            raise ServiceResolutionError(
+                "Failed to create streaming pipeline processors",
+                details={
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                },
+            ) from e
 
         return StreamNormalizer(processors)
 
@@ -1109,11 +1121,26 @@ def register_core_services(
         implementation_factory=_loop_detection_processor_factory,
     )
 
+    def _stream_context_registry_factory(
+        provider: IServiceProvider,
+    ) -> StreamingContextRegistry:
+        registry = StreamingContextRegistry()
+        set_global_streaming_context_registry(registry)
+        return registry
+
+    _add_singleton(
+        StreamingContextRegistry,
+        implementation_factory=_stream_context_registry_factory,
+    )
+
     def _tool_call_repair_processor_factory(
         provider: IServiceProvider,
     ) -> ToolCallRepairProcessor:
         repair_service = provider.get_required_service(ToolCallRepairService)
-        return ToolCallRepairProcessor(tool_call_repair_service=repair_service)
+        registry = provider.get_required_service(StreamingContextRegistry)
+        return ToolCallRepairProcessor(
+            tool_call_repair_service=repair_service, registry=registry
+        )
 
     _add_singleton(
         ToolCallRepairProcessor,
@@ -1189,7 +1216,10 @@ def register_core_services(
         buffer_cap = getattr(
             config.session, "content_accumulation_buffer_cap_bytes", 10 * 1024 * 1024
         )
-        return ContentAccumulationProcessor(max_buffer_bytes=buffer_cap)
+        registry = provider.get_required_service(StreamingContextRegistry)
+        return ContentAccumulationProcessor(
+            max_buffer_bytes=buffer_cap, registry=registry
+        )
 
     _add_singleton(
         ContentAccumulationProcessor,
@@ -1225,6 +1255,9 @@ def register_core_services(
 
         config: AppConfig = provider.get_required_service(AppConfig)
         service: JsonRepairService = provider.get_required_service(JsonRepairService)
+        registry: StreamingContextRegistry = provider.get_required_service(
+            StreamingContextRegistry
+        )
         return JsonRepairProcessor(
             repair_service=service,
             buffer_cap_bytes=getattr(
@@ -1233,6 +1266,7 @@ def register_core_services(
             strict_mode=getattr(config.session, "json_repair_strict_mode", False),
             schema=getattr(config.session, "json_repair_schema", None),
             enabled=getattr(config.session, "json_repair_enabled", False),
+            registry=registry,
         )
 
     _add_singleton(
@@ -1679,6 +1713,16 @@ def register_core_services(
         implementation_factory=_tool_call_reactor_factory,
     )
 
+    def _tool_call_lifecycle_registry_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallLifecycleRegistry:
+        return ToolCallLifecycleRegistry()
+
+    _add_singleton(
+        ToolCallLifecycleRegistry,
+        implementation_factory=_tool_call_lifecycle_registry_factory,
+    )
+
     def _tool_call_reactor_middleware_factory(
         provider: IServiceProvider,
     ) -> ToolCallReactorMiddleware:
@@ -1690,7 +1734,14 @@ def register_core_services(
         app_config: AppConfig = provider.get_required_service(AppConfig)
         enabled = app_config.session.tool_call_reactor.enabled
 
-        return ToolCallReactorMiddleware(reactor, enabled=enabled, priority=-10)
+        lifecycle = provider.get_required_service(ToolCallLifecycleRegistry)
+
+        return ToolCallReactorMiddleware(
+            reactor,
+            enabled=enabled,
+            priority=-10,
+            lifecycle_registry=lifecycle,
+        )
 
     _add_singleton(
         ToolCallReactorMiddleware,

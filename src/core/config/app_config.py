@@ -429,6 +429,21 @@ class SessionContinuityConfig(DomainModel):
     client_key_includes_ip: bool = True
 
 
+class StreamingSamplerConfig(DomainModel):
+    """Configuration for the streaming sampler (debugging/observability)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    """Whether the streaming sampler is enabled."""
+
+    sample_rate: float = Field(default=0.01, ge=0.0, le=1.0)
+    """Probability of sampling a stream (0.0 to 1.0). Default: 1% of streams."""
+
+    max_samples: int = Field(default=100, ge=1)
+    """Maximum number of samples to retain in memory."""
+
+
 class SessionConfig(DomainModel):
     """Session management configuration."""
 
@@ -450,6 +465,10 @@ class SessionConfig(DomainModel):
     json_repair_buffer_cap_bytes: int = 64 * 1024
     json_repair_strict_mode: bool = False
     json_repair_schema: dict[str, Any] | None = None  # Added
+    # Streaming sampler configuration
+    streaming_sampler: StreamingSamplerConfig = Field(
+        default_factory=StreamingSamplerConfig
+    )
     tool_call_reactor: ToolCallReactorConfig = Field(
         default_factory=ToolCallReactorConfig
     )
@@ -513,6 +532,15 @@ class SessionConfig(DomainModel):
         else:
             values["pytest_full_suite_steering_message"] = reactor_config_dict.get(
                 "pytest_full_suite_steering_message"
+            )
+
+        fix_think_tags = values.get("fix_think_tags_enabled")
+        if fix_think_tags is not None:
+            reactor_config_dict["fix_think_tags_enabled"] = fix_think_tags
+        else:
+            values["fix_think_tags_enabled"] = reactor_config_dict.get(
+                "fix_think_tags_enabled",
+                values.get("fix_think_tags_enabled", False),
             )
 
         # Store the dict - Pydantic will convert it to ToolCallReactorConfig
@@ -1322,6 +1350,30 @@ class AppConfig(DomainModel, IConfig):
                 path="session.angel_frequency",
                 resolution=resolution,
             ),
+            # Streaming sampler configuration
+            "streaming_sampler": {
+                "enabled": _env_to_bool(
+                    "STREAMING_SAMPLER_ENABLED",
+                    True,
+                    env,
+                    path="session.streaming_sampler.enabled",
+                    resolution=resolution,
+                ),
+                "sample_rate": _env_to_float(
+                    "STREAMING_SAMPLER_RATE",
+                    0.01,
+                    env,
+                    path="session.streaming_sampler.sample_rate",
+                    resolution=resolution,
+                ),
+                "max_samples": _env_to_int(
+                    "STREAMING_SAMPLER_MAX_SAMPLES",
+                    100,
+                    env,
+                    path="session.streaming_sampler.max_samples",
+                    resolution=resolution,
+                ),
+            },
         }
 
         config["logging"] = {

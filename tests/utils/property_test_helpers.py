@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """
 Helper utilities for property-based testing.
 

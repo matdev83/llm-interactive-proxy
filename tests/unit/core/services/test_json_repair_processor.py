@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
-from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.streaming.json_repair_processor import JsonRepairProcessor
+
+
+def _content_to_text(content: str | dict[str, Any] | bytes | None) -> str:
+    if isinstance(content, bytes):
+        return content.decode("utf-8", "ignore")
+    if isinstance(content, dict):
+        return json.dumps(content, sort_keys=True)
+    return content or ""
 
 
 @pytest.fixture()
@@ -25,13 +34,13 @@ async def _run_processor_chunks(processor: JsonRepairProcessor, *chunks: str) ->
             StreamingContent(content=ch, metadata=dict(stream_metadata))
         )
         if res.content:
-            out.append(res.content)
+            out.append(_content_to_text(res.content))
     # flush end
     res = await processor.process(
         StreamingContent(content="", is_done=True, metadata=dict(stream_metadata))
     )
     if res.content:
-        out.append(res.content)
+        out.append(_content_to_text(res.content))
     return "".join(out)
 
 

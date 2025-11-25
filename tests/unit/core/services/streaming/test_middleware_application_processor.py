@@ -1,9 +1,9 @@
 import pytest
-from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.streaming.middleware_application_processor import (
     MiddlewareApplicationProcessor,
 )

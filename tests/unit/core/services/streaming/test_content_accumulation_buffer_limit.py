@@ -5,11 +5,22 @@ This test suite validates that the ContentAccumulationProcessor properly
 enforces buffer size limits to prevent memory leaks from unbounded streams.
 """
 
+import json
+from typing import Any
+
 import pytest
-from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
+
+
+def _content_to_text(content: str | dict[str, Any] | bytes | None) -> str:
+    if isinstance(content, bytes):
+        return content.decode("utf-8", "ignore")
+    if isinstance(content, dict):
+        return json.dumps(content, sort_keys=True)
+    return content or ""
 
 
 class TestContentAccumulationBufferLimit:
@@ -88,7 +99,8 @@ class TestContentAccumulationBufferLimit:
         assert final_result.is_done
         assert len(final_result.content) > 0
         # Verify it was truncated (should be around 1KB, not 10KB)
-        content_bytes = len(final_result.content.encode("utf-8"))
+        content_text = _content_to_text(final_result.content)
+        content_bytes = len(content_text.encode("utf-8"))
         assert content_bytes <= 1024 * 1.2  # Allow 20% overhead for UTF-8 and rounding
         # Should contain recent chunks (from the end)
         assert "END" in final_result.content
@@ -159,7 +171,8 @@ class TestContentAccumulationBufferLimit:
         final_result = await processor.process(final_chunk)
 
         # Should be truncated
-        content_bytes = len(final_result.content.encode("utf-8"))
+        content_text = _content_to_text(final_result.content)
+        content_bytes = len(content_text.encode("utf-8"))
         assert content_bytes <= 120  # Should be around 100 bytes, not 200
 
     @pytest.mark.asyncio

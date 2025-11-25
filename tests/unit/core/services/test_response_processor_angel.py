@@ -9,6 +9,10 @@ from src.core.interfaces.middleware_application_manager_interface import (
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.streaming.content_accumulation_processor import (
+    ContentAccumulationProcessor,
+)
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 
 class DummyParser:
@@ -59,6 +63,10 @@ class DummyAppState:
         return None
 
 
+def _build_stream_normalizer() -> StreamNormalizer:
+    return StreamNormalizer([ContentAccumulationProcessor()])
+
+
 @pytest.mark.asyncio
 async def test_response_processor_calls_angel_when_configured(monkeypatch) -> None:
     # Prepare processor
@@ -67,6 +75,7 @@ async def test_response_processor_calls_angel_when_configured(monkeypatch) -> No
         middleware_application_manager=cast(
             IMiddlewareApplicationManager, DummyMiddlewareManager()
         ),
+        stream_normalizer=_build_stream_normalizer(),
     )
 
     proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
@@ -136,6 +145,7 @@ async def test_response_processor_keeps_original_on_pass(monkeypatch) -> None:
         middleware_application_manager=cast(
             IMiddlewareApplicationManager, DummyMiddlewareManager()
         ),
+        stream_normalizer=_build_stream_normalizer(),
     )
 
     proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
@@ -188,6 +198,7 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
         middleware_application_manager=cast(
             IMiddlewareApplicationManager, DummyMiddlewareManager()
         ),
+        stream_normalizer=_build_stream_normalizer(),
     )
 
     proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
@@ -248,6 +259,7 @@ async def test_response_processor_respects_angel_frequency(monkeypatch) -> None:
         middleware_application_manager=cast(
             IMiddlewareApplicationManager, DummyMiddlewareManager()
         ),
+        stream_normalizer=_build_stream_normalizer(),
     )
 
     proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=5)

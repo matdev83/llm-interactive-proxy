@@ -140,6 +140,11 @@ class RequestProcessor(IRequestProcessor):
 
         self._expand_truncated_tool_outputs(command_result)
 
+        sanitized_request = self._strip_agent_scaffolding(request_data)
+        if sanitized_request is not request_data:
+            request_data = sanitized_request
+            context.domain_request = request_data  # type: ignore[attr-defined]
+
         # Special handling: Cline agent expects tool_calls for proxy commands
         try:
             if (

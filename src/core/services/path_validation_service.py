@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import platform
@@ -189,6 +190,22 @@ class PathValidationService(IPathValidator):
         Returns:
             List of extracted path strings
         """
+        if arguments is None:
+            return []
+
+        if not isinstance(arguments, dict):
+            if isinstance(arguments, str):
+                try:
+                    parsed_arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    return []
+                if isinstance(parsed_arguments, dict):
+                    arguments = parsed_arguments
+                else:
+                    return []
+            else:
+                return []
+
         paths: list[str] = []
 
         for param_name in parameter_names:

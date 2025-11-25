@@ -5,6 +5,8 @@ These tests verify universal properties that should hold across all
 streaming processor implementations.
 """
 
+from typing import Any, cast
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -142,6 +144,39 @@ class TestMiddlewareIdempotence:
             assert result.is_done is True
             assert result.content == chunk.content
             assert result.metadata == chunk.metadata
+
+
+class TestLoopDetectionModalityIsolation:
+    """Ensure content loop detection skips tool-call payloads."""
+
+    class _FailingDetector:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def process_chunk(self, chunk: str):
+            self.calls += 1
+            raise AssertionError("Detector should not run for tool-call chunks")
+
+        def reset(self) -> None:  # pragma: no cover - simple stub
+            return None
+
+    @pytest.mark.asyncio
+    async def test_loop_detection_processor_skips_tool_call_chunks(self) -> None:
+        processor = LoopDetectionProcessor()
+        processor._detector = cast(Any, self._FailingDetector())  # type: ignore[attr-defined]
+        chunk = StreamingContent(
+            content="repeat repeat",
+            metadata={
+                "tool_calls": [
+                    {"function": {"name": "execute_command", "arguments": "{}"}}
+                ]
+            },
+            is_done=False,
+            is_empty=False,
+        )
+
+        result = await processor.process(chunk)
+        assert "loop_detected" not in result.metadata
 
 
 class TestReasoningIsolation:

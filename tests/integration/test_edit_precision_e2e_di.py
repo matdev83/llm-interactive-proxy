@@ -8,7 +8,7 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
-from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.edit_precision_response_middleware import (
     EditPrecisionResponseMiddleware,

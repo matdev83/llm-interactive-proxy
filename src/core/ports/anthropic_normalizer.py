@@ -18,7 +18,6 @@ from src.core.ports.streaming_contracts import (
     StreamingContent,
     handle_streaming_error,
 )
-from src.core.ports.streaming_metrics import get_metrics_instance
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +52,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
         message_id: str | None = None
         model: str | None = None
         role: str | None = None
-        metrics = get_metrics_instance()
 
         try:
             async for raw_chunk in stream:
@@ -86,8 +84,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                         # Use message_id as stream_id
                         if message_id:
                             stream_id = message_id
-                            # Start tracking metrics for this stream
-                            metrics.start_stream(stream_id)
 
                         # Emit initial chunk with role
                         if role:
@@ -102,7 +98,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 stream_id=stream_id,
                             )
                             if self.validate_chunk(chunk):
-                                metrics.increment_chunks_sent(stream_id)
                                 yield chunk
                             else:
                                 logger.warning(
@@ -141,7 +136,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 stream_id=stream_id,
                             )
                             if self.validate_chunk(chunk):
-                                metrics.increment_chunks_sent(stream_id)
                                 yield chunk
                             else:
                                 logger.warning(
@@ -168,7 +162,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 stream_id=stream_id,
                             )
                             if self.validate_chunk(chunk):
-                                metrics.increment_chunks_sent(stream_id)
                                 yield chunk
                             else:
                                 logger.warning(
@@ -214,7 +207,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 chunk.usage = usage
 
                             if self.validate_chunk(chunk):
-                                metrics.increment_chunks_sent(stream_id)
                                 yield chunk
                             else:
                                 logger.warning(
@@ -242,8 +234,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                         if message_id:
                             done_chunk.metadata["id"] = message_id
 
-                        # Track sentinel emission
-                        metrics.increment_sentinels_emitted(stream_id)
                         yield done_chunk
 
                     elif event_type == "ping":
@@ -255,10 +245,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                         error_data = event_data.get("error", {})
                         error_type = error_data.get("type", "unknown")
                         error_message = error_data.get("message", "Unknown error")
-
-                        # Track error termination
-                        if stream_id:
-                            metrics.increment_error_terminations(stream_id)
 
                         # Create error exception and handle it
                         error = Exception(f"{error_type}: {error_message}")
@@ -279,9 +265,6 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                         )
 
         except Exception as e:
-            # Track error termination
-            if stream_id:
-                metrics.increment_error_terminations(stream_id)
             # Emit error chunk
             error_chunk = await handle_streaming_error(e, stream_id, self.provider)
             yield error_chunk

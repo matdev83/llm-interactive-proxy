@@ -13,6 +13,10 @@ from src.core.services.tool_call_loop_middleware import (
     ToolCallLoopDetectionMiddleware,
 )
 from src.tool_call_loop.config import ToolLoopMode
+from src.tool_call_loop.lifecycle_registry import (
+    ToolCallLifecycleRegistry,
+    build_tool_call_signature,
+)
 
 
 class ConcreteToolCallLoopDetectionMiddleware(ToolCallLoopDetectionMiddleware):
@@ -134,11 +138,8 @@ async def test_process_with_tool_calls(
         "session123",
         context={"config": loop_config},
     )
-    # The middleware returns the same response object but marks tool calls as processed
+    # The middleware returns the same response object
     assert result is first_response
-    # Verify tool calls were marked as processed
-    tool_calls = result.content["choices"][0]["message"]["tool_calls"]
-    assert all(tc.get("_already_processed") for tc in tool_calls)
 
     # Second call should pass through
     second_response = ProcessedResponse(
@@ -152,9 +153,6 @@ async def test_process_with_tool_calls(
         context={"config": loop_config},
     )
     assert result is second_response
-    # Verify tool calls were marked as processed
-    tool_calls = result.content["choices"][0]["message"]["tool_calls"]
-    assert all(tc.get("_already_processed") for tc in tool_calls)
 
     # Third call should raise an exception (max_repeats=3)
     with pytest.raises(ToolCallLoopError) as exc_info:
@@ -380,3 +378,44 @@ async def test_tracker_cache_eviction(loop_config, tool_call_response) -> None:
     remaining_sessions = list(middleware._session_trackers.keys())
     assert len(remaining_sessions) == 2
     assert "session-0" not in remaining_sessions
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_registry_allows_new_detections_after_processing(
+    tool_call_response: ProcessedResponse,
+) -> None:
+    """Lifecycle registry should only suppress duplicates while tool call is inflight."""
+
+    registry = ToolCallLifecycleRegistry()
+    middleware = ConcreteToolCallLoopDetectionMiddleware(
+        lifecycle_registry=registry,
+        max_cached_sessions=4,
+    )
+
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=1,
+        tool_loop_ttl_seconds=60,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+    session_id = "lifecycle-session"
+
+    assert isinstance(tool_call_response.content, dict)
+    response_payload = copy.deepcopy(tool_call_response.content)
+
+    await middleware.process(
+        ProcessedResponse(content=response_payload),
+        session_id,
+        context={"config": config},
+    )
+
+    tool_call = response_payload["choices"][0]["message"]["tool_calls"][0]
+    signature = build_tool_call_signature(tool_call)
+    registry.mark_processed(session_id, signature)
+
+    with pytest.raises(ToolCallLoopError):
+        await middleware.process(
+            ProcessedResponse(content=copy.deepcopy(tool_call_response.content)),
+            session_id,
+            context={"config": config},
+        )

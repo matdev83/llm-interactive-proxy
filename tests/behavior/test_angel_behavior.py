@@ -11,6 +11,10 @@ from src.core.interfaces.middleware_application_manager_interface import (
 )
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.streaming.content_accumulation_processor import (
+    ContentAccumulationProcessor,
+)
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 
 class _DummyParser:
@@ -51,11 +55,13 @@ class _DummyAppState:
 
 
 def _make_processor(config: AppConfig) -> ResponseProcessor:
+    stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
     processor = ResponseProcessor(
         response_parser=cast(IResponseParser, _DummyParser()),
         middleware_application_manager=cast(
             IMiddlewareApplicationManager, _DummyMiddlewareManager()
         ),
+        stream_normalizer=stream_normalizer,
     )
     processor._app_state = _DummyAppState(config)  # type: ignore[attr-defined]
     return processor

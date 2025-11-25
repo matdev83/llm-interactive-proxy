@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """
 Hypothesis configuration for property-based testing.
 

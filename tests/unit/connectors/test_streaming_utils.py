@@ -55,7 +55,7 @@ from src.connectors.streaming_utils import (
     normalize_streaming_response,
 )
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.ports.streaming_contracts import StreamingContent
 from src.loop_detection.event import LoopDetectionEvent
 
 

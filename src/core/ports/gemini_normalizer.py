@@ -18,7 +18,6 @@ from src.core.ports.streaming_contracts import (
     StreamingContent,
     handle_streaming_error,
 )
-from src.core.ports.streaming_metrics import get_metrics_instance
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +49,6 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
             Normalized StreamingContent chunks
         """
         stream_id: str | None = None
-        metrics = get_metrics_instance()
 
         try:
             async for raw_chunk in stream:
@@ -75,13 +73,10 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
                     # Extract stream_id from first chunk if available
                     if stream_id is None and "id" in json_obj:
                         stream_id = json_obj["id"]
-                        # Start tracking metrics for this stream
-                        metrics.start_stream(stream_id)
 
                     # Convert to StreamingContent
                     normalized_chunk = self._normalize_chunk(json_obj, stream_id)
                     if normalized_chunk and self.validate_chunk(normalized_chunk):
-                        metrics.increment_chunks_sent(stream_id)
                         yield normalized_chunk
                     elif normalized_chunk is not None:
                         logger.warning(
@@ -95,14 +90,9 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
                 done_chunk.stream_id = stream_id
                 done_chunk.metadata["stream_id"] = stream_id
             done_chunk.metadata["provider"] = self.provider
-            # Track sentinel emission
-            metrics.increment_sentinels_emitted(stream_id)
             yield done_chunk
 
         except Exception as e:
-            # Track error termination
-            if stream_id:
-                metrics.increment_error_terminations(stream_id)
             # Emit error chunk
             error_chunk = await handle_streaming_error(e, stream_id, self.provider)
             yield error_chunk

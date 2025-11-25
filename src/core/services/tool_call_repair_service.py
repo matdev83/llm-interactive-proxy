@@ -371,19 +371,37 @@ class ToolCallRepairService(IToolCallRepairService):
 
     def _extract_xml_tool_call(self, content: str) -> dict[str, Any] | None:
         """Detect and convert XML-formatted tool calls."""
-        stripped = content.strip()
-        if "<" not in stripped or "</" not in stripped:
+        # Use content directly to ensure snippets match original text for removal
+        if "<" not in content or "</" not in content:
             return None
 
         self._last_tool_snippet = None
 
-        use_mcp_match = re.search(
-            r"<use_mcp_tool(?:\s[^>]*)?>.*?</use_mcp_tool>", stripped, re.DOTALL
-        )
-        if use_mcp_match:
-            candidate_snippets = [use_mcp_match.group(0)]
-        else:
-            matches = list(self._XML_SNIPPET_PATTERN.finditer(stripped))
+        # Priority matching for known tool tags (to avoid matching inner tags like <command>)
+        known_tools = [
+            "use_mcp_tool",
+            "execute_command",
+            "patch_file",
+            "ask_followup_question",
+            "attempt_completion",
+            "read_file",
+            "list_files",
+            "codebase_search",
+            "search_files",
+            "access_mcp_resource",
+        ]
+
+        candidate_snippets = []
+        for tool_tag in known_tools:
+            pattern = rf"<{tool_tag}(?:\s[^>]*)?>.*?</{tool_tag}>"
+            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+            if match:
+                candidate_snippets.append(match.group(0))
+                break  # Use first matching known tool
+
+        # If no known tool matched, fall back to generic XML pattern
+        if not candidate_snippets:
+            matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
             if not matches:
                 return None
             candidate_snippets = [match.group(0) for match in matches]

@@ -18,6 +18,10 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.angel_service import ANGEL_PROMPT
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.response_processor_service import ResponseProcessor
+from src.core.services.streaming.content_accumulation_processor import (
+    ContentAccumulationProcessor,
+)
+from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
 from tests.helpers.angel_factory_stub import AngelFactoryStub
 
@@ -113,11 +117,13 @@ class _DummyAppState:
 
 
 def _make_response_processor(config: AppConfig) -> ResponseProcessor:
+    stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
     processor = ResponseProcessor(
         response_parser=cast(IResponseParser, _DummyParser()),
         middleware_application_manager=cast(
             IMiddlewareApplicationManager, _DummyMiddlewareManager()
         ),
+        stream_normalizer=stream_normalizer,
     )
     processor._app_state = _DummyAppState(config)  # type: ignore[attr-defined]
     return processor
@@ -238,7 +244,7 @@ async def test_angel_integration_streaming_override(
     async for chunk in stream_envelope.content:
         gathered.append(str(chunk.content))
 
-    assert gathered == ["Draft", " reply"]
+    assert gathered == ["Draft reply"]
     assert [req.model for req in backend_service.requests] == [
         "fake_backend:guardian",
         "fake_backend:primary",

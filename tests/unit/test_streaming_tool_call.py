@@ -10,7 +10,6 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
@@ -20,6 +19,7 @@ from src.core.interfaces.response_processor_interface import (
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
 )
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.streaming.middleware_application_processor import (

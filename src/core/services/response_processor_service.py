@@ -29,6 +29,9 @@ from src.core.interfaces.streaming_response_processor_interface import IStreamNo
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
+from src.core.services.streaming.stream_context_registry import (
+    get_global_streaming_context_registry,
+)
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.utils.json_intent import infer_expected_json
 
@@ -77,13 +80,20 @@ class ResponseProcessor(IResponseProcessor):
 
             if processors:
                 if content_accumulation_processor is None:
+                    registry = get_global_streaming_context_registry()
                     processors.append(
-                        ContentAccumulationProcessor(max_buffer_bytes=10 * 1024 * 1024)
+                        ContentAccumulationProcessor(
+                            max_buffer_bytes=10 * 1024 * 1024, registry=registry
+                        )
                     )
 
                 self._stream_normalizer = StreamNormalizer(processors)
-            else:
-                self._stream_normalizer = None
+
+        if self._stream_normalizer is None:
+            raise RuntimeError(
+                "ResponseProcessor requires an IStreamNormalizer; "
+                "ensure the streaming pipeline is registered."
+            )
 
     async def _apply_angel_verification(
         self, original_request: Any, content: Any

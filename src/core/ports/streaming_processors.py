@@ -78,6 +78,14 @@ class LoopDetectionProcessor(IStreamProcessor):
         if content.is_done:
             return content
 
+        metadata = content.metadata or {}
+        if (
+            (isinstance(metadata.get("tool_calls"), list) and metadata["tool_calls"])
+            or metadata.get("finish_reason") == "tool_calls"
+            or metadata.get("role") == "tool"
+        ):
+            return content
+
         # Skip empty chunks
         if content.is_empty or not content.content:
             return content

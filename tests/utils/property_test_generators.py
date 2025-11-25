@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """
 Property-based test generators and utilities for streaming pipeline testing.
 

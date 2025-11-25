@@ -19,9 +19,14 @@ from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
-from src.core.utils.message_processing_utils import (
-    is_message_processed,
-    mark_message_processed,
+from src.core.services.streaming.stream_context_registry import (
+    ToolCallBufferState,
+    get_global_streaming_context_registry,
+)
+from src.core.utils.message_processing_utils import is_message_processed
+from src.tool_call_loop.lifecycle_registry import (
+    ToolCallLifecycleRegistry,
+    build_tool_call_signature,
 )
 from src.tool_call_loop.tracker import ToolCallTracker
 
@@ -38,13 +43,18 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
     that may indicate a model is stuck in a loop.
     """
 
-    def __init__(self, max_cached_sessions: int = 256) -> None:
+    def __init__(
+        self,
+        max_cached_sessions: int = 256,
+        lifecycle_registry: ToolCallLifecycleRegistry | None = None,
+    ) -> None:
         """Initialize the middleware."""
         if max_cached_sessions <= 0:
             raise ValueError("max_cached_sessions must be positive")
 
         self._session_trackers: OrderedDict[str, ToolCallTracker] = OrderedDict()
         self._max_cached_sessions = max_cached_sessions
+        self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry()
 
     async def process(
         self,
@@ -82,25 +92,36 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
         metadata = getattr(response, "metadata", {}) or {}
 
-        # Extract tool calls from response content or metadata
-        tool_calls = self._extract_tool_calls(response.content)
-        if not tool_calls:
-            tool_calls = self._extract_tool_calls_from_metadata(metadata)
-        if not tool_calls:
-            return response
+        buffer_state = self._resolve_buffer_state(context)
+        if buffer_state is not None:
+            tool_calls = self._consume_buffered_calls(buffer_state)
+            if not tool_calls:
+                return response
+            new_tool_calls = tool_calls
+        else:
+            # Extract tool calls from response content or metadata
+            tool_calls = self._extract_tool_calls(response.content)
+            if not tool_calls:
+                tool_calls = self._extract_tool_calls_from_metadata(metadata)
+            if not tool_calls:
+                return response
 
-        # Filter out already-processed tool calls to avoid tracking historical data
-        new_tool_calls = self._filter_new_tool_calls(tool_calls, response)
-        if not new_tool_calls:
-            logger.log(
-                5,  # TRACE level
-                f"Skipping loop detection - all {len(tool_calls)} tool calls already processed",
-            )
-            return response
+            # Filter out already-processed tool calls to avoid tracking historical data
+            new_tool_calls = self._filter_new_tool_calls(tool_calls, response)
+            if not new_tool_calls:
+                logger.log(
+                    5,  # TRACE level
+                    f"Skipping loop detection - all {len(tool_calls)} tool calls already processed",
+                )
+                return response
 
         tracker_config = self._build_tracker_config(config)
 
-        resolved_session_id = session_id or context.get("stream_id")
+        resolved_session_id = (
+            context.get("stream_id")
+            or session_id
+            or context.get("_tool_call_loop_session_id")
+        )
         if not resolved_session_id:
             resolved_session_id = context.setdefault(
                 "_tool_call_loop_session_id", uuid4().hex
@@ -108,6 +129,10 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         else:
             resolved_session_id = str(resolved_session_id)
             context.setdefault("_tool_call_loop_session_id", resolved_session_id)
+
+        # Non-streaming responses should treat each detection pass independently
+        if not is_streaming:
+            self._lifecycle.clear_stream(resolved_session_id)
 
         tracker = self._session_trackers.get(resolved_session_id)
         if tracker is None:
@@ -123,6 +148,15 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         for tool_call in new_tool_calls:
             tool_name = tool_call.get("function", {}).get("name", "unknown")
             arguments = tool_call.get("function", {}).get("arguments", "{}")
+
+            signature = build_tool_call_signature(tool_call)
+            if not self._lifecycle.register_detection(resolved_session_id, signature):
+                logger.debug(
+                    "Skipping duplicate in-flight tool call (signature=%s) for stream %s",
+                    signature,
+                    resolved_session_id,
+                )
+                continue
 
             # Track the tool call
             should_block, reason, repeat_count = tracker.track_tool_call(
@@ -147,8 +181,12 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                     },
                 )
 
-        # Mark tool calls as processed after tracking
-        self._mark_tool_calls_processed(tool_calls, response)
+            if buffer_state is None:
+                tool_call["_already_processed"] = True
+            self._lifecycle.mark_processed(resolved_session_id, signature)
+
+        if buffer_state is None:
+            self._mark_message_processed(response)
 
         # If we get here, no loops were detected
         return response
@@ -161,6 +199,8 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         """
         if session_id in self._session_trackers:
             del self._session_trackers[session_id]
+        if self._lifecycle is not None:
+            self._lifecycle.clear_stream(session_id)
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content.
@@ -306,22 +346,56 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
         return new_tool_calls
 
-    def _mark_tool_calls_processed(
-        self, tool_calls: list[dict[str, Any]], response: Any
-    ) -> None:
-        """Mark tool calls as processed to prevent reprocessing.
+    def _resolve_buffer_state(
+        self, context: dict[str, Any] | None
+    ) -> ToolCallBufferState | None:
+        if not context:
+            return None
+        candidate = context.get("tool_call_buffer_state")
+        if isinstance(candidate, ToolCallBufferState):
+            return candidate
 
-        Args:
-            tool_calls: List of tool call dictionaries to mark
-            response: The response object containing the tool calls
-        """
-        # Mark individual tool calls as processed
-        for tool_call in tool_calls:
-            tool_call["_already_processed"] = True
+        stream_identifier = context.get("stream_id") or context.get("session_id")
+        if not stream_identifier:
+            return None
 
-        # Also mark the message as processed if we can access it
-        if hasattr(response, "content") and isinstance(response.content, dict):
-            choices = response.content.get("choices", [])
-            if choices:
-                message = choices[0].get("message", {})
-                mark_message_processed(message)
+        registry = get_global_streaming_context_registry()
+        try:
+            return registry.get_tool_call_buffer(str(stream_identifier))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _consume_buffered_calls(
+        buffer_state: ToolCallBufferState,
+    ) -> list[dict[str, Any]]:
+        if not buffer_state.detected_calls:
+            return []
+        if buffer_state.loop_cursor >= len(buffer_state.detected_calls):
+            return []
+        new_calls = buffer_state.detected_calls[buffer_state.loop_cursor :]
+        buffer_state.loop_cursor = len(buffer_state.detected_calls)
+        return new_calls
+
+    @staticmethod
+    def _mark_message_processed(response: Any) -> None:
+        """Mark message payloads so downstream middleware skips already-checked calls."""
+        if not hasattr(response, "content"):
+            return
+        if not isinstance(response.content, dict):
+            try:
+                if isinstance(response.content, str):
+                    payload = json.loads(response.content)
+                else:
+                    return
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return
+        else:
+            payload = response.content
+
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return
+        message = choices[0].get("message")
+        if isinstance(message, dict):
+            message["_tool_calls_processed"] = True

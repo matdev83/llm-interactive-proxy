@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any, cast
 
 import pytest
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.streaming.stream_context_registry import ToolCallBufferState
 from src.core.services.tool_call_loop_middleware import ToolCallLoopDetectionMiddleware
 from src.tool_call_loop.config import ToolLoopMode
 
@@ -211,7 +213,8 @@ async def test_marks_tool_calls_as_processed_after_tracking() -> None:
     # Tool call should now be marked as processed
     assert tool_call.get("_already_processed") is True
     # Message should also be marked as processed
-    message = response.content["choices"][0]["message"]
+    message_payload = cast(dict[str, Any], response.content)
+    message = cast(dict[str, Any], message_payload["choices"][0]["message"])
     assert message.get("_tool_calls_processed") is True
 
 
@@ -470,3 +473,37 @@ async def test_loop_detection_accuracy_with_mixed_calls() -> None:
             context={"config": config},
             is_streaming=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_streaming_buffer_state_feeds_loop_detector() -> None:
+    middleware = ToolCallLoopDetectionMiddleware()
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=2,
+        tool_loop_ttl_seconds=120,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+    buffer_state = ToolCallBufferState()
+    buffered_call = {
+        "function": {"name": "buffered_tool", "arguments": "{}"},
+        "type": "function",
+    }
+    buffer_state.detected_calls.append(buffered_call)
+
+    response = ProcessedResponse(content={}, metadata={})
+    context = {
+        "config": config,
+        "tool_call_buffer_state": buffer_state,
+        "stream_id": "stream-buffer",
+    }
+
+    await middleware.process(
+        response=response,
+        session_id="session-buffer",
+        context=context,
+        is_streaming=True,
+    )
+
+    assert buffer_state.loop_cursor == 1
+    assert buffered_call.get("_already_processed") is not True

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.application_state_service import (
     ApplicationStateService,
 )

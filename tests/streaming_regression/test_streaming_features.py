@@ -9,7 +9,7 @@ Updated to use new StreamingContent contracts and deterministic testing.
 from __future__ import annotations
 
 import asyncio
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -17,6 +17,12 @@ from src.core.app.test_builder import build_test_app
 from src.core.domain.chat import ChatMessage
 
 from tests.streaming_regression.conftest import count_sse_events
+from tests.streaming_regression.emulators.anthropic_emulator import (
+    AnthropicStreamingEmulator,
+)
+from tests.streaming_regression.emulators.gemini_emulator import (
+    GeminiStreamingEmulator,
+)
 from tests.streaming_regression.emulators.openai_emulator import (
     OpenAIStreamingEmulator,
 )
@@ -60,11 +66,11 @@ async def test_streaming_with_api_key_redaction() -> None:
     # Create chunks that contain an API key
     text_with_key = f"Here is your API key: {_fake_openai_api_key()} and some more text"
     chunks = cast(
-        list[str | bytes],
+        list[str | bytes | dict[str, Any]],
         OpenAIStreamingEmulator.create_text_chunks(text_with_key, chunk_size=15),
     )
 
-    typed_chunks = cast(list[str | bytes], chunks)
+    typed_chunks = cast(list[str | bytes | dict[str, Any]], chunks)
     backend = OpenAIStreamingEmulator(chunks=typed_chunks, chunk_delay=0.02)
     app = build_test_app()
     app.state.disable_auth = True
@@ -119,7 +125,7 @@ async def test_streaming_with_think_tags_fix() -> None:
     # Create chunks with think tags
     text_with_tags = "<think>Let me analyze this</think>Here is the actual response"
     chunks = cast(
-        list[str | bytes],
+        list[str | bytes | dict[str, Any]],
         OpenAIStreamingEmulator.create_text_chunks(text_with_tags, chunk_size=12),
     )
 
@@ -173,7 +179,10 @@ async def test_streaming_with_tool_call_reactor() -> None:
 
     Tool call reactors should process streaming tool calls without buffering.
     """
-    chunks = cast(list[str | bytes], OpenAIStreamingEmulator.create_tool_call_chunks())
+    chunks = cast(
+        list[str | bytes | dict[str, Any]],
+        OpenAIStreamingEmulator.create_tool_call_chunks(),
+    )
 
     backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)
     app = build_test_app()
@@ -233,6 +242,80 @@ async def test_streaming_with_tool_call_reactor() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("emulator_cls", "chunk_factory"),
+    [
+        (OpenAIStreamingEmulator, OpenAIStreamingEmulator.create_tool_call_chunks),
+        (
+            AnthropicStreamingEmulator,
+            AnthropicStreamingEmulator.create_tool_call_chunks,
+        ),
+        (GeminiStreamingEmulator, GeminiStreamingEmulator.create_function_call_chunks),
+    ],
+)
+async def test_streaming_tool_calls_are_deduplicated(
+    emulator_cls, chunk_factory
+) -> None:
+    chunk_list = cast(
+        list[str | bytes | dict[str, Any]],
+        chunk_factory(),
+    )
+    backend = emulator_cls(chunks=chunk_list, chunk_delay=0.01)
+    app = build_test_app()
+    app.state.disable_auth = True
+    _inject_backend(app, backend)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        payload = {
+            "model": "gpt-4",
+            "messages": [ChatMessage(role="user", content="tool please").model_dump()],
+            "stream": True,
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read a file",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"path": {"type": "string"}},
+                            "required": ["path"],
+                        },
+                    },
+                }
+            ],
+        }
+        headers = {"x-goog-api-key": "test-key"}
+
+        tool_call_events = 0
+        async with client.stream(
+            "POST", "/v1/chat/completions", json=payload, headers=headers
+        ) as response:
+            if response.status_code == 401:
+                pytest.skip("Authentication required")
+            assert response.status_code == 200
+            async for chunk in response.aiter_text():
+                text = chunk.strip()
+                if not text:
+                    continue
+                if any(
+                    marker in text
+                    for marker in ('"tool_calls"', '"functionCall"', '"tool_use"')
+                ):
+                    tool_call_events += 1
+
+    if emulator_cls is OpenAIStreamingEmulator:
+        assert (
+            tool_call_events == 1
+        ), f"Expected a single structured tool call event, saw {tool_call_events}"
+    else:
+        assert (
+            tool_call_events <= 1
+        ), f"Expected at most one structured tool call event, saw {tool_call_events}"
+
+
+@pytest.mark.asyncio
 async def test_streaming_with_json_repair() -> None:
     """Test that JSON repair works with streaming.
 
@@ -247,7 +330,7 @@ async def test_streaming_with_json_repair() -> None:
         "data: [DONE]\n\n",
     ]
 
-    typed_chunks = cast(list[str | bytes], chunks)
+    typed_chunks = cast(list[str | bytes | dict[str, Any]], chunks)
     backend = OpenAIStreamingEmulator(chunks=typed_chunks, chunk_delay=0.02)
     app = build_test_app()
     app.state.disable_auth = True
@@ -310,7 +393,7 @@ async def test_streaming_with_reasoning_content() -> None:
     reasoning = "Let me think about this step by step"
     response_text = "Based on my analysis, the answer is 42"
     chunks = cast(
-        list[str | bytes],
+        list[str | bytes | dict[str, Any]],
         OpenAIStreamingEmulator.create_reasoning_chunks(reasoning, response_text),
     )
 

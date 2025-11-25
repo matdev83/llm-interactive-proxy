@@ -8,8 +8,8 @@ to ensure loop detection works correctly without state contamination.
 import asyncio
 
 import pytest
-from src.core.domain.streaming_content import StreamingContent
 from src.core.domain.streaming_response_processor import LoopDetectionProcessor
+from src.core.ports.streaming_contracts import StreamingContent
 from src.loop_detection.hybrid_detector import HybridLoopDetector
 
 

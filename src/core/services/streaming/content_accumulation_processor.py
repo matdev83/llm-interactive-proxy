@@ -1,29 +1,16 @@
 import hashlib
 import json
 import logging
-import time
-from collections import deque
-from dataclasses import dataclass, field
 from typing import Any
 
 from src.core.ports.streaming_contracts import IStreamProcessor, StreamingContent
+from src.core.services.streaming.stream_context_registry import (
+    StreamBufferState,
+    StreamingContextRegistry,
+)
 from src.core.services.streaming.stream_utils import get_stream_id
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class _StreamBufferState:
-    chunks: deque[str] = field(default_factory=deque)
-    # Cache encoded chunks and their lengths to avoid repeated UTF-8 encoding
-    encoded_chunks: deque[bytes] = field(default_factory=deque)
-    chunk_lengths: deque[int] = field(default_factory=deque)
-    byte_length: int = 0
-    truncation_logged: bool = False
-    # Track when this state was last accessed for TTL cleanup
-    last_accessed: float = field(default_factory=time.time)
-    metadata_snapshot: dict[str, Any] = field(default_factory=dict)
-    completed: bool = False
 
 
 class ContentAccumulationProcessor(IStreamProcessor):
@@ -42,6 +29,7 @@ class ContentAccumulationProcessor(IStreamProcessor):
         self,
         max_buffer_bytes: int = 10 * 1024 * 1024,
         state_ttl_seconds: int = 300,  # 5 minutes default TTL
+        registry: StreamingContextRegistry | None = None,
     ) -> None:
         """
         Initialize the content accumulation processor.
@@ -53,36 +41,18 @@ class ContentAccumulationProcessor(IStreamProcessor):
         """
         self._max_buffer_bytes = max_buffer_bytes
         self._state_ttl_seconds = state_ttl_seconds
-        self._states: dict[str, _StreamBufferState] = {}
+        self._registry = registry or StreamingContextRegistry(state_ttl_seconds)
 
-    def _get_state(self, stream_id: str) -> _StreamBufferState:
-        state = self._states.get(stream_id)
-        if state is None:
-            state = _StreamBufferState()
-            self._states[stream_id] = state
-        return state
+    def _get_state(self, stream_id: str) -> StreamBufferState:
+        return self._registry.get_content_state(stream_id)
 
     def _cleanup_stale_states(self) -> None:
         """Remove stream states that have expired due to TTL."""
-        current_time = time.time()
-        expired_stream_ids = []
-
-        for stream_id, state in list(self._states.items()):
-            if current_time - state.last_accessed > self._state_ttl_seconds:
-                expired_stream_ids.append(stream_id)
-
-        # Clean up expired states
-        for stream_id in expired_stream_ids:
-            del self._states[stream_id]
-            logger.debug(
-                "Cleaned up expired stream state for stream_id=%s due to TTL (%s seconds)",
-                stream_id,
-                self._state_ttl_seconds,
-            )
+        self._registry.cleanup_expired()
 
     def reset(self) -> None:
         """Reset the internal buffer so stale content does not leak between streams."""
-        self._states.clear()
+        self._registry.reset_content_states()
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         # Clean up stale states on each request to prevent memory leaks
@@ -90,9 +60,6 @@ class ContentAccumulationProcessor(IStreamProcessor):
 
         stream_id = get_stream_id(content)
         state = self._get_state(stream_id)
-
-        # Update last accessed time for TTL tracking
-        state.last_accessed = time.time()
 
         # Merge metadata so downstream processors have a holistic view
         if content.metadata:
@@ -116,7 +83,7 @@ class ContentAccumulationProcessor(IStreamProcessor):
             metadata_snapshot = dict(content.metadata or {})
             metadata_snapshot.pop("tool_calls", None)
             if content.is_done or content.is_cancellation:
-                self._states.pop(stream_id, None)
+                self._registry.clear_content_state(stream_id)
             return StreamingContent(
                 content=content.content or "",
                 is_done=content.is_done,
@@ -140,6 +107,16 @@ class ContentAccumulationProcessor(IStreamProcessor):
 
         # Add content to buffer and update byte length incrementally
         raw_chunk = content.content
+        reasoning_value: str | None = None
+        if content.metadata:
+            reasoning_value = content.metadata.get(
+                "reasoning_content"
+            ) or content.metadata.get("reasoning")
+            if isinstance(reasoning_value, str):
+                normalized_reasoning = reasoning_value.strip()
+                if normalized_reasoning:
+                    state.reasoning_chunks.append(normalized_reasoning)
+
         if raw_chunk:
             if isinstance(raw_chunk, bytes):
                 chunk_text = raw_chunk.decode("utf-8", errors="ignore")
@@ -200,14 +177,19 @@ class ContentAccumulationProcessor(IStreamProcessor):
                     seen_signatures.add(signature)
                     unique_calls.append(call)
                 metadata_out["tool_calls"] = unique_calls
+            if state.reasoning_chunks:
+                metadata_out["accumulated_reasoning"] = "".join(state.reasoning_chunks)
             metadata_out["accumulated_content"] = final_content
             state.chunks.clear()
             state.encoded_chunks.clear()
             state.chunk_lengths.clear()
             state.byte_length = 0
             state.truncation_logged = False
+            state.reasoning_chunks.clear()
             state.metadata_snapshot = dict(metadata_out)
             state.completed = True
+            if content.is_done or content.is_cancellation:
+                self._registry.clear_content_state(stream_id)
             return StreamingContent(
                 content=final_content,
                 is_done=True,
@@ -216,8 +198,6 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 raw_data=content.raw_data,
             )
         else:
-            # Persist state for the next chunk
-            self._states[stream_id] = state
             interim_metadata = dict(content.metadata)
             interim_metadata.pop("tool_calls", None)
             return StreamingContent(
