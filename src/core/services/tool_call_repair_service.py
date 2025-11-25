@@ -487,7 +487,6 @@ class ToolCallRepairService(IToolCallRepairService):
                 arguments = self._normalize_tool_arguments(
                     tool_name_candidate,
                     arguments_raw,
-                    arguments_element or root,
                 )
                 self._last_tool_snippet = xml_snippet
                 return self._format_openai_tool_call(tool_name_candidate, arguments)
@@ -496,7 +495,7 @@ class ToolCallRepairService(IToolCallRepairService):
             if not isinstance(arguments_raw, dict):
                 arguments_raw = {"content": arguments_raw} if arguments_raw else {}
             self._last_tool_snippet = xml_snippet
-            arguments = self._normalize_tool_arguments(root.tag, arguments_raw, root)
+            arguments = self._normalize_tool_arguments(root.tag, arguments_raw)
             return self._format_openai_tool_call(root.tag, arguments)
 
         return None
@@ -624,7 +623,6 @@ class ToolCallRepairService(IToolCallRepairService):
         self,
         tool_name: str,  # - kept for API compatibility
         arguments: dict[str, Any],
-        context_element: Any,  # - kept for API compatibility
     ) -> dict[str, Any]:
         """Apply generic normalization to extracted XML arguments.
 

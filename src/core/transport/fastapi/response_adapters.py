@@ -540,6 +540,80 @@ def _sanitize_headers(headers: Any) -> dict[str, Any]:
     return filtered
 
 
+def _infer_capture_fields(
+    envelope: Any, context: RequestContext | None
+) -> tuple[str, str, str | None, str | None]:
+    """Extract backend/model/key and session identifiers for capture."""
+    backend = "proxy"
+    model = "unknown"
+    key_name: str | None = None
+    session_id: str | None = None
+
+    metadata = getattr(envelope, "metadata", None)
+    if isinstance(metadata, dict):
+        backend = str(metadata.get("backend", backend) or backend)
+        model = str(metadata.get("model", model) or model)
+        key_name_candidate = metadata.get("key_name")
+        if isinstance(key_name_candidate, str) and key_name_candidate.strip():
+            key_name = key_name_candidate
+        session_candidate = metadata.get("session_id") or metadata.get("stream_id")
+        if isinstance(session_candidate, str) and session_candidate.strip():
+            session_id = session_candidate
+
+    if context is not None:
+        ctx_session = getattr(context, "session_id", None)
+        if isinstance(ctx_session, str) and ctx_session.strip():
+            session_id = ctx_session
+
+    return backend, model, key_name, session_id
+
+
+def _resolve_capture_session_id(
+    session_id: str | None, context: RequestContext | None
+) -> str | None:
+    """Resolve session identifier with fallbacks to request_id."""
+    if session_id and str(session_id).strip():
+        return str(session_id)
+    if context is None:
+        return None
+    request_id = getattr(context, "request_id", None)
+    if isinstance(request_id, str) and request_id.strip():
+        return request_id
+    return None
+
+
+def _maybe_capture_outbound_response(
+    *,
+    wire_capture: IWireCapture | None,
+    context: RequestContext | None,
+    envelope: Any,
+    payload: Any,
+) -> None:
+    """Best-effort capture of outbound non-streaming responses."""
+    if wire_capture is None or not wire_capture.enabled():
+        return
+    backend, model, key_name, session_id = _infer_capture_fields(envelope, context)
+    session_value = _resolve_capture_session_id(session_id, context)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    task = loop.create_task(
+        wire_capture.capture_outbound_response(
+            context=context,
+            session_id=session_value,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            response_content=payload,
+        )
+    )
+    # This ensures the task is stored and prevents it from being garbage-collected
+    # while also handling potential exceptions to avoid "not awaited" warnings.
+    task.add_done_callback(lambda t: t.exception())
+
+
 def _sanitize_status_code(status_code: Any) -> int:
     safe_status_code = 200
     if status_code is not None:
@@ -619,6 +693,11 @@ def to_fastapi_streaming_response(
     """
     from src.core.ports.sse_assembler import SSEAssembler
     from src.core.ports.streaming_contracts import StreamingContent
+
+    capture_backend, capture_model, capture_key_name, inferred_session_id = (
+        _infer_capture_fields(domain_response, context)
+    )
+    capture_session_id = _resolve_capture_session_id(inferred_session_id, context)
 
     async def _streaming_adapter(
         it: AsyncIterator[Any] | Iterable[Any] | None,
@@ -952,6 +1031,16 @@ def to_fastapi_streaming_response(
         streaming_content_iter = _convert_to_streaming_content(iterator)
         sse_bytes_iter = assembler.assemble_stream(streaming_content_iter, format="sse")
 
+        if wire_capture and wire_capture.enabled():
+            sse_bytes_iter = wire_capture.wrap_outbound_stream(
+                context=context,
+                session_id=capture_session_id,
+                backend=capture_backend,
+                model=capture_model,
+                key_name=capture_key_name,
+                stream=sse_bytes_iter,
+            )
+
         async for sse_chunk in sse_bytes_iter:
             yield sse_chunk
             await asyncio.sleep(0)
@@ -977,7 +1066,11 @@ def to_fastapi_streaming_response(
 
 
 def domain_response_to_fastapi(
-    domain_response: Any, content_converter: Callable[[Any], Any] | None = None
+    domain_response: Any,
+    content_converter: Callable[[Any], Any] | None = None,
+    *,
+    wire_capture: IWireCapture | None = None,
+    context: RequestContext | None = None,
 ) -> Response | StreamingResponse:
     """Convert any domain response to a FastAPI response.
 
@@ -997,7 +1090,9 @@ def domain_response_to_fastapi(
         isinstance(domain_response, StreamingResponseEnvelope)
         or domain_response.__class__.__name__ == "StreamingResponseEnvelope"
     ):
-        return to_fastapi_streaming_response(domain_response)
+        return to_fastapi_streaming_response(
+            domain_response, wire_capture=wire_capture, context=context
+        )
 
     # If it's a StreamingChatResponse, convert to StreamingResponseEnvelope
     if isinstance(domain_response, StreamingChatResponse):
@@ -1011,7 +1106,14 @@ def domain_response_to_fastapi(
         return to_fastapi_streaming_response(
             StreamingResponseEnvelope(
                 content=content_iterator, media_type="text/event-stream", headers={}
-            )
+            ),
+            wire_capture=wire_capture,
+            context=context,
         )
 
-    return to_fastapi_response(domain_response, content_converter)
+    return to_fastapi_response(
+        domain_response,
+        content_converter,
+        wire_capture=wire_capture,
+        context=context,
+    )
