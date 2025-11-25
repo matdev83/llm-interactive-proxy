@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 from src.loop_detection.event import (
     LoopDetectionEvent,  # Added import for return type annotation
 )
+from src.loop_detection.types import (
+    StandardLoopDetectorState,
+    StandardLoopDetectorStats,
+)
 
 from .analyzer import PatternAnalyzer
 from .buffer import ResponseBuffer
@@ -137,17 +141,17 @@ class LoopDetector(ILoopDetector):
         self._history.clear()
         logger.debug("Loop detector state reset")
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> StandardLoopDetectorStats:
         """Get detector statistics."""
         # These should never be None after initialization
         assert self.config.short_pattern_threshold is not None
         assert self.config.medium_pattern_threshold is not None
         assert self.config.long_pattern_threshold is not None
 
-        return {
-            "is_active": self.is_active,
-            "last_detection_position": self.last_detection_position,
-            "config": {
+        return StandardLoopDetectorStats(
+            is_active=self.is_active,
+            last_detection_position=self.last_detection_position,
+            config={
                 "buffer_size": self.config.buffer_size,
                 "max_pattern_length": self.config.max_pattern_length,
                 "short_threshold": {
@@ -163,22 +167,22 @@ class LoopDetector(ILoopDetector):
                     "min_total_length": self.config.long_pattern_threshold.min_total_length,
                 },
             },
-        }
+        )
 
     def get_loop_history(self) -> list[LoopDetectionEvent]:
         """Retrieve the aggregated history of detected loops."""
         return self._history.copy()
 
-    def get_current_state(self) -> dict[str, Any]:
+    def get_current_state(self) -> StandardLoopDetectorState:
         """
         Retrieves the current internal state of the loop detector.
         """
-        return {
-            "buffer_content_length": len(self.buffer.get_content()),
-            "total_processed": self.total_processed,
-            "last_detection_position": self.last_detection_position,
-            "analyzer_state": self.analyzer.get_state(),
-        }
+        return StandardLoopDetectorState(
+            buffer_content_length=len(self.buffer.get_content()),
+            total_processed=self.total_processed,
+            last_detection_position=self.last_detection_position,
+            analyzer_state=self.analyzer.get_state(),
+        )
 
     def update_config(self, new_config: InternalLoopDetectionConfig) -> None:
         """Update the detector configuration."""
@@ -291,26 +295,26 @@ class NoOpLoopDetector(ILoopDetector):
         """Check if loop detection is enabled."""
         return False
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> StandardLoopDetectorStats:
         """Get detector statistics."""
-        return {
-            "is_active": False,
-            "last_detection_position": -1,
-            "config": {},
-        }
+        return StandardLoopDetectorStats(
+            is_active=False,
+            last_detection_position=-1,
+            config={},
+        )
 
     def get_loop_history(self) -> list[LoopDetectionEvent]:
         """Retrieve loop history (always empty)."""
         return []
 
-    def get_current_state(self) -> dict[str, Any]:
+    def get_current_state(self) -> StandardLoopDetectorState:
         """Get current state."""
-        return {
-            "buffer_content_length": 0,
-            "total_processed": 0,
-            "last_detection_position": -1,
-            "analyzer_state": {},
-        }
+        return StandardLoopDetectorState(
+            buffer_content_length=0,
+            total_processed=0,
+            last_detection_position=-1,
+            analyzer_state={},
+        )
 
     def update_config(self, new_config: InternalLoopDetectionConfig) -> None:
         """Update configuration (no-op)."""

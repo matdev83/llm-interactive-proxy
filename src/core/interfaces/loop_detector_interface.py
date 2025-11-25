@@ -66,12 +66,22 @@ class ILoopDetector(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_current_state(self) -> dict[str, Any]:
+    def get_current_state(self) -> Any:
         """
         Retrieves the current internal state of the loop detector.
 
         Returns:
-            A dictionary representing the current state.
+            A model representing the current state (specific to implementation).
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_stats(self) -> Any:
+        """
+        Retrieves detector statistics.
+
+        Returns:
+            A model representing statistics (specific to implementation).
         """
         raise NotImplementedError
 

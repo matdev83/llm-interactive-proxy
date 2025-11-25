@@ -64,7 +64,7 @@ class HybridDetectorStats(BaseModel):
 class HybridDetectorState(BaseModel):
     """Current state of HybridLoopDetector."""
 
-    short_detector_state: LoopDetectorState
+    short_detector_state: dict[str, Any]  # Dict from get_current_state()
     long_detector_content_length: int
     total_events: int
 
@@ -75,3 +75,20 @@ class HybridDetectorInternalState(BaseModel):
     short_detector_state: dict[str, Any]  # Stored as dict to match internal return type
     long_detector_content: str
     loop_events: list[Any]  # list[LoopDetectionEvent] but avoiding circular import
+
+
+class StandardLoopDetectorStats(BaseModel):
+    """Statistics for Standard LoopDetector."""
+
+    is_active: bool
+    last_detection_position: int
+    config: LoopDetectorConfig  # Nested config structure
+
+
+class StandardLoopDetectorState(BaseModel):
+    """Current state of Standard LoopDetector."""
+
+    buffer_content_length: int
+    total_processed: int
+    last_detection_position: int
+    analyzer_state: dict[str, Any]

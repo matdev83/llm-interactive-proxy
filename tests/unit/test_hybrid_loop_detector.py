@@ -127,7 +127,7 @@ Fixtures:
         ), "Expected at least one loop detection for mixed patterns"
 
         stats = detector.get_stats()
-        assert stats["total_events"] > 0
+        assert stats.total_events > 0
         assert detection_event.repetition_count >= 2
 
     def test_performance_with_large_content(self):
@@ -153,7 +153,7 @@ Fixtures:
             # This test mainly ensures performance and no crashes
 
         stats = detector.get_stats()
-        assert stats["is_enabled"] is True
+        assert stats.is_enabled is True
 
     def test_enable_disable_functionality(self):
         """Test enable/disable functionality."""
@@ -184,7 +184,7 @@ Fixtures:
         detector.reset()
 
         stats = detector.get_stats()
-        assert stats["total_events"] == 0
+        assert stats.total_events == 0
 
     def test_stats_and_history(self):
         """Test statistics and history tracking."""
@@ -199,9 +199,9 @@ Fixtures:
                 break
 
         stats = detector.get_stats()
-        assert "detection_method" in stats
-        assert "short_detector" in stats
-        assert "long_detector" in stats
+        assert hasattr(stats, "detection_method")
+        assert hasattr(stats, "short_detector")
+        assert hasattr(stats, "long_detector")
 
         history = detector.get_loop_history()
         assert isinstance(history, list)
@@ -238,7 +238,7 @@ Fixtures:
 
         # Should not crash and should reset state
         stats = detector.get_stats()
-        assert stats["short_detector"]["config"]["content_chunk_size"] == 40
+        assert stats.short_detector.config.content_chunk_size == 40
 
 
 class TestRollingHashTracker:
