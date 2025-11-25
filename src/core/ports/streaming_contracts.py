@@ -262,23 +262,25 @@ class StreamingContent:
                 delta["content"] = json.dumps(self.content)
             else:
                 delta["content"] = str(self.content)
+        else:
+            delta["content"] = str(self.content)
 
         # Build response data
-        data = {"choices": [{"delta": delta}]}
+        response_data: dict[str, Any] = {"choices": [{"delta": delta}]}
 
         # Add finish_reason
         finish_reason = self.metadata.get("finish_reason")
-        data["choices"][0]["finish_reason"] = finish_reason  # type: ignore[index]
+        response_data["choices"][0]["finish_reason"] = finish_reason  # type: ignore[index]
 
         # Add metadata fields
         for key in ["id", "model", "created"]:
             if key in self.metadata:
-                data[key] = self.metadata[key]
+                response_data[key] = self.metadata[key]
 
         if self.usage:
-            data["usage"] = self.usage
+            response_data["usage"] = self.usage
 
-        result = f"data: {json.dumps(data)}\n\n"
+        result = f"data: {json.dumps(response_data)}\n\n"
         # Append [DONE] if this is the final chunk
         if self.is_done:
             result += "data: [DONE]\n\n"

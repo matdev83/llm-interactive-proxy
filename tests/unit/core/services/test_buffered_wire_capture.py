@@ -263,6 +263,48 @@ async def test_wrap_inbound_stream(buffered_wire_capture, temp_capture_file):
 
 
 @pytest.mark.asyncio
+async def test_wrap_inbound_stream_generates_stable_session_id(
+    buffered_wire_capture, temp_capture_file
+):
+    """Ensure stream capture uses one session identifier when none is provided."""
+    context = MagicMock(spec=RequestContext)
+    context.client_host = "10.0.0.2"
+    context.agent = "StreamClient/2.0"
+    context.session_id = None
+    context.request_id = None
+
+    async def mock_stream():
+        yield b"alpha"
+        yield b"beta"
+
+    wrapped_stream = buffered_wire_capture.wrap_inbound_stream(
+        context=context,
+        session_id=None,
+        backend="openai",
+        model="gpt-4",
+        key_name=None,
+        stream=mock_stream(),
+    )
+
+    async for _ in wrapped_stream:
+        pass
+
+    await buffered_wire_capture._flush_buffer()
+
+    with open(temp_capture_file) as f:
+        stream_entries = [
+            json.loads(line.strip())
+            for line in f.readlines()
+            if "stream" in json.loads(line.strip()).get("direction", "")
+        ]
+
+    assert len(stream_entries) == 4  # start + 2 chunks + end
+    session_ids = {entry["session_id"] for entry in stream_entries}
+    assert len(session_ids) == 1
+    assert next(iter(session_ids))
+
+
+@pytest.mark.asyncio
 async def test_buffering_behavior(buffered_wire_capture, temp_capture_file):
     """Test that buffering works correctly."""
     # Capture multiple entries quickly

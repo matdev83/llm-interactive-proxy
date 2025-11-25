@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import math
@@ -8,6 +9,7 @@ import re
 import time
 from collections import OrderedDict
 from typing import Any, cast
+from uuid import uuid4
 
 from fastapi import HTTPException
 
@@ -404,6 +406,37 @@ class BackendService(IBackendService):
             )
 
         return exc
+
+    def _resolve_stream_session_id(
+        self,
+        session_id: str | None,
+        context: RequestContext | None,
+        request: ChatRequest,
+    ) -> str:
+        """Resolve a stable identifier for streaming capture and buffering."""
+        if session_id:
+            return str(session_id)
+
+        request_session = getattr(request, "session_id", None)
+        if request_session:
+            return str(request_session)
+
+        try:
+            extra_body = getattr(request, "extra_body", None)
+            if isinstance(extra_body, dict):
+                extra_session = extra_body.get("session_id")
+                if extra_session:
+                    return str(extra_session)
+        except Exception:
+            logger.debug(
+                "Failed to read session_id from request.extra_body", exc_info=True
+            )
+
+        context_request_id = getattr(context, "request_id", None) if context else None
+        if context_request_id:
+            return str(context_request_id)
+
+        return uuid4().hex
 
     def _apply_reasoning_config(
         self, request: ChatRequest, session: Any
@@ -1293,6 +1326,12 @@ class BackendService(IBackendService):
                         raise
                 # Get session_id from context for stream correlation
                 session_id = getattr(context, "session_id", None)
+                session_id = self._resolve_stream_session_id(
+                    session_id, context, domain_request
+                )
+                if context is not None and not getattr(context, "session_id", None):
+                    with contextlib.suppress(Exception):
+                        context.session_id = session_id
                 from src.core.domain.responses import StreamingResponseEnvelope
 
                 # Wire-capture: capture inbound
@@ -1324,7 +1363,10 @@ class BackendService(IBackendService):
                                     yield ProcessedResponse(
                                         content=b,
                                         metadata=(
-                                            {"session_id": session_id}
+                                            {
+                                                "session_id": session_id,
+                                                "stream_id": session_id,
+                                            }
                                             if session_id
                                             else {}
                                         ),
@@ -1368,6 +1410,8 @@ class BackendService(IBackendService):
                                 metadata = dict(chunk.metadata or {})
                                 if session_id and "session_id" not in metadata:
                                     metadata["session_id"] = session_id
+                                if session_id and "stream_id" not in metadata:
+                                    metadata["stream_id"] = session_id
                                 yield ProcessedResponse(
                                     content=chunk.content,
                                     metadata=metadata,
@@ -1378,7 +1422,12 @@ class BackendService(IBackendService):
                                 yield ProcessedResponse(
                                     content=chunk,
                                     metadata=(
-                                        {"session_id": session_id} if session_id else {}
+                                        {
+                                            "session_id": session_id,
+                                            "stream_id": session_id,
+                                        }
+                                        if session_id
+                                        else {}
                                     ),
                                 )
 

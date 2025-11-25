@@ -464,6 +464,7 @@ class BufferedWireCapture(IWireCapture):
             return _StreamPassthroughWrapper(stream)
         # Ensure background task runs in async contexts
         self._maybe_start_flush_task()
+        stream_session_id = self._resolve_stream_session_id(session_id, context)
 
         async def _capture_stream() -> AsyncIterator[bytes]:
             # Stream start marker
@@ -472,7 +473,7 @@ class BufferedWireCapture(IWireCapture):
                 source=backend,
                 destination=self._get_client_info(context),
                 context=context,
-                session_id=session_id,
+                session_id=stream_session_id,
                 backend=backend,
                 model=model,
                 key_name=key_name,
@@ -494,7 +495,7 @@ class BufferedWireCapture(IWireCapture):
                     source=backend,
                     destination=self._get_client_info(context),
                     context=context,
-                    session_id=session_id,
+                    session_id=stream_session_id,
                     backend=backend,
                     model=model,
                     key_name=key_name,
@@ -511,7 +512,7 @@ class BufferedWireCapture(IWireCapture):
                 source=backend,
                 destination=self._get_client_info(context),
                 context=context,
-                session_id=session_id,
+                session_id=stream_session_id,
                 backend=backend,
                 model=model,
                 key_name=key_name,
@@ -872,3 +873,20 @@ class BufferedWireCapture(IWireCapture):
         """Ensure cleanup is attempted on garbage collection."""
         if self.enabled():
             self.force_shutdown_sync()
+
+    def _resolve_stream_session_id(
+        self, session_id: str | None, context: RequestContext | None
+    ) -> str:
+        """Return a stable session identifier for streaming capture."""
+        if session_id and str(session_id).strip():
+            return str(session_id)
+
+        request_id: str | None = None
+        if context is not None:
+            request_id = getattr(context, "request_id", None)
+            if _is_mock(request_id):
+                request_id = None
+        if request_id and str(request_id).strip():
+            return str(request_id)
+
+        return uuid4().hex

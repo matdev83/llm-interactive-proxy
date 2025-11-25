@@ -8,7 +8,6 @@ if the backend does not provide it.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from src.core.ports.streaming_contracts import StreamingContent
 from src.core.utils.token_count import count_tokens
@@ -67,7 +66,9 @@ class UsageCalculationProcessor:
         if chunk.is_done:
             if not chunk.usage:
                 # Calculate usage
-                completion_tokens = count_tokens(self.completion_text, model=self.model_name)
+                completion_tokens = count_tokens(
+                    self.completion_text, model=self.model_name
+                )
                 total_tokens = self.prompt_tokens + completion_tokens
 
                 chunk.usage = {
@@ -75,7 +76,7 @@ class UsageCalculationProcessor:
                     "completion_tokens": completion_tokens,
                     "total_tokens": total_tokens,
                 }
-                
+
                 logger.debug(
                     "Calculated usage for stream: prompt=%d, completion=%d, total=%d",
                     self.prompt_tokens,

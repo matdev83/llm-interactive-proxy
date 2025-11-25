@@ -1,5 +1,40 @@
 # Changelog
 
+## [2025-11-25] - Unified Streaming Pipeline & Tool Call Reliability
+
+### Major Refactoring: Unified Response Pipeline
+
+- **Single Code Path for All Responses**: Merged streaming and non-streaming response processing into a unified pipeline (`UnifiedResponsePipeline`). Non-streaming responses are now wrapped as single-chunk streams via `NonStreamingAdapter`, processed through all middleware, then unwrapped back to `ProcessedResponse`.
+- **Eliminated Code Duplication**: Removed duplicate middleware application logic between streaming and non-streaming paths, following DRY principles.
+- **Consistent Middleware Application**: All `IResponseMiddleware` implementations (tool call repair, loop detection, content filtering, redaction) are now applied consistently regardless of response type.
+- **Simplified `ResponseProcessor`**: Now delegates to `UnifiedResponsePipeline` for all response types.
+- **Deprecated `MiddlewareApplicationManager`**: No longer processes responses directly; retained only as a configuration holder for the middleware list.
+
+### Tool Call Reliability Improvements
+
+- **Fixed Session ID Propagation**: Resolved critical bug where `session_id` was not being propagated to streaming chunks, causing tool call buffering to fail when chunks were split across multiple SSE events.
+- **Robust Stream Correlation**: Added `_resolve_stream_session_id` method in `BackendService` that resolves stable identifiers from multiple sources (context, request, extra_body, request_id, or generates UUID as fallback).
+- **Consistent `stream_id` Injection**: Both wire-capture and non-wire-capture paths now consistently include `session_id` and `stream_id` in chunk metadata.
+- **Improved XML Tool Buffering**: Tool calls split across multiple chunks are now correctly reassembled regardless of varying chunk IDs.
+
+### Streaming Pipeline Completion
+
+- **All P0 Blockers Resolved**: Tool-call lifecycle unified, buffers centralized via `StreamingContextRegistry`, legacy paths removed, property tests implemented, strict DI enforced.
+- **All P1 Items Resolved**: Loop detection deduplication, metrics consistency, error handling, streaming sampler configuration.
+- **All P2 Items Resolved**: Filesystem watcher debouncing, generalized XML tool buffering, content accumulation with reasoning metadata, documentation updates.
+
+### Testing
+
+- **5398 tests passing** (8 skipped)
+- Property-based tests with Hypothesis for streaming contracts
+- Regression tests for XML tool call buffering
+- Integration tests for unified pipeline
+
+### Documentation
+
+- Updated `docs/streaming_pipeline_migration.md` with unified pipeline architecture
+- Updated `.kiro/specs/streaming-pipeline-refactor/remaining-gaps.md` to reflect 100% completion
+
 ## ["2025-11-21"]
 
 - **Features**:

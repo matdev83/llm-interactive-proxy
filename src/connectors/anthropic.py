@@ -198,6 +198,19 @@ class AnthropicBackend(LLMBackend):
                 # Get raw stream from backend via StreamProducer protocol
                 raw_stream = self.stream_completion(domain_request)
 
+                # Calculate prompt tokens for usage tracking
+                prompt_tokens = 0
+                try:
+                    from src.core.utils.token_count import (
+                        count_tokens,
+                        extract_prompt_text,
+                    )
+
+                    prompt_text = extract_prompt_text(processed_messages)
+                    prompt_tokens = count_tokens(prompt_text, model=effective_model)
+                except Exception:
+                    logger.warning("Failed to calculate prompt tokens", exc_info=True)
+
                 # Integrate with streaming pipeline
                 from src.core.ports.streaming_integration import (
                     integrate_streaming_pipeline,
@@ -210,6 +223,8 @@ class AnthropicBackend(LLMBackend):
                     enable_loop_detection=True,
                     enable_tool_call_repair=True,
                     enable_think_tags=True,
+                    prompt_tokens=prompt_tokens,
+                    model_name=effective_model,
                 )
             except AuthenticationError:
                 raise

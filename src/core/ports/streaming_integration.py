@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from typing import Any, cast
 
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -111,7 +111,12 @@ async def integrate_streaming_pipeline(
         from src.core.ports.usage_processor import UsageCalculationProcessor
 
         def _usage_processor_factory() -> IStreamProcessor:
-            return UsageCalculationProcessor(prompt_tokens=prompt_tokens, model_name=model_name)
+            return cast(
+                IStreamProcessor,
+                UsageCalculationProcessor(
+                    prompt_tokens=prompt_tokens, model_name=model_name
+                ),
+            )
 
         processors.append(_usage_processor_factory())
 
