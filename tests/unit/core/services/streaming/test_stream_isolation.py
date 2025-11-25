@@ -177,6 +177,9 @@ class _DummyLoopDetector(ILoopDetector):
     def get_current_state(self):
         return {"chunks": list(self.chunks)}
 
+    def get_stats(self):
+        return {"total_chunks": len(self.chunks)}
+
     async def check_for_loops(self, content: str) -> LoopDetectionResult:
         self.chunks.append(content)
         return LoopDetectionResult(has_loop=False)
@@ -212,6 +215,9 @@ class _TriggeringLoopDetector(ILoopDetector):
         return []
 
     def get_current_state(self):
+        return {"triggered": self.triggered}
+
+    def get_stats(self):
         return {"triggered": self.triggered}
 
     async def check_for_loops(self, content: str) -> LoopDetectionResult:

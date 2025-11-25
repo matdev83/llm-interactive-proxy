@@ -1291,13 +1291,14 @@ class BackendService(IBackendService):
                         )
                     else:
                         raise
+                # Get session_id from context for stream correlation
+                session_id = getattr(context, "session_id", None)
+                from src.core.domain.responses import StreamingResponseEnvelope
+
                 # Wire-capture: capture inbound
                 try:
                     if self._wire_capture and self._wire_capture.enabled():
                         key_name = self._detect_key_name(backend_type)
-                        # Get session_id from context, not from request.extra_body
-                        session_id = getattr(context, "session_id", None)
-                        from src.core.domain.responses import StreamingResponseEnvelope
 
                         if isinstance(result, StreamingResponseEnvelope):
                             # Adapt domain stream to bytes for capture and transport
@@ -1312,16 +1313,25 @@ class BackendService(IBackendService):
                             )
 
                             # Convert back to ProcessedResponse stream for adapters
-                            async def _to_processed() -> Any:
+                            # IMPORTANT: Include session_id in metadata for stream correlation
+                            # This ensures tool call buffering works correctly across chunks
+                            async def _to_processed_with_capture() -> Any:
                                 from src.core.interfaces.response_processor_interface import (
                                     ProcessedResponse,
                                 )
 
                                 async for b in wrapped_stream:  # type: ignore
-                                    yield ProcessedResponse(content=b)
+                                    yield ProcessedResponse(
+                                        content=b,
+                                        metadata=(
+                                            {"session_id": session_id}
+                                            if session_id
+                                            else {}
+                                        ),
+                                    )
 
                             return StreamingResponseEnvelope(
-                                content=_to_processed(),
+                                content=_to_processed_with_capture(),
                                 media_type=result.media_type,
                                 headers=result.headers,
                             )
@@ -1340,6 +1350,42 @@ class BackendService(IBackendService):
                         backend_type,
                         effective_model,
                         exc_info=True,
+                    )
+
+                # IMPORTANT: Always wrap streaming responses with session_id for proper
+                # tool call buffering, even when wire capture is disabled
+                if isinstance(result, StreamingResponseEnvelope):
+                    original_content = result.content
+
+                    async def _inject_session_id() -> Any:
+                        from src.core.interfaces.response_processor_interface import (
+                            ProcessedResponse,
+                        )
+
+                        async for chunk in original_content:  # type: ignore
+                            if isinstance(chunk, ProcessedResponse):
+                                # Merge session_id into existing metadata
+                                metadata = dict(chunk.metadata or {})
+                                if session_id and "session_id" not in metadata:
+                                    metadata["session_id"] = session_id
+                                yield ProcessedResponse(
+                                    content=chunk.content,
+                                    metadata=metadata,
+                                    usage=chunk.usage,
+                                )
+                            else:
+                                # Wrap raw chunk with session_id
+                                yield ProcessedResponse(
+                                    content=chunk,
+                                    metadata=(
+                                        {"session_id": session_id} if session_id else {}
+                                    ),
+                                )
+
+                    return StreamingResponseEnvelope(
+                        content=_inject_session_id(),
+                        media_type=result.media_type,
+                        headers=result.headers,
                     )
 
                 return result

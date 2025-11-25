@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 
@@ -19,6 +19,8 @@ from src.loop_detection.event import (
     LoopDetectionEvent,  # Added import for return type annotation
 )
 from src.loop_detection.types import (
+    PatternThresholdsModel,
+    StandardLoopDetectorConfig,
     StandardLoopDetectorState,
     StandardLoopDetectorStats,
 )
@@ -151,22 +153,22 @@ class LoopDetector(ILoopDetector):
         return StandardLoopDetectorStats(
             is_active=self.is_active,
             last_detection_position=self.last_detection_position,
-            config={
-                "buffer_size": self.config.buffer_size,
-                "max_pattern_length": self.config.max_pattern_length,
-                "short_threshold": {
-                    "min_repetitions": self.config.short_pattern_threshold.min_repetitions,
-                    "min_total_length": self.config.short_pattern_threshold.min_total_length,
-                },
-                "medium_threshold": {
-                    "min_repetitions": self.config.medium_pattern_threshold.min_repetitions,
-                    "min_total_length": self.config.medium_pattern_threshold.min_total_length,
-                },
-                "long_threshold": {
-                    "min_repetitions": self.config.long_pattern_threshold.min_repetitions,
-                    "min_total_length": self.config.long_pattern_threshold.min_total_length,
-                },
-            },
+            config=StandardLoopDetectorConfig(
+                buffer_size=self.config.buffer_size,
+                max_pattern_length=self.config.max_pattern_length,
+                short_threshold=PatternThresholdsModel(
+                    min_repetitions=self.config.short_pattern_threshold.min_repetitions,
+                    min_total_length=self.config.short_pattern_threshold.min_total_length,
+                ),
+                medium_threshold=PatternThresholdsModel(
+                    min_repetitions=self.config.medium_pattern_threshold.min_repetitions,
+                    min_total_length=self.config.medium_pattern_threshold.min_total_length,
+                ),
+                long_threshold=PatternThresholdsModel(
+                    min_repetitions=self.config.long_pattern_threshold.min_repetitions,
+                    min_total_length=self.config.long_pattern_threshold.min_total_length,
+                ),
+            ),
         )
 
     def get_loop_history(self) -> list[LoopDetectionEvent]:
@@ -300,7 +302,19 @@ class NoOpLoopDetector(ILoopDetector):
         return StandardLoopDetectorStats(
             is_active=False,
             last_detection_position=-1,
-            config={},
+            config=StandardLoopDetectorConfig(
+                buffer_size=0,
+                max_pattern_length=0,
+                short_threshold=PatternThresholdsModel(
+                    min_repetitions=0, min_total_length=0
+                ),
+                medium_threshold=PatternThresholdsModel(
+                    min_repetitions=0, min_total_length=0
+                ),
+                long_threshold=PatternThresholdsModel(
+                    min_repetitions=0, min_total_length=0
+                ),
+            ),
         )
 
     def get_loop_history(self) -> list[LoopDetectionEvent]:

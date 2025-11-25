@@ -57,6 +57,11 @@ class SimpleLoopDetector(ILoopDetector):
     def get_current_state(self) -> dict[str, object]:  # pragma: no cover - unused
         return {"fired": self._fired}
 
+    def get_stats(
+        self,
+    ) -> dict[str, object]:  # pragma: no cover - required by interface
+        return {"fired": self._fired, "history_count": len(self._history)}
+
     async def check_for_loops(self, content: str):  # pragma: no cover - legacy path
         # Not used by LoopDetectionProcessor in this pipeline
         return None

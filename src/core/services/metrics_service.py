@@ -9,7 +9,7 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _counters: dict[str, int] = defaultdict(int)
 _timers: dict[str, list[float]] = defaultdict(list)
 

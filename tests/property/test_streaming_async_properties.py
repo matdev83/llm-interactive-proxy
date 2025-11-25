@@ -47,8 +47,14 @@ async def test_property_27_incremental_middleware_processing(
 
     # Ensure chunks have non-empty content so they are not filtered out
     # Empty chunks without is_done=True are skipped by StreamNormalizer
+    # Note: whitespace-only content is also considered empty (content.strip() == "")
     for i, chunk in enumerate(chunks):
-        if not chunk.content and not chunk.is_done:
+        # Use actual non-whitespace content to ensure chunk is not filtered
+        needs_content = not chunk.is_done and (
+            not chunk.content
+            or (isinstance(chunk.content, str) and not chunk.content.strip())
+        )
+        if needs_content:
             chunk.content = f"chunk_{i}"
 
     normalizer = StreamNormalizer([_PassthroughProcessor()])
@@ -57,8 +63,19 @@ async def test_property_27_incremental_middleware_processing(
         chunk
         async for chunk in normalizer.process_stream(stream, output_format="objects")
     ]
-    # Non-empty chunks plus the final done marker should all be emitted
-    non_empty_or_done = [c for c in chunks if c.content or c.is_done]
+
+    # Non-empty chunks (with non-whitespace content) plus the final done marker should all be emitted
+    # A chunk is considered non-empty if it has content that is not just whitespace
+    def is_non_empty(c: StreamingContent) -> bool:
+        if c.is_done:
+            return True
+        if not c.content:
+            return False
+        if isinstance(c.content, str):
+            return bool(c.content.strip())
+        return True
+
+    non_empty_or_done = [c for c in chunks if is_non_empty(c)]
     assert len(outputs) == len(non_empty_or_done)
 
 

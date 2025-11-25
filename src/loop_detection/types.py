@@ -64,7 +64,9 @@ class HybridDetectorStats(BaseModel):
 class HybridDetectorState(BaseModel):
     """Current state of HybridLoopDetector."""
 
-    short_detector_state: dict[str, Any]  # Dict from get_current_state()
+    short_detector_state: (
+        LoopDetectorState  # From TokenWindowLoopDetector.get_current_state()
+    )
     long_detector_content_length: int
     total_events: int
 
@@ -77,12 +79,29 @@ class HybridDetectorInternalState(BaseModel):
     loop_events: list[Any]  # list[LoopDetectionEvent] but avoiding circular import
 
 
+class PatternThresholdsModel(BaseModel):
+    """Thresholds for pattern detection."""
+
+    min_repetitions: int
+    min_total_length: int
+
+
+class StandardLoopDetectorConfig(BaseModel):
+    """Configuration for Standard LoopDetector."""
+
+    buffer_size: int
+    max_pattern_length: int
+    short_threshold: PatternThresholdsModel
+    medium_threshold: PatternThresholdsModel
+    long_threshold: PatternThresholdsModel
+
+
 class StandardLoopDetectorStats(BaseModel):
     """Statistics for Standard LoopDetector."""
 
     is_active: bool
     last_detection_position: int
-    config: LoopDetectorConfig  # Nested config structure
+    config: StandardLoopDetectorConfig  # Nested config structure
 
 
 class StandardLoopDetectorState(BaseModel):

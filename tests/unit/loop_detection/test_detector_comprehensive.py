@@ -226,23 +226,25 @@ class TestLoopDetector:
 
     def test_get_stats(self, detector: LoopDetector) -> None:
         """Test getting detector statistics."""
+        from src.loop_detection.types import StandardLoopDetectorStats
+
         stats = detector.get_stats()
 
-        assert isinstance(stats, dict)
-        assert "is_active" in stats
-        assert "last_detection_position" in stats
-        assert "config" in stats
+        assert isinstance(stats, StandardLoopDetectorStats)
+        assert hasattr(stats, "is_active")
+        assert hasattr(stats, "last_detection_position")
+        assert hasattr(stats, "config")
 
-        assert stats["is_active"] == detector.is_enabled()
-        assert stats["last_detection_position"] == detector.last_detection_position
+        assert stats.is_active == detector.is_enabled()
+        assert stats.last_detection_position == detector.last_detection_position
 
         # Check config structure
-        config_stats = stats["config"]
-        assert "buffer_size" in config_stats
-        assert "max_pattern_length" in config_stats
-        assert "short_threshold" in config_stats
-        assert "medium_threshold" in config_stats
-        assert "long_threshold" in config_stats
+        config_stats = stats.config
+        assert hasattr(config_stats, "buffer_size")
+        assert hasattr(config_stats, "max_pattern_length")
+        assert hasattr(config_stats, "short_threshold")
+        assert hasattr(config_stats, "medium_threshold")
+        assert hasattr(config_stats, "long_threshold")
 
     def test_update_config(self, detector: LoopDetector) -> None:
         """Test updating detector configuration."""
@@ -436,10 +438,15 @@ class TestLoopDetector:
 
     def test_get_stats_comprehensive(self, detector: LoopDetector) -> None:
         """Test comprehensive statistics."""
+        from src.loop_detection.types import StandardLoopDetectorStats
+
         # Add some content
         detector.process_chunk("test content")
 
         stats = detector.get_stats()
+
+        # Verify stats is the expected Pydantic model
+        assert isinstance(stats, StandardLoopDetectorStats)
 
         # Verify all expected fields are present
         required_fields = [
@@ -449,10 +456,10 @@ class TestLoopDetector:
         ]
 
         for field in required_fields:
-            assert field in stats
+            assert hasattr(stats, field)
 
         # Check config sub-fields
-        config_stats = stats["config"]
+        config_stats = stats.config
         required_config_fields = [
             "buffer_size",
             "max_pattern_length",
@@ -462,7 +469,7 @@ class TestLoopDetector:
         ]
 
         for field in required_config_fields:
-            assert field in config_stats
+            assert hasattr(config_stats, field)
 
     def test_detector_with_minimal_config(self) -> None:
         """Test detector with minimal valid configuration."""
