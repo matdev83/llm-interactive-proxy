@@ -7,7 +7,7 @@ This module contains domain models and entities for the tool call reactor system
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -34,7 +34,7 @@ class ToolCallHistoryEntry:
     @property
     def age_seconds(self) -> float:
         """Get the age of this entry in seconds."""
-        return (datetime.now() - self.timestamp).total_seconds()
+        return (datetime.now(timezone.utc) - self.timestamp).total_seconds()
 
 
 @dataclass

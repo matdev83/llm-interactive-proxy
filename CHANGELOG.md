@@ -16,6 +16,8 @@
 - **Robust Stream Correlation**: Added `_resolve_stream_session_id` method in `BackendService` that resolves stable identifiers from multiple sources (context, request, extra_body, request_id, or generates UUID as fallback).
 - **Consistent `stream_id` Injection**: Both wire-capture and non-wire-capture paths now consistently include `session_id` and `stream_id` in chunk metadata.
 - **Improved XML Tool Buffering**: Tool calls split across multiple chunks are now correctly reassembled regardless of varying chunk IDs.
+- **Fixed Truncated XML Tool Parsing**: Resolved critical bug where truncated XML tool calls (e.g., `<execute_command>` without closing tag) caused the parser to incorrectly extract inner tags (e.g., `<command>`) as the tool name. Now the `ToolCallRepairProcessor` waits for complete XML before parsing, and inner tags like `<command>`, `<file>`, `<question>`, etc. are explicitly skipped.
+- **Expanded Tool Tag Buffering**: Added all known XML tool tags (`execute_command`, `read_file`, `write_to_file`, `ask_followup_question`, `attempt_completion`, `list_files`, `search_files`, `codebase_search`, `access_mcp_resource`) to the synthetic closing tag list and flush prevention markers.
 
 ### Streaming Pipeline Completion
 

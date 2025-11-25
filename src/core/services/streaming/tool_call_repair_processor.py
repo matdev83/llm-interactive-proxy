@@ -104,23 +104,44 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     # Known XML tool tags that need synthetic closing when truncated
                     # IMPORTANT: Include ALL tools that use XML format to prevent
                     # incorrect parsing of inner tags (e.g., <command> inside <execute_command>)
+                    # Format: (outer_opener, inner_tag, outer_closer)
+                    # inner_tag is used to close truncated inner tags before closing outer
                     synthetic_calls = (
-                        ("<use_mcp_tool", "</use_mcp_tool>"),
-                        ("<patch_file", "</patch_file>"),
-                        ("<execute_command", "</execute_command>"),
-                        ("<read_file", "</read_file>"),
-                        ("<write_to_file", "</write_to_file>"),
-                        ("<ask_followup_question", "</ask_followup_question>"),
-                        ("<attempt_completion", "</attempt_completion>"),
-                        ("<list_files", "</list_files>"),
-                        ("<search_files", "</search_files>"),
-                        ("<codebase_search", "</codebase_search>"),
-                        ("<access_mcp_resource", "</access_mcp_resource>"),
+                        ("<use_mcp_tool", "tool_arguments", "</use_mcp_tool>"),
+                        ("<patch_file", "patch_content", "</patch_file>"),
+                        ("<execute_command", "command", "</execute_command>"),
+                        ("<read_file", "file", "</read_file>"),
+                        ("<write_to_file", "content", "</write_to_file>"),
+                        (
+                            "<ask_followup_question",
+                            "question",
+                            "</ask_followup_question>",
+                        ),
+                        ("<attempt_completion", "result", "</attempt_completion>"),
+                        ("<list_files", "directory", "</list_files>"),
+                        ("<search_files", "regex", "</search_files>"),
+                        ("<codebase_search", "query", "</codebase_search>"),
+                        ("<access_mcp_resource", "uri", "</access_mcp_resource>"),
                     )
                     handled = False
-                    for opener, closer in synthetic_calls:
-                        if opener in buffer_text and closer not in buffer_text:
-                            synthetic_buffer = buffer_text + closer
+                    for outer_opener, inner_tag, outer_closer in synthetic_calls:
+                        if (
+                            outer_opener in buffer_text
+                            and outer_closer not in buffer_text
+                        ):
+                            # Build synthetic buffer with both inner and outer closing tags
+                            synthetic_buffer = buffer_text
+                            inner_opener = f"<{inner_tag}>"
+                            inner_closer = f"</{inner_tag}>"
+                            # If inner tag is opened but not closed, close it first
+                            if (
+                                inner_opener in synthetic_buffer
+                                and inner_closer not in synthetic_buffer
+                            ):
+                                synthetic_buffer = synthetic_buffer + inner_closer
+                            # Always add outer closer
+                            synthetic_buffer = synthetic_buffer + outer_closer
+
                             repaired_json = (
                                 self.tool_call_repair_service.repair_tool_calls(
                                     synthetic_buffer

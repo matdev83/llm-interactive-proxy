@@ -48,7 +48,7 @@ class ToolCallSignature(InternalDTO):
         raw_arguments = cls._stringify_raw_arguments(arguments)
 
         return cls(
-            timestamp=datetime.datetime.now(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
             tool_name=tool_name,
             arguments_signature=canonical_args,
             raw_arguments=raw_arguments,
@@ -67,7 +67,7 @@ class ToolCallSignature(InternalDTO):
         Returns:
             True if the signature has expired, False otherwise
         """
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(datetime.timezone.utc)
         age = now - self.timestamp
         return age.total_seconds() > ttl_seconds
 

@@ -118,7 +118,8 @@ class TestToolCallSignature:
         """Test checking if a signature has expired."""
         # Create a signature with a timestamp in the past
         signature = ToolCallSignature(
-            timestamp=datetime.datetime.now() - datetime.timedelta(seconds=10),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+            - datetime.timedelta(seconds=10),
             tool_name="test_tool",
             arguments_signature='{"arg": "value"}',
             raw_arguments='{"arg": "value"}',
@@ -164,7 +165,7 @@ class TestToolCallTracker:
 
         # Add an expired signature
         expired_sig = ToolCallSignature(
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
             - datetime.timedelta(seconds=config.ttl_seconds + 10),
             tool_name="test_tool",
             arguments_signature='{"arg": "value"}',
@@ -175,7 +176,7 @@ class TestToolCallTracker:
 
         # Add a non-expired signature
         valid_sig = ToolCallSignature(
-            timestamp=datetime.datetime.now(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
             tool_name="test_tool2",
             arguments_signature='{"arg": "value2"}',
             raw_arguments='{"arg": "value2"}',
@@ -381,7 +382,7 @@ class TestToolCallTrackerFunctionality:
         assert len(tracker.signatures) == initial_calls
 
         # Expire all but the most recent signature
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(datetime.timezone.utc)
         expiration = datetime.timedelta(seconds=config.ttl_seconds + 5)
         for signature in tracker.signatures[:-1]:
             signature.timestamp = now - expiration
@@ -480,9 +481,9 @@ class TestToolCallTrackerFunctionality:
 
         # Manually set the timestamp of the signatures to be in the past
         for sig in tracker.signatures:
-            sig.timestamp = datetime.datetime.now() - datetime.timedelta(
-                seconds=config.ttl_seconds + 10
-            )
+            sig.timestamp = datetime.datetime.now(
+                datetime.timezone.utc
+            ) - datetime.timedelta(seconds=config.ttl_seconds + 10)
 
         # Make the same call again - should not block due to TTL expiry
         should_block, _reason, _count = tracker.track_tool_call(

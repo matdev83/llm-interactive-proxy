@@ -1,0 +1,722 @@
+"""
+Regression tests for tool call handling in the streaming pipeline.
+
+These tests cover:
+
+1. ToolCallRepairProcessor buffering: Ensures that truncated XML tool calls
+   are properly buffered until complete, preventing premature parsing of
+   inner tags.
+
+2. Session ID correlation: Ensures that streaming chunks with different 'id'
+   fields but the same 'session_id' are properly correlated for buffering.
+
+3. Synthetic closing tag injection: Tests that truncated XML at end-of-stream
+   gets synthetic closing tags to allow parsing.
+
+4. XML leakage prevention: Tests that partial XML tags are not emitted to
+   the client.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.services.streaming.stream_context_registry import (
+    StreamingContextRegistry,
+)
+from src.core.services.streaming.tool_call_repair_processor import (
+    ToolCallRepairProcessor,
+)
+from src.core.services.tool_call_repair_service import ToolCallRepairService
+
+
+class TestToolCallRepairProcessorBuffering:
+    """
+    Tests for the ToolCallRepairProcessor's buffering behavior.
+
+    The processor should buffer content until a complete tool call is detected,
+    preventing premature parsing of inner tags.
+    """
+
+    @pytest.fixture
+    def repair_service(self) -> ToolCallRepairService:
+        return ToolCallRepairService()
+
+    @pytest.fixture
+    def registry(self) -> StreamingContextRegistry:
+        return StreamingContextRegistry()
+
+    @pytest.fixture
+    def processor(
+        self, repair_service: ToolCallRepairService, registry: StreamingContextRegistry
+    ) -> ToolCallRepairProcessor:
+        return ToolCallRepairProcessor(
+            repair_service, max_buffer_bytes=64 * 1024, registry=registry
+        )
+
+    @pytest.mark.asyncio
+    async def test_truncated_execute_command_is_buffered(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        CRITICAL REGRESSION TEST: Truncated execute_command should be buffered.
+
+        When the first chunk contains a truncated <execute_command>, the processor
+        should NOT emit a tool call with name='command'. Instead, it should buffer
+        the content until the complete XML is received.
+        """
+        # First chunk: truncated XML
+        chunk1 = StreamingContent(
+            content="""I will run the test suite.
+<execute_command>
+<command>./.venv/Scripts""",
+            is_done=False,
+            metadata={"session_id": "test-session"},
+        )
+
+        result1 = await processor.process(chunk1)
+
+        # The processor should NOT emit a tool call yet
+        tool_calls = result1.metadata.get("tool_calls") if result1.metadata else None
+        assert (
+            tool_calls is None or len(tool_calls) == 0
+        ), f"Truncated XML should NOT produce tool calls! Got: {tool_calls}"
+
+        # If a tool call was incorrectly detected, check it's not 'command'
+        if tool_calls:
+            for tc in tool_calls:
+                assert (
+                    tc["function"]["name"] != "command"
+                ), "Inner tag 'command' was incorrectly parsed as a tool call!"
+
+    @pytest.mark.asyncio
+    async def test_complete_execute_command_produces_tool_call(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that complete execute_command produces a tool call."""
+        chunk = StreamingContent(
+            content="""<execute_command>
+<command>./.venv/Scripts/python.exe -m pytest</command>
+</execute_command>""",
+            is_done=True,
+            metadata={"session_id": "test-session"},
+        )
+
+        result = await processor.process(chunk)
+
+        tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+        assert (
+            tool_calls is not None and len(tool_calls) > 0
+        ), "Complete execute_command should produce a tool call"
+        assert tool_calls[0]["function"]["name"] == "execute_command"
+
+    @pytest.mark.asyncio
+    async def test_multi_chunk_execute_command(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        Test that execute_command split across multiple chunks is handled correctly.
+        """
+        # Chunk 1: Start of command
+        chunk1 = StreamingContent(
+            content="""I will run the tests.
+<execute_command>
+<command>./.venv/Scripts""",
+            is_done=False,
+            metadata={"session_id": "test-session"},
+        )
+
+        result1 = await processor.process(chunk1)
+        tool_calls1 = result1.metadata.get("tool_calls") if result1.metadata else None
+        assert (
+            tool_calls1 is None or len(tool_calls1) == 0
+        ), "First chunk should not produce tool call"
+
+        # Chunk 2: Completion of command
+        chunk2 = StreamingContent(
+            content="""/python.exe -m pytest</command>
+</execute_command>""",
+            is_done=True,
+            metadata={"session_id": "test-session"},
+        )
+
+        result2 = await processor.process(chunk2)
+        tool_calls2 = result2.metadata.get("tool_calls") if result2.metadata else None
+        assert (
+            tool_calls2 is not None and len(tool_calls2) > 0
+        ), "Second chunk should produce tool call after buffering"
+        assert tool_calls2[0]["function"]["name"] == "execute_command"
+        arguments = json.loads(tool_calls2[0]["function"]["arguments"])
+        assert "./.venv/Scripts/python.exe -m pytest" in arguments["command"]
+
+    @pytest.mark.asyncio
+    async def test_truncated_read_file_is_buffered(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that truncated read_file is buffered."""
+        chunk = StreamingContent(
+            content="""<read_file>
+<file>src/main""",
+            is_done=False,
+            metadata={"session_id": "test-session"},
+        )
+
+        result = await processor.process(chunk)
+        tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+
+        # Should NOT produce a tool call with name='file'
+        if tool_calls:
+            for tc in tool_calls:
+                assert (
+                    tc["function"]["name"] != "file"
+                ), "Inner tag 'file' was incorrectly parsed as a tool call!"
+
+    @pytest.mark.asyncio
+    async def test_truncated_ask_followup_question_is_buffered(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        Test that truncated ask_followup_question is buffered.
+
+        This was the original bug causing "What can I help you with today?</"
+        to leak.
+        """
+        chunk = StreamingContent(
+            content="""Hello! I'm Kilo Code.
+<ask_followup_question>
+<question>What can I help you with today?</""",
+            is_done=False,
+            metadata={"session_id": "test-session"},
+        )
+
+        result = await processor.process(chunk)
+        tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+
+        # Should NOT produce a tool call with name='question'
+        if tool_calls:
+            for tc in tool_calls:
+                assert (
+                    tc["function"]["name"] != "question"
+                ), "Inner tag 'question' was incorrectly parsed as a tool call!"
+
+
+class TestSyntheticClosingTagInjection:
+    """
+    Tests for synthetic closing tag injection at end-of-stream.
+
+    When a stream ends with truncated XML that has the inner tag complete but
+    is missing the outer closing tag, the processor should inject synthetic
+    closing tags to allow parsing of the tool call.
+    """
+
+    @pytest.fixture
+    def repair_service(self) -> ToolCallRepairService:
+        return ToolCallRepairService()
+
+    @pytest.fixture
+    def registry(self) -> StreamingContextRegistry:
+        return StreamingContextRegistry()
+
+    @pytest.fixture
+    def processor(
+        self, repair_service: ToolCallRepairService, registry: StreamingContextRegistry
+    ) -> ToolCallRepairProcessor:
+        return ToolCallRepairProcessor(
+            repair_service, max_buffer_bytes=64 * 1024, registry=registry
+        )
+
+    @pytest.mark.asyncio
+    async def test_synthetic_closing_for_execute_command(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that truncated execute_command at EOS gets synthetic closing.
+
+        Note: The synthetic closing only works when the inner tag is complete
+        but the outer tag is missing. If both are truncated, it cannot be parsed.
+        """
+        # Single chunk with truncated XML - inner tag complete, outer tag missing
+        chunk = StreamingContent(
+            content="""<execute_command>
+<command>./.venv/Scripts/python.exe -m pytest</command>""",
+            is_done=True,  # Stream ends with truncated XML
+            metadata={"session_id": "test-session"},
+        )
+
+        result = await processor.process(chunk)
+        tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+
+        # Should have injected synthetic </execute_command> and parsed the tool call
+        assert (
+            tool_calls is not None and len(tool_calls) > 0
+        ), "Synthetic closing should allow parsing truncated execute_command at EOS"
+        assert tool_calls[0]["function"]["name"] == "execute_command"
+
+    @pytest.mark.asyncio
+    async def test_synthetic_closing_for_read_file(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that truncated read_file at EOS gets synthetic closing."""
+        # Single chunk with truncated XML - inner tag complete, outer tag missing
+        chunk = StreamingContent(
+            content="""<read_file>
+<file>src/main.py</file>""",
+            is_done=True,  # Stream ends with truncated XML
+            metadata={"session_id": "test-session"},
+        )
+
+        result = await processor.process(chunk)
+        tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+
+        assert (
+            tool_calls is not None and len(tool_calls) > 0
+        ), "Synthetic closing should allow parsing truncated read_file at EOS"
+        assert tool_calls[0]["function"]["name"] == "read_file"
+
+    @pytest.mark.asyncio
+    async def test_fully_truncated_xml_with_synthetic_closing(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that fully truncated XML (both inner and outer tags missing) IS parsed.
+
+        The processor should inject BOTH the inner closing tag (</command>)
+        AND the outer closing tag (</execute_command>) to allow parsing.
+        """
+        # Both inner and outer tags are truncated
+        chunk = StreamingContent(
+            content="""<execute_command>
+<command>./.venv/Scripts/python.exe -m pytest""",
+            is_done=True,
+            metadata={"session_id": "test-session"},
+        )
+
+        result = await processor.process(chunk)
+        tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+
+        # With the fix, fully truncated XML SHOULD be parsed
+        # The processor injects both </command> and </execute_command>
+        assert (
+            tool_calls is not None and len(tool_calls) > 0
+        ), "Fully truncated XML should be parsed with synthetic inner+outer closing tags"
+        assert tool_calls[0]["function"]["name"] == "execute_command"
+        arguments = json.loads(tool_calls[0]["function"]["arguments"])
+        assert "./.venv/Scripts/python.exe -m pytest" in arguments["command"]
+
+
+class TestAllToolTagsAreBuffered:
+    """
+    Tests to ensure all known XML tool tags are properly buffered.
+
+    This is a comprehensive check to ensure no tool tags are missing from
+    the buffering logic.
+    """
+
+    # All XML tool tags that should be buffered
+    BUFFERED_TOOL_TAGS = [
+        "execute_command",
+        "read_file",
+        "write_to_file",
+        "ask_followup_question",
+        "attempt_completion",
+        "list_files",
+        "search_files",
+        "codebase_search",
+        "access_mcp_resource",
+        "use_mcp_tool",
+        "patch_file",
+    ]
+
+    def test_all_tool_tags_in_processor_markers(self) -> None:
+        """Verify all tool tags are in the processor's marker list."""
+        import ast
+        import inspect
+
+        from src.core.services.streaming import tool_call_repair_processor
+
+        source = inspect.getsource(tool_call_repair_processor)
+        tree = ast.parse(source)
+
+        # Find the markers tuple in the source
+        markers_found: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Tuple):
+                for elt in node.elts:
+                    if (
+                        isinstance(elt, ast.Constant)
+                        and isinstance(elt.value, str)
+                        and elt.value.startswith("<")
+                    ):
+                        # Extract tag name from "<tag_name"
+                        tag = elt.value[1:]  # Remove leading <
+                        markers_found.append(tag)
+
+        # Check that all required tags are present
+        for tag in self.BUFFERED_TOOL_TAGS:
+            assert tag in markers_found, (
+                f"Tool tag '{tag}' MUST be in processor markers to prevent "
+                f"premature flushing! Found markers: {markers_found}"
+            )
+
+    def test_all_tool_tags_in_synthetic_calls(self) -> None:
+        """Verify all tool tags are in the synthetic_calls list."""
+        import ast
+        import inspect
+
+        from src.core.services.streaming import tool_call_repair_processor
+
+        source = inspect.getsource(tool_call_repair_processor)
+        tree = ast.parse(source)
+
+        # Find synthetic_calls tuples (now 3-tuples: outer_opener, inner_tag, outer_closer)
+        synthetic_openers: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Tuple):
+                for elt in node.elts:
+                    # Look for 3-tuples (outer_opener, inner_tag, outer_closer)
+                    if isinstance(elt, ast.Tuple) and len(elt.elts) == 3:
+                        opener = elt.elts[0]
+                        if (
+                            isinstance(opener, ast.Constant)
+                            and isinstance(opener.value, str)
+                            and opener.value.startswith("<")
+                        ):
+                            tag = opener.value[1:]  # Remove leading <
+                            synthetic_openers.append(tag)
+
+        # Check that all required tags are present
+        for tag in self.BUFFERED_TOOL_TAGS:
+            assert tag in synthetic_openers, (
+                f"Tool tag '{tag}' MUST be in synthetic_calls to allow parsing "
+                f"truncated XML at EOS! Found: {synthetic_openers}"
+            )
+
+
+class TestStreamKeyResolution:
+    """
+    Tests for stream key resolution in response adapters.
+
+    The stream key is used to correlate streaming chunks for buffering.
+    It MUST use session_id or stream_id, NOT the per-chunk 'id' field.
+    """
+
+    def test_stream_key_uses_session_id_not_chunk_id(self) -> None:
+        """
+        CRITICAL REGRESSION TEST: Stream key must use session_id, not chunk id.
+
+        Bug description: When chunks have different 'id' fields (as with Gemini),
+        using 'id' for buffering correlation would cause tool calls to be split
+        incorrectly.
+        """
+        import inspect
+
+        from src.core.transport.fastapi import response_adapters
+
+        source = inspect.getsource(response_adapters.to_fastapi_streaming_response)
+
+        # Check that _resolve_stream_key prioritizes session_id/stream_id
+        assert "session_id" in source, "_resolve_stream_key must check for session_id"
+        assert "stream_id" in source, "_resolve_stream_key must check for stream_id"
+
+        # Check the comment warning about not using 'id'
+        assert (
+            "NOT use" in source
+            or "not use" in source.lower()
+            or "NOT suitable" in source
+        ), "Code should document that 'id' is NOT suitable for buffering"
+
+    def test_buffered_tool_tags_includes_critical_tags(self) -> None:
+        """Verify BUFFERED_TOOL_TAGS includes all critical tags."""
+        import ast
+        import inspect
+
+        from src.core.transport.fastapi import response_adapters
+
+        source = inspect.getsource(response_adapters.to_fastapi_streaming_response)
+        tree = ast.parse(source)
+
+        # Find BUFFERED_TOOL_TAGS
+        buffered_tags: list[str] = []
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "BUFFERED_TOOL_TAGS"
+                and node.value is not None
+                and isinstance(node.value, ast.Tuple)
+            ):
+                for elt in node.value.elts:
+                    if isinstance(elt, ast.Constant):
+                        buffered_tags.append(elt.value)
+
+        critical_tags = [
+            "execute_command",
+            "read_file",
+            "write_to_file",
+            "ask_followup_question",
+            "attempt_completion",
+        ]
+
+        for tag in critical_tags:
+            assert (
+                tag in buffered_tags
+            ), f"Critical tag '{tag}' MUST be in BUFFERED_TOOL_TAGS!"
+
+
+class TestToolCallMetadataMarkers:
+    """
+    Tests for tool call metadata markers and deduplication.
+
+    The _already_processed marker is used internally to prevent duplicate processing
+    of tool calls across different pipeline stages. It is sanitized before returning
+    to the caller to keep the metadata clean.
+    """
+
+    @pytest.fixture
+    def repair_service(self) -> ToolCallRepairService:
+        return ToolCallRepairService()
+
+    @pytest.fixture
+    def registry(self) -> StreamingContextRegistry:
+        return StreamingContextRegistry()
+
+    @pytest.fixture
+    def processor(
+        self, repair_service: ToolCallRepairService, registry: StreamingContextRegistry
+    ) -> ToolCallRepairProcessor:
+        return ToolCallRepairProcessor(
+            repair_service, max_buffer_bytes=64 * 1024, registry=registry
+        )
+
+    @pytest.mark.asyncio
+    async def test_tool_call_has_required_fields(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that detected tool calls have required OpenAI-compatible fields."""
+        chunk = StreamingContent(
+            content="""<execute_command>
+<command>ls -la</command>
+</execute_command>""",
+            is_done=True,
+            metadata={"session_id": "test-session"},
+        )
+
+        result = await processor.process(chunk)
+        tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+
+        assert tool_calls is not None and len(tool_calls) > 0
+        # Check for required OpenAI-compatible fields
+        assert "id" in tool_calls[0], "Tool call should have 'id' field"
+        assert "type" in tool_calls[0], "Tool call should have 'type' field"
+        assert "function" in tool_calls[0], "Tool call should have 'function' field"
+        assert tool_calls[0]["type"] == "function"
+        assert tool_calls[0]["function"]["name"] == "execute_command"
+
+    @pytest.mark.asyncio
+    async def test_tool_calls_are_detected_in_each_chunk(
+        self, processor: ToolCallRepairProcessor, registry: StreamingContextRegistry
+    ) -> None:
+        """Test that tool calls in different chunks are detected.
+
+        Note: Each chunk is processed independently, so the same tool call
+        in different chunks will be detected multiple times. Deduplication
+        happens at a higher level (e.g., in the reactor middleware).
+        """
+        session_id = "test-session-multi"
+
+        # First chunk with a tool call
+        chunk1 = StreamingContent(
+            content="""<execute_command>
+<command>ls -la</command>
+</execute_command>""",
+            is_done=False,
+            metadata={"session_id": session_id},
+        )
+
+        result1 = await processor.process(chunk1)
+        tool_calls1 = result1.metadata.get("tool_calls") if result1.metadata else []
+
+        # Second chunk with a DIFFERENT tool call
+        chunk2 = StreamingContent(
+            content="""<execute_command>
+<command>pwd</command>
+</execute_command>""",
+            is_done=True,
+            metadata={"session_id": session_id},
+        )
+
+        result2 = await processor.process(chunk2)
+        tool_calls2 = result2.metadata.get("tool_calls") if result2.metadata else []
+
+        # Both tool calls should be detected
+        assert len(tool_calls1) == 1, "First chunk should have one tool call"
+        assert len(tool_calls2) == 1, "Second chunk should have one tool call"
+        assert tool_calls1[0]["function"]["name"] == "execute_command"
+        assert tool_calls2[0]["function"]["name"] == "execute_command"
+
+        # Arguments should be different
+        args1 = json.loads(tool_calls1[0]["function"]["arguments"])
+        args2 = json.loads(tool_calls2[0]["function"]["arguments"])
+        assert args1["command"] == "ls -la"
+        assert args2["command"] == "pwd"
+
+
+class TestInnerTagSkipList:
+    """
+    Tests to verify that the inner tag skip list in ToolCallRepairService
+    is comprehensive.
+    """
+
+    def test_skip_list_includes_all_inner_tags(self) -> None:
+        """Verify the skip list includes all known inner tags."""
+        import ast
+        import inspect
+
+        from src.core.services import tool_call_repair_service
+
+        source = inspect.getsource(tool_call_repair_service)
+        tree = ast.parse(source)
+
+        # Find the skip list (it's a set literal in _extract_xml_tool_call)
+        skip_tags: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Set):
+                for elt in node.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        skip_tags.append(elt.value)
+
+        # These are the inner tags that MUST be skipped
+        required_skip_tags = [
+            "command",  # execute_command
+            "file",  # read_file, write_to_file
+            "question",  # ask_followup_question
+            "result",  # attempt_completion
+            "regex",  # search_files
+            "query",  # codebase_search
+            "uri",  # access_mcp_resource
+            "server_name",  # MCP tools
+            "directory",  # list_files
+            "recursive",  # list_files
+        ]
+
+        for tag in required_skip_tags:
+            assert tag in skip_tags, (
+                f"Inner tag '{tag}' MUST be in the skip list to prevent "
+                f"incorrect parsing! Found skip tags: {skip_tags}"
+            )
+
+
+class TestEndToEndToolCallFlow:
+    """
+    End-to-end tests for the complete tool call flow.
+
+    These tests simulate the full streaming pipeline behavior.
+    """
+
+    @pytest.fixture
+    def repair_service(self) -> ToolCallRepairService:
+        return ToolCallRepairService()
+
+    @pytest.fixture
+    def registry(self) -> StreamingContextRegistry:
+        return StreamingContextRegistry()
+
+    @pytest.fixture
+    def processor(
+        self, repair_service: ToolCallRepairService, registry: StreamingContextRegistry
+    ) -> ToolCallRepairProcessor:
+        return ToolCallRepairProcessor(
+            repair_service, max_buffer_bytes=64 * 1024, registry=registry
+        )
+
+    @pytest.mark.asyncio
+    async def test_gemini_style_chunking(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        Test Gemini-style chunking where chunks have different IDs.
+
+        This simulates the exact scenario from the wire capture where
+        tool calls were being split incorrectly.
+        """
+        session_id = "test-session-gemini"
+
+        # Chunk 1: Start of command (with one ID)
+        chunk1 = StreamingContent(
+            content="""I will run the test suite.
+<execute_command>
+<command>./.venv/Scripts""",
+            is_done=False,
+            metadata={
+                "session_id": session_id,
+                "id": "chatcmpl-663a40db142b4bc7",  # Different ID
+            },
+        )
+
+        result1 = await processor.process(chunk1)
+        tool_calls1 = result1.metadata.get("tool_calls") if result1.metadata else None
+
+        # Should NOT have tool call yet
+        assert tool_calls1 is None or len(tool_calls1) == 0
+
+        # Chunk 2: Completion of command (with DIFFERENT ID)
+        chunk2 = StreamingContent(
+            content="""/python.exe -m pytest</command>
+</execute_command>""",
+            is_done=True,
+            metadata={
+                "session_id": session_id,  # Same session_id
+                "id": "chatcmpl-ef671950e3f24896",  # DIFFERENT ID!
+            },
+        )
+
+        result2 = await processor.process(chunk2)
+        tool_calls2 = result2.metadata.get("tool_calls") if result2.metadata else None
+
+        # Should have the complete tool call
+        assert (
+            tool_calls2 is not None and len(tool_calls2) > 0
+        ), "Tool call should be detected after second chunk"
+        assert tool_calls2[0]["function"]["name"] == "execute_command"
+        arguments = json.loads(tool_calls2[0]["function"]["arguments"])
+        assert (
+            "./.venv/Scripts/python.exe -m pytest" in arguments["command"]
+        ), f"Full command should be present! Got: {arguments}"
+
+    @pytest.mark.asyncio
+    async def test_openai_style_chunking(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        Test OpenAI-style chunking where all chunks have the same ID.
+        """
+        stream_id = "chatcmpl-test-stream"
+
+        chunks = [
+            "I will ",
+            "run the ",
+            "test suite.\n",
+            "<execute_command>\n",
+            "<command>./.venv/Scripts/",
+            "python.exe -m pytest",
+            "</command>\n",
+            "</execute_command>",
+        ]
+
+        tool_call_found = False
+        for i, content in enumerate(chunks):
+            is_done = i == len(chunks) - 1
+            chunk = StreamingContent(
+                content=content,
+                is_done=is_done,
+                metadata={"session_id": stream_id, "id": stream_id},
+            )
+
+            result = await processor.process(chunk)
+            tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+
+            if tool_calls and len(tool_calls) > 0:
+                tool_call_found = True
+                assert tool_calls[0]["function"]["name"] == "execute_command"
+
+        assert tool_call_found, "Tool call should be detected in OpenAI-style chunking"

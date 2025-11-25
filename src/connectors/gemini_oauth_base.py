@@ -2783,6 +2783,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             yield processed_chunk
                         line_buffer = ""
 
+                    logger.debug(
+                        f"[STREAMING] Calculating usage for generated_text length={len(generated_text)}, prompt_tokens={prompt_tokens}"
+                    )
                     try:
                         completion_tokens = len(encoding.encode(generated_text))
                         usage = {
@@ -2798,6 +2801,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             "choices": [],
                             "usage": usage,
                         }
+                        logger.debug(f"[STREAMING] Yielding usage chunk: {usage_chunk}")
                         yield ProcessedResponse(content=usage_chunk)
                     except Exception as e:
                         logger.warning(

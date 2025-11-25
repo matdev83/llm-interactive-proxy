@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from src.core.interfaces.tool_call_reactor_interface import (
@@ -221,7 +221,7 @@ class ConfigSteeringHandler(IToolCallHandler):
     def _within_rate_limit(self, rule: _CompiledRule, session_id: str) -> bool:
         key = (session_id, rule.name)
         hits = self._last_hits.get(key, [])
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         window_start = now - timedelta(seconds=rule.window_seconds)
         hits = [h for h in hits if h >= window_start]
         self._last_hits[key] = hits
@@ -230,7 +230,7 @@ class ConfigSteeringHandler(IToolCallHandler):
     async def _record_hit(self, rule: _CompiledRule, session_id: str) -> None:
         key = (session_id, rule.name)
         hits = self._last_hits.get(key, [])
-        hits.append(datetime.now())
+        hits.append(datetime.now(timezone.utc))
         # Keep small history per key
         if len(hits) > 20:
             hits = hits[-20:]

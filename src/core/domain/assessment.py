@@ -9,7 +9,7 @@ Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionServ
 
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -39,7 +39,7 @@ class AssessmentResult:
     confidence: float
     session_id: str
     turn_count: int
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     loop_type: LoopType | None = None
 
     @property
@@ -222,13 +222,13 @@ class ToolCallPattern:
     tool_name: str
     args_hash: str
     count: int = 1
-    first_seen: datetime = field(default_factory=datetime.now)
-    last_seen: datetime = field(default_factory=datetime.now)
+    first_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def increment(self):
         """Increment the count and update last seen timestamp."""
         self.count += 1
-        self.last_seen = datetime.now()
+        self.last_seen = datetime.now(timezone.utc)
 
     @classmethod
     def from_tool_call(cls, tool_call: dict[str, Any]) -> "ToolCallPattern":
