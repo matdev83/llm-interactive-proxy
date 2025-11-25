@@ -36,6 +36,8 @@ async def integrate_streaming_pipeline(
     enable_loop_detection: bool = True,
     enable_tool_call_repair: bool = True,
     enable_think_tags: bool = True,
+    prompt_tokens: int | None = None,
+    model_name: str | None = None,
 ) -> StreamingResponseEnvelope:
     """Integrate a raw backend stream with the streaming pipeline.
 
@@ -101,6 +103,17 @@ async def integrate_streaming_pipeline(
         )
     if enable_think_tags:
         processors.append(_resolve_processor(ThinkTagsProcessor, ThinkTagsProcessor))
+
+    # Add usage calculation processor if prompt tokens are provided
+    # This ensures usage is calculated after all other processors (like loop detection)
+    # have potentially modified the content.
+    if prompt_tokens is not None and model_name:
+        from src.core.ports.usage_processor import UsageCalculationProcessor
+
+        def _usage_processor_factory() -> IStreamProcessor:
+            return UsageCalculationProcessor(prompt_tokens=prompt_tokens, model_name=model_name)
+
+        processors.append(_usage_processor_factory())
 
     # Create pipeline for the provider
     try:

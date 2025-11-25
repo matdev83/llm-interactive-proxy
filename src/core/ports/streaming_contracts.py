@@ -275,6 +275,9 @@ class StreamingContent:
             if key in self.metadata:
                 data[key] = self.metadata[key]
 
+        if self.usage:
+            data["usage"] = self.usage
+
         result = f"data: {json.dumps(data)}\n\n"
         # Append [DONE] if this is the final chunk
         if self.is_done:
