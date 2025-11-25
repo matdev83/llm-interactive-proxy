@@ -44,7 +44,7 @@ async def test_controller_preserves_tool_calls(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(
         "src.core.app.controllers.anthropic_controller.domain_response_to_fastapi",
-        lambda _resp: fastapi_response,
+        lambda _resp, **_kwargs: fastapi_response,
     )
 
     app = FastAPI()

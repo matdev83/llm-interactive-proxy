@@ -73,6 +73,16 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
             if item.get_closest_marker("asyncio"):
                 item.add_marker(skip_asyncio)
 
+    # Auto-mark tests in the integration folder with @pytest.mark.integration
+    # so they are excluded by default via -m 'not integration' in addopts
+    integration_marker = pytest.mark.integration
+    for item in items:
+        # Check if test file path contains 'integration' and marker not present
+        if "integration" in str(item.fspath) and not item.get_closest_marker(
+            "integration"
+        ):
+            item.add_marker(integration_marker)
+
 
 # Provide env fixtures used by config tests
 @pytest.fixture

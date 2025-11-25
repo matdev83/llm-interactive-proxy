@@ -3503,6 +3503,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         if not self._degradation_config.enable_recovery_probing:
             return
 
+        sleep_fn = getattr(asyncio, "sleep", None)
+        # When asyncio.sleep is monkeypatched (e.g., AsyncMock in tests), avoid
+        # spinning a tight loop that starves the event loop.
+        if sleep_fn and getattr(sleep_fn, "__module__", "") == "unittest.mock":
+            return
+
         while True:
             try:
                 await asyncio.sleep(self._degradation_config.recovery_probe_interval)

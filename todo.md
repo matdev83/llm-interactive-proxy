@@ -1,6 +1,0 @@
-- [ ] Analyze the failing vulture tests to understand what dead code was detected
-- [ ] Run vulture directly to identify the specific dead code
-- [ ] Review the detected dead code to determine if it's truly unused
-- [ ] Fix the dead code by either removing it or adding proper suppressions
-- [ ] Run the tests again to verify the fixes
-- [ ] Run all tests to ensure no regressions were introduced

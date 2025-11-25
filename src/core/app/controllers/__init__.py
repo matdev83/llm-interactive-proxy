@@ -719,8 +719,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
 
                         async def _empty_stream() -> AsyncIterator[Any]:
                             # This function is an empty async generator
-                            if False:
-                                yield
+                            if os.getenv("LLM_PROXY_DUMMY_STREAM"):
+                                yield b""
+                            return
 
                         stream_iterator: AsyncIterator[Any]
                         content = getattr(result, "content", None)

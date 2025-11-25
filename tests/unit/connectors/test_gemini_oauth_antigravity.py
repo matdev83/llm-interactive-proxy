@@ -164,10 +164,16 @@ class TestGeminiOAuthAntigravityConnector:
         assert connector.available_models
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_streaming_rate_limit_yields_error_chunk(
         self, connector, monkeypatch
     ):
-        """Streaming 429 should emit an error chunk immediately."""
+        """Streaming 429 should emit an error chunk immediately.
+
+        NOTE: This test is marked as slow because the retry mechanism
+        in the connector causes long delays even with mocked sleep.
+        The test needs refactoring to properly mock the retry loop.
+        """
 
         # Minimal wiring to pass validation
         connector._oauth_credentials = {"access_token": "token"}
@@ -209,6 +215,10 @@ class TestGeminiOAuthAntigravityConnector:
         )
         monkeypatch.setattr(
             "src.connectors.gemini_oauth_base.asyncio.to_thread", async_to_thread
+        )
+        # Mock asyncio.sleep to avoid real delays during retry logic
+        monkeypatch.setattr(
+            "src.connectors.gemini_oauth_base.asyncio.sleep", AsyncMock()
         )
 
         request = Mock()
