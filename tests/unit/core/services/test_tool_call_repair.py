@@ -724,7 +724,8 @@ class TestStreamingToolCallRepairProcessor:
         tool_chunks = [chunk for chunk in results if chunk.metadata.get("tool_calls")]
         assert tool_chunks, "Expected at least one chunk with tool_calls metadata"
         chunk = tool_chunks[0]
-        assert chunk.content == ""
+        # XML content is preserved for clients like Kilo-Code that parse tool calls from content
+        assert "<use_mcp_tool>" in chunk.content
         tool_calls = chunk.metadata.get("tool_calls")
         assert isinstance(tool_calls, list)
         assert tool_calls
@@ -952,7 +953,8 @@ class TestToolCallRepairProcessorReasoning:
         args = json.loads(call["function"]["arguments"])
         assert args["path"] == "src/example.py"
         assert args["patch_content"] == 'print("hello")'
-        assert result.content == ""
+        # XML content is preserved for clients like Kilo-Code that parse tool calls from content
+        assert "<patch_file>" in result.content
         assert "reasoning_content" not in result.metadata
 
     @pytest.mark.asyncio
@@ -989,7 +991,8 @@ class TestToolCallRepairProcessorReasoning:
         args = json.loads(call["function"]["arguments"])
         assert args["path"] == "src/app.py"
         assert args["patch_content"] == "diff"
-        assert result2.content == ""
+        # XML content is preserved for clients like Kilo-Code that parse tool calls from content
+        assert "<patch_file>" in result2.content
         assert "reasoning_content" not in result2.metadata
 
 
@@ -1196,3 +1199,233 @@ class TestToolCallRepairProcessorFinishReason:
         # Verify index is an integer
         assert isinstance(tool_calls[0]["index"], int), "Index must be an integer"
         assert tool_calls[0]["index"] == 0
+
+
+class TestToolCallRepairProcessorXMLContentPreservation:
+    """
+    CRITICAL REGRESSION TESTS: XML content preservation for Kilo-Code compatibility.
+
+    These tests verify that when tool calls are detected in streaming content,
+    the original XML content is NOT stripped from the output. This is critical because:
+
+    1. Kilo-Code explicitly IGNORES native tool_calls in delta.tool_calls
+    2. Kilo-Code parses XML tool calls directly from delta.content
+    3. If XML is stripped from content, Kilo-Code cannot execute tool calls
+
+    The bug that these tests catch:
+    - The processor was stripping XML from content and only emitting tool_calls
+    - The fix keeps both: XML in content AND tool_calls in metadata
+
+    See: dev/thrdparty/kilocode/src/api/providers/openrouter.ts lines 280-286
+    """
+
+    @pytest.fixture
+    def processor(self) -> ToolCallRepairProcessor:
+        repair_service = ToolCallRepairService()
+        from src.core.services.streaming.stream_context_registry import (
+            StreamingContextRegistry,
+        )
+
+        registry = StreamingContextRegistry()
+        return ToolCallRepairProcessor(
+            repair_service, max_buffer_bytes=64 * 1024, registry=registry
+        )
+
+    @pytest.mark.asyncio
+    async def test_xml_content_preserved_in_output_single_chunk(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        REGRESSION TEST: XML must remain in content when tool call is detected.
+
+        This test prevents the bug where XML was stripped from content,
+        leaving only native tool_calls which Kilo-Code ignores.
+        """
+        session_id = f"xml_preserve_single_{uuid.uuid4().hex[:8]}"
+        xml_content = (
+            "<list_files>\n<path>.</path>\n<recursive>false</recursive>\n</list_files>"
+        )
+
+        chunk = StreamingContent(
+            content=xml_content,
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+
+        result = await processor.process(chunk)
+
+        # CRITICAL: XML must be preserved in content
+        assert xml_content in result.content, (
+            "REGRESSION: XML was stripped from content! "
+            "Kilo-Code requires XML to remain in content field."
+        )
+
+        # Tool calls should also be in metadata
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is not None and len(tool_calls) == 1
+        assert tool_calls[0]["function"]["name"] == "list_files"
+
+    @pytest.mark.asyncio
+    async def test_xml_content_preserved_multi_chunk_streaming(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        REGRESSION TEST: XML preserved when split across multiple chunks.
+
+        Simulates Gemini-style streaming where XML is sent in parts:
+        - Chunk 1: "...<list_files><path"
+        - Chunk 2: ">.</path></list_files>"
+        """
+        session_id = f"xml_preserve_multi_{uuid.uuid4().hex[:8]}"
+
+        # First chunk: partial XML (buffered, not yet complete)
+        chunk1 = StreamingContent(
+            content="I'll list the files.\n<list_files>\n<path",
+            is_done=False,
+            metadata={"session_id": session_id},
+        )
+        _ = await processor.process(chunk1)  # First chunk buffers partial XML
+
+        # Second chunk: completes the XML
+        chunk2 = StreamingContent(
+            content=">.</path>\n</list_files>",
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+        result2 = await processor.process(chunk2)
+
+        # CRITICAL: Complete XML must be in the final output
+        assert (
+            "<list_files>" in result2.content
+        ), "REGRESSION: <list_files> tag not in output!"
+        assert (
+            "</list_files>" in result2.content
+        ), "REGRESSION: </list_files> tag not in output!"
+
+        # Tool calls should be detected
+        tool_calls = result2.metadata.get("tool_calls")
+        assert tool_calls is not None, "Tool call should be detected"
+        assert tool_calls[0]["function"]["name"] == "list_files"
+
+    @pytest.mark.asyncio
+    async def test_execute_command_xml_preserved(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that execute_command XML is preserved."""
+        session_id = f"exec_cmd_preserve_{uuid.uuid4().hex[:8]}"
+        xml_content = "<execute_command>\n<command>ls -la</command>\n</execute_command>"
+
+        chunk = StreamingContent(
+            content=xml_content,
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+
+        result = await processor.process(chunk)
+
+        assert "<execute_command>" in result.content
+        assert "</execute_command>" in result.content
+        assert "ls -la" in result.content
+
+    @pytest.mark.asyncio
+    async def test_read_file_xml_preserved(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that read_file XML is preserved."""
+        session_id = f"read_file_preserve_{uuid.uuid4().hex[:8]}"
+        xml_content = "<read_file>\n<path>README.md</path>\n</read_file>"
+
+        chunk = StreamingContent(
+            content=xml_content,
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+
+        result = await processor.process(chunk)
+
+        assert "<read_file>" in result.content
+        assert "</read_file>" in result.content
+        assert "README.md" in result.content
+
+    @pytest.mark.asyncio
+    async def test_prefix_text_preserved_with_xml(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that text before XML is preserved along with XML."""
+        session_id = f"prefix_preserve_{uuid.uuid4().hex[:8]}"
+        prefix_text = "I'll list the files in the directory for you.\n\n"
+        xml_content = "<list_files>\n<path>.</path>\n</list_files>"
+        full_content = prefix_text + xml_content
+
+        chunk = StreamingContent(
+            content=full_content,
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+
+        result = await processor.process(chunk)
+
+        # Both prefix text and XML should be in output
+        assert "I'll list the files" in result.content
+        assert "<list_files>" in result.content
+        assert "</list_files>" in result.content
+
+    @pytest.mark.asyncio
+    async def test_synthetic_close_path_preserves_xml(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        REGRESSION TEST: Synthetic close path must preserve XML.
+
+        When XML is truncated (e.g., missing closing tag) and synthetically closed,
+        the XML content must still be included in the output.
+        """
+        session_id = f"synthetic_close_{uuid.uuid4().hex[:8]}"
+
+        # Truncated XML (missing closing tag) - will be synthetically closed
+        chunk = StreamingContent(
+            content="<list_files>\n<path>.</path>",  # Missing </path> and </list_files>
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+
+        result = await processor.process(chunk)
+
+        # Even with synthetic closing, XML should be in output
+        assert (
+            "<list_files>" in result.content
+        ), "REGRESSION: XML not preserved in synthetic close path!"
+
+    @pytest.mark.asyncio
+    async def test_both_content_and_tool_calls_present(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        REGRESSION TEST: Both content (XML) AND tool_calls must be present.
+
+        This verifies the dual-output format that supports both:
+        - Kilo-Code (reads XML from content)
+        - OpenAI-compatible clients (use native tool_calls)
+        """
+        session_id = f"dual_output_{uuid.uuid4().hex[:8]}"
+        xml_content = "<list_files>\n<path>.</path>\n</list_files>"
+
+        chunk = StreamingContent(
+            content=xml_content,
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+
+        result = await processor.process(chunk)
+
+        # BOTH must be present
+        assert result.content, "Content must not be empty"
+        assert "<list_files>" in result.content, "XML must be in content"
+
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is not None, "tool_calls must be in metadata"
+        assert len(tool_calls) >= 1, "At least one tool_call must be present"
+        assert tool_calls[0]["function"]["name"] == "list_files"
+
+        # Also verify finish_reason is set correctly
+        assert result.metadata.get("finish_reason") == "tool_calls"

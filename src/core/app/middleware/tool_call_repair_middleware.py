@@ -70,15 +70,13 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
             )
             if repaired_result:
                 logger.info(f"Tool call detected and repaired for session {session_id}")
-                # Update the processed response to reflect the repaired tool call
-                # and clear the original string content.
-                response.content = None
                 # Add tool_calls to metadata, assuming it's a list
+                # NOTE: We intentionally keep the content (XML) for clients like Kilo-Code
+                # that parse tool calls from content and ignore native tool_calls.
                 if "tool_calls" not in response.metadata:
                     response.metadata["tool_calls"] = []
                 response.metadata["tool_calls"].append(repaired_result.tool_call)
 
-                # Set finish_reason if not already set (e.g., by backend)
-                if "finish_reason" not in response.metadata:
-                    response.metadata["finish_reason"] = "tool_calls"
+                # Set finish_reason to "tool_calls" to signal tool call presence
+                response.metadata["finish_reason"] = "tool_calls"
         return response

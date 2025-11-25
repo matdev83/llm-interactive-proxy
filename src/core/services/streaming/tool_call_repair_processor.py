@@ -93,6 +93,10 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     suffix = buffer_text[idx + len(snippet) :]
                     if prefix.strip():
                         repaired_content_parts.append(prefix)
+                    # CRITICAL: Keep the XML in content for clients like Kilo-Code
+                    # that expect to parse tool calls from content, not from native tool_calls.
+                    # Native tool_calls are also emitted in metadata for OpenAI-compatible clients.
+                    repaired_content_parts.append(snippet)
                     buffer_text = suffix
             buffer_state.pending_text = buffer_text
             if content.is_done and buffer_state.pending_text:
@@ -156,6 +160,8 @@ class ToolCallRepairProcessor(IStreamProcessor):
                                     suffix = synthetic_buffer[idx + len(snippet) :]
                                     if prefix.strip():
                                         repaired_content_parts.append(prefix)
+                                    # CRITICAL: Keep the XML in content for clients like Kilo-Code
+                                    repaired_content_parts.append(snippet)
                                     if suffix.strip():
                                         repaired_content_parts.append(suffix)
                                 handled = True
@@ -235,10 +241,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     metadata["tool_calls"] = existing_calls + sanitized_calls
                 else:
                     metadata["tool_calls"] = sanitized_calls
-                # CRITICAL: Clear content when tool_calls are emitted
-                # OpenAI streaming format requires content to be absent/null in
-                # chunks with tool_calls. Clients like Kilo-Code fail if both present.
-                new_content_str = ""
+                # NOTE: We intentionally keep the XML content alongside tool_calls.
+                # Clients like Kilo-Code parse XML from content and ignore native tool_calls.
+                # OpenAI-compatible clients can use the native tool_calls from metadata.
         elif has_reasoning:
             reasoning_value = reasoning_segments[-1]
             metadata.setdefault("reasoning_content", reasoning_value)
