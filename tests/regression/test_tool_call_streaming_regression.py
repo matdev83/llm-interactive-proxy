@@ -980,3 +980,209 @@ class TestInternalMarkersSanitization:
 
         # But internal markers should be removed
         assert "_already_processed" not in result
+
+
+class TestFinishReasonOverrideRegression:
+    """
+    Regression tests for finish_reason override behavior.
+
+    These tests ensure that when tool calls are detected, the finish_reason
+    is correctly set to 'tool_calls' regardless of what the backend sent.
+
+    This is critical because clients like Kilo-Code rely on finish_reason
+    to determine if they should execute tool calls.
+
+    Bug context: The backend (e.g., Gemini) may send finish_reason: 'stop'
+    even when returning tool call XML in the content. The proxy must override
+    this to 'tool_calls' so clients recognize the response as a tool call.
+    """
+
+    @pytest.fixture
+    def repair_service(self) -> ToolCallRepairService:
+        return ToolCallRepairService()
+
+    @pytest.fixture
+    def registry(self) -> StreamingContextRegistry:
+        return StreamingContextRegistry()
+
+    @pytest.fixture
+    def processor(
+        self, repair_service: ToolCallRepairService, registry: StreamingContextRegistry
+    ) -> ToolCallRepairProcessor:
+        return ToolCallRepairProcessor(
+            repair_service, max_buffer_bytes=64 * 1024, registry=registry
+        )
+
+    @pytest.mark.asyncio
+    async def test_gemini_style_stop_overridden_to_tool_calls(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        CRITICAL REGRESSION TEST: Gemini sends finish_reason: 'stop' with tool calls.
+
+        This test reproduces the exact bug scenario from the wire capture:
+        - Backend sends: finish_reason: 'stop' but content has tool call XML
+        - Proxy must output: finish_reason: 'tool_calls'
+
+        If this test fails, clients will not execute tool calls even though
+        the LLM requested them.
+        """
+        # Simulate Gemini-style chunk with finish_reason: 'stop' and tool call XML
+        chunk = StreamingContent(
+            content="""To understand what this project is about, I will start by reading the main documentation file.
+
+<read_file>
+<path>README.md</path>
+</read_file>""",
+            is_done=True,
+            metadata={
+                "session_id": "gemini-regression-test",
+                "finish_reason": "stop",  # This is what Gemini sends - MUST be overridden
+                "id": "chatcmpl-test",
+                "model": "gemini-2.5-pro",
+            },
+        )
+
+        result = await processor.process(chunk)
+
+        # Verify tool call was detected
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is not None, "Tool call should be detected from XML content"
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["function"]["name"] == "read_file"
+
+        # CRITICAL ASSERTION: finish_reason MUST be 'tool_calls'
+        actual_finish_reason = result.metadata.get("finish_reason")
+        assert actual_finish_reason == "tool_calls", (
+            f"REGRESSION: finish_reason is '{actual_finish_reason}' but should be 'tool_calls'. "
+            "Clients will not execute tool calls if finish_reason is not 'tool_calls'!"
+        )
+
+    @pytest.mark.asyncio
+    async def test_wire_format_has_correct_finish_reason(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        Verify the SSE wire format contains correct finish_reason after processing.
+
+        This tests the end-to-end flow: XML tool call -> detect -> serialize to SSE.
+        """
+        chunk = StreamingContent(
+            content="""<execute_command>
+<command>ls -la</command>
+</execute_command>""",
+            is_done=True,
+            metadata={
+                "session_id": "wire-format-test",
+                "finish_reason": "stop",
+                "id": "chatcmpl-wire-test",
+                "model": "gemini-2.5-pro",
+            },
+        )
+
+        result = await processor.process(chunk)
+
+        # Verify the metadata was updated
+        assert result.metadata.get("finish_reason") == "tool_calls"
+
+        # Now serialize to SSE format and verify
+        sse_bytes = result.to_bytes()
+        sse_str = sse_bytes.decode("utf-8")
+
+        # Parse the JSON from SSE format
+        assert "data:" in sse_str
+        # Extract JSON part (before [DONE])
+        lines = [line for line in sse_str.split("\n") if line.startswith("data:")]
+        json_line = lines[0].replace("data: ", "").strip()
+
+        if json_line != "[DONE]":
+            parsed = json.loads(json_line)
+
+            # Check if choices exist and have finish_reason
+            if parsed.get("choices"):
+                wire_finish_reason = parsed["choices"][0].get("finish_reason")
+                # The wire format should have tool_calls as finish_reason
+                assert wire_finish_reason == "tool_calls", (
+                    f"Wire format has finish_reason='{wire_finish_reason}' "
+                    "but should be 'tool_calls'"
+                )
+
+    @pytest.mark.asyncio
+    async def test_multi_chunk_gemini_streaming_with_stop(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        Test multi-chunk streaming where tool call XML is split and final chunk has stop.
+
+        This simulates the real-world Gemini streaming behavior where:
+        1. First chunks: partial tool call XML, no finish_reason
+        2. Final chunk: completes the XML, has finish_reason: 'stop'
+        3. Result: must have finish_reason: 'tool_calls'
+        """
+        session_id = "multi-chunk-gemini-test"
+
+        # Chunk 1: Start of response and partial tool call
+        chunk1 = StreamingContent(
+            content="I will read the README file.\n\n<read_file>\n<path>README",
+            is_done=False,
+            metadata={
+                "session_id": session_id,
+                "id": "chatcmpl-chunk1",
+            },
+        )
+
+        result1 = await processor.process(chunk1)
+        # Should not have complete tool call yet
+        tool_calls1 = result1.metadata.get("tool_calls")
+        assert tool_calls1 is None or len(tool_calls1) == 0
+
+        # Chunk 2: Complete the tool call with finish_reason: 'stop'
+        chunk2 = StreamingContent(
+            content=".md</path>\n</read_file>",
+            is_done=True,
+            metadata={
+                "session_id": session_id,
+                "id": "chatcmpl-chunk2",
+                "finish_reason": "stop",  # Backend sends stop at the end
+            },
+        )
+
+        result2 = await processor.process(chunk2)
+
+        # Verify tool call was detected
+        tool_calls2 = result2.metadata.get("tool_calls")
+        assert tool_calls2 is not None, "Tool call should be detected after completion"
+        assert len(tool_calls2) == 1
+        assert tool_calls2[0]["function"]["name"] == "read_file"
+
+        # CRITICAL: finish_reason must be tool_calls
+        assert (
+            result2.metadata.get("finish_reason") == "tool_calls"
+        ), "Multi-chunk streaming must override finish_reason to 'tool_calls'"
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_not_overridden_without_tool_call(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """
+        Verify finish_reason is NOT modified when no tool call is detected.
+
+        This ensures we only override finish_reason when there's actually a tool call.
+        """
+        chunk = StreamingContent(
+            content="This is a normal response without any tool calls.",
+            is_done=True,
+            metadata={
+                "session_id": "no-tool-call-test",
+                "finish_reason": "stop",
+            },
+        )
+
+        result = await processor.process(chunk)
+
+        # No tool calls should be detected
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is None or len(tool_calls) == 0
+
+        # finish_reason should remain 'stop' (not modified)
+        assert result.metadata.get("finish_reason") == "stop"

@@ -297,6 +297,11 @@ class StreamingContent:
                                 inner_delta = choices[0].get("delta", {})
                                 if isinstance(inner_delta, dict):
                                     inner_delta["tool_calls"] = sanitized_calls
+                                    # CRITICAL: Remove content from delta when tool_calls are present
+                                    # OpenAI streaming format requires content to be absent/null
+                                    # when tool_calls are in the delta. Clients like Kilo-Code
+                                    # fail to recognize tool calls if content is also present.
+                                    inner_delta.pop("content", None)
                                     choices[0]["delta"] = inner_delta
                                     content_copy["choices"] = choices
                             result = f"data: {json.dumps(content_copy)}\n\n"

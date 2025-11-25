@@ -65,10 +65,10 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
         # Only attempt repair if the content is a string
         if isinstance(response.content, str):
             allowed_tools = self._extract_allowed_tools(context.get("original_request"))
-            repaired_tool_call = self.tool_call_repair_service.repair_tool_calls(
+            repaired_result = self.tool_call_repair_service.repair_tool_calls(
                 response.content, allowed_tools=allowed_tools
             )
-            if repaired_tool_call:
+            if repaired_result:
                 logger.info(f"Tool call detected and repaired for session {session_id}")
                 # Update the processed response to reflect the repaired tool call
                 # and clear the original string content.
@@ -76,7 +76,7 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
                 # Add tool_calls to metadata, assuming it's a list
                 if "tool_calls" not in response.metadata:
                     response.metadata["tool_calls"] = []
-                response.metadata["tool_calls"].append(repaired_tool_call)
+                response.metadata["tool_calls"].append(repaired_result.tool_call)
 
                 # Set finish_reason if not already set (e.g., by backend)
                 if "finish_reason" not in response.metadata:

@@ -1049,8 +1049,8 @@ def to_fastapi_streaming_response(
     if content_iter is None:
         # Create empty iterator if content is None
         async def _empty_streamer() -> AsyncIterator[bytes]:
-            for _ in []:
-                yield
+            return
+            yield b""  # The yield is necessary to make this a generator
 
         return StreamingResponse(
             content=_empty_streamer(),

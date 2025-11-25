@@ -76,16 +76,16 @@ class ToolCallRepairProcessor(IStreamProcessor):
         repaired_content_parts: list[str] = []
         buffer_text = buffer_state.pending_text
 
-        repaired_json = (
+        repaired_result = (
             self.tool_call_repair_service.repair_tool_calls(
                 buffer_text, allowed_tools=buffer_state.allowed_tools
             )
             if buffer_text
             else None
         )
-        if repaired_json:
-            detected_tool_calls.append(repaired_json)
-            snippet = getattr(self.tool_call_repair_service, "last_tool_snippet", None)
+        if repaired_result:
+            detected_tool_calls.append(repaired_result.tool_call)
+            snippet = repaired_result.snippet
             if snippet:
                 idx = buffer_text.find(snippet)
                 if idx != -1:
@@ -142,18 +142,14 @@ class ToolCallRepairProcessor(IStreamProcessor):
                             # Always add outer closer
                             synthetic_buffer = synthetic_buffer + outer_closer
 
-                            repaired_json = (
+                            repaired_result = (
                                 self.tool_call_repair_service.repair_tool_calls(
                                     synthetic_buffer
                                 )
                             )
-                            if repaired_json:
-                                detected_tool_calls.append(repaired_json)
-                                snippet = getattr(
-                                    self.tool_call_repair_service,
-                                    "last_tool_snippet",
-                                    None,
-                                )
+                            if repaired_result:
+                                detected_tool_calls.append(repaired_result.tool_call)
+                                snippet = repaired_result.snippet
                                 if snippet:
                                     idx = synthetic_buffer.find(snippet)
                                     prefix = synthetic_buffer[:idx]
@@ -226,16 +222,23 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 buffer_state, detected_tool_calls
             )
             if registered_calls:
-                metadata.setdefault("finish_reason", "tool_calls")
+                # Force override backend's finish_reason (e.g., "stop") when tool calls are detected
+                # Using direct assignment instead of setdefault to ensure clients recognize tool calls
+                metadata["finish_reason"] = "tool_calls"
+                # Add index field to each tool call for OpenAI streaming format compliance
                 sanitized_calls = [
-                    self._sanitize_tool_call_for_metadata(call)
-                    for call in registered_calls
+                    self._sanitize_tool_call_for_metadata(call, index=idx)
+                    for idx, call in enumerate(registered_calls)
                 ]
                 existing_calls = metadata.get("tool_calls")
                 if isinstance(existing_calls, list) and existing_calls:
                     metadata["tool_calls"] = existing_calls + sanitized_calls
                 else:
                     metadata["tool_calls"] = sanitized_calls
+                # CRITICAL: Clear content when tool_calls are emitted
+                # OpenAI streaming format requires content to be absent/null in
+                # chunks with tool_calls. Clients like Kilo-Code fail if both present.
+                new_content_str = ""
         elif has_reasoning:
             reasoning_value = reasoning_segments[-1]
             metadata.setdefault("reasoning_content", reasoning_value)
@@ -346,9 +349,14 @@ class ToolCallRepairProcessor(IStreamProcessor):
         return self._registry.get_tool_call_buffer(stream_id)
 
     @staticmethod
-    def _sanitize_tool_call_for_metadata(tool_call: dict[str, Any]) -> dict[str, Any]:
+    def _sanitize_tool_call_for_metadata(
+        tool_call: dict[str, Any], index: int = 0
+    ) -> dict[str, Any]:
         cloned = deepcopy(tool_call)
         cloned.pop("_already_processed", None)
+        # Add index field for OpenAI streaming format compliance
+        # Clients like Kilo-Code require this field to properly identify tool calls
+        cloned["index"] = index
         return cloned
 
     def _register_tool_calls(

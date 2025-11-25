@@ -1,4 +1,5 @@
 import json
+import uuid
 from collections.abc import AsyncGenerator  # Added import
 
 import pytest
@@ -37,8 +38,10 @@ class TestToolCallRepairService:
         )
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "test_func"
-        assert json.loads(repaired["function"]["arguments"]) == {"arg1": "val1"}
+        assert repaired.tool_call["function"]["name"] == "test_func"
+        assert json.loads(repaired.tool_call["function"]["arguments"]) == {
+            "arg1": "val1"
+        }
 
     def test_repair_tool_calls_text_pattern(
         self, repair_service: ToolCallRepairService
@@ -46,8 +49,10 @@ class TestToolCallRepairService:
         content = 'TOOL CALL: test_func {"arg1": "val1"}'
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "test_func"
-        assert json.loads(repaired["function"]["arguments"]) == {"arg1": "val1"}
+        assert repaired.tool_call["function"]["name"] == "test_func"
+        assert json.loads(repaired.tool_call["function"]["arguments"]) == {
+            "arg1": "val1"
+        }
 
     def test_repair_tool_calls_code_block_pattern(
         self, repair_service: ToolCallRepairService
@@ -55,8 +60,10 @@ class TestToolCallRepairService:
         content = '```json\n{"tool": {"name": "test_func", "arguments": {"arg1": "val1"}}}\n```'
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "test_func"
-        assert json.loads(repaired["function"]["arguments"]) == {"arg1": "val1"}
+        assert repaired.tool_call["function"]["name"] == "test_func"
+        assert json.loads(repaired.tool_call["function"]["arguments"]) == {
+            "arg1": "val1"
+        }
 
     def test_repair_tool_calls_xml_direct_tool(
         self, repair_service: ToolCallRepairService
@@ -69,8 +76,8 @@ class TestToolCallRepairService:
         """
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "patch_file"
-        arguments = json.loads(repaired["function"]["arguments"])
+        assert repaired.tool_call["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert arguments["path"] == "src/example.py"
         assert arguments["patch_content"] == 'print("hello world")'
 
@@ -97,8 +104,8 @@ return new_line
         """
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "patch_file"
-        arguments = json.loads(repaired["function"]["arguments"])
+        assert repaired.tool_call["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert arguments["path"] == (
             "src/core/services/streaming/tool_call_repair_processor.py"
         )
@@ -128,8 +135,8 @@ print(x > y)
         repaired = repair_service.repair_tool_calls(content)
 
         assert repaired is not None
-        assert repaired["function"]["name"] == "patch_file"
-        args = json.loads(repaired["function"]["arguments"])
+        assert repaired.tool_call["function"]["name"] == "patch_file"
+        args = json.loads(repaired.tool_call["function"]["arguments"])
         assert args["path"] == "src/module.py"
         assert "new = 2" in args["diff"]
         assert "print(x < y)" in args["diff"]
@@ -150,8 +157,8 @@ print(x > y)
         """
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "patch_file"
-        arguments = json.loads(repaired["function"]["arguments"])
+        assert repaired.tool_call["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert arguments["path"] == "src/example.py"
         assert 'print("updated")' in arguments["patch_content"]
 
@@ -167,7 +174,7 @@ print(x > y)
         """
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "patch_file"
+        assert repaired.tool_call["function"]["name"] == "patch_file"
 
     def test_repair_tool_calls_no_match(
         self, repair_service: ToolCallRepairService
@@ -984,3 +991,208 @@ class TestToolCallRepairProcessorReasoning:
         assert args["patch_content"] == "diff"
         assert result2.content == ""
         assert "reasoning_content" not in result2.metadata
+
+
+class TestToolCallRepairProcessorFinishReason:
+    """Tests for finish_reason handling when tool calls are detected.
+
+    These tests verify that when a tool call is detected, the finish_reason
+    is forced to 'tool_calls' regardless of what the backend originally sent.
+    This is critical for clients like Kilo-Code that rely on finish_reason
+    to determine if a response contains tool calls.
+    """
+
+    @pytest.fixture
+    def processor(self) -> ToolCallRepairProcessor:
+        repair_service = ToolCallRepairService()
+        from src.core.services.streaming.stream_context_registry import (
+            StreamingContextRegistry,
+        )
+
+        registry = StreamingContextRegistry()
+        return ToolCallRepairProcessor(
+            repair_service, max_buffer_bytes=64 * 1024, registry=registry
+        )
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_overrides_stop_when_tool_call_detected(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that finish_reason is overridden from 'stop' to 'tool_calls' when a tool call is detected.
+
+        This is the critical bug fix: When the backend sends finish_reason: 'stop'
+        but the content contains a tool call, we must override it to 'tool_calls'
+        so clients know to execute the tool.
+        """
+        chunk = StreamingContent(
+            content="""<execute_command>
+<command>ls -la</command>
+</execute_command>""",
+            is_done=True,
+            metadata={
+                "session_id": "test-session",
+                "finish_reason": "stop",  # Backend sent 'stop', but this should be overridden
+            },
+        )
+
+        result = await processor.process(chunk)
+
+        # Verify tool call was detected
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is not None, "Tool call should be detected"
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["function"]["name"] == "execute_command"
+
+        # CRITICAL: finish_reason must be 'tool_calls', not 'stop'
+        assert result.metadata.get("finish_reason") == "tool_calls", (
+            "finish_reason should be overridden to 'tool_calls' when tool call is detected, "
+            f"but got: {result.metadata.get('finish_reason')}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_overrides_length_when_tool_call_detected(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that finish_reason is overridden from 'length' to 'tool_calls'."""
+        chunk = StreamingContent(
+            content="""<read_file>
+<path>README.md</path>
+</read_file>""",
+            is_done=True,
+            metadata={
+                "session_id": "test-session-2",
+                "finish_reason": "length",  # Another backend finish reason
+            },
+        )
+
+        result = await processor.process(chunk)
+
+        # Verify tool call was detected
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is not None
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["function"]["name"] == "read_file"
+
+        # finish_reason must be 'tool_calls'
+        assert result.metadata.get("finish_reason") == "tool_calls"
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_preserved_when_no_tool_call(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that finish_reason is preserved when no tool call is detected."""
+        chunk = StreamingContent(
+            content="Just a normal text response without tool calls.",
+            is_done=True,
+            metadata={
+                "session_id": "test-session-3",
+                "finish_reason": "stop",
+            },
+        )
+
+        result = await processor.process(chunk)
+
+        # No tool calls should be detected
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is None or len(tool_calls) == 0
+
+        # finish_reason should remain 'stop'
+        assert result.metadata.get("finish_reason") == "stop"
+
+    @pytest.mark.asyncio
+    async def test_multi_chunk_tool_call_with_final_stop(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that multi-chunk tool calls correctly override finish_reason.
+
+        This simulates the Gemini-style streaming where the tool call XML
+        is split across multiple chunks, and the final chunk has finish_reason: 'stop'.
+        """
+        session_id = "test-session-multi"
+
+        # First chunk: start of tool call (no finish_reason yet)
+        chunk1 = StreamingContent(
+            content="I will run the command.\n<execute_command>\n<command>pytest",
+            is_done=False,
+            metadata={"session_id": session_id},
+        )
+
+        result1 = await processor.process(chunk1)
+        # Should not have tool calls yet (incomplete XML)
+        assert (
+            result1.metadata.get("tool_calls") is None
+            or len(result1.metadata.get("tool_calls", [])) == 0
+        )
+
+        # Second chunk: complete the tool call with finish_reason: 'stop'
+        chunk2 = StreamingContent(
+            content="</command>\n</execute_command>",
+            is_done=True,
+            metadata={
+                "session_id": session_id,
+                "finish_reason": "stop",  # Backend sends 'stop'
+            },
+        )
+
+        result2 = await processor.process(chunk2)
+
+        # Verify tool call was detected
+        tool_calls = result2.metadata.get("tool_calls")
+        assert tool_calls is not None, "Tool call should be detected in final chunk"
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["function"]["name"] == "execute_command"
+
+        # CRITICAL: finish_reason must be overridden to 'tool_calls'
+        assert (
+            result2.metadata.get("finish_reason") == "tool_calls"
+        ), "finish_reason should be 'tool_calls' even when backend sent 'stop'"
+
+    @pytest.mark.asyncio
+    async def test_tool_calls_have_index_field_for_openai_streaming_compliance(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that tool calls include index field for OpenAI streaming format compliance.
+
+        OpenAI's streaming format requires each tool_call in delta.tool_calls to have
+        an index field that identifies the tool call position. This is critical for
+        clients like Kilo-Code that parse streaming tool calls.
+        """
+        session_id = f"test_index_field_{uuid.uuid4().hex[:8]}"
+        chunk = StreamingContent(
+            content="""<execute_command>
+<command>ls -la</command>
+</execute_command>""",
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+
+        result = await processor.process(chunk)
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is not None and len(tool_calls) == 1
+        # CRITICAL: index field must be present for OpenAI streaming compliance
+        assert "index" in tool_calls[0], "Tool call must have index field"
+        assert tool_calls[0]["index"] == 0, "First tool call should have index 0"
+
+    @pytest.mark.asyncio
+    async def test_index_field_type_is_integer(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Test that index field is an integer type, not string.
+
+        The OpenAI streaming format expects index to be an integer.
+        """
+        session_id = f"test_index_type_{uuid.uuid4().hex[:8]}"
+        chunk = StreamingContent(
+            content="""<read_file>
+<path>test.txt</path>
+</read_file>""",
+            is_done=True,
+            metadata={"session_id": session_id, "finish_reason": "stop"},
+        )
+
+        result = await processor.process(chunk)
+        tool_calls = result.metadata.get("tool_calls")
+        assert tool_calls is not None and len(tool_calls) == 1
+        # Verify index is an integer
+        assert isinstance(tool_calls[0]["index"], int), "Index must be an integer"
+        assert tool_calls[0]["index"] == 0

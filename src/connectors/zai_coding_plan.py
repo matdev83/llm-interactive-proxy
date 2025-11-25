@@ -647,11 +647,12 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
             for match in matches:
                 xml_block = match.group(0)
-                tool_call = repair_service._extract_xml_tool_call(xml_block)
-                if not tool_call:
+                repair_result = repair_service._extract_xml_tool_call(xml_block)
+                if not repair_result:
                     continue
 
-                tool_calls.append(tool_call)
+                # Extract the tool_call dict from the ToolCallRepairResult
+                tool_calls.append(repair_result.tool_call)
                 cleaned_content = cleaned_content.replace(xml_block, "", 1).strip()
 
             if not tool_calls:

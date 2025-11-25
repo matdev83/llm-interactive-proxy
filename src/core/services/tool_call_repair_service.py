@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
+    ToolCallRepairResult,
 )
 from src.core.utils.message_processing_utils import (
     find_last_assistant_message,
@@ -41,7 +42,6 @@ class ToolCallRepairService(IToolCallRepairService):
         self._tool_call_buffers: dict[str, str] = {}
         # Cap per-session buffer to guard against pathological streams
         self._max_buffer_bytes: int = max_buffer_bytes or (64 * 1024)  # default 64 KB
-        self._last_tool_snippet: str | None = None
 
     @property
     def max_buffer_bytes(self) -> int:
@@ -54,7 +54,7 @@ class ToolCallRepairService(IToolCallRepairService):
         response_content: str,
         force_reprocess: bool = False,
         allowed_tools: list[str] | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> ToolCallRepairResult | None:
         """
         Detects tool calls within the given response content (string) and converts
         them into an OpenAI-compatible tool_calls structure.
@@ -66,8 +66,8 @@ class ToolCallRepairService(IToolCallRepairService):
             allowed_tools: Optional list of allowed tool names to prioritize during detection.
 
         Returns:
-            A dictionary representing the OpenAI-compatible tool_calls structure
-            if a tool call is detected and successfully parsed, otherwise None.
+            A ToolCallRepairResult containing the parsed tool call and the original
+            text snippet if a tool call is detected, otherwise None.
         """
         if not response_content:
             return None
@@ -79,26 +79,25 @@ class ToolCallRepairService(IToolCallRepairService):
         if "```" in content:
             match = self._CODE_BLOCK_PATTERN.search(content)
             if match:
-                return self._process_json_match(match.group(1))
+                return self._process_json_match(match.group(1), match.group(0))
 
         # Attempt to detect using JSON patterns only if likely keys present
         if '"function_call"' in content or '"tool"' in content:
             # Prefer fast balanced-object extraction over regex
             extracted = self._extract_json_object_near_key(content)
             if extracted:
-                processed = self._process_json_match(extracted)
+                processed = self._process_json_match(extracted, extracted)
                 if processed:
                     return processed
             # Fallback to regex if balanced extraction failed
             match = self._JSON_PATTERN.search(content)
             if match:
-                return self._process_json_match(match.group(1))
+                return self._process_json_match(match.group(1), match.group(0))
 
         # Attempt to detect using XML patterns (Kilo MCP tool format)
         xml_tool_call = self._extract_xml_tool_call(content, allowed_tools)
         if xml_tool_call:
             return xml_tool_call
-        self._last_tool_snippet = None
 
         # Attempt to detect using textual patterns only if keywords present
         if (
@@ -108,7 +107,9 @@ class ToolCallRepairService(IToolCallRepairService):
         ):
             match = self._TEXT_PATTERN.search(content)
             if match:
-                return self._process_text_match(match.group(1), match.group(2))
+                return self._process_text_match(
+                    match.group(1), match.group(2), match.group(0)
+                )
 
         return None
 
@@ -233,9 +234,10 @@ class ToolCallRepairService(IToolCallRepairService):
             return repaired_message
 
         # Attempt to repair tool calls
-        repaired_tool_call = self.repair_tool_calls(content, force_reprocess)
+        result = self.repair_tool_calls(content, force_reprocess)
 
-        if repaired_tool_call:
+        if result:
+            repaired_tool_call = result.tool_call
             # Add tool_calls to message if repair was successful
             if isinstance(repaired_message, dict):
                 if "tool_calls" not in repaired_message:
@@ -250,7 +252,9 @@ class ToolCallRepairService(IToolCallRepairService):
 
         return repaired_message
 
-    def _process_json_match(self, json_string: str) -> dict[str, Any] | None:
+    def _process_json_match(
+        self, json_string: str, snippet: str
+    ) -> ToolCallRepairResult | None:
         """Helper to process a detected JSON string."""
         try:
             data = json.loads(json_string)
@@ -258,16 +262,18 @@ class ToolCallRepairService(IToolCallRepairService):
                 return self._format_openai_tool_call(
                     data["function_call"].get("name") or "",  # Ensure name is str
                     data["function_call"].get("arguments"),
+                    snippet,
                 )
             elif "tool" in data and isinstance(data["tool"], dict):
                 return self._format_openai_tool_call(
                     data["tool"].get("name") or "",  # Ensure name is str
                     data["tool"].get("arguments"),
+                    snippet,
                 )
             # Handle cases where the JSON is just the function call object directly
             elif "name" in data and "arguments" in data:
                 return self._format_openai_tool_call(
-                    data.get("name", ""), data["arguments"]
+                    data.get("name", ""), data["arguments"], snippet
                 )  # Ensure name is str
         except json.JSONDecodeError as e:
             logger.warning(
@@ -284,7 +290,9 @@ class ToolCallRepairService(IToolCallRepairService):
             )
         return None
 
-    def _process_text_match(self, name: str, args_string: str) -> dict[str, Any] | None:
+    def _process_text_match(
+        self, name: str, args_string: str, snippet: str
+    ) -> ToolCallRepairResult | None:
         """Helper to process a detected textual tool call."""
         try:
             # PERFORMANCE OPTIMIZATION: Avoid unnecessary JSON round-trip
@@ -303,7 +311,7 @@ class ToolCallRepairService(IToolCallRepairService):
                     {"args": stripped_args}
                 )  # Wrap as a simple JSON object
 
-            return self._format_openai_tool_call(name, arguments)
+            return self._format_openai_tool_call(name, arguments, snippet)
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to encode arguments to JSON: {e}", exc_info=True)
         except (KeyError, TypeError) as e:
@@ -357,14 +365,16 @@ class ToolCallRepairService(IToolCallRepairService):
             i += 1
         return None
 
-    def _format_openai_tool_call(self, name: str, arguments: Any) -> dict[str, Any]:
+    def _format_openai_tool_call(
+        self, name: str, arguments: Any, snippet: str
+    ) -> ToolCallRepairResult:
         """Formats the detected tool call into an OpenAI-compatible structure."""
         if isinstance(arguments, dict):
             arguments = json.dumps(arguments)
         elif not isinstance(arguments, str):
             arguments = json.dumps(str(arguments))
 
-        return {
+        tool_call = {
             "id": f"call_{uuid4().hex}",
             "type": "function",
             "function": {
@@ -372,16 +382,15 @@ class ToolCallRepairService(IToolCallRepairService):
                 "arguments": arguments,
             },
         }
+        return ToolCallRepairResult(tool_call=tool_call, snippet=snippet)
 
     def _extract_xml_tool_call(
         self, content: str, allowed_tools: list[str] | None = None
-    ) -> dict[str, Any] | None:
+    ) -> ToolCallRepairResult | None:
         """Detect and convert XML-formatted tool calls."""
         # Use content directly to ensure snippets match original text for removal
         if "<" not in content or "</" not in content:
             return None
-
-        self._last_tool_snippet = None
 
         # Priority matching for known tool tags (to avoid matching inner tags like <command>)
         # Use allowed_tools if provided, otherwise fallback to known_tools
@@ -426,7 +435,6 @@ class ToolCallRepairService(IToolCallRepairService):
             except Exception:
                 fallback = self._parse_lenient_tool_call(xml_snippet)
                 if fallback:
-                    self._last_tool_snippet = xml_snippet
                     return fallback
                 continue
 
@@ -488,24 +496,21 @@ class ToolCallRepairService(IToolCallRepairService):
                     tool_name_candidate,
                     arguments_raw,
                 )
-                self._last_tool_snippet = xml_snippet
-                return self._format_openai_tool_call(tool_name_candidate, arguments)
+                return self._format_openai_tool_call(
+                    tool_name_candidate, arguments, xml_snippet
+                )
 
             arguments_raw = self._element_children_to_dict(root)
             if not isinstance(arguments_raw, dict):
                 arguments_raw = {"content": arguments_raw} if arguments_raw else {}
-            self._last_tool_snippet = xml_snippet
             arguments = self._normalize_tool_arguments(root.tag, arguments_raw)
-            return self._format_openai_tool_call(root.tag, arguments)
+            return self._format_openai_tool_call(root.tag, arguments, xml_snippet)
 
         return None
 
-    @property
-    def last_tool_snippet(self) -> str | None:
-        """Return the last matched XML snippet for a detected tool call."""
-        return self._last_tool_snippet
+    # Property last_tool_snippet removed as it is no longer needed
 
-    def _parse_lenient_tool_call(self, xml_snippet: str) -> dict[str, Any] | None:
+    def _parse_lenient_tool_call(self, xml_snippet: str) -> ToolCallRepairResult | None:
         """Best-effort parser for malformed XML that still resembles tool calls."""
         snippet = xml_snippet.strip()
         if not snippet.startswith("<"):
@@ -522,7 +527,7 @@ class ToolCallRepairService(IToolCallRepairService):
             return self._parse_lenient_patch_file(snippet)
         return None
 
-    def _parse_lenient_use_mcp_tool(self, snippet: str) -> dict[str, Any] | None:
+    def _parse_lenient_use_mcp_tool(self, snippet: str) -> ToolCallRepairResult | None:
         tool_name = None
         attr_match = re.search(
             r'(?:name|tool_name)\s*=\s*["\']([^"\']+)["\']', snippet, re.IGNORECASE
@@ -548,9 +553,9 @@ class ToolCallRepairService(IToolCallRepairService):
                 continue
             arguments[tag] = self._sanitize_extracted_text(value)
 
-        return self._format_openai_tool_call(tool_name, arguments)
+        return self._format_openai_tool_call(tool_name, arguments, snippet)
 
-    def _parse_lenient_patch_file(self, snippet: str) -> dict[str, Any] | None:
+    def _parse_lenient_patch_file(self, snippet: str) -> ToolCallRepairResult | None:
         arguments: dict[str, Any] = {}
 
         path_match = re.search(
@@ -569,7 +574,7 @@ class ToolCallRepairService(IToolCallRepairService):
         if not arguments:
             return None
 
-        return self._format_openai_tool_call("patch_file", arguments)
+        return self._format_openai_tool_call("patch_file", arguments, snippet)
 
     def _sanitize_extracted_text(self, value: str) -> str:
         text = value.strip()

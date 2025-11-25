@@ -64,9 +64,9 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete execute_command"
         assert (
-            repaired["function"]["name"] == "execute_command"
+            repaired.tool_call["function"]["name"] == "execute_command"
         ), "Tool name must be 'execute_command', not 'command'"
-        arguments = json.loads(repaired["function"]["arguments"])
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert "command" in arguments, "Arguments should contain 'command' key"
         assert "./.venv/Scripts/python.exe -m pytest" in arguments["command"]
 
@@ -136,7 +136,7 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete read_file"
         assert (
-            repaired["function"]["name"] == "read_file"
+            repaired.tool_call["function"]["name"] == "read_file"
         ), "Tool name must be 'read_file', not 'file'"
 
     def test_read_file_truncated_returns_none(
@@ -180,7 +180,7 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete ask_followup_question"
         assert (
-            repaired["function"]["name"] == "ask_followup_question"
+            repaired.tool_call["function"]["name"] == "ask_followup_question"
         ), "Tool name must be 'ask_followup_question', not 'question'"
 
     def test_ask_followup_question_truncated_returns_none(
@@ -226,7 +226,7 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete attempt_completion"
         assert (
-            repaired["function"]["name"] == "attempt_completion"
+            repaired.tool_call["function"]["name"] == "attempt_completion"
         ), "Tool name must be 'attempt_completion', not 'result'"
 
     def test_attempt_completion_truncated_returns_none(
@@ -267,7 +267,7 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete search_files"
         assert (
-            repaired["function"]["name"] == "search_files"
+            repaired.tool_call["function"]["name"] == "search_files"
         ), "Tool name must be 'search_files', not 'regex' or 'directory'"
 
     def test_regex_tag_alone_is_skipped(
@@ -306,7 +306,7 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete codebase_search"
         assert (
-            repaired["function"]["name"] == "codebase_search"
+            repaired.tool_call["function"]["name"] == "codebase_search"
         ), "Tool name must be 'codebase_search', not 'query'"
 
     def test_query_tag_alone_is_skipped(
@@ -336,7 +336,7 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete access_mcp_resource"
         assert (
-            repaired["function"]["name"] == "access_mcp_resource"
+            repaired.tool_call["function"]["name"] == "access_mcp_resource"
         ), "Tool name must be 'access_mcp_resource', not 'uri' or 'server_name'"
 
     def test_uri_tag_alone_is_skipped(
@@ -376,7 +376,7 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete list_files"
         assert (
-            repaired["function"]["name"] == "list_files"
+            repaired.tool_call["function"]["name"] == "list_files"
         ), "Tool name must be 'list_files', not 'directory' or 'recursive'"
 
     def test_recursive_tag_alone_is_skipped(
@@ -406,7 +406,7 @@ class TestInnerTagParsingRegression:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None, "Should parse complete write_to_file"
         assert (
-            repaired["function"]["name"] == "write_to_file"
+            repaired.tool_call["function"]["name"] == "write_to_file"
         ), "Tool name must be 'write_to_file', not 'file' or 'content'"
 
     def test_content_tag_alone_is_skipped(
@@ -492,8 +492,8 @@ class TestToolCallParsingWithPrefixText:
 
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "execute_command"
-        arguments = json.loads(repaired["function"]["arguments"])
+        assert repaired.tool_call["function"]["name"] == "execute_command"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert (
             "./.venv/Scripts/python.exe -m pytest tests/unit/" in arguments["command"]
         )
@@ -510,7 +510,7 @@ class TestToolCallParsingWithPrefixText:
 
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "read_file"
+        assert repaired.tool_call["function"]["name"] == "read_file"
 
     def test_truncated_with_prefix_text_returns_none(
         self, repair_service: ToolCallRepairService
@@ -543,7 +543,7 @@ class TestToolCallSnippetExtraction:
     def test_snippet_matches_complete_xml(
         self, repair_service: ToolCallRepairService
     ) -> None:
-        """Test that last_tool_snippet contains the complete XML."""
+        """Test that the snippet in ToolCallRepairResult contains the complete XML."""
         content = """Some text before.
 
 <execute_command>
@@ -554,7 +554,8 @@ Some text after."""
 
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        snippet = repair_service.last_tool_snippet
+        # Snippet is now part of the ToolCallRepairResult
+        snippet = repaired.snippet
         assert snippet is not None
         assert "<execute_command>" in snippet
         assert "</execute_command>" in snippet
@@ -564,15 +565,13 @@ Some text after."""
     def test_snippet_is_none_for_truncated_xml(
         self, repair_service: ToolCallRepairService
     ) -> None:
-        """Test that last_tool_snippet is None when XML is truncated."""
+        """Test that result is None when XML is truncated."""
         content = """<execute_command>
 <command>./.venv/Scripts/python.exe -m pytest"""
 
         repaired = repair_service.repair_tool_calls(content)
-        assert repaired is None
-        # The snippet should be None because no complete tool call was found
-        snippet = repair_service.last_tool_snippet
-        assert snippet is None, "last_tool_snippet should be None for truncated XML"
+        # The entire result should be None because no complete tool call was found
+        assert repaired is None, "Result should be None for truncated XML"
 
 
 class TestMultipleToolCallsInContent:
@@ -603,7 +602,10 @@ class TestMultipleToolCallsInContent:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
         # Should return one of the tool calls (implementation may vary on order)
-        assert repaired["function"]["name"] in ("read_file", "execute_command")
+        assert repaired.tool_call["function"]["name"] in (
+            "read_file",
+            "execute_command",
+        )
 
     def test_first_complete_tool_call_when_first_is_truncated(
         self, repair_service: ToolCallRepairService
@@ -622,7 +624,7 @@ class TestMultipleToolCallsInContent:
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
         # Should skip truncated read_file and return execute_command
-        assert repaired["function"]["name"] == "execute_command"
+        assert repaired.tool_call["function"]["name"] == "execute_command"
 
 
 class TestEdgeCases:
@@ -660,7 +662,10 @@ class TestEdgeCases:
         content = "<execute_command><command>test</command></read_file>"
         repaired = repair_service.repair_tool_calls(content)
         # This should not match execute_command because the closing tag is wrong
-        assert repaired is None or repaired["function"]["name"] != "execute_command"
+        assert (
+            repaired is None
+            or repaired.tool_call["function"]["name"] != "execute_command"
+        )
 
     def test_self_closing_tag_is_handled(
         self, repair_service: ToolCallRepairService
@@ -671,7 +676,7 @@ class TestEdgeCases:
         repaired = repair_service.repair_tool_calls(content)
         # This is acceptable - either None or an empty tool call
         if repaired is not None:
-            assert repaired["function"]["name"] == "execute_command"
+            assert repaired.tool_call["function"]["name"] == "execute_command"
 
     def test_nested_same_tags_are_handled(
         self, repair_service: ToolCallRepairService
@@ -684,7 +689,7 @@ class TestEdgeCases:
 """
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "execute_command"
+        assert repaired.tool_call["function"]["name"] == "execute_command"
 
     def test_xml_with_attributes_is_parsed(
         self, repair_service: ToolCallRepairService
@@ -697,7 +702,7 @@ class TestEdgeCases:
 """
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "execute_command"
+        assert repaired.tool_call["function"]["name"] == "execute_command"
 
     def test_cdata_content_is_handled(
         self, repair_service: ToolCallRepairService
@@ -710,7 +715,7 @@ class TestEdgeCases:
 """
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "execute_command"
+        assert repaired.tool_call["function"]["name"] == "execute_command"
 
 
 class TestAllowedToolsFiltering:
@@ -741,7 +746,7 @@ class TestAllowedToolsFiltering:
         # (The behavior depends on implementation - it may fall back to generic XML)
         if repaired is not None:
             # If it does match, it should still be execute_command (generic fallback)
-            assert repaired["function"]["name"] == "execute_command"
+            assert repaired.tool_call["function"]["name"] == "execute_command"
 
     def test_allowed_tools_includes_custom_tool(
         self, repair_service: ToolCallRepairService
@@ -756,7 +761,7 @@ class TestAllowedToolsFiltering:
             content, allowed_tools=["my_custom_tool"]
         )
         assert repaired is not None
-        assert repaired["function"]["name"] == "my_custom_tool"
+        assert repaired.tool_call["function"]["name"] == "my_custom_tool"
 
 
 class TestArgumentFlattening:
@@ -781,9 +786,9 @@ class TestArgumentFlattening:
         result = service.repair_tool_calls(content)
 
         assert result is not None
-        assert result["function"]["name"] == "read_file"
+        assert result.tool_call["function"]["name"] == "read_file"
         # Arguments should be flattened to just {"path": "..."}
-        args = json.loads(result["function"]["arguments"])
+        args = json.loads(result.tool_call["function"]["arguments"])
         assert args == {"path": "README.md"}, f"Expected flattened args, got: {args}"
 
     def test_read_file_direct_path_is_preserved(self) -> None:
@@ -794,8 +799,8 @@ class TestArgumentFlattening:
         result = service.repair_tool_calls(content)
 
         assert result is not None
-        assert result["function"]["name"] == "read_file"
-        args = json.loads(result["function"]["arguments"])
+        assert result.tool_call["function"]["name"] == "read_file"
+        args = json.loads(result.tool_call["function"]["arguments"])
         assert args == {"path": "test.py"}, f"Expected direct path, got: {args}"
 
     def test_execute_command_args_command_is_flattened(self) -> None:
@@ -810,8 +815,8 @@ class TestArgumentFlattening:
         result = service.repair_tool_calls(content)
 
         assert result is not None
-        assert result["function"]["name"] == "execute_command"
-        args = json.loads(result["function"]["arguments"])
+        assert result.tool_call["function"]["name"] == "execute_command"
+        args = json.loads(result.tool_call["function"]["arguments"])
         # Should be flattened to just {"command": "..."}
         assert args == {"command": "ls -la"}, f"Expected flattened args, got: {args}"
 
@@ -849,8 +854,8 @@ class TestRealWorldScenarios:
 
         repaired_complete = repair_service.repair_tool_calls(complete)
         assert repaired_complete is not None
-        assert repaired_complete["function"]["name"] == "execute_command"
-        arguments = json.loads(repaired_complete["function"]["arguments"])
+        assert repaired_complete.tool_call["function"]["name"] == "execute_command"
+        arguments = json.loads(repaired_complete.tool_call["function"]["arguments"])
         assert arguments["command"] == "./.venv/Scripts/python.exe -m pytest"
 
     def test_kilo_code_greeting_scenario(
@@ -879,7 +884,9 @@ class TestRealWorldScenarios:
 
         repaired_complete = repair_service.repair_tool_calls(complete)
         assert repaired_complete is not None
-        assert repaired_complete["function"]["name"] == "ask_followup_question"
+        assert (
+            repaired_complete.tool_call["function"]["name"] == "ask_followup_question"
+        )
 
     def test_multiline_command_with_arguments(
         self, repair_service: ToolCallRepairService
@@ -890,8 +897,8 @@ class TestRealWorldScenarios:
 </execute_command>"""
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "execute_command"
-        arguments = json.loads(repaired["function"]["arguments"])
+        assert repaired.tool_call["function"]["name"] == "execute_command"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert "pytest" in arguments["command"]
         assert "test_file.py" in arguments["command"]
         assert "-v" in arguments["command"]

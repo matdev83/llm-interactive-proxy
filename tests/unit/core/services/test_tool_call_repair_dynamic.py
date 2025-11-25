@@ -21,8 +21,8 @@ class TestToolCallRepairServiceDynamic:
             content, allowed_tools=["custom_tool"]
         )
         assert repaired is not None
-        assert repaired["function"]["name"] == "custom_tool"
-        arguments = json.loads(repaired["function"]["arguments"])
+        assert repaired.tool_call["function"]["name"] == "custom_tool"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert arguments["arg"] == "value"
 
     def test_repair_tool_calls_dynamic_tool_priority(
@@ -37,8 +37,8 @@ class TestToolCallRepairServiceDynamic:
         """
         repaired = repair_service.repair_tool_calls(content, allowed_tools=["my_tool"])
         assert repaired is not None
-        assert repaired["function"]["name"] == "my_tool"
-        arguments = json.loads(repaired["function"]["arguments"])
+        assert repaired.tool_call["function"]["name"] == "my_tool"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert arguments["arg"] == "value"
 
     def test_repair_tool_calls_fallback_to_defaults(
@@ -51,4 +51,4 @@ class TestToolCallRepairServiceDynamic:
         """
         repaired = repair_service.repair_tool_calls(content)
         assert repaired is not None
-        assert repaired["function"]["name"] == "read_file"
+        assert repaired.tool_call["function"]["name"] == "read_file"
