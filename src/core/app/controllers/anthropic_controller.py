@@ -4,10 +4,11 @@ Anthropic Controller
 Handles Anthropic API endpoints.
 """
 
+import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
-from typing import Any, cast
+from typing import Any
 
 from fastapi import HTTPException, Request, Response
 
@@ -104,9 +105,6 @@ class AnthropicController:
                 anthropic_request
             )
 
-            # Convert FastAPI Request to RequestContext and process via core processor
-            ctx = fastapi_to_domain_request_context(request, attach_original=True)
-
             # Convert the dict to a ChatRequest object
             from src.core.domain.chat import ChatMessage, ChatRequest
 
@@ -145,6 +143,17 @@ class AnthropicController:
                 tools=openai_request_data.get("tools"),
                 tool_choice=openai_request_data.get("tool_choice"),
             )
+
+            # Convert FastAPI Request to RequestContext and process via core processor
+            ctx = fastapi_to_domain_request_context(request, attach_original=True)
+            if self._wire_capture and self._wire_capture.enabled():
+                with contextlib.suppress(Exception):
+                    await self._wire_capture.capture_inbound_request(
+                        context=ctx,
+                        session_id=getattr(ctx, "session_id", None),
+                        request_payload=chat_request,
+                        raw_body=None,
+                    )
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, chat_request)

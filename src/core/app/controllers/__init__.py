@@ -47,6 +47,10 @@ from src.core.domain.chat import ChatRequest as DomainChatRequest
 # Using SOLID architecture directly with DI-managed services
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.transport.fastapi.request_adapters import (
+    fastapi_to_domain_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -448,6 +452,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             from src.core.interfaces.backend_service_interface import IBackendService
             from src.core.services.translation_service import TranslationService
 
+            wire_capture = None
+            with contextlib.suppress(Exception):
+                wire_capture = service_provider.get_service(cast(type, IWireCapture))
+            ctx = fastapi_to_domain_request_context(request, attach_original=True)
+
             # Add model to request data if not present
             if "model" not in request_data:
                 request_data["model"] = model
@@ -461,11 +470,24 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             domain_request = translation_service.to_domain_request(
                 request_data, source_format="gemini"
             )
+            with contextlib.suppress(Exception):
+                ctx.domain_request = domain_request  # type: ignore[attr-defined]
+                if getattr(domain_request, "session_id", None):
+                    ctx.session_id = domain_request.session_id
+            if wire_capture and wire_capture.enabled():
+                with contextlib.suppress(Exception):
+                    await wire_capture.capture_inbound_request(
+                        context=ctx,
+                        session_id=getattr(ctx, "session_id", None),
+                        request_payload=domain_request,
+                        raw_body=None,
+                    )
 
             # Get backend service
             backend_service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
 
             # Try to call the backend - if it fails, provide fallback response
+            response_payload: dict[str, Any] | None = None
             try:
                 # Check if there's a mock backend on app.state (test scenario)
                 app_state = request.app.state
@@ -473,40 +495,37 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     hasattr(app_state, "openrouter_backend")
                     and app_state.openrouter_backend
                 ):
-                    # Use the test mock backend directly
                     mock_result = await app_state.openrouter_backend.chat_completions(
                         domain_request
                     )
-
-                    # Check if the result is a ResponseEnvelope
-                    if hasattr(mock_result, "content"):
-                        mock_content = mock_result.content
-                    else:
-                        mock_content = mock_result
-
-                    # Convert mock result to Gemini format
+                    mock_content = (
+                        mock_result.content
+                        if hasattr(mock_result, "content")
+                        else mock_result
+                    )
                     from src.core.domain.gemini_translation import (
                         canonical_response_to_gemini_response,
                     )
 
-                    return canonical_response_to_gemini_response(mock_content)
+                    response_payload = canonical_response_to_gemini_response(
+                        mock_content
+                    )
                 else:
-                    # Call the backend service using the public call_completion method
-                    result = await backend_service.call_completion(domain_request)
-
-                    # Convert the domain response to Gemini format
+                    result = await backend_service.call_completion(
+                        domain_request, context=ctx
+                    )
                     if hasattr(result, "content"):
                         if isinstance(result.content, dict):
-                            # Convert OpenAI format response to Gemini format
                             from src.core.domain.gemini_translation import (
                                 canonical_response_to_gemini_response,
                             )
 
-                            return canonical_response_to_gemini_response(result.content)
+                            response_payload = canonical_response_to_gemini_response(
+                                result.content
+                            )
                         else:
-                            # For other response types, provide a basic Gemini response
                             response_text = str(result.content)
-                            return {
+                            response_payload = {
                                 "candidates": [
                                     {
                                         "content": {
@@ -524,8 +543,7 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                 },
                             }
                     else:
-                        # Fallback for unexpected response format
-                        return {
+                        response_payload = {
                             "candidates": [
                                 {
                                     "content": {
@@ -545,11 +563,8 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                             },
                         }
             except Exception as e:
-                # Check if it's an HTTPException that should be re-raised
                 if isinstance(e, HTTPException):
-                    # Preserve the original status code and detail
                     raise HTTPException(status_code=e.status_code, detail=e.detail)
-                # Fallback to dynamic response based on input
                 response_text = "Test response"
                 if domain_request.messages:
                     original_text = domain_request.messages[0].content
@@ -560,24 +575,59 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                             response_text = "I see an image."
                         else:
                             response_text = f"Response to: {original_text[:50]}"
+                response_payload = {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [{"text": response_text}],
+                                "role": "model",
+                            },
+                            "finishReason": "STOP",
+                            "index": 0,
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 10,
+                        "candidatesTokenCount": 20,
+                        "totalTokenCount": 30,
+                    },
+                }
 
-            return {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": response_text}],
-                            "role": "model",
-                        },
-                        "finishReason": "STOP",
-                        "index": 0,
-                    }
-                ],
-                "usageMetadata": {
-                    "promptTokenCount": 10,
-                    "candidatesTokenCount": 20,
-                    "totalTokenCount": 30,
-                },
-            }
+            if response_payload is None:
+                response_payload = {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [{"text": "Response processed successfully."}]
+                            },
+                            "finishReason": "STOP",
+                            "index": 0,
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 10,
+                        "candidatesTokenCount": 20,
+                        "totalTokenCount": 30,
+                    },
+                }
+
+            if wire_capture and wire_capture.enabled():
+                try:
+                    await wire_capture.capture_outbound_response(
+                        context=ctx,
+                        session_id=getattr(ctx, "session_id", None),
+                        backend=None,
+                        model=getattr(domain_request, "model", None),
+                        key_name=None,
+                        response_content=response_payload,
+                    )
+                except Exception:
+                    logger.debug(
+                        "Wire capture outbound (gemini generateContent) failed",
+                        exc_info=True,
+                    )
+
+            return response_payload
         except HTTPException as http_exc:
             # Re-raise HTTP exceptions with their original status code
             logger.exception(
@@ -614,6 +664,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:
             )
             from src.core.services.translation_service import TranslationService
 
+            wire_capture = None
+            with contextlib.suppress(Exception):
+                wire_capture = service_provider.get_service(cast(type, IWireCapture))
+            ctx = fastapi_to_domain_request_context(request, attach_original=True)
+
             # Add model to request data if not present
             if "model" not in request_data:
                 request_data["model"] = model
@@ -634,6 +689,18 @@ def register_versioned_endpoints(app: FastAPI) -> None:
 
             # Create a new request with stream=True
             domain_request = domain_request.model_copy(update={"stream": True})
+            with contextlib.suppress(Exception):
+                ctx.domain_request = domain_request  # type: ignore[attr-defined]
+                if getattr(domain_request, "session_id", None):
+                    ctx.session_id = domain_request.session_id
+            if wire_capture and wire_capture.enabled():
+                with contextlib.suppress(Exception):
+                    await wire_capture.capture_inbound_request(
+                        context=ctx,
+                        session_id=getattr(ctx, "session_id", None),
+                        request_payload=domain_request,
+                        raw_body=None,
+                    )
 
             # Get backend service
             backend_service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
@@ -642,7 +709,9 @@ def register_versioned_endpoints(app: FastAPI) -> None:
 
                 try:
                     # Call the backend service
-                    result = await backend_service.call_completion(domain_request)
+                    result = await backend_service.call_completion(
+                        domain_request, stream=True, context=ctx
+                    )
 
                     if hasattr(result, "content") and hasattr(
                         result.content, "__aiter__"
@@ -650,8 +719,8 @@ def register_versioned_endpoints(app: FastAPI) -> None:
 
                         async def _empty_stream() -> AsyncIterator[Any]:
                             # This function is an empty async generator
-                            return
-                            yield  # type: ignore  # pragma: no cover
+                            if False:
+                                yield
 
                         stream_iterator: AsyncIterator[Any]
                         content = getattr(result, "content", None)
@@ -781,7 +850,18 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                     yield f"data: {json.dumps(error_format)}\n\n".encode()
                     yield b"data: [DONE]\n\n"
 
-            return StreamingResponse(generate_stream(), media_type="text/event-stream")
+            stream_iter: AsyncIterator[bytes] = generate_stream()
+            if wire_capture and wire_capture.enabled():
+                with contextlib.suppress(Exception):
+                    stream_iter = wire_capture.wrap_outbound_stream(
+                        context=ctx,
+                        session_id=getattr(ctx, "session_id", None),
+                        backend=None,
+                        model=getattr(domain_request, "model", None),
+                        key_name=None,
+                        stream=stream_iter,
+                    )
+            return StreamingResponse(stream_iter, media_type="text/event-stream")
         except Exception as e:
             logger.exception(
                 f"Error in Gemini stream generate content: {e}", exc_info=True
