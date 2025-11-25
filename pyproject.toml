@@ -379,7 +379,10 @@ ignore_names = [
     "validate_yaml_against_schema",
     "validate_static_yaml_configs",
     "_load_yaml_file",
-    "_load_yaml_schema"
+    "_load_yaml_schema",
+    # Kept for API compatibility in _normalize_tool_arguments
+    "context_element",
+    "tool_name"
 ]
 
 [tool.testmon]

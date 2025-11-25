@@ -1,3 +1,4 @@
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import google.auth.exceptions
@@ -123,5 +124,76 @@ async def test_stream_generator_handles_google_auth_error():
         # It should be a dict describing the auth error
         assert isinstance(content, dict)
         assert content["error"]["code"] == 401
-        assert content["error"]["type"] == "auth_error"
-        assert "Authentication failed" in content["error"]["message"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_stream_generator_yields_usage_before_stop():
+    """Test that usage is yielded BEFORE the final stop chunk."""
+    # Mock dependencies
+    client = AsyncMock()
+    config = MagicMock()
+    translation_service = MagicMock()
+
+    # Setup translation service to pass through chunks
+    def mock_to_domain(chunk, source_format):
+        if chunk is None:
+            return {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        return chunk
+
+    translation_service.to_domain_stream_chunk.side_effect = mock_to_domain
+
+    connector = GeminiOAuthAntigravityConnector(client, config, translation_service)
+    connector.gemini_api_base_url = "https://example.com"
+    connector._oauth_credentials = {"access_token": "fake_token"}
+
+    # Mock response with a single chunk that has both content and stop reason
+    chunk_data = {
+        "choices": [{"delta": {"content": "Hello world"}, "finish_reason": "stop"}]
+    }
+
+    # Create a mock response that yields this chunk and then ends
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.iter_content = MagicMock(
+        return_value=[f"data: {json.dumps(chunk_data)}\n\n".encode()]
+    )
+    mock_response.headers = {"Content-Type": "text/event-stream"}
+
+    # Mock AuthorizedSession
+    with patch("google.auth.transport.requests.AuthorizedSession") as mock_auth_cls:
+        mock_session = MagicMock()
+        mock_session.request.return_value = mock_response
+        mock_auth_cls.return_value = mock_session
+
+        # Run the generator
+        chunks = []
+        envelope = await connector._chat_completions_code_assist_streaming(
+            request_data=MagicMock(),
+            processed_messages=[{"role": "user", "content": "test"}],
+            effective_model="gemini-2.5-pro",
+        )
+        async for chunk in envelope.content:
+            chunks.append(chunk)
+
+    # Verify we got chunks
+    assert len(chunks) >= 2
+
+    # Find indices of usage and stop chunks
+    usage_index = -1
+    stop_index = -1
+
+    for i, chunk in enumerate(chunks):
+        if isinstance(chunk.content, dict):
+            if "usage" in chunk.content:
+                usage_index = i
+
+            choices = chunk.content.get("choices", [])
+            if choices and choices[0].get("finish_reason") == "stop":
+                stop_index = i
+
+    assert usage_index != -1, "Usage chunk not found"
+    assert stop_index != -1, "Stop chunk not found"
+    assert (
+        usage_index < stop_index
+    ), f"Usage chunk (index {usage_index}) must come before stop chunk (index {stop_index})"

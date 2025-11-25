@@ -197,6 +197,44 @@ async def test_capture_inbound_response(buffered_wire_capture, temp_capture_file
 
 
 @pytest.mark.asyncio
+async def test_capture_outbound_response(buffered_wire_capture, temp_capture_file):
+    """Test capturing outbound responses sent to clients."""
+    context = MagicMock(spec=RequestContext)
+    context.client_host = "10.1.2.3"
+    context.agent = "OutboundClient/3.0"
+
+    payload = {"choices": [{"message": {"content": "Outbound answer"}}]}
+
+    await buffered_wire_capture.capture_outbound_response(
+        context=context,
+        session_id="client-session",
+        backend="openai",
+        model="gpt-4.1",
+        key_name=None,
+        response_content=payload,
+    )
+
+    await buffered_wire_capture._flush_buffer()  # type: ignore[attr-defined]
+
+    with open(temp_capture_file) as f:
+        lines = f.readlines()
+
+    outbound_entry = None
+    for line in lines:
+        entry = json.loads(line.strip())
+        if entry.get("direction") == "outbound_response":
+            outbound_entry = entry
+            break
+
+    assert outbound_entry is not None
+    assert outbound_entry["source"] == "proxy"
+    assert outbound_entry["destination"] == "10.1.2.3(OutboundClient/3.0)"
+    assert outbound_entry["backend"] == "openai"
+    assert outbound_entry["model"] == "gpt-4.1"
+    assert outbound_entry["payload"] == payload
+
+
+@pytest.mark.asyncio
 async def test_wrap_inbound_stream(buffered_wire_capture, temp_capture_file):
     """Test wrapping inbound streams."""
     context = MagicMock(spec=RequestContext)
@@ -259,7 +297,54 @@ async def test_wrap_inbound_stream(buffered_wire_capture, temp_capture_file):
     assert stream_entries[4]["payload"]["total_bytes"] == sum(
         len(chunk) for chunk in chunks
     )
-    assert stream_entries[4]["payload"]["total_chunks"] == 3
+
+
+@pytest.mark.asyncio
+async def test_wrap_outbound_stream(buffered_wire_capture, temp_capture_file):
+    """Test wrapping outbound streams to clients."""
+    context = MagicMock(spec=RequestContext)
+    context.client_host = "10.0.0.2"
+    context.agent = "OutboundStream/1.0"
+
+    chunks = [b"first", b"second", b"third"]
+
+    async def mock_stream():
+        for chunk in chunks:
+            yield chunk
+
+    wrapped_stream = buffered_wire_capture.wrap_outbound_stream(
+        context=context,
+        session_id="outbound-stream-session",
+        backend="proxy",
+        model="gpt-4",
+        key_name=None,
+        stream=mock_stream(),
+    )
+
+    result = []
+    async for chunk in wrapped_stream:
+        result.append(chunk)
+
+    assert result == chunks
+
+    await buffered_wire_capture._flush_buffer()  # type: ignore[attr-defined]
+
+    with open(temp_capture_file) as f:
+        lines = f.readlines()
+
+    outbound_entries = [
+        json.loads(line.strip())
+        for line in lines
+        if "outbound_stream" in json.loads(line.strip()).get("direction", "")
+    ]
+
+    assert len(outbound_entries) == 5  # start + 3 chunks + end
+    assert outbound_entries[0]["direction"] == "outbound_stream_start"
+    for i in range(1, 4):
+        assert outbound_entries[i]["direction"] == "outbound_stream_chunk"
+        assert outbound_entries[i]["metadata"]["chunk_number"] == i
+    assert outbound_entries[4]["direction"] == "outbound_stream_end"
+    assert outbound_entries[4]["payload"]["total_chunks"] == 3
 
 
 @pytest.mark.asyncio

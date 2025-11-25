@@ -759,6 +759,63 @@ class TestAllowedToolsFiltering:
         assert repaired["function"]["name"] == "my_custom_tool"
 
 
+class TestArgumentFlattening:
+    """
+    Tests for flattening nested XML argument structures.
+
+    XML tool calls like <read_file><args><file><path>X</path></file></args></read_file>
+    should be flattened to {"path": "X"} instead of {"args": {"file": {"path": "X"}}}.
+    """
+
+    def test_read_file_args_file_path_is_flattened(self) -> None:
+        """Test that <read_file><args><file><path>X</path></file></args></read_file> is flattened."""
+        service = ToolCallRepairService()
+        content = """<read_file>
+<args>
+  <file>
+    <path>README.md</path>
+  </file>
+</args>
+</read_file>"""
+
+        result = service.repair_tool_calls(content)
+
+        assert result is not None
+        assert result["function"]["name"] == "read_file"
+        # Arguments should be flattened to just {"path": "..."}
+        args = json.loads(result["function"]["arguments"])
+        assert args == {"path": "README.md"}, f"Expected flattened args, got: {args}"
+
+    def test_read_file_direct_path_is_preserved(self) -> None:
+        """Test that <read_file><path>X</path></read_file> works correctly."""
+        service = ToolCallRepairService()
+        content = "<read_file><path>test.py</path></read_file>"
+
+        result = service.repair_tool_calls(content)
+
+        assert result is not None
+        assert result["function"]["name"] == "read_file"
+        args = json.loads(result["function"]["arguments"])
+        assert args == {"path": "test.py"}, f"Expected direct path, got: {args}"
+
+    def test_execute_command_args_command_is_flattened(self) -> None:
+        """Test that nested args structure for execute_command is flattened."""
+        service = ToolCallRepairService()
+        content = """<execute_command>
+<args>
+  <command>ls -la</command>
+</args>
+</execute_command>"""
+
+        result = service.repair_tool_calls(content)
+
+        assert result is not None
+        assert result["function"]["name"] == "execute_command"
+        args = json.loads(result["function"]["arguments"])
+        # Should be flattened to just {"command": "..."}
+        assert args == {"command": "ls -la"}, f"Expected flattened args, got: {args}"
+
+
 class TestRealWorldScenarios:
     """
     Tests based on real-world scenarios from wire captures.

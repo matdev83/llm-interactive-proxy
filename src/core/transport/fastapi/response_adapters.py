@@ -21,10 +21,12 @@ from starlette.responses import StreamingResponse
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
+from src.core.domain.request_context import RequestContext
 
 # Some environments may fail mypy import resolution for local packages; silence here
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.streaming.stream_context_registry import (
     get_global_streaming_context_registry,
 )
@@ -297,7 +299,11 @@ async def _string_to_async_iterator(content: bytes) -> AsyncIterator[ProcessedRe
 
 
 def to_fastapi_response(
-    domain_response: Any, content_converter: Callable[[Any], Any] | None = None
+    domain_response: Any,
+    content_converter: Callable[[Any], Any] | None = None,
+    *,
+    wire_capture: IWireCapture | None = None,
+    context: RequestContext | None = None,
 ) -> Response:
     """Convert a domain response envelope to a FastAPI response.
 
@@ -407,8 +413,20 @@ def to_fastapi_response(
         final_status_code = _handle_backend_error_status_code(
             safe_content, safe_status_code
         )
+        _maybe_capture_outbound_response(
+            wire_capture=wire_capture,
+            context=context,
+            envelope=envelope,
+            payload=safe_content,
+        )
         return _create_json_response(safe_content, final_status_code, safe_headers)
     else:
+        _maybe_capture_outbound_response(
+            wire_capture=wire_capture,
+            context=context,
+            envelope=envelope,
+            payload=content,
+        )
         return _create_other_response(content, status_code, headers, media_type)
 
 
@@ -583,6 +601,9 @@ def _create_other_response(
 
 def to_fastapi_streaming_response(
     domain_response: StreamingResponseEnvelope,
+    *,
+    wire_capture: IWireCapture | None = None,
+    context: RequestContext | None = None,
 ) -> StreamingResponse:
     """Convert a domain streaming response envelope to a FastAPI streaming response.
 

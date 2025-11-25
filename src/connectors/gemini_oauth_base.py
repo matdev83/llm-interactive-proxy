@@ -2742,50 +2742,112 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                         return
 
-                    for chunk in response.iter_content(
-                        chunk_size=4096, decode_unicode=False
-                    ):
-                        if done:
-                            break
+                    # Buffer for the final chunk that contains the stop reason
+                    final_stop_chunk = None
 
-                        try:
-                            chunk_str = (
-                                chunk
-                                if isinstance(chunk, bytes)
-                                else str(chunk).encode()
-                            ).decode(
-                                "utf-8"
-                            )  # type: ignore[union-attr]
-                        except (UnicodeDecodeError, AttributeError):
-                            continue
-
-                        line_buffer += chunk_str
-                        lines = line_buffer.splitlines(keepends=True)
-
-                        # If the last line is incomplete (no newline), keep it buffered
-                        if lines and not lines[-1].endswith(("\n", "\r")):
-                            line_buffer = lines.pop()  # keep partial
-                        else:
-                            line_buffer = ""
-
-                        for line in lines:
-                            decoded_line = line.rstrip("\r\n")
-
-                            for processed_chunk in _process_decoded_line(decoded_line):
-                                yield processed_chunk
+                    try:
+                        for chunk in response.iter_content(
+                            chunk_size=4096, decode_unicode=False
+                        ):
                             if done:
                                 break
 
-                    if not done and line_buffer:
-                        for processed_chunk in _process_decoded_line(
-                            line_buffer.rstrip("\r\n")
-                        ):
-                            yield processed_chunk
-                        line_buffer = ""
+                            try:
+                                chunk_str = (
+                                    chunk
+                                    if isinstance(chunk, bytes)
+                                    else str(chunk).encode()
+                                ).decode(
+                                    "utf-8"
+                                )  # type: ignore[union-attr]
+                            except (UnicodeDecodeError, AttributeError):
+                                continue
 
-                    logger.debug(
-                        f"[STREAMING] Calculating usage for generated_text length={len(generated_text)}, prompt_tokens={prompt_tokens}"
-                    )
+                            line_buffer += chunk_str
+                            lines = line_buffer.splitlines(keepends=True)
+
+                            # If the last line is incomplete (no newline), keep it buffered
+                            if lines and not lines[-1].endswith(("\n", "\r")):
+                                line_buffer = lines.pop()  # keep partial
+                            else:
+                                line_buffer = ""
+
+                            for line in lines:
+                                decoded_line = line.rstrip("\r\n")
+
+                                for processed_chunk in _process_decoded_line(
+                                    decoded_line
+                                ):
+                                    # Check if this chunk signals the end of the stream
+                                    # If so, buffer it and yield it AFTER usage
+                                    content = processed_chunk.content
+                                    is_stop_chunk = False
+
+                                    if isinstance(content, dict):
+                                        choices = content.get("choices", [])
+                                        if choices and isinstance(choices[0], dict):
+                                            finish_reason = choices[0].get(
+                                                "finish_reason"
+                                            )
+                                            if finish_reason:
+                                                logger.debug(
+                                                    f"[STREAMING] Found chunk with finish_reason: {finish_reason}"
+                                                )
+
+                                            if finish_reason in (
+                                                "stop",
+                                                "stop_sequence",
+                                            ):
+                                                is_stop_chunk = True
+
+                                    if is_stop_chunk:
+                                        logger.debug("[STREAMING] Buffering stop chunk")
+                                        final_stop_chunk = processed_chunk
+                                        # Do not yield yet - wait for usage
+                                        continue
+
+                                    yield processed_chunk
+                                if done:
+                                    break
+
+                        if not done and line_buffer:
+                            for processed_chunk in _process_decoded_line(
+                                line_buffer.rstrip("\r\n")
+                            ):
+                                # Same check for buffered lines
+                                content = processed_chunk.content
+                                is_stop_chunk = False
+                                if isinstance(content, dict):
+                                    choices = content.get("choices", [])
+                                    if choices and isinstance(choices[0], dict):
+                                        finish_reason = choices[0].get("finish_reason")
+                                        if finish_reason in ("stop", "stop_sequence"):
+                                            is_stop_chunk = True
+
+                                if is_stop_chunk:
+                                    logger.debug(
+                                        "[STREAMING] Buffering stop chunk (from buffer)"
+                                    )
+                                    final_stop_chunk = processed_chunk
+                                    continue
+
+                                yield processed_chunk
+                            line_buffer = ""
+
+                        logger.debug(
+                            f"[STREAMING] Completed chunk loop. final_stop_chunk captured: {final_stop_chunk is not None}"
+                        )
+
+                    except GeneratorExit:
+                        logger.warning("Stream closed by consumer before completion")
+                        raise
+                    except Exception as e:
+                        logger.error(
+                            f"Error in streaming generator: {e}", exc_info=True
+                        )
+                        raise
+
+                    # Calculate and yield usage
                     try:
                         completion_tokens = len(encoding.encode(generated_text))
                         usage = {
@@ -2808,10 +2870,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             f"Could not calculate completion tokens for streaming: {e}"
                         )
 
-                    final_chunk = self.translation_service.to_domain_stream_chunk(
-                        chunk=None, source_format="code_assist"
-                    )
-                    yield ProcessedResponse(content=final_chunk)
+                    # Yield the buffered stop chunk if we have one
+                    if final_stop_chunk:
+                        logger.debug("[STREAMING] Yielding buffered stop chunk")
+                        yield final_stop_chunk
+                    else:
+                        logger.debug(
+                            "[STREAMING] No stop chunk buffered, yielding generic stop"
+                        )
+                        # Fallback: create a generic stop chunk if none was captured
+                        # (e.g. if stream ended without explicit stop reason)
+                        final_chunk = self.translation_service.to_domain_stream_chunk(
+                            chunk=None, source_format="code_assist"
+                        )
+                        yield ProcessedResponse(content=final_chunk)
 
                 except BackendError as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)

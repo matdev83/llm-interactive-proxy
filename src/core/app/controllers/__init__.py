@@ -714,6 +714,12 @@ def register_versioned_endpoints(app: FastAPI) -> None:
                                     canonical_chunk, is_streaming=True
                                 )
 
+                                # Debug: log gemini_format for usage chunks
+                                if "usage" in canonical_chunk:
+                                    logger.debug(
+                                        f"[ENDPOINT] Usage chunk translated to: {gemini_format}"
+                                    )
+
                                 if gemini_format:
                                     yield f"data: {json.dumps(gemini_format)}\n\n".encode()
                             except Exception as chunk_error:

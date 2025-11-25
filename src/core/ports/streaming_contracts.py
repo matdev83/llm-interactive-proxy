@@ -208,6 +208,26 @@ class StreamingContent:
             ):
                 # If content is already an OpenAI-formatted chunk, emit it then [DONE]
                 if isinstance(self.content, dict) and "choices" in self.content:
+                    # Inject tool_calls from metadata into the delta if present
+                    tool_calls = self.metadata.get("tool_calls")
+                    if isinstance(tool_calls, list) and tool_calls:
+                        # Sanitize internal markers before sending to client
+                        sanitized_calls = [
+                            {k: v for k, v in tc.items() if not k.startswith("_")}
+                            for tc in tool_calls
+                            if isinstance(tc, dict)
+                        ]
+                        if sanitized_calls:
+                            # Ensure choices and delta exist
+                            content_copy = dict(self.content)
+                            choices = content_copy.get("choices", [])
+                            if choices and isinstance(choices[0], dict):
+                                inner_delta = choices[0].get("delta", {})
+                                if isinstance(inner_delta, dict):
+                                    inner_delta["tool_calls"] = sanitized_calls
+                                    choices[0]["delta"] = inner_delta
+                                    content_copy["choices"] = choices
+                            return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
                     return (
                         f"data: {json.dumps(self.content)}\n\ndata: [DONE]\n\n".encode()
                     )
@@ -229,10 +249,17 @@ class StreamingContent:
         if isinstance(tool_call_id, str) and tool_call_id:
             delta["tool_call_id"] = tool_call_id
 
-        # Add tool_calls if present
+        # Add tool_calls if present (sanitize internal markers before sending)
         tool_calls = self.metadata.get("tool_calls")
         if isinstance(tool_calls, list) and tool_calls:
-            delta["tool_calls"] = tool_calls
+            # Remove internal markers like _already_processed before sending to client
+            sanitized_calls = [
+                {k: v for k, v in tc.items() if not k.startswith("_")}
+                for tc in tool_calls
+                if isinstance(tc, dict)
+            ]
+            if sanitized_calls:
+                delta["tool_calls"] = sanitized_calls
 
         # Add reasoning content if present
         reasoning_value = self.metadata.get("reasoning_content") or self.metadata.get(
@@ -254,7 +281,29 @@ class StreamingContent:
                 # Check if this is already an OpenAI-formatted chunk
                 # If so, use it directly instead of wrapping it again
                 if "choices" in self.content:
-                    result = f"data: {json.dumps(self.content)}\n\n"
+                    # Inject tool_calls from metadata into the delta if present
+                    tool_calls_to_inject = self.metadata.get("tool_calls")
+                    if isinstance(tool_calls_to_inject, list) and tool_calls_to_inject:
+                        # Sanitize internal markers before sending to client
+                        sanitized_calls = [
+                            {k: v for k, v in tc.items() if not k.startswith("_")}
+                            for tc in tool_calls_to_inject
+                            if isinstance(tc, dict)
+                        ]
+                        if sanitized_calls:
+                            content_copy = dict(self.content)
+                            choices = content_copy.get("choices", [])
+                            if choices and isinstance(choices[0], dict):
+                                inner_delta = choices[0].get("delta", {})
+                                if isinstance(inner_delta, dict):
+                                    inner_delta["tool_calls"] = sanitized_calls
+                                    choices[0]["delta"] = inner_delta
+                                    content_copy["choices"] = choices
+                            result = f"data: {json.dumps(content_copy)}\n\n"
+                        else:
+                            result = f"data: {json.dumps(self.content)}\n\n"
+                    else:
+                        result = f"data: {json.dumps(self.content)}\n\n"
                     # Append [DONE] if this is the final chunk
                     if self.is_done:
                         result += "data: [DONE]\n\n"

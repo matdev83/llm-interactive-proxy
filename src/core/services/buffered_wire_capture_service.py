@@ -137,7 +137,7 @@ class WireCaptureEntry(NamedTuple):
 
     timestamp_iso: str
     timestamp_unix: float
-    direction: str  # "outbound_request", "inbound_response", "stream_start", "stream_chunk", "stream_end"
+    direction: str  # "outbound_request", "inbound_response", "outbound_response", "stream_start", "stream_chunk", "stream_end", "outbound_stream_*"
     source: str
     destination: str
     session_id: str | None
@@ -449,6 +449,35 @@ class BufferedWireCapture(IWireCapture):
 
         await self._buffer_entry(entry)
 
+    async def capture_outbound_response(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        response_content: Any,
+    ) -> None:
+        """Capture outbound response as it is sent to the client."""
+        if not self.enabled():
+            return
+        self._maybe_start_flush_task()
+
+        entry = self._create_entry(
+            direction="outbound_response",
+            source="proxy",
+            destination=self._get_client_info(context),
+            context=context,
+            session_id=session_id,
+            backend=backend or "proxy",
+            model=model or "unknown",
+            key_name=key_name,
+            payload=response_content,
+        )
+
+        await self._buffer_entry(entry)
+
     def wrap_inbound_stream(
         self,
         *,
@@ -517,6 +546,81 @@ class BufferedWireCapture(IWireCapture):
                 model=model,
                 key_name=key_name,
                 payload={"total_bytes": total_bytes, "total_chunks": chunk_count},
+            )
+            await self._buffer_entry(end_entry)
+
+        return _capture_stream()
+
+    def wrap_outbound_stream(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        stream: AsyncIterator[bytes],
+    ) -> AsyncIterator[bytes]:
+        """Wrap streaming bytes flowing from proxy to client."""
+        if not self.enabled():
+            return _StreamPassthroughWrapper(stream)
+        self._maybe_start_flush_task()
+        stream_session_id = self._resolve_stream_session_id(session_id, context)
+
+        async def _capture_stream() -> AsyncIterator[bytes]:
+            start_entry = self._create_entry(
+                direction="outbound_stream_start",
+                source="proxy",
+                destination=self._get_client_info(context),
+                context=context,
+                session_id=stream_session_id,
+                backend=backend or "proxy",
+                model=model or "unknown",
+                key_name=key_name,
+                payload={"stream_type": "outbound_response"},
+            )
+            await self._buffer_entry(start_entry)
+
+            total_bytes = 0
+            chunk_count = 0
+
+            async for chunk in stream:
+                chunk_count += 1
+                total_bytes += len(chunk)
+                chunk_text = chunk.decode("utf-8", errors="replace")
+                chunk_entry = self._create_entry(
+                    direction="outbound_stream_chunk",
+                    source="proxy",
+                    destination=self._get_client_info(context),
+                    context=context,
+                    session_id=stream_session_id,
+                    backend=backend or "proxy",
+                    model=model or "unknown",
+                    key_name=key_name,
+                    payload=chunk_text,
+                    metadata={
+                        "chunk_number": chunk_count,
+                        "chunk_bytes": len(chunk),
+                        "stream_type": "outbound_response",
+                    },
+                )
+                await self._buffer_entry(chunk_entry)
+                yield chunk
+
+            end_entry = self._create_entry(
+                direction="outbound_stream_end",
+                source="proxy",
+                destination=self._get_client_info(context),
+                context=context,
+                session_id=stream_session_id,
+                backend=backend or "proxy",
+                model=model or "unknown",
+                key_name=key_name,
+                payload={
+                    "total_bytes": total_bytes,
+                    "total_chunks": chunk_count,
+                    "stream_type": "outbound_response",
+                },
             )
             await self._buffer_entry(end_entry)
 

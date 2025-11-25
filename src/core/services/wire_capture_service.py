@@ -155,6 +155,30 @@ class WireCapture(IWireCapture):
         body = _safe_json_dump(response_content)
         await self._append(f"{header}\n{body}\n")
 
+    async def capture_outbound_response(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        response_content: Any,
+    ) -> None:
+        """Capture the response leaving the proxy toward the client."""
+        if not self.enabled():
+            return
+        header = self._format_header(
+            direction="REPLY-TO-CLIENT",
+            context=context,
+            session_id=session_id,
+            backend=backend or "proxy",
+            model=model or "unknown",
+            key_name=key_name,
+        )
+        body = _safe_json_dump(response_content)
+        await self._append(f"{header}\n{body}\n")
+
     def wrap_inbound_stream(
         self,
         *,
@@ -193,6 +217,42 @@ class WireCapture(IWireCapture):
                 except OSError as e:
                     # Log I/O failures but do not impact the stream to client
                     logger.warning("Wire capture append failed: %s", e, exc_info=True)
+                yield chunk
+            await self._append("\n")
+
+        return _gen()
+
+    def wrap_outbound_stream(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        stream: AsyncIterator[bytes],
+    ) -> AsyncIterator[bytes]:
+        if not self.enabled():
+            return stream
+
+        async def _gen() -> AsyncIterator[bytes]:
+            header = self._format_header(
+                direction="REPLY-STREAM-TO-CLIENT",
+                context=context,
+                session_id=session_id,
+                backend=backend or "proxy",
+                model=model or "unknown",
+                key_name=key_name,
+            )
+            await self._append(f"{header}\n")
+            async for chunk in stream:
+                text = chunk.decode("utf-8", errors="replace")
+                try:
+                    await self._append(text)
+                except OSError as e:
+                    logger.warning(
+                        "Wire capture outbound append failed: %s", e, exc_info=True
+                    )
                 yield chunk
             await self._append("\n")
 

@@ -142,6 +142,18 @@ class _StubWireCapture(IWireCapture):
     ) -> None:
         return None
 
+    async def capture_outbound_response(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        response_content: Any,
+    ) -> None:
+        return None
+
     def wrap_inbound_stream(
         self,
         *,
@@ -149,6 +161,18 @@ class _StubWireCapture(IWireCapture):
         session_id: str | None,
         backend: str,
         model: str,
+        key_name: str | None,
+        stream: AsyncIterator[bytes],
+    ) -> AsyncIterator[bytes]:
+        return stream
+
+    def wrap_outbound_stream(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
         key_name: str | None,
         stream: AsyncIterator[bytes],
     ) -> AsyncIterator[bytes]:

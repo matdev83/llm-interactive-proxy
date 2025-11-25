@@ -7,7 +7,7 @@ Handles Anthropic API endpoints.
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
 
@@ -27,6 +27,7 @@ from src.core.common.exceptions import (
 )
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -41,13 +42,18 @@ logger = logging.getLogger(__name__)
 class AnthropicController:
     """Controller for Anthropic-related endpoints."""
 
-    def __init__(self, request_processor: IRequestProcessor) -> None:
+    def __init__(
+        self,
+        request_processor: IRequestProcessor,
+        wire_capture: IWireCapture | None = None,
+    ) -> None:
         """Initialize the controller.
 
         Args:
             request_processor: The request processor service
         """
         self._processor = request_processor
+        self._wire_capture = wire_capture
 
     async def handle_anthropic_messages(
         self, request: Request, request_data: AnthropicMessagesRequest | dict[str, Any]
@@ -150,7 +156,9 @@ class AnthropicController:
                 response = await response
 
             # Convert domain response to FastAPI response
-            adapted_response: Response = domain_response_to_fastapi(response)
+            adapted_response: Response = domain_response_to_fastapi(
+                response, wire_capture=self._wire_capture, context=ctx
+            )
 
             # Convert the OpenAI response back to Anthropic format
             # Check if the response is a streaming response
@@ -431,6 +439,13 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
                 f"Failed to create AnthropicController: {exc}"
             ) from exc
 
-        return AnthropicController(request_processor)
+        wire_capture = None
+        import contextlib
+        from typing import cast
+
+        with contextlib.suppress(Exception):
+            wire_capture = service_provider.get_service(cast(type, IWireCapture))
+
+        return AnthropicController(request_processor, wire_capture=wire_capture)
     except Exception as e:
         raise InitializationError(f"Failed to create AnthropicController: {e}") from e

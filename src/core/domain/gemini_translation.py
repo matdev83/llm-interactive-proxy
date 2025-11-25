@@ -361,20 +361,36 @@ def canonical_response_to_gemini_response(
             "usageMetadata": usage_metadata,
         }
     else:
-        # For streaming, we'd typically return just the delta
-        # This is a simplification - in a real implementation,
-        # we'd need to handle the streaming format differences
-        delta = response.get("choices", [{}])[0].get("delta", {})
-        content = delta.get("content", "")
+        # For streaming responses
+        result: dict[str, Any] = {}
 
-        return {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [{"text": content}],
-                        "role": "model",
-                    },
-                    "index": 0,
-                }
-            ]
-        }
+        # Handle usage metadata if present
+        if "usage" in response:
+            usage = response["usage"]
+            result["usageMetadata"] = {
+                "promptTokenCount": usage.get("prompt_tokens", 0),
+                "candidatesTokenCount": usage.get("completion_tokens", 0),
+                "totalTokenCount": usage.get("total_tokens", 0),
+            }
+
+        # Handle content and finish reason if choices are present
+        if response.get("choices"):
+            choice = response["choices"][0]
+            delta = choice.get("delta", {})
+            content = delta.get("content", "")
+            finish_reason = choice.get("finish_reason")
+
+            candidate = {
+                "content": {
+                    "parts": [{"text": content}],
+                    "role": "model",
+                },
+                "index": 0,
+            }
+
+            if finish_reason:
+                candidate["finishReason"] = finish_reason.upper()
+
+            result["candidates"] = [candidate]
+
+        return result

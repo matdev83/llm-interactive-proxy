@@ -720,3 +720,263 @@ class TestEndToEndToolCallFlow:
                 assert tool_calls[0]["function"]["name"] == "execute_command"
 
         assert tool_call_found, "Tool call should be detected in OpenAI-style chunking"
+
+
+class TestToolCallsInjectionIntoOpenAIFormat:
+    """
+    Tests for tool_calls injection when content is already OpenAI-formatted.
+
+    This tests a critical bug fix where tool_calls in metadata were NOT being
+    injected into OpenAI-formatted content dicts in StreamingContent.to_bytes().
+    """
+
+    def test_tool_calls_injected_when_content_is_openai_dict(self) -> None:
+        """Test that tool_calls from metadata are injected into OpenAI-formatted content."""
+        openai_content = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "gemini-2.5-pro",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "Running tests now."},
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+        tool_calls = [
+            {
+                "id": "call_test123",
+                "type": "function",
+                "function": {
+                    "name": "execute_command",
+                    "arguments": '{"command": "./.venv/Scripts/python.exe -m pytest"}',
+                },
+            }
+        ]
+
+        chunk = StreamingContent(
+            content=openai_content,
+            metadata={"tool_calls": tool_calls},
+            is_done=False,
+        )
+
+        result_bytes = chunk.to_bytes()
+        result_str = result_bytes.decode("utf-8")
+
+        # Parse the JSON from the SSE format
+        assert result_str.startswith("data: ")
+        json_str = result_str.replace("data: ", "").strip()
+        parsed = json.loads(json_str)
+
+        # Verify tool_calls were injected
+        assert "choices" in parsed
+        assert len(parsed["choices"]) > 0
+        delta = parsed["choices"][0].get("delta", {})
+        assert (
+            "tool_calls" in delta
+        ), f"tool_calls should be injected into delta! Got: {delta}"
+        assert delta["tool_calls"] == tool_calls
+
+    def test_tool_calls_injected_when_content_is_openai_dict_and_is_done(self) -> None:
+        """Test tool_calls injection when is_done=True and content is OpenAI-formatted."""
+        openai_content = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "gemini-2.5-pro",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        tool_calls = [
+            {
+                "id": "call_test456",
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": '{"args": {"file": {"path": "README.md"}}}',
+                },
+            }
+        ]
+
+        chunk = StreamingContent(
+            content=openai_content,
+            metadata={"tool_calls": tool_calls},
+            is_done=True,
+        )
+
+        result_bytes = chunk.to_bytes()
+        result_str = result_bytes.decode("utf-8")
+
+        # Should have both content and [DONE]
+        assert "data: [DONE]" in result_str
+
+        # Extract the JSON part (before [DONE])
+        lines = result_str.strip().split("\n\n")
+        json_line = lines[0]
+        assert json_line.startswith("data: ")
+        json_str = json_line.replace("data: ", "").strip()
+        parsed = json.loads(json_str)
+
+        # Verify tool_calls were injected
+        delta = parsed["choices"][0].get("delta", {})
+        assert (
+            "tool_calls" in delta
+        ), f"tool_calls should be injected when is_done=True! Got: {delta}"
+        assert delta["tool_calls"] == tool_calls
+
+    def test_no_tool_calls_when_metadata_has_none(self) -> None:
+        """Test that nothing is injected when metadata has no tool_calls."""
+        openai_content = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "gemini-2.5-pro",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "Hello!"},
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+        chunk = StreamingContent(
+            content=openai_content,
+            metadata={},
+            is_done=False,
+        )
+
+        result_bytes = chunk.to_bytes()
+        result_str = result_bytes.decode("utf-8")
+
+        json_str = result_str.replace("data: ", "").strip()
+        parsed = json.loads(json_str)
+
+        delta = parsed["choices"][0].get("delta", {})
+        assert (
+            "tool_calls" not in delta
+        ), "tool_calls should NOT be present when metadata has none"
+
+
+class TestInternalMarkersSanitization:
+    """
+    Tests for sanitization of internal markers like _already_processed.
+
+    These markers are used internally for deduplication and loop detection,
+    but MUST NOT be sent to the client.
+    """
+
+    def test_already_processed_marker_is_removed_from_output(self) -> None:
+        """Test that _already_processed marker is removed before sending to client."""
+        tool_calls = [
+            {
+                "id": "call_test123",
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": '{"path": "README.md"}',
+                },
+                "_already_processed": True,  # Internal marker that should be removed
+            }
+        ]
+
+        chunk = StreamingContent(
+            content="Reading file...",
+            metadata={"tool_calls": tool_calls},
+            is_done=True,
+        )
+
+        result = chunk.to_bytes().decode("utf-8")
+
+        # Verify tool_calls are present
+        assert "tool_calls" in result, "tool_calls should be in output"
+
+        # Verify _already_processed is NOT present
+        assert (
+            "_already_processed" not in result
+        ), "_already_processed marker should be sanitized from output!"
+
+        # Parse and verify structure
+        for line in result.strip().split("\n\n"):
+            if line.startswith("data: ") and line != "data: [DONE]":
+                parsed = json.loads(line[6:])
+                delta = parsed.get("choices", [{}])[0].get("delta", {})
+                if "tool_calls" in delta:
+                    for tc in delta["tool_calls"]:
+                        assert (
+                            "_already_processed" not in tc
+                        ), f"Internal marker found in tool call: {tc}"
+
+    def test_multiple_internal_markers_are_removed(self) -> None:
+        """Test that all internal markers (starting with _) are removed."""
+        tool_calls = [
+            {
+                "id": "call_test123",
+                "type": "function",
+                "function": {"name": "read_file", "arguments": "{}"},
+                "_already_processed": True,
+                "_internal_state": "some_value",
+                "_debug_info": {"timestamp": 12345},
+            }
+        ]
+
+        chunk = StreamingContent(
+            content="Test",
+            metadata={"tool_calls": tool_calls},
+            is_done=True,
+        )
+
+        result = chunk.to_bytes().decode("utf-8")
+
+        # No internal markers should be present
+        assert "_already_processed" not in result
+        assert "_internal_state" not in result
+        assert "_debug_info" not in result
+
+    def test_openai_formatted_content_also_sanitized(self) -> None:
+        """Test that OpenAI-formatted content also has markers sanitized."""
+        tool_calls = [
+            {
+                "id": "call_test",
+                "type": "function",
+                "function": {"name": "test", "arguments": "{}"},
+                "_already_processed": True,
+            }
+        ]
+
+        openai_content = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "Hello"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        chunk = StreamingContent(
+            content=openai_content,
+            metadata={"tool_calls": tool_calls},
+            is_done=True,
+        )
+
+        result = chunk.to_bytes().decode("utf-8")
+
+        # Tool calls should be injected
+        assert "tool_calls" in result
+
+        # But internal markers should be removed
+        assert "_already_processed" not in result

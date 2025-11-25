@@ -621,36 +621,88 @@ class ToolCallRepairService(IToolCallRepairService):
         return result
 
     def _normalize_tool_arguments(
-        self, tool_name: str, arguments: dict[str, Any], context_element: Any
+        self,
+        tool_name: str,  # - kept for API compatibility
+        arguments: dict[str, Any],
+        context_element: Any,  # - kept for API compatibility
     ) -> dict[str, Any]:
-        """Apply tool-specific normalization to extracted XML arguments."""
-        if tool_name != "patch_file":
-            return arguments
+        """Apply generic normalization to extracted XML arguments.
 
-        normalized = dict(arguments)
+        This method flattens nested XML structures generically, without
+        hardcoding any specific tool names. The goal is to transform
+        deeply nested structures into flat key-value pairs that clients expect.
 
-        path = self._find_first_text(context_element, ("path",))
-        if path and not normalized.get("path"):
-            normalized["path"] = path
+        Args:
+            tool_name: Name of the tool (unused, kept for API compatibility)
+            arguments: Dictionary of arguments extracted from XML
+            context_element: XML element context (unused, kept for API compatibility)
 
-        diff_text = self._find_first_text(context_element, ("diff",))
-        if diff_text:
-            normalized["diff"] = diff_text
-        else:
-            patch_text = self._find_first_text(context_element, ("patch",))
-            if patch_text:
-                normalized["patch"] = patch_text
-            patch_content = self._find_first_text(
-                context_element, ("patch_content", "content")
-            )
-            if patch_content and "diff" not in normalized and "patch" not in normalized:
-                normalized["diff"] = patch_content
+        Returns:
+            Flattened dictionary of arguments
+        """
+        result: dict[str, Any] = {}
+        self._extract_leaf_values(arguments, result)
+        return result
 
-        # Ensure diff is preferred when both diff and patch exist
-        if "diff" not in normalized and "patch" in normalized:
-            normalized["diff"] = normalized["patch"]
+    def _extract_leaf_values(self, obj: dict[str, Any], result: dict[str, Any]) -> None:
+        """Recursively extract leaf values from nested dicts.
 
-        return normalized
+        For each leaf value (non-dict), use its key as the result key.
+        This flattens arbitrarily nested structures while preserving
+        meaningful key names.
+
+        Transforms structures like:
+        - {"args": {"file": {"path": "X"}}} -> {"path": "X"}
+        - {"args": {"command": "ls"}} -> {"command": "ls"}
+        - {"file": {"path": "X", "diff": {"content": "Y"}}} -> {"path": "X", "diff": "Y"}
+
+        Special case: if a dict has exactly ONE child with a generic wrapper key
+        like "content", "_text", or "text", use the parent key instead.
+        """
+        # Generic wrapper keys that should be replaced by their parent key
+        wrapper_keys = {"content", "_text", "text", "value", "data"}
+
+        for key, value in obj.items():
+            # Skip wrapper keys that don't add semantic meaning
+            if key in ("args", "arguments", "tool_arguments"):
+                if isinstance(value, dict):
+                    self._extract_leaf_values(value, result)
+                continue
+
+            if isinstance(value, dict):
+                # Check if this dict has exactly one child with a wrapper key
+                # e.g., {"diff": {"content": "..."}} -> use "diff" as key
+                if len(value) == 1:
+                    inner_key, inner_value = next(iter(value.items()))
+                    if inner_key in wrapper_keys and not isinstance(inner_value, dict):
+                        # Use parent key instead of wrapper key
+                        if key not in result:
+                            result[key] = inner_value
+                        continue
+
+                # Check if this dict has any non-dict values (leaves)
+                has_leaves = any(not isinstance(v, dict) for v in value.values())
+                has_nested = any(isinstance(v, dict) for v in value.values())
+
+                if has_leaves:
+                    # Extract leaf values from this dict
+                    for inner_key, inner_value in value.items():
+                        # Use the inner key (more specific) if not already present
+                        if (
+                            not isinstance(inner_value, dict)
+                            and inner_key not in result
+                        ):
+                            result[inner_key] = inner_value
+
+                if has_nested:
+                    # Recursively process nested dicts
+                    for inner_key, inner_value in value.items():
+                        if isinstance(inner_value, dict):
+                            self._extract_leaf_values({inner_key: inner_value}, result)
+            else:
+                # Leaf value - add directly
+                if key not in result:
+                    result[key] = value
 
     def _find_first_text(self, element: Any, tag_names: tuple[str, ...]) -> str | None:
         """Find the first non-empty text for any of the provided tag names."""

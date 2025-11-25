@@ -73,5 +73,31 @@ class IWireCapture(ABC):
         """Wrap a streaming iterator to tee all bytes to the capture sink."""
 
     @abstractmethod
+    async def capture_outbound_response(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        response_content: Any,
+    ) -> None:
+        """Capture a full non-streaming outbound response to the client."""
+
+    @abstractmethod
+    def wrap_outbound_stream(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        stream: AsyncIterator[bytes],
+    ) -> AsyncIterator[bytes]:
+        """Wrap a streaming iterator to capture bytes sent to the client."""
+
+    @abstractmethod
     async def shutdown(self) -> None:
         """Gracefully stop background work and flush outstanding data."""

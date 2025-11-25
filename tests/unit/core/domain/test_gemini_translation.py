@@ -321,6 +321,43 @@ class TestCanonicalResponseToGemini:
         # Check finish reason
         assert gemini_response["candidates"][0]["finishReason"] == "TOOL_CALLS"
 
+    def test_canonical_response_to_gemini_response_streaming_usage(self) -> None:
+        """Test translation of usage chunk in streaming mode."""
+        response = {
+            "id": "test-id",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        }
+
+        result = canonical_response_to_gemini_response(response, is_streaming=True)
+
+        assert "usageMetadata" in result
+        assert result["usageMetadata"]["promptTokenCount"] == 10
+        assert result["usageMetadata"]["candidatesTokenCount"] == 20
+        assert result["usageMetadata"]["totalTokenCount"] == 30
+
+        # Should not have candidates if choices is empty
+        assert "candidates" not in result
+
+    def test_canonical_response_to_gemini_response_streaming_stop(self) -> None:
+        """Test translation of stop chunk in streaming mode."""
+        response = {
+            "id": "test-id",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "test-model",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        }
+
+        result = canonical_response_to_gemini_response(response, is_streaming=True)
+
+        assert "candidates" in result
+        assert len(result["candidates"]) == 1
+        assert result["candidates"][0]["finishReason"] == "STOP"
+
 
 class TestTranslationIntegration:
     """Integration tests for the Translation class."""

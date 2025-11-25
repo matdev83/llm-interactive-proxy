@@ -25,6 +25,7 @@ from src.core.domain.chat import (
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.translation_service_interface import ITranslationService
+from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -387,7 +388,9 @@ class ChatController:
                     )
 
                     # Convert domain response to FastAPI response
-                    return domain_response_to_fastapi(domain_resp)
+                    return domain_response_to_fastapi(
+                        domain_resp, wire_capture=self._wire_capture, context=None
+                    )
                 except Exception as _e:  # On any failure, fall back to default path
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.log(
@@ -820,7 +823,10 @@ class ChatController:
                     return content
 
             return domain_response_to_fastapi(
-                response, content_converter=_ensure_openai_chat_schema
+                response,
+                content_converter=_ensure_openai_chat_schema,
+                wire_capture=self._wire_capture,
+                context=ctx,
             )
 
         except LLMProxyError as e:
@@ -855,4 +861,10 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
     except InitializationError as exc:
         raise InitializationError("Could not find or create RequestProcessor") from exc
 
-    return ChatController(request_processor)
+    wire_capture = None
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        wire_capture = service_provider.get_service(cast(type, IWireCapture))
+
+    return ChatController(request_processor, wire_capture=wire_capture)

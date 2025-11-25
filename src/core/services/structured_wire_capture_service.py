@@ -174,6 +174,37 @@ class StructuredWireCapture(IWireCapture):
         # Serialize and write to file
         await self._append_json(entry)
 
+    async def capture_outbound_response(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        response_content: Any,
+    ) -> None:
+        """Capture the response being sent to the client."""
+        if not self.enabled():
+            return
+
+        entry = self._create_json_entry(
+            flow="backend_to_frontend",
+            direction="response",
+            context=context,
+            session_id=session_id,
+            backend=backend or "proxy",
+            model=model or "unknown",
+            key_name=key_name,
+            payload=response_content,
+        )
+
+        # Mark as outbound for clarity without changing schema
+        if isinstance(entry, dict):
+            entry.setdefault("metadata", {})["stage"] = "outbound"
+
+        await self._append_json(entry)
+
     def wrap_inbound_stream(
         self,
         *,
@@ -241,6 +272,84 @@ class StructuredWireCapture(IWireCapture):
                 payload={},
                 byte_count=total_bytes,
             )
+            await self._append_json(end_entry)
+
+        return _gen()
+
+    def wrap_outbound_stream(
+        self,
+        *,
+        context: RequestContext | None,
+        session_id: str | None,
+        backend: str | None,
+        model: str | None,
+        key_name: str | None,
+        stream: AsyncIterator[bytes],
+    ) -> AsyncIterator[bytes]:
+        if not self.enabled():
+            return stream
+
+        async def _gen() -> AsyncIterator[bytes]:
+            header_entry = self._create_json_entry(
+                flow="backend_to_frontend",
+                direction="response_stream_start",
+                context=context,
+                session_id=session_id,
+                backend=backend or "proxy",
+                model=model or "unknown",
+                key_name=key_name,
+                payload={},
+            )
+            if isinstance(header_entry, dict):
+                header_entry.setdefault("metadata", {})["stage"] = "outbound"
+            await self._append_json(header_entry)
+
+            total_bytes = 0
+            chunk_index = 0
+
+            async for chunk in stream:
+                chunk_index += 1
+                chunk_len = len(chunk)
+                total_bytes += chunk_len
+                text = chunk.decode("utf-8", errors="replace")
+                chunk_entry = self._create_json_entry(
+                    flow="backend_to_frontend",
+                    direction="response_stream_chunk",
+                    context=context,
+                    session_id=session_id,
+                    backend=backend or "proxy",
+                    model=model or "unknown",
+                    key_name=key_name,
+                    payload=text,
+                    byte_count=chunk_len,
+                )
+                if isinstance(chunk_entry, dict):
+                    chunk_entry.setdefault("metadata", {}).update(
+                        {"stage": "outbound", "chunk_number": chunk_index}
+                    )
+                try:
+                    await self._append_json(chunk_entry)
+                except Exception as e:
+                    logger.debug(
+                        "Error capturing outbound stream chunk: %s", e, exc_info=True
+                    )
+                yield chunk
+
+            end_entry = self._create_json_entry(
+                flow="backend_to_frontend",
+                direction="response_stream_end",
+                context=context,
+                session_id=session_id,
+                backend=backend or "proxy",
+                model=model or "unknown",
+                key_name=key_name,
+                payload={},
+                byte_count=total_bytes,
+            )
+            if isinstance(end_entry, dict):
+                end_entry.setdefault("metadata", {}).update(
+                    {"stage": "outbound", "total_chunks": chunk_index}
+                )
             await self._append_json(end_entry)
 
         return _gen()

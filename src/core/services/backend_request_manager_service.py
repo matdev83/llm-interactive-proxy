@@ -439,7 +439,9 @@ class BackendRequestManager(IBackendRequestManager):
                 exc,
                 exc_info=True,
             )
-            return backend_response
+            fallback_metadata = dict(metadata)
+            fallback_metadata["tool_call_reactor_retry_failed"] = True
+            return ResponseEnvelope(content="", metadata=fallback_metadata)
 
         if (
             not is_streaming

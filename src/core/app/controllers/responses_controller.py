@@ -1,6 +1,7 @@
 """Responses Controller handling OpenAI Responses API endpoints."""
 
 import asyncio
+import contextlib
 import logging
 import re
 import sre_parse
@@ -24,6 +25,7 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.translation_service_interface import (
     ITranslationService,
 )
+from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.json_repair_service import enforce_schema_size_limits
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
@@ -45,6 +47,7 @@ class ResponsesController:
         self,
         request_processor: IRequestProcessor,
         translation_service: ITranslationService | None = None,
+        wire_capture: IWireCapture | None = None,
     ) -> None:
         """Initialize the controller.
 
@@ -58,6 +61,7 @@ class ResponsesController:
             )
 
         self._translation_service = translation_service
+        self._wire_capture = wire_capture
 
     async def handle_responses_request(
         self,
@@ -403,7 +407,10 @@ class ResponsesController:
                     return content
 
             final_response = domain_response_to_fastapi(
-                response, content_converter=_ensure_responses_schema
+                response,
+                content_converter=_ensure_responses_schema,
+                wire_capture=self._wire_capture,
+                context=ctx,
             )
 
             logger.info(
@@ -1006,6 +1013,7 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
         Exception: If the request processor could not be found or created
     """
     try:
+        from src.core.interfaces.wire_capture_interface import IWireCapture
         from src.core.services.request_processor_service import RequestProcessor
         from src.core.services.translation_service import TranslationService
 
@@ -1032,9 +1040,14 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
                 "TranslationService is not registered in the service provider",
             )
 
+        wire_capture = None
+        with contextlib.suppress(Exception):
+            wire_capture = service_provider.get_service(cast(type, IWireCapture))
+
         return ResponsesController(
             request_processor,
             translation_service=translation_service,
+            wire_capture=wire_capture,
         )
     except Exception as e:
         raise InitializationError(f"Failed to create ResponsesController: {e}") from e
