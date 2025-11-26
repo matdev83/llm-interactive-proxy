@@ -131,7 +131,9 @@ def test_thought_signature_server_side_injection() -> None:
     # Store a signature in the cache (simulating what happens when we receive a response)
     session_id = "test_session_abc"
     cache_key = f"{session_id}:{tc_without_sig.id}"
-    GeminiOAuthBaseConnector._thought_signature_cache[cache_key] = "cached_signature_xyz"
+    GeminiOAuthBaseConnector._thought_signature_cache[cache_key] = (
+        "cached_signature_xyz"
+    )
 
     # Create a request with the tool call
     req = CanonicalChatRequest(
@@ -149,7 +151,10 @@ def test_thought_signature_server_side_injection() -> None:
     injected_tc = req.messages[1].tool_calls[0]
     assert injected_tc.extra_content is not None
     assert "google" in injected_tc.extra_content
-    assert injected_tc.extra_content["google"]["thought_signature"] == "cached_signature_xyz"
+    assert (
+        injected_tc.extra_content["google"]["thought_signature"]
+        == "cached_signature_xyz"
+    )
 
     # Clean up the cache
     del GeminiOAuthBaseConnector._thought_signature_cache[cache_key]
@@ -176,7 +181,10 @@ def test_thought_signature_preserved_in_function_call_round_trip() -> None:
     # Verify extra_content contains the signature
     assert tool_call.extra_content is not None
     assert "google" in tool_call.extra_content
-    assert tool_call.extra_content["google"]["thought_signature"] == "test_signature_abc123"
+    assert (
+        tool_call.extra_content["google"]["thought_signature"]
+        == "test_signature_abc123"
+    )
 
     # Now create a request with this tool call and convert back to Gemini
     req = CanonicalChatRequest(

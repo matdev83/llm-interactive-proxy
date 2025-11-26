@@ -844,6 +844,17 @@ class QwenOAuthConnector(OpenAIConnector):
             # Step 4: Attempt token refresh if needed
             logger.info("Step 3: Checking token expiry and refreshing if needed...")
             if not await self._refresh_token_if_needed():
+                # FIX: If token refresh fails, we should not proceed. Instead, we should
+                # raise an exception that can be caught and handled gracefully.
+                # This prevents the `_validate_runtime_credentials` from being called
+                # with an invalid token, which would lead to a 502 error.
+                raise AuthenticationError(
+                    message="Failed to refresh Qwen OAuth token",
+                    details={
+                        "backend": "qwen-oauth",
+                        "reason": "Token refresh failed for both CLI and API methods",
+                    },
+                )
                 # Tolerant startup behavior: degrade instead of outright failure
                 error_msg = "OAuth token refresh pending"
                 logger.error(
@@ -889,7 +900,7 @@ class QwenOAuthConnector(OpenAIConnector):
             error_msg = (
                 f"Unexpected error during Qwen OAuth backend initialization: {e}"
             )
-            logger.error(error_msg)
+            logger.error(error_msg, exc_info=True)
             self._credential_validation_errors = [error_msg]
             self._initialization_failed = True
             self.is_functional = False

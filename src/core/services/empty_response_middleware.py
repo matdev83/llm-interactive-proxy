@@ -133,7 +133,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                 if val.get("choices"):
                     return False
                 return not bool(val)
-            if isinstance(val, (list, tuple, set)):
+            if isinstance(val, list | tuple | set):
                 return len(val) == 0
             if isinstance(val, bytes | bytearray):
                 try:

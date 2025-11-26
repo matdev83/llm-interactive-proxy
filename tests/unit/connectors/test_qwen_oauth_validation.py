@@ -317,15 +317,15 @@ class TestInitializationValidation(TestQwenOAuthCredentialValidation):
         with patch.object(Path, "home", return_value=temp_credentials_dir.parent):
             # Mock token refresh to fail
             with patch.object(
-                connector, "_refresh_token_if_needed", return_value=False
+                connector,
+                "_refresh_token_if_needed",
+                side_effect=AuthenticationError("Token refresh failed"),
             ):
                 await connector.initialize()
 
             # With tolerant startup behavior, initialization succeeds but functionality is degraded
             assert not connector.is_functional
-            assert (
-                not connector._initialization_failed
-            )  # Initialization did not fail, but was degraded
+            assert connector._initialization_failed  # Initialization did fail
             assert (
                 connector._credential_validation_errors
             )  # Should have validation errors

@@ -503,7 +503,7 @@ class ResponseProcessor(IResponseProcessor):
         if chunk is None:
             return ""
         if isinstance(chunk, dict):
-            return chunk  # Preserve structured payloads (e.g., error chunks)
+            return json.dumps(chunk)  # Preserve structured payloads as JSON string
         if isinstance(chunk, str):
             return chunk
         if isinstance(chunk, bytes | bytearray):
