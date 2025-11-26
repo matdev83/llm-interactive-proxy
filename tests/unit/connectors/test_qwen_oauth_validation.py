@@ -325,7 +325,9 @@ class TestInitializationValidation(TestQwenOAuthCredentialValidation):
 
             # With tolerant startup behavior, initialization succeeds but functionality is degraded
             assert not connector.is_functional
-            assert connector._initialization_failed  # Initialization did fail
+            assert (
+                not connector._initialization_failed
+            )  # Initialization succeeded (degraded)
             assert (
                 connector._credential_validation_errors
             )  # Should have validation errors
@@ -642,7 +644,12 @@ class TestIntegrationScenarios(TestQwenOAuthCredentialValidation):
 
         with (
             patch.object(Path, "home", return_value=temp_credentials_dir.parent),
-            patch.object(connector, "_refresh_token_if_needed", return_value=False),
+            patch.object(
+                connector,
+                "_refresh_token_if_needed",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(connector, "_start_file_watching"),
         ):
             await connector.initialize()

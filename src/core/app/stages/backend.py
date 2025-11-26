@@ -16,7 +16,7 @@ from typing import cast
 
 import httpx
 
-from src.core.common.exceptions import ServiceResolutionError
+from src.core.common.exceptions import InitializationError, ServiceResolutionError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -466,6 +466,16 @@ class BackendStage(InitializationStage):
         except ServiceResolutionError as exc:
             logger.info(
                 "Backend validation dependencies not ready; using temporary HTTP client. Error: %s",
+                exc,
+            )
+            functional_backends.extend(
+                await self._manual_backend_validation(
+                    configured_backends, services, config
+                )
+            )
+        except InitializationError as exc:
+            logger.warning(
+                "BackendFactory unavailable for validation; using manual backend checks instead: %s",
                 exc,
             )
             functional_backends.extend(

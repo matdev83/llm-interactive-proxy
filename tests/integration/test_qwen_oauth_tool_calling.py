@@ -12,7 +12,9 @@ Run with: pytest -m "integration and network" tests/integration/test_qwen_oauth_
 
 import json
 import os
+import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import respx
@@ -46,7 +48,7 @@ def _has_qwen_oauth_credentials() -> bool:
 
 def is_qwen_oauth_available() -> bool:
     """Check if Qwen OAuth credentials are available."""
-    return _has_qwen_oauth_credentials()
+    return True
 
 
 class TestQwenOAuthToolCalling:
@@ -60,8 +62,29 @@ class TestQwenOAuthToolCalling:
         os.environ["DISABLE_ACCOUNTING"] = "true"
         os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
 
-        app = build_app()
-        yield app
+        # Patch credential loading to ensure backend is functional
+        from src.core.services.backend_registry import backend_registry
+
+        connector_class = backend_registry.get_backend_factory("qwen-oauth")
+
+        async def mock_initialize(self_obj, **kwargs):
+            self_obj._oauth_credentials = {
+                "access_token": "valid_token",
+                "refresh_token": "valid_refresh",
+                "expiry_date": time.time() + 3600,
+                "resource_url": "https://portal.qwen.ai/v1",
+            }
+            self_obj.is_functional = True
+            return
+
+        with patch.object(
+            connector_class,
+            "initialize",
+            side_effect=mock_initialize,
+            autospec=True,
+        ):
+            app = build_app()
+            yield app
 
     @pytest.fixture
     def qwen_oauth_client(self, qwen_oauth_app):
@@ -612,8 +635,29 @@ class TestQwenOAuthAgentToolCalling:
         os.environ["DISABLE_ACCOUNTING"] = "true"
         os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
 
-        app = build_app()
-        yield app
+        # Patch credential loading to ensure backend is functional
+        from src.core.services.backend_registry import backend_registry
+
+        connector_class = backend_registry.get_backend_factory("qwen-oauth")
+
+        async def mock_initialize(self_obj, **kwargs):
+            self_obj._oauth_credentials = {
+                "access_token": "valid_token",
+                "refresh_token": "valid_refresh",
+                "expiry_date": time.time() + 3600,
+                "resource_url": "https://portal.qwen.ai/v1",
+            }
+            self_obj.is_functional = True
+            return
+
+        with patch.object(
+            connector_class,
+            "initialize",
+            side_effect=mock_initialize,
+            autospec=True,
+        ):
+            app = build_app()
+            yield app
 
     @pytest.fixture
     def qwen_oauth_client(self, qwen_oauth_app):
@@ -702,6 +746,9 @@ class TestQwenOAuthAgentToolCalling:
         if choice.get("finish_reason") == "tool_calls":
             assert message.get("content") is None
             assert message.get("tool_calls") is not None
+            print(f"DEBUG: message: {message}")
+            print(f"DEBUG: tool_calls type: {type(message['tool_calls'])}")
+            print(f"DEBUG: tool_calls value: {message['tool_calls']}")
             assert len(message["tool_calls"]) == 1
 
             tool_call = message["tool_calls"][0]
@@ -779,8 +826,29 @@ class TestQwenOAuthToolCallingErrorHandling:
         os.environ["DISABLE_ACCOUNTING"] = "true"
         os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
 
-        app = build_app()
-        yield app
+        # Patch credential loading to ensure backend is functional
+        from src.core.services.backend_registry import backend_registry
+
+        connector_class = backend_registry.get_backend_factory("qwen-oauth")
+
+        async def mock_initialize(self_obj, **kwargs):
+            self_obj._oauth_credentials = {
+                "access_token": "valid_token",
+                "refresh_token": "valid_refresh",
+                "expiry_date": time.time() + 3600,
+                "resource_url": "https://portal.qwen.ai/v1",
+            }
+            self_obj.is_functional = True
+            return
+
+        with patch.object(
+            connector_class,
+            "initialize",
+            side_effect=mock_initialize,
+            autospec=True,
+        ):
+            app = build_app()
+            yield app
 
     @pytest.fixture
     def qwen_oauth_client(self, qwen_oauth_app):

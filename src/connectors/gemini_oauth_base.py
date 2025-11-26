@@ -911,6 +911,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 "Specific models will be in cooldown but backend remains functional.",
                 self.name,
             )
+            self._permanently_failed = True
             return
 
         # For non-quota errors (e.g., auth failures), disable the backend entirely
@@ -4161,11 +4162,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Mark quota exceeded but keep backend functional for other models
         self._graceful_metrics.record_duration(time.time() - start_time)
         self._mark_backend_unusable(reason="quota_exceeded")
+        self._permanently_failed = True
+        self.is_functional = False
 
         # Raise error to inform client about rate limiting
         raise BackendError(
-            message="Requested models are rate limited. Please try a different model or wait.",
-            code="models_rate_limited",
+            message="All models exhausted including fallbacks. Please try again later.",
+            code="all_models_exhausted",
             status_code=429,
         )
 

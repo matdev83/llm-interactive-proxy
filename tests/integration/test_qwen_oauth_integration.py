@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
@@ -58,11 +59,13 @@ async def test_qwen_oauth_connector_api_endpoint():
             patch("builtins.open", create=True) as mock_open,  # noqa: F841
             patch("json.load", return_value=test_creds),
         ):
+            # Create proper mock stat result to avoid breaking httpx SSL verification
+            mock_stat.return_value = SimpleNamespace(
+                st_mtime=1234567890, st_mode=0o100644
+            )
 
-            mock_stat.return_value.st_mtime = 1234567890
-
-            # Create connector
-            async_client = httpx.AsyncClient()
+            # Create connector with SSL verification disabled to avoid httpx SSL path issues in tests
+            async_client = httpx.AsyncClient(verify=False)
             connector = QwenOAuthConnector(async_client, config)
 
             # Manually set the credentials to simulate successful loading

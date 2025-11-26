@@ -114,9 +114,8 @@ async def test_qwen_oauth_real_api_connectivity():
         try:
             connector = QwenOAuthConnector(async_client, config)
 
-            # Load real credentials
-            creds_loaded = await connector._load_oauth_credentials()
-            assert creds_loaded, "Should load real credentials"
+            # Initialize the connector, which will load credentials and refresh token if needed
+            await connector.initialize()
 
             # Test health check (should pass with our fix)
             health_result = await connector._perform_health_check()

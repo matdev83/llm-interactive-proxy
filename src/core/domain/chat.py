@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any, TypeVar
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from src.core.domain.base import ValueObject
 from src.core.interfaces.model_bases import DomainModel
@@ -49,11 +49,27 @@ class FunctionCall(DomainModel):
 class ToolCall(DomainModel):
     """Represents a tool call in a chat completion response."""
 
+    model_config = ConfigDict(
+        # Allow extra fields for backward compatibility
+        extra="allow",
+    )
+
     id: str
     type: str = "function"
     function: FunctionCall
     # Extra content for provider-specific metadata (e.g., Gemini thought_signature)
+    # We don't use Field(exclude=True) because we want to include it when it has a value
     extra_content: dict[str, Any] | None = None
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Override to exclude extra_content when None for backward compatibility."""
+        # Get the default serialization
+        result = super().model_dump(**kwargs)
+        # Remove extra_content if it's None to maintain backward compatibility
+        # with code that doesn't expect this field
+        if result.get("extra_content") is None:
+            result.pop("extra_content", None)
+        return result
 
 
 class FunctionDefinition(DomainModel):

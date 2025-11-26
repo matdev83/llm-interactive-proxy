@@ -173,10 +173,13 @@ class TokenWindowLoopDetector(ILoopDetector):
             return False
 
         # Reset on markdown structures that typically indicate new sections
-        if self._should_reset_for_markdown_structure(content):
-            self._reset_content_tracking()
-            self.loop_detected = False
-            return False
+        # FIX: We disabled this because it prevents detecting loops that consist of
+        # repeated markdown structures (like lists). The original gemini-cli algorithm
+        # was too aggressive here.
+        # if self._should_reset_for_markdown_structure(content):
+        #     self._reset_content_tracking()
+        #     self.loop_detected = False
+        #     return False
 
         self.stream_content_history += content
 

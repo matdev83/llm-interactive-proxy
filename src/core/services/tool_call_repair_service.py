@@ -489,8 +489,23 @@ class ToolCallRepairService(IToolCallRepairService):
                             continue
                         arguments_raw[child.tag] = self._element_children_to_dict(child)
 
+                # Try to parse as JSON if arguments_raw is a string (common KiloCode format)
                 if not isinstance(arguments_raw, dict):
-                    arguments_raw = {"content": arguments_raw} if arguments_raw else {}
+                    if isinstance(arguments_raw, str) and arguments_raw.strip():
+                        try:
+                            parsed = json.loads(arguments_raw.strip())
+                            if isinstance(parsed, dict):
+                                arguments_raw = parsed
+                            else:
+                                arguments_raw = {"content": parsed}
+                        except json.JSONDecodeError:
+                            arguments_raw = (
+                                {"content": arguments_raw} if arguments_raw else {}
+                            )
+                    else:
+                        arguments_raw = (
+                            {"content": arguments_raw} if arguments_raw else {}
+                        )
 
                 arguments = self._normalize_tool_arguments(
                     tool_name_candidate,
@@ -544,14 +559,37 @@ class ToolCallRepairService(IToolCallRepairService):
         if not tool_name:
             return None
 
+        # First, try to extract the <arguments> block and parse it as JSON
+        # This handles the common KiloCode format: <arguments>{"key": "value"}</arguments>
         arguments: dict[str, Any] = {}
-        for match in re.finditer(
-            r"<([A-Za-z0-9_\-]+)>(.*?)</\1>", snippet, re.IGNORECASE | re.DOTALL
-        ):
-            tag, value = match.groups()
-            if tag.lower() in {"tool_name", "name"}:
-                continue
-            arguments[tag] = self._sanitize_extracted_text(value)
+        args_match = re.search(
+            r"<arguments>(.*?)</arguments>", snippet, re.IGNORECASE | re.DOTALL
+        )
+        if args_match:
+            args_content = args_match.group(1).strip()
+            if args_content:
+                try:
+                    # Try to parse as JSON first
+                    parsed = json.loads(args_content)
+                    if isinstance(parsed, dict):
+                        arguments = parsed
+                    else:
+                        arguments = {"content": parsed}
+                except json.JSONDecodeError:
+                    # Not valid JSON, use as raw content
+                    arguments = {"content": args_content}
+        else:
+            # Fallback: extract individual tags, but skip wrapper tags
+            # Tags to skip: use_mcp_tool (outer wrapper), server_name (metadata),
+            # tool_name/name (already extracted above)
+            skip_tags = {"use_mcp_tool", "server_name", "tool_name", "name"}
+            for match in re.finditer(
+                r"<([A-Za-z0-9_\-]+)>(.*?)</\1>", snippet, re.IGNORECASE | re.DOTALL
+            ):
+                tag, value = match.groups()
+                if tag.lower() in skip_tags:
+                    continue
+                arguments[tag] = self._sanitize_extracted_text(value)
 
         return self._format_openai_tool_call(tool_name, arguments, snippet)
 

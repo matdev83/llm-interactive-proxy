@@ -149,12 +149,18 @@ def _free_openrouter_models(api_key: str) -> list[str]:
     models = payload.get("data") or []
     candidates: list[str] = []
     priority_order = [
-        "nvidia/nemotron-nano-9b-v2:free",
-        "meta-llama/llama-3.1-8b-instruct:free",
-        "meta-llama/llama-3-8b-instruct:free",
+        "openai/gpt-oss-20b:free",
+        "z-ai/glm-4.5-air:free",
+        "qwen/qwen3-coder:free",
+        "moonshotai/kimi-k2:free",
+        "meituan/longcat-flash-chat:free",
+        "kwaipilot/kat-coder-pro:free",
         "mistralai/mistral-7b-instruct:free",
         "mistralai/mixtral-8x7b-instruct:free",
-        "google/gemma-2-9b-it:free",
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "meta-llama/llama-3-8b-instruct:free",
+        "x-ai/grok-4.1-fast:free",
+        "nvidia/nemotron-nano-9b-v2:free",
     ]
     priority_set = set(priority_order)
     for model in models:
@@ -254,7 +260,7 @@ def test_openrouter_free_model_roundtrip() -> None:
         client = OpenAI(
             api_key="proxy-test-key",
             base_url=f"http://127.0.0.1:{port}/v1",
-            timeout=20.0,
+            timeout=45.0,
             max_retries=0,
         )
         candidates = [first_model]
@@ -262,17 +268,31 @@ def test_openrouter_free_model_roundtrip() -> None:
         for mid in more:
             if mid not in candidates:
                 candidates.append(mid)
+        if len(candidates) > 1:
+            head, tail = candidates[:1], candidates[1:]
+            random.shuffle(tail)
+            candidates = head + tail
 
         errors: list[str] = []
         success = False
         start_time = time.time()
-        for model_id in candidates[:2]:
+        max_candidates = min(len(candidates), 6)
+        deadline = start_time + 120
+        max_errors = min(max_candidates, 5)
+        for model_id in candidates[:max_candidates]:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            request_timeout = min(30.0, remaining)
+            if request_timeout < 5.0:
+                break
             try:
                 response = client.chat.completions.create(
                     model=f"openrouter:{model_id}",
                     messages=[{"role": "user", "content": "Say hello in two words."}],
                     max_tokens=16,
                     temperature=0.2,
+                    timeout=request_timeout,
                 )
                 assert (
                     response.choices
@@ -285,7 +305,7 @@ def test_openrouter_free_model_roundtrip() -> None:
                 Exception
             ) as exc:  # Retry with next candidate on timeout/provider errors
                 errors.append(f"{model_id}: {exc}")
-                if len(errors) >= 3 or time.time() - start_time > 90:
+                if len(errors) >= max_errors or time.time() > deadline:
                     break
                 continue
     finally:

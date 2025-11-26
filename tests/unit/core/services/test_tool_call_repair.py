@@ -162,6 +162,78 @@ print(x > y)
         assert arguments["path"] == "src/example.py"
         assert 'print("updated")' in arguments["patch_content"]
 
+    def test_repair_tool_calls_xml_use_mcp_with_json_arguments(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        """Test KiloCode format with JSON arguments inside <arguments> tag.
+
+        This is the format used by KiloCode for MCP tool calls:
+        <use_mcp_tool>
+            <server_name>...</server_name>
+            <tool_name>...</tool_name>
+            <arguments>{"json": "content"}</arguments>
+        </use_mcp_tool>
+        """
+        content = """<use_mcp_tool>
+<server_name>patch-file</server_name>
+<tool_name>patch_file</tool_name>
+<arguments>
+{"file_path": "test.py", "patch_content": "new content"}
+</arguments>
+</use_mcp_tool>"""
+        repaired = repair_service.repair_tool_calls(content)
+        assert repaired is not None
+        assert repaired.tool_call["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
+        # Arguments should be extracted directly from JSON, not wrapped
+        assert (
+            "use_mcp_tool" not in arguments
+        ), "Should not wrap content with use_mcp_tool key"
+        assert arguments["file_path"] == "test.py"
+        assert arguments["patch_content"] == "new content"
+
+    def test_repair_tool_calls_xml_use_mcp_with_diff_markers(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        """Test KiloCode format with diff markers that contain < characters.
+
+        This tests that diff content like <<<<<<< SEARCH doesn't break XML parsing.
+        """
+        content = """<use_mcp_tool>
+<server_name>patch-file</server_name>
+<tool_name>patch_file</tool_name>
+<arguments>
+{"file_path": "test.py", "patch_content": "<<<<<<< SEARCH\\nold code\\n=======\\nnew code\\n>>>>>>> REPLACE"}
+</arguments>
+</use_mcp_tool>"""
+        repaired = repair_service.repair_tool_calls(content)
+        assert repaired is not None
+        assert repaired.tool_call["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
+        assert (
+            "use_mcp_tool" not in arguments
+        ), "Should not wrap content with use_mcp_tool key"
+        assert arguments["file_path"] == "test.py"
+        assert "<<<<<<< SEARCH" in arguments["patch_content"]
+        assert ">>>>>>> REPLACE" in arguments["patch_content"]
+
+    def test_repair_tool_calls_xml_use_mcp_without_closing_arguments(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        """Test lenient parsing when </arguments> is missing (synthetic close case)."""
+        # This simulates what happens when the streaming processor adds synthetic closing
+        content = """<use_mcp_tool>
+<server_name>patch-file</server_name>
+<tool_name>patch_file</tool_name>
+<arguments>
+{"file_path": "test.py", "patch_content": "content"}</arguments></use_mcp_tool>"""
+        repaired = repair_service.repair_tool_calls(content)
+        assert repaired is not None
+        assert repaired.tool_call["function"]["name"] == "patch_file"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
+        assert "use_mcp_tool" not in arguments
+        assert arguments["file_path"] == "test.py"
+
     def test_repair_tool_calls_xml_with_prefix_text(
         self, repair_service: ToolCallRepairService
     ) -> None:
@@ -725,7 +797,7 @@ class TestStreamingToolCallRepairProcessor:
         assert tool_chunks, "Expected at least one chunk with tool_calls metadata"
         chunk = tool_chunks[0]
         # XML content is preserved for clients like Kilo-Code that parse tool calls from content
-        assert "<use_mcp_tool>" in chunk.content
+        assert "<use_mcp_tool>" in str(chunk.content or "")
         tool_calls = chunk.metadata.get("tool_calls")
         assert isinstance(tool_calls, list)
         assert tool_calls

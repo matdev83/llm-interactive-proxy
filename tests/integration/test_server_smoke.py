@@ -4,6 +4,7 @@ import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 import requests
@@ -68,6 +69,8 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
             "--allow-admin",
             "--log-level",  # Add log level to reduce startup overhead
             "WARNING",
+            "--default-backend",
+            "openrouter",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -150,16 +153,26 @@ def _has_bad_output(s: str) -> bool:
 
 
 def _log_has_critical_errors(path: str) -> bool:
-    try:
-        with open(path, encoding="utf-8", errors="ignore") as f:
-            data = f.read()
-            # Allow WARNINGs; fail on ERROR/CRITICAL (line starts or anywhere)
-            if data.startswith(("ERROR", "CRITICAL")):
-                return True
-            return ("\nERROR" in data) or ("\nCRITICAL" in data)
-    except FileNotFoundError:
-        # If the log file was not created, treat as failure to be strict
-        return True
+    target = Path(path)
+    candidates = [target]
+    if not target.exists():
+        candidates.extend(
+            sorted(target.parent.glob(f"{target.stem}-pid-*{target.suffix}"))
+        )
+    for candidate in candidates:
+        try:
+            with open(candidate, encoding="utf-8", errors="ignore") as f:
+                data = f.read()
+                # Allow WARNINGs; fail on ERROR/CRITICAL (line starts or anywhere)
+                if data.startswith(("ERROR", "CRITICAL")):
+                    return True
+                if ("\nERROR" in data) or ("\nCRITICAL" in data):
+                    return True
+                return False
+        except FileNotFoundError:
+            continue
+    # If no log file could be found, treat as failure to surface startup issues
+    return True
 
 
 def test_server_starts_and_logs_cleanly(tmp_path: "os.PathLike[str]") -> None:

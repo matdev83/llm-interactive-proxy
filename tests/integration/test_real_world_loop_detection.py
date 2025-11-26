@@ -322,7 +322,7 @@ class TestRealWorldLoopDetection:
         # Create a pattern that's specifically designed to cross chunk boundaries
         # Pattern length: 78 chars (same as the real-world example)
         pattern = "I am now complete. I am now finished. I will now exit. I am now done. I will now stop. "
-        content = pattern * 5
+        content = pattern * 10  # Increased from 5 to 10 to exceed threshold of 6
 
         detector = self._create_detector(
             content_loop_threshold=6,

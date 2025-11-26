@@ -131,6 +131,11 @@ class OpenRouterBackend(OpenAIConnector):
 
             return headers
 
+        context = self._build_openrouter_header_context()
+        headers = _try_provider_call(context, self.api_key)
+        if headers is not None:
+            return headers
+
         if self.key_name is not None:
             headers = _try_provider_call(self.key_name, self.api_key)
             if headers is not None:
@@ -139,11 +144,6 @@ class OpenRouterBackend(OpenAIConnector):
             headers = _try_provider_call(self.api_key, self.key_name)
             if headers is not None:
                 return headers
-
-        context = self._build_openrouter_header_context()
-        headers = _try_provider_call(context, self.api_key)
-        if headers is not None:
-            return headers
 
         if errors:
             logger.debug(
@@ -370,6 +370,8 @@ class OpenRouterBackend(OpenAIConnector):
             # Handle reasoning config
             if hasattr(domain_request, "reasoning") and domain_request.reasoning:
                 payload["reasoning"] = domain_request.reasoning
+
+            payload = self._clean_openai_payload(payload)
 
             # Manually call the appropriate handler from the parent class
             api_base = call_kwargs.get("openai_url") or self.api_base_url

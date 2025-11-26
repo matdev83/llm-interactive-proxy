@@ -839,22 +839,16 @@ class QwenOAuthConnector(OpenAIConnector):
                     self._credential_validation_errors = validation_errors
                     self._initialization_failed = True
                     self.is_functional = False
-                    return
 
             # Step 4: Attempt token refresh if needed
             logger.info("Step 3: Checking token expiry and refreshing if needed...")
-            if not await self._refresh_token_if_needed():
-                # FIX: If token refresh fails, we should not proceed. Instead, we should
-                # raise an exception that can be caught and handled gracefully.
-                # This prevents the `_validate_runtime_credentials` from being called
-                # with an invalid token, which would lead to a 502 error.
-                raise AuthenticationError(
-                    message="Failed to refresh Qwen OAuth token",
-                    details={
-                        "backend": "qwen-oauth",
-                        "reason": "Token refresh failed for both CLI and API methods",
-                    },
-                )
+            try:
+                refresh_success = await self._refresh_token_if_needed()
+            except Exception:
+                # Catch AuthenticationError and others to ensure graceful degradation
+                refresh_success = False
+
+            if not refresh_success:
                 # Tolerant startup behavior: degrade instead of outright failure
                 error_msg = "OAuth token refresh pending"
                 logger.error(
@@ -863,10 +857,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 self._credential_validation_errors = [error_msg]
                 self._initialization_failed = False
                 self.is_functional = False
-                # Do not raise; allow app to start in degraded mode
                 return
-
-            logger.info("Token refresh check completed successfully")
 
             # Step 5: Set up available models
             self.available_models = [

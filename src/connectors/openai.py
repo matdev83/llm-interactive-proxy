@@ -453,6 +453,9 @@ class OpenAIConnector(LLMBackend):
         payload = self.translation_service.from_domain_request(request_data, "openai")
         if inspect.isawaitable(payload):
             payload = await payload
+        # Ensure the outbound payload uses the resolved model name without backend prefixes.
+        payload["model"] = effective_model
+        payload["stream"] = bool(getattr(request_data, "stream", False))
 
         # Prefer processed_messages (these are the canonical, post-processed
         # messages ready to send). Convert them to plain dicts to ensure JSON
@@ -485,7 +488,7 @@ class OpenAIConnector(LLMBackend):
 
                 for message in processed_messages:
                     if hasattr(message, "model_dump") and callable(message.model_dump):
-                        dumped = message.model_dump(exclude_none=False)
+                        dumped = message.model_dump(exclude_none=True)
                         if isinstance(dumped, dict):
                             normalized_messages.append(dumped)
                         continue
@@ -534,6 +537,7 @@ class OpenAIConnector(LLMBackend):
                     if tool_call_id is not None:
                         msg["tool_call_id"] = tool_call_id
 
+                    msg = {k: v for k, v in msg.items() if v is not None}
                     normalized_messages.append(msg)
 
                 payload["messages"] = normalized_messages
@@ -554,8 +558,33 @@ class OpenAIConnector(LLMBackend):
         extra = getattr(request_data, "extra_body", None)
         if isinstance(extra, dict):
             payload.update(extra)
+        # Remove internal-only keys and any None-valued entries (recursively)
+        # so providers receive a clean OpenAI-compatible payload.
+        payload = self._clean_openai_payload(payload)
 
         return payload  # type: ignore[no-any-return]
+
+    def _clean_openai_payload(self, payload: Any) -> dict[str, Any]:
+        """Strip None values and internal-only keys from an OpenAI payload."""
+        disallowed_keys = {"extra_body", "backend_type", "agent", "session_id"}
+
+        def _strip_none(value: Any) -> Any:
+            if isinstance(value, list):
+                cleaned_list = [item for item in (_strip_none(v) for v in value) if item is not None]
+                return cleaned_list
+            if isinstance(value, dict):
+                cleaned_dict: dict[str, Any] = {}
+                for key, val in value.items():
+                    if key in disallowed_keys:
+                        continue
+                    cleaned_val = _strip_none(val)
+                    if cleaned_val is not None:
+                        cleaned_dict[key] = cleaned_val
+                return cleaned_dict
+            return value
+
+        cleaned = _strip_none(payload)
+        return cleaned if isinstance(cleaned, dict) else {}
 
     async def _handle_non_streaming_response(
         self,
@@ -600,8 +629,14 @@ class OpenAIConnector(LLMBackend):
             except Exception:
                 response_headers = {}
 
+        content_dict = domain_response.model_dump()
+        logger.info(f"DEBUG: OpenAIConnector content type: {type(content_dict)}")
+        if isinstance(content_dict, dict) and "choices" in content_dict:
+             logger.info(f"DEBUG: OpenAIConnector choice content: {content_dict['choices'][0]['message'].get('content')}")
+             logger.info(f"DEBUG: OpenAIConnector choice tool_calls: {content_dict['choices'][0]['message'].get('tool_calls')}")
+
         return ResponseEnvelope(
-            content=domain_response.model_dump(),
+            content=content_dict,
             status_code=response.status_code,
             headers=response_headers,
             usage=domain_response.usage,

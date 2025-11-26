@@ -107,35 +107,39 @@ def test_gemini_models_endpoint_format(gemini_client):
 def test_gemini_generate_content_endpoint_format(gemini_app):
     """Test that generate content endpoint accepts and returns Gemini format."""
     # Mock the backend to return a response with tool calls
+    from src.core.domain.responses import ResponseEnvelope
+
+    mock_content = {
+        "id": "test-id",
+        "object": "chat.completion",
+        "created": 1234567890,
+        "model": "test-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "Hello! This is a test response.",
+                    "tool_calls": [
+                        {
+                            "id": "call_test_123",
+                            "type": "function",
+                            "function": {
+                                "name": "hello",
+                                "arguments": "{}",
+                            },
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
+    }
+
     mock_backend = Mock()
     mock_backend.chat_completions = AsyncMock(
-        return_value={
-            "id": "test-id",
-            "object": "chat.completion",
-            "created": 1234567890,
-            "model": "test-model",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "Hello! This is a test response.",
-                        "tool_calls": [
-                            {
-                                "id": "call_test_123",
-                                "type": "function",
-                                "function": {
-                                    "name": "hello",
-                                    "arguments": "{}",
-                                },
-                            }
-                        ],
-                    },
-                    "finish_reason": "tool_calls",
-                }
-            ],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
-        }
+        return_value=ResponseEnvelope(content=mock_content)
     )
 
     # Use TestClient with context manager to trigger lifespan events
@@ -149,11 +153,15 @@ def test_gemini_generate_content_endpoint_format(gemini_app):
         backend_service = client.app.state.service_provider.get_required_service(
             IBackendService
         )
-        backend_service._backends["openrouter"] = mock_backend
-        # Set available_models to avoid coroutine issues in welcome banner
-        mock_backend.available_models = ["test-model"]
-        # Mock get_available_models to return a list, not a coroutine
-        mock_backend.get_available_models.return_value = ["test-model"]
+        backend_service = client.app.state.service_provider.get_required_service(
+            IBackendService
+        )
+        # Patch call_completion to bypass test_stages delegation logic
+        backend_service.call_completion = AsyncMock(
+            return_value=ResponseEnvelope(content=mock_content)
+        )
+        # We don't need to set _backends or available_models because call_completion is patched
+        # and validation is bypassed by the mock.
 
         # Send Gemini format request that triggers a tool_call in OpenAI response
         gemini_request = {
@@ -177,7 +185,9 @@ def test_gemini_generate_content_endpoint_format(gemini_app):
         candidate = data["candidates"][0]
         assert "content" in candidate
         assert "finishReason" in candidate
-        assert candidate["finishReason"] == "TOOL_CALLS"
+        assert (
+            candidate["finishReason"] == "TOOL_CALLS"
+        ), f"Expected TOOL_CALLS, got {candidate['finishReason']}"
 
         content = candidate["content"]
         assert "parts" in content

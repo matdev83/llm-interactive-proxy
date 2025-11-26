@@ -113,7 +113,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     # Format: (outer_opener, inner_tag, outer_closer)
                     # inner_tag is used to close truncated inner tags before closing outer
                     synthetic_calls = (
-                        ("<use_mcp_tool", "tool_arguments", "</use_mcp_tool>"),
+                        ("<use_mcp_tool", "arguments", "</use_mcp_tool>"),
                         ("<patch_file", "patch_content", "</patch_file>"),
                         ("<execute_command", "command", "</execute_command>"),
                         ("<read_file", "file", "</read_file>"),
