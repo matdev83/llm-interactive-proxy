@@ -5,6 +5,7 @@ empty responses with HTTP 200 status codes never occur when there are errors.
 """
 
 import json
+from typing import Any, cast
 
 import pytest
 from src.core.common.exceptions import BackendError
@@ -48,7 +49,7 @@ class TestErrorStreamPrevention:
 
         # Convert to StreamingContent
         content = StreamingContent(
-            content=error_chunk.content,
+            content=cast(dict[str, Any], error_chunk.content),
             metadata=error_chunk.metadata,
             is_done=True,
         )
@@ -171,6 +172,27 @@ class TestErrorStreamPrevention:
 
         # Should contain the error information
         assert "error" in decoded or "stream_error" in decoded or "[DONE]" in decoded
+
+    @pytest.mark.asyncio
+    async def test_empty_terminal_delta_emits_only_done(self) -> None:
+        """Final chunks without assistant content should not stream empty messages."""
+
+        content = StreamingContent(
+            content={
+                "id": "chatcmpl-empty-123",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "code-assist-model",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            },
+            metadata={"finish_reason": "stop"},
+            is_done=True,
+        )
+
+        result = content.to_bytes().decode("utf-8")
+
+        assert result == "data: [DONE]\n\n"
+        assert "delta" not in result
 
 
 class TestMultiModelRateLimiting:

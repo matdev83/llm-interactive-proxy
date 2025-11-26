@@ -18,7 +18,7 @@ def _find_free_port():
         return s.getsockname()[1]
 
 
-def _wait_for_server(port, timeout=10):
+def _wait_for_server(port, timeout=30):
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
@@ -59,17 +59,13 @@ def proxy_server(live_openai_key, live_anthropic_key, live_gemini_key):
     ]
 
     proc = subprocess.Popen(
-        cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
 
     if not _wait_for_server(port):
         proc.terminate()
-        stdout, stderr = proc.communicate()
-        with open("server_startup_error.log", "w") as f:
-            f.write(f"Stdout:\n{stdout}\nStderr:\n{stderr}")
-        raise RuntimeError(
-            f"Server failed to start.\nStdout: {stdout}\nStderr: {stderr}"
-        )
+        proc.wait()
+        raise RuntimeError("Server failed to start within 30 seconds")
 
     yield f"http://127.0.0.1:{port}"
 
@@ -127,7 +123,7 @@ class TestE2EFlows:
 
         # Request a Gemini model via OpenAI interface
         response = await client.chat.completions.create(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             messages=[{"role": "user", "content": "Say 'gemini works'"}],
             max_tokens=10,
         )

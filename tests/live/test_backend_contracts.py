@@ -86,10 +86,9 @@ class TestBackendContracts:
         """Verify basic Gemini content generation."""
         client = genai.Client(api_key=require_gemini)
 
-        # Run in executor because genai client might be synchronous or use different async pattern
-        # The new SDK uses client.aio.models.generate_content
+        # Use client.aio for async operations
         response = await client.aio.models.generate_content(
-            model="gemini-1.5-flash", contents="Say 'hello'"
+            model="models/gemini-2.5-flash", contents="Say 'hello'"
         )
 
         assert response.text is not None
@@ -101,17 +100,8 @@ class TestBackendContracts:
         client = genai.Client(api_key=require_gemini)
 
         # Streaming in new SDK
-        async for _response in await client.aio.models.generate_content(
-            model="gemini-1.5-flash",
-            contents="Count to 3",
-            config={"response_modalities": ["TEXT"]},  # Optional, but good for clarity
-        ):
-            # The new SDK streaming iterator yields responses
-            pass
-
-        # Re-implementing correctly for streaming check
         stream = await client.aio.models.generate_content(
-            model="gemini-1.5-flash",
+            model="models/gemini-2.5-flash",
             contents="Count to 3",
             config={"response_modalities": ["TEXT"]},
         )

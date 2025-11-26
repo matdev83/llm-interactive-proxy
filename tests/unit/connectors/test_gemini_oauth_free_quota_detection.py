@@ -221,6 +221,7 @@ class TestGeminiOAuthFreeQuotaDetection:
         class DummySession:
             def __init__(self) -> None:
                 self.request = Mock()
+                self.headers: dict[str, str] = {}
 
         dummy_session = DummySession()
 

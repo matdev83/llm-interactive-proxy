@@ -172,6 +172,7 @@ class TestGeminiOAuthPlanConnector:
         class FakeAuthorizedSession:
             def __init__(self, creds):
                 self._creds = creds
+                self.headers: dict[str, str] = {}
 
             def request(self, *args, **kwargs):
                 return fake_response

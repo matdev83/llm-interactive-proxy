@@ -58,6 +58,8 @@ class ToolCallRepairProcessor(IStreamProcessor):
         metadata = dict(content.metadata or {})
         detected_tool_calls: list[dict[str, Any]] = []
 
+        existing_calls = self._register_existing_tool_calls(buffer_state, metadata)
+
         chunk_text = self._normalize_chunk_text(content.content)
         reasoning_segments: list[str] = []
         for key in ("reasoning_content", "reasoning"):
@@ -232,14 +234,10 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 # Using direct assignment instead of setdefault to ensure clients recognize tool calls
                 metadata["finish_reason"] = "tool_calls"
                 # Add index field to each tool call for OpenAI streaming format compliance
-                sanitized_calls = [
-                    self._sanitize_tool_call_for_metadata(call, index=idx)
-                    for idx, call in enumerate(registered_calls)
-                ]
-                existing_calls = metadata.get("tool_calls")
-                if isinstance(existing_calls, list) and existing_calls:
-                    metadata["tool_calls"] = existing_calls + sanitized_calls
-                else:
+                sanitized_calls = self._sanitize_and_dedupe_tool_calls(
+                    existing_calls, registered_calls, buffer_state
+                )
+                if sanitized_calls:
                     metadata["tool_calls"] = sanitized_calls
                 # NOTE: We intentionally keep the XML content alongside tool_calls.
                 # Clients like Kilo-Code parse XML from content and ignore native tool_calls.
@@ -384,6 +382,72 @@ class ToolCallRepairProcessor(IStreamProcessor):
             new_calls.append(call)
         return new_calls
 
+    def _register_existing_tool_calls(
+        self, buffer_state: ToolCallBufferState, metadata: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Deduplicate and register any tool calls already present in metadata."""
+
+        existing_calls_raw = metadata.get("tool_calls")
+        if not isinstance(existing_calls_raw, list) or not existing_calls_raw:
+            return []
+
+        unique_calls: list[dict[str, Any]] = []
+        seen_signatures: set[str] = set()
+        for call in existing_calls_raw:
+            if not isinstance(call, dict):
+                continue
+            dedupe_signature = self._compute_dedupe_signature(call)
+            if dedupe_signature in seen_signatures:
+                continue
+            seen_signatures.add(dedupe_signature)
+
+            signature = self._build_canonical_id(call, dedupe_signature)
+            if signature in buffer_state.detected_canonical_ids:
+                continue
+
+            buffer_state.detected_canonical_ids.add(signature)
+            buffer_state.detected_signatures.add(dedupe_signature)
+            buffer_state.detected_calls.append(call)
+            unique_calls.append(call)
+
+        sanitized = [
+            self._sanitize_tool_call_for_metadata(call, index=idx)
+            for idx, call in enumerate(unique_calls)
+        ]
+        metadata["tool_calls"] = sanitized
+        return sanitized
+
+    def _sanitize_and_dedupe_tool_calls(
+        self,
+        existing_calls: list[dict[str, Any]],
+        new_calls: list[dict[str, Any]],
+        buffer_state: ToolCallBufferState,
+    ) -> list[dict[str, Any]]:
+        """Merge tool calls while removing duplicates by canonical signature."""
+
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def _add(call: dict[str, Any]) -> None:
+            dedupe_signature = self._compute_dedupe_signature(call)
+            if dedupe_signature in seen:
+                return
+            seen.add(dedupe_signature)
+            signature = self._build_canonical_id(call, dedupe_signature)
+            buffer_state.detected_canonical_ids.add(signature)
+            buffer_state.detected_signatures.add(dedupe_signature)
+            merged.append(call)
+
+        for call in existing_calls:
+            _add(call)
+        for call in new_calls:
+            _add(call)
+
+        return [
+            self._sanitize_tool_call_for_metadata(call, index=idx)
+            for idx, call in enumerate(merged)
+        ]
+
     @staticmethod
     def _build_canonical_id(call: dict[str, Any], fallback_signature: str) -> str:
         identifier = call.get("id")
@@ -395,3 +459,10 @@ class ToolCallRepairProcessor(IStreamProcessor):
             if isinstance(name, str) and name:
                 return name
         return fallback_signature
+
+    @staticmethod
+    def _compute_dedupe_signature(call: dict[str, Any]) -> str:
+        """Compute a stable signature for deduplication, ignoring explicit ids."""
+        stripped = dict(call)
+        stripped.pop("id", None)
+        return build_tool_call_signature(stripped)

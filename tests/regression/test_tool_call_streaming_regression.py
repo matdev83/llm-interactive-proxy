@@ -20,6 +20,7 @@ These tests cover:
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 
 import pytest
 from src.core.domain.streaming_response_processor import StreamingContent
@@ -172,6 +173,40 @@ class TestToolCallRepairProcessorBuffering:
                 assert (
                     tc["function"]["name"] != "file"
                 ), "Inner tag 'file' was incorrectly parsed as a tool call!"
+
+    @pytest.mark.asyncio
+    async def test_existing_tool_calls_are_deduped(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """Ensure tool_calls already present in metadata are not duplicated."""
+
+        existing_call = {
+            "id": "call_existing",
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "arguments": '{"path": "scripts/demo.py"}',
+            },
+        }
+
+        chunk = StreamingContent(
+            content="""<read_file>
+<args>
+  <file>
+    <path>scripts/demo.py</path>
+  </file>
+</args>
+</read_file>""",
+            is_done=True,
+            metadata={"session_id": "test-session", "tool_calls": [existing_call]},
+        )
+
+        result = await processor.process(chunk)
+
+        tool_calls = result.metadata.get("tool_calls") if result.metadata else None
+        assert tool_calls is not None
+        assert len(tool_calls) == 1, f"Expected deduped tool_calls, got {tool_calls}"
+        assert tool_calls[0]["function"]["name"] == "read_file"
 
     @pytest.mark.asyncio
     async def test_truncated_ask_followup_question_is_buffered(
@@ -534,7 +569,11 @@ class TestToolCallMetadataMarkers:
         )
 
         result1 = await processor.process(chunk1)
-        tool_calls1 = result1.metadata.get("tool_calls") if result1.metadata else []
+        tool_calls1: list[dict[str, Any]] = (
+            cast(list[dict[str, Any]], result1.metadata.get("tool_calls"))
+            if result1.metadata
+            else []
+        )
 
         # Second chunk with a DIFFERENT tool call
         chunk2 = StreamingContent(
@@ -546,7 +585,11 @@ class TestToolCallMetadataMarkers:
         )
 
         result2 = await processor.process(chunk2)
-        tool_calls2 = result2.metadata.get("tool_calls") if result2.metadata else []
+        tool_calls2: list[dict[str, Any]] = (
+            cast(list[dict[str, Any]], result2.metadata.get("tool_calls"))
+            if result2.metadata
+            else []
+        )
 
         # Both tool calls should be detected
         assert len(tool_calls1) == 1, "First chunk should have one tool call"

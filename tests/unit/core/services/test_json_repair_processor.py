@@ -155,6 +155,53 @@ async def test_stream_with_multiple_reparable_json_objects(
 
 
 @pytest.mark.asyncio
+async def test_xml_tool_payload_is_not_modified(
+    processor: JsonRepairProcessor,
+) -> None:
+    apply_diff_payload = """<apply_diff>
+<args>
+<file>
+  <path>scripts/demo.py</path>
+  <diff>
+    <content><![CDATA[
+<<<<<<< SEARCH
+foo = "bar"
+=======
+foo = "baz"
+>>>>>>> REPLACE
+]]></content>
+  </diff>
+</file>
+</args>
+</apply_diff>"""
+
+    result = await _run_processor_chunks(processor, apply_diff_payload)
+
+    assert result == apply_diff_payload
+    assert "<![CDATA[" in result
+    assert '<!["' not in result
+
+
+@pytest.mark.asyncio
+async def test_checklist_brackets_are_preserved(
+    processor: JsonRepairProcessor,
+) -> None:
+    todo_payload = """<update_todo_list>
+<todos>
+[-] first task
+[ ] second task
+[x] done task
+</todos>
+</update_todo_list>"""
+
+    result = await _run_processor_chunks(processor, todo_payload)
+
+    assert "[-] first task" in result
+    assert "[ ] second task" in result
+    assert "[x] done task" in result
+
+
+@pytest.mark.asyncio
 async def test_buffered_chunks_preserve_metadata_and_usage(
     processor: JsonRepairProcessor,
 ) -> None:

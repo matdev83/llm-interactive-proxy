@@ -158,6 +158,38 @@ class StreamingContent:
         reasoning = self.metadata.get("reasoning")
         return not (isinstance(reasoning, str) and reasoning.strip())
 
+    def _is_empty_completion_payload(self) -> bool:
+        """Detect terminal payloads that do not carry any assistant content."""
+
+        if not isinstance(self.content, dict):
+            return False
+
+        tool_calls_meta = self.metadata.get("tool_calls")
+        if isinstance(tool_calls_meta, list) and tool_calls_meta:
+            return False
+
+        choices = self.content.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return False
+
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            return False
+
+        def _block_is_empty(block: dict[str, Any] | None) -> bool:
+            if not isinstance(block, dict):
+                return True
+            return not any(
+                block.get(key)
+                for key in ("content", "tool_calls", "reasoning_content", "reasoning")
+            )
+
+        if "delta" in first_choice:
+            return _block_is_empty(first_choice.get("delta"))
+        if "message" in first_choice:
+            return _block_is_empty(first_choice.get("message"))
+        return False
+
     def to_bytes(self) -> bytes:
         """Convert this chunk to bytes for transport.
 
@@ -191,6 +223,9 @@ class StreamingContent:
                     if key in self.metadata:
                         data[key] = self.metadata[key]
                 return f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode()
+
+            if self._is_empty_completion_payload():
+                return b"data: [DONE]\n\n"
 
             # Check if there's actual content to emit with the done marker
             # This handles cases where the final chunk has both content and is_done=True

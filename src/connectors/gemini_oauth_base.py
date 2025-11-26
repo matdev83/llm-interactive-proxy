@@ -2334,6 +2334,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             auth_session = google.auth.transport.requests.AuthorizedSession(
                 _StaticTokenCreds(access_token)
             )
+            auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
             # Apply custom headers (e.g., User-Agent for Antigravity)
             for key, value in self._get_session_headers().items():
                 auth_session.headers[key] = value

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import src.core.services.metrics_service as metrics
@@ -22,6 +23,27 @@ logger = logging.getLogger(__name__)
 
 class JsonRepairProcessor(IStreamProcessor):
     """Stream processor that repairs JSON blocks while isolating per-stream state."""
+
+    _TOOL_TAG_MARKERS: tuple[str, ...] = (
+        "<apply_diff",
+        "<patch_file",
+        "<read_file",
+        "<write_to_file",
+        "<insert_content",
+        "<delete_file",
+        "<execute_command",
+        "<update_todo_list",
+        "<attempt_completion",
+        "<ask_followup_question",
+        "<use_mcp_tool",
+        "<access_mcp_resource",
+        "<search_files",
+        "<list_files",
+        "<list_code_definition_names",
+        "<codebase_search",
+        "<browser_action",
+    )
+    _CHECKBOX_PATTERN = re.compile(r"\[\s*[-xX]\s*\]")
 
     def __init__(
         self,
@@ -55,6 +77,16 @@ class JsonRepairProcessor(IStreamProcessor):
 
         out_parts: list[str] = []
         text = self._normalize_chunk_text(content.content)
+
+        if self._should_bypass_json_repair(text, stream_id):
+            return StreamingContent(
+                content=text,
+                is_done=content.is_done,
+                is_cancellation=content.is_cancellation,
+                metadata=content.metadata,
+                usage=content.usage,
+                raw_data=content.raw_data,
+            )
         i = 0
         n = len(text)
 
@@ -105,6 +137,19 @@ class JsonRepairProcessor(IStreamProcessor):
     # ---------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------
+
+    def _should_bypass_json_repair(self, text: str, stream_id: str) -> bool:
+        """Skip JSON repair for XML/tool-call payloads and checklists."""
+
+        if "<![CDATA[" in text or any(tag in text for tag in self._TOOL_TAG_MARKERS):
+            self._registry.clear_json_repair_buffer(stream_id)
+            return True
+
+        if self._CHECKBOX_PATTERN.search(text):
+            self._registry.clear_json_repair_buffer(stream_id)
+            return True
+
+        return False
 
     def _handle_non_json_text(
         self, state: JsonRepairBufferState, text: str, i: int, n: int
