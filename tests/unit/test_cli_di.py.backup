@@ -274,15 +274,7 @@ def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
                 h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
             ]
             assert len(file_handlers) == 1
-            # The actual log file will have a PID suffix added by _apply_pid_suffixes
-            # Check that the handler's filename contains the base log file path
-            handler_path = file_handlers[0].baseFilename
-            # Extract the base name without PID suffix for comparison
-            # Format is: srv-pid-12345.log
-            import os
-            assert handler_path.startswith(str(tmp_path))
-            assert "srv" in os.path.basename(handler_path)
-            assert handler_path.endswith(".log")
+            assert file_handlers[0].baseFilename == str(log_file)
         finally:
             for handler in root_logger.handlers:
                 handler.close()
