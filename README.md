@@ -513,6 +513,55 @@ if response.metadata.get("reasoning"):
 display_clean_response(response.content)
 ```
 
+## Client Identity Override
+
+Some LLM providers check which application is making requests and may filter or limit access based on client identification. The proxy lets you override how it identifies itself to LLM providers through configuration.
+
+### Quick Example
+
+**Using CLI Arguments**:
+
+```bash
+python -m src.core.cli --identity-user-agent "MyApp/1.0.0"
+```
+
+**Using Config File**:
+
+```yaml
+# config/my_config.yaml
+identity:
+  user_agent:
+    mode: override
+    override_value: "MyApp/1.0.0"
+```
+
+### What You Can Override
+
+- **User-Agent**: Client application name and version
+- **HTTP-Referer**: Application website URL  
+- **X-Title**: Application display name
+
+### Configuration Modes
+
+- `passthrough` (default): Forward original client values
+- `override`: Use your custom values
+- `default`: Use proxy's built-in defaults
+
+### Practical Uses
+
+- **Debugging**: Test how providers respond to different client identities
+- **Provider Compatibility**: Work with providers that filter by client type (e.g., OpenRouter)
+- **Testing**: Simulate different clients without switching applications
+
+### Example Configurations
+
+The `config/` directory includes example files:
+
+- `identity_kilocode.example.yaml` - Impersonate KiloCode client
+- `identity_factory_droid.example.yaml` - Impersonate Factory Droid client
+
+For detailed examples and troubleshooting, see [`docs/identity-override.md`](docs/identity-override.md).
+
 ## Dangerous Command Protection
 
 The proxy includes built-in protection against dangerous git commands that could potentially destroy your work or repository history. This safety feature detects and blocks destructive git operations before they can cause damage.

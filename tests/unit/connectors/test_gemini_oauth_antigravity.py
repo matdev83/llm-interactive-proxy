@@ -12,7 +12,13 @@ import pytest
 from src.connectors.gemini_oauth_antigravity import (
     ANTIGRAVITY_AUTH_KEY,
     ANTIGRAVITY_SANDBOX_ENDPOINT,
+    ANTIGRAVITY_USER_AGENT,
     GeminiOAuthAntigravityConnector,
+)
+
+# The fetchAvailableModels endpoint is constructed from the base URL
+ANTIGRAVITY_FETCH_MODELS_ENDPOINT = (
+    f"{ANTIGRAVITY_SANDBOX_ENDPOINT}/v1internal:fetchAvailableModels"
 )
 
 
@@ -112,8 +118,10 @@ class TestGeminiOAuthAntigravityConnector:
         assert connector._oauth_credentials is None
 
     @pytest.mark.asyncio
-    async def test_model_enumeration_uses_endpoint(self, connector, monkeypatch):
-        """Enumerate models from the sandbox models endpoint."""
+    async def test_model_enumeration_uses_fetch_available_models_endpoint(
+        self, connector, monkeypatch
+    ):
+        """Enumerate models from the fetchAvailableModels endpoint."""
         connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
         connector._oauth_credentials = {"access_token": "token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
@@ -127,29 +135,80 @@ class TestGeminiOAuthAntigravityConnector:
             def json(self):
                 return self._payload
 
-        responses = [
-            DummyResponse(404, {}),
-            DummyResponse(
-                200,
-                {
-                    "models": [
-                        {"name": "models/claude-3.5-sonnet"},
-                        {"name": "models/gemini-2.5-pro"},
-                        "models/another-model",
-                    ]
+        # Mock the fetchAvailableModels endpoint response
+        fetch_models_response = DummyResponse(
+            200,
+            {
+                "models": {
+                    "gemini-2.5-flash": {
+                        "displayName": "Gemini 2.5 Flash",
+                        "maxTokens": 1048576,
+                    },
+                    "claude-sonnet-4-5": {
+                        "displayName": "Claude Sonnet 4.5",
+                        "maxTokens": 200000,
+                    },
+                    "gemini-2.5-pro": {
+                        "displayName": "Gemini 2.5 Pro",
+                        "maxTokens": 1048576,
+                    },
                 },
-            ),
-        ]
+                "agentModelSorts": [
+                    {
+                        "displayName": "Recommended",
+                        "groups": [
+                            {
+                                "modelIds": [
+                                    "gemini-2.5-pro",
+                                    "claude-sonnet-4-5",
+                                ]
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
 
-        connector.client.get = AsyncMock(side_effect=responses)  # type: ignore[assignment]
+        connector.client.get = AsyncMock(return_value=fetch_models_response)  # type: ignore[assignment]
 
         await connector._ensure_models_loaded()
 
-        assert connector.available_models == [
-            "another-model",
-            "claude-3.5-sonnet",
-            "gemini-2.5-pro",
-        ]
+        # Should contain all models from the "models" dictionary keys
+        assert "gemini-2.5-pro" in connector.available_models
+        assert "claude-sonnet-4-5" in connector.available_models
+        assert "gemini-2.5-flash" in connector.available_models
+        # Verify exactly 3 models loaded (only from models dict, not agentModelSorts)
+        assert len(connector.available_models) == 3
+
+    @pytest.mark.asyncio
+    async def test_model_enumeration_uses_correct_endpoint_url(
+        self, connector, monkeypatch
+    ):
+        """Verify that the fetchAvailableModels endpoint URL is used."""
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+
+        captured_url = None
+
+        async def capture_get(url, **kwargs):
+            nonlocal captured_url
+            captured_url = url
+
+            class DummyResponse:
+                status_code = 200
+                text = "{}"
+
+                def json(self):
+                    return {"models": {}, "agentModelSorts": []}
+
+            return DummyResponse()
+
+        connector.client.get = capture_get  # type: ignore[assignment]
+
+        await connector._load_models_from_api()
+
+        assert captured_url == ANTIGRAVITY_FETCH_MODELS_ENDPOINT
 
     @pytest.mark.asyncio
     async def test_model_enumeration_fallback_on_failure(self, connector, monkeypatch):
@@ -162,6 +221,99 @@ class TestGeminiOAuthAntigravityConnector:
         await connector._ensure_models_loaded()
 
         assert connector.available_models
+
+    @pytest.mark.asyncio
+    async def test_health_check_uses_fetch_available_models_endpoint(
+        self, connector, monkeypatch
+    ):
+        """Health check should use fetchAvailableModels endpoint."""
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        captured_url = None
+
+        async def capture_get(url, **kwargs):
+            nonlocal captured_url
+            captured_url = url
+
+            class DummyResponse:
+                status_code = 200
+                text = "{}"
+
+                def json(self):
+                    return {}
+
+            return DummyResponse()
+
+        connector.client.get = capture_get  # type: ignore[assignment]
+
+        result = await connector._perform_health_check()
+
+        assert result is True
+        assert captured_url == ANTIGRAVITY_FETCH_MODELS_ENDPOINT
+        assert connector._health_checked is True
+
+    @pytest.mark.asyncio
+    async def test_health_check_fails_on_non_200_response(self, connector, monkeypatch):
+        """Health check should return False on non-200 response."""
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+
+        class DummyResponse:
+            status_code = 401
+            text = "Unauthorized"
+
+            def json(self):
+                return {"error": "Unauthorized"}
+
+        connector.client.get = AsyncMock(return_value=DummyResponse())  # type: ignore[assignment]
+
+        result = await connector._perform_health_check()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_list_models_uses_fetch_available_models_endpoint(
+        self, connector, monkeypatch
+    ):
+        """list_models should use fetchAvailableModels and transform response."""
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        class DummyResponse:
+            status_code = 200
+            text = "{}"
+
+            def json(self):
+                return {
+                    "models": {
+                        "gemini-2.5-flash": {
+                            "displayName": "Gemini 2.5 Flash",
+                            "maxTokens": 1048576,
+                            "maxOutputTokens": 65535,
+                        },
+                        "claude-sonnet-4-5": {
+                            "displayName": "Claude Sonnet 4.5",
+                            "maxTokens": 200000,
+                            "maxOutputTokens": 64000,
+                        },
+                    }
+                }
+
+        connector.client.get = AsyncMock(return_value=DummyResponse())  # type: ignore[assignment]
+
+        result = await connector.list_models(
+            gemini_api_base_url=ANTIGRAVITY_SANDBOX_ENDPOINT,
+            key_name="test",
+            api_key="test-key",
+        )
+
+        assert "models" in result
+        assert len(result["models"]) == 2
+        model_names = [m["name"] for m in result["models"]]
+        assert "models/gemini-2.5-flash" in model_names
+        assert "models/claude-sonnet-4-5" in model_names
 
     @pytest.mark.asyncio
     @pytest.mark.slow
@@ -238,3 +390,329 @@ class TestGeminiOAuthAntigravityConnector:
         assert first_chunk.content["error"]["code"] == 503
         assert first_chunk.content["error"]["type"] == "quota_exceeded"
         assert "exhausted your capacity" in first_chunk.content["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_initialize_sets_custom_user_agent(self, mock_client, monkeypatch):
+        """Initialize should create a client with Antigravity-specific User-Agent."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+
+        # Mock credential loading to succeed
+        connector._load_oauth_credentials = AsyncMock(return_value=True)  # type: ignore[method-assign]
+        connector._oauth_credentials = {"access_token": "test-token"}
+
+        await connector.initialize()
+
+        # After initialization, the connector should have a custom client
+        # with the Antigravity User-Agent header
+        assert connector.client is not None
+        assert connector.client.headers.get("User-Agent") == ANTIGRAVITY_USER_AGENT
+
+    def test_get_api_headers_includes_user_agent(self, mock_client):
+        """_get_api_headers should include the Antigravity User-Agent."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        connector._oauth_credentials = {"access_token": "test-token"}
+
+        headers = connector._get_api_headers()
+
+        assert headers["User-Agent"] == ANTIGRAVITY_USER_AGENT
+        assert headers["Authorization"] == "Bearer test-token"
+        assert headers["Content-Type"] == "application/json"
+
+    def test_get_session_headers_includes_user_agent(self, mock_client):
+        """_get_session_headers should include the Antigravity User-Agent."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+
+        headers = connector._get_session_headers()
+
+        assert headers["User-Agent"] == ANTIGRAVITY_USER_AGENT
+
+    def test_build_code_assist_request_body_uses_antigravity_format(self, mock_client):
+        """_build_code_assist_request_body should use Antigravity-specific format."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+
+        # Create a mock request_data with an id
+        request_data = Mock()
+        request_data.id = None  # Will trigger UUID generation
+
+        code_assist_request = {
+            "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
+            "generationConfig": {"temperature": 0.7},
+        }
+
+        request_body = connector._build_code_assist_request_body(
+            effective_model="gemini-2.5-flash",
+            project_id="test-project-123",
+            request_data=request_data,
+            code_assist_request=code_assist_request,
+        )
+
+        # Verify Antigravity-specific format
+        assert "project" in request_body
+        assert request_body["project"] == "test-project-123"
+
+        assert "requestId" in request_body  # NOT user_prompt_id
+        assert "user_prompt_id" not in request_body
+
+        assert "model" in request_body
+        assert request_body["model"] == "gemini-2.5-flash"
+
+        assert "userAgent" in request_body
+        assert request_body["userAgent"] == "antigravity"
+
+        assert "requestType" in request_body
+        assert request_body["requestType"] == "agent"
+
+        assert "request" in request_body
+        assert request_body["request"] == code_assist_request
+
+
+class TestModelValidation:
+    """Test cases for model validation in the Antigravity connector."""
+
+    @pytest.fixture
+    def connector_with_models(self, mock_client):
+        """Create a connector with pre-loaded models (simulating API-loaded models)."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        # Pre-load some models for testing (simulating API-loaded models)
+        connector.available_models = [
+            "claude-sonnet-4-5",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-3-pro-high",
+        ]
+        connector._available_models_set = set(connector.available_models)
+        # Mark as loaded from API to enable validation
+        connector._models_from_api = True
+        return connector
+
+    def test_validate_model_accepts_valid_model(self, connector_with_models):
+        """Validation should pass for models in the available list."""
+        # Should not raise
+        connector_with_models.validate_model("gemini-2.5-flash")
+        connector_with_models.validate_model("claude-sonnet-4-5")
+        connector_with_models.validate_model("gemini-3-pro-high")
+
+    def test_validate_model_rejects_invalid_model(self, connector_with_models):
+        """Validation should raise BackendError for unknown models."""
+        from src.core.common.exceptions import BackendError
+
+        with pytest.raises(BackendError) as exc_info:
+            connector_with_models.validate_model("nonexistent-model")
+
+        error = exc_info.value
+        assert error.code == "model_not_found"
+        assert error.status_code == 400
+        assert "nonexistent-model" in str(error.message)
+        assert "not available" in str(error.message)
+
+    def test_validate_model_error_includes_available_models(
+        self, connector_with_models
+    ):
+        """Error message should include examples of available models."""
+        from src.core.common.exceptions import BackendError
+
+        with pytest.raises(BackendError) as exc_info:
+            connector_with_models.validate_model("bad-model")
+
+        error = exc_info.value
+        # Should mention at least one available model
+        assert "gemini-2.5-flash" in str(error.message) or "claude-sonnet-4-5" in str(
+            error.message
+        )
+
+    def test_validate_model_skipped_when_no_models_loaded(self, mock_client):
+        """Validation should be skipped if models list is empty."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        # Models not loaded - should not raise
+        connector.validate_model("any-model")
+
+    def test_validate_model_skipped_when_using_hardcoded_fallback(self, mock_client):
+        """Validation should be skipped when using hardcoded fallback model list."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        # Set up models from hardcoded fallback (not from API)
+        connector.available_models = ["gemini-2.5-flash", "gemini-2.5-pro"]
+        connector._available_models_set = set(connector.available_models)
+        connector._models_from_api = False  # Simulating hardcoded fallback
+
+        # Should NOT raise even though model is not in the list
+        # because we're using hardcoded fallback which may be outdated
+        connector.validate_model("gemini-3-pro-high")
+
+    def test_validate_model_enforced_when_models_from_api(self, mock_client):
+        """Validation should be enforced when models were loaded from API."""
+        from src.core.common.exceptions import BackendError
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        # Set up models as if loaded from API
+        connector.available_models = ["gemini-2.5-flash", "gemini-2.5-pro"]
+        connector._available_models_set = set(connector.available_models)
+        connector._models_from_api = True  # Simulating API-loaded models
+
+        # Should raise because models were loaded from API
+        with pytest.raises(BackendError) as exc_info:
+            connector.validate_model("nonexistent-model")
+
+        assert exc_info.value.code == "model_not_found"
+
+    def test_available_models_set_cache_built_correctly(self, connector_with_models):
+        """The _available_models_set should be built from available_models."""
+        assert connector_with_models._available_models_set == {
+            "claude-sonnet-4-5",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-3-pro-high",
+        }
+
+    def test_get_available_models_set_builds_from_list_if_empty(self, mock_client):
+        """_get_available_models_set should build set from list if not cached."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        connector.available_models = ["model-a", "model-b"]
+        connector._available_models_set = set()  # Empty cache
+
+        result = connector._get_available_models_set()
+
+        assert result == {"model-a", "model-b"}
+        # Cache should now be populated
+        assert connector._available_models_set == {"model-a", "model-b"}
+
+    @pytest.mark.asyncio
+    async def test_models_cached_after_first_load(self, mock_client):
+        """Models should be cached and not fetched on every call."""
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        class DummyResponse:
+            status_code = 200
+            text = "{}"
+
+            def json(self):
+                return {
+                    "models": {
+                        "gemini-2.5-flash": {"displayName": "Gemini 2.5 Flash"},
+                        "gemini-2.5-pro": {"displayName": "Gemini 2.5 Pro"},
+                    }
+                }
+
+        mock_get = AsyncMock(return_value=DummyResponse())
+        connector.client.get = mock_get  # type: ignore[assignment]
+
+        # First call should fetch models
+        await connector._ensure_models_loaded()
+        assert mock_get.call_count == 1
+        assert len(connector.available_models) == 2
+
+        # Second call should use cache, not fetch again
+        await connector._ensure_models_loaded()
+        assert mock_get.call_count == 1  # Still 1, not 2
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_validates_model(self, mock_client, monkeypatch):
+        """chat_completions should validate model before proceeding when models from API."""
+        from src.core.common.exceptions import BackendError
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        config = AppConfig()
+        translation_service = TranslationService()
+        connector = GeminiOAuthAntigravityConnector(
+            mock_client, config, translation_service, name="gemini-oauth-antigravity"
+        )
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        # Pre-load specific models (simulating API-loaded models)
+        connector.available_models = ["gemini-2.5-flash", "gemini-2.5-pro"]
+        connector._available_models_set = set(connector.available_models)
+        # Mark as loaded from API to enable validation
+        connector._models_from_api = True
+
+        # Mock to prevent actual API calls
+        connector._validate_runtime_credentials = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        connector._ensure_healthy = AsyncMock()  # type: ignore[attr-defined]
+
+        request_data = Mock()
+        request_data.stream = False
+        request_data.messages = []
+
+        # Should raise for invalid model (validation enabled because models from API)
+        with pytest.raises(BackendError) as exc_info:
+            await connector.chat_completions(
+                request_data=request_data,
+                processed_messages=[],
+                effective_model="invalid-model-xyz",
+            )
+
+        assert exc_info.value.code == "model_not_found"
+        assert "invalid-model-xyz" in str(exc_info.value.message)

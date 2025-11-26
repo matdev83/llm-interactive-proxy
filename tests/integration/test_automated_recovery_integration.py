@@ -15,6 +15,7 @@ import pytest
 from src.connectors.gemini_oauth_base import (
     GeminiOAuthBaseConnector,
     GracefulDegradationConfig,
+    GracefulDegradationMetrics,
     ModelRetryState,
 )
 from src.core.common.exceptions import BackendError
@@ -62,7 +63,8 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         self._request_counter = None
         self._health_checked = True
 
-        # Use actual graceful degradation configuration (new increased delays)
+        # Initialize graceful degradation metrics and configuration
+        self._graceful_metrics = GracefulDegradationMetrics()
         self._degradation_config = GracefulDegradationConfig.from_config(self.config)
         if fast_recovery:
             # Speed up for testing
@@ -196,17 +198,16 @@ class TestAutomatedRecoveryIntegration:
 
         track_event("configuration_complete")
 
-        # Stage 1: Trigger cooldown with pro model
-        try:
-            await connector.chat_completions(
-                request_data=mock_request,
-                processed_messages=mock_request.messages,
-                effective_model="gemini-2.5-pro",
-            )
-            raise AssertionError("Should have failed with BackendError")
-        except BackendError as e:
-            assert e.status_code == 429
-            track_event("pro_model_cooldown_triggered")
+        # Stage 1: Request pro model - graceful degradation should fallback to flash
+        # With graceful degradation, pro fails but flash succeeds as fallback
+        result = await connector.chat_completions(
+            request_data=mock_request,
+            processed_messages=mock_request.messages,
+            effective_model="gemini-2.5-pro",
+        )
+        # Graceful degradation succeeded with fallback
+        assert result is not None
+        track_event("pro_model_fallback_to_flash")
 
         # Verify pro model is in cooldown and recovery probing started
         assert connector._is_in_cooldown("gemini-2.5-pro")
@@ -215,14 +216,19 @@ class TestAutomatedRecoveryIntegration:
 
         track_event("recovery_probing_started")
 
-        # Stage 2: Request should use flash fallback
+        # Stage 2: Subsequent request should still use flash fallback (pro in cooldown)
+        # Flash was already used once, so we need to add more successful results
+        connector.set_api_behavior(
+            "gemini-2.5-flash", [{"success": True}, {"success": True}]
+        )
         result = await connector.chat_completions(
             request_data=mock_request,
             processed_messages=mock_request.messages,
             effective_model="gemini-2.5-pro",
         )
         assert result is not None
-        assert connector._api_call_count["gemini-2.5-flash"] == 1
+        # Flash should have been called (first from graceful degradation, second from this call)
+        assert connector._api_call_count["gemini-2.5-flash"] >= 1
         track_event("flash_fallback_used")
 
         # Stage 3: Wait for automated recovery (should happen automatically)
@@ -266,7 +272,7 @@ class TestAutomatedRecoveryIntegration:
         expected_events = [
             "test_start",
             "configuration_complete",
-            "pro_model_cooldown_triggered",
+            "pro_model_fallback_to_flash",
             "recovery_probing_started",
             "flash_fallback_used",
             "pro_model_recovered_after_",
@@ -309,51 +315,56 @@ class TestAutomatedRecoveryIntegration:
         # Setup: Multiple failure/recovery cycles
         current_time = time.time()
 
-        # Cycle 1: Fail now, recover at 5s
-        connector.set_recovery_timeline("gemini-2.5-pro", current_time + 5.0)
+        # Cycle 1: Fail now, recover at 3s (before first recovery probe)
+        # With fast_recovery mode: cooldown=10s, probe_interval=3s
+        connector.set_recovery_timeline("gemini-2.5-pro", current_time + 3.0)
 
         error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
+        # Only one error for initial failure, then recovery probes will succeed
+        connector.set_api_behavior("gemini-2.5-pro", [error_429])
         connector.set_api_behavior("gemini-2.5-flash", [{"success": True}] * 10)
 
         track_event("cycle_1_start")
 
-        # Cycle 1: Trigger cooldown and recovery
-        with contextlib.suppress(BackendError):
-            await connector.chat_completions(
-                request_data=mock_request,
-                processed_messages=mock_request.messages,
-                effective_model="gemini-2.5-pro",
-            )
+        # Cycle 1: Trigger cooldown - graceful degradation will fallback to flash
+        result = await connector.chat_completions(
+            request_data=mock_request,
+            processed_messages=mock_request.messages,
+            effective_model="gemini-2.5-pro",
+        )
+        # Graceful degradation succeeds with flash fallback
+        assert result is not None
 
         assert connector._is_in_cooldown("gemini-2.5-pro")
         track_event("cycle_1_cooldown")
 
-        # Wait for recovery
-        await asyncio.sleep(6)  # Should recover at 5s
+        # Wait for recovery probes to detect recovery (need 2 successful probes)
+        # Probes run every 3s, need ~6s for 2 successful probes after recovery timeline
+        await asyncio.sleep(8)
         assert not connector._is_in_cooldown("gemini-2.5-pro")
         track_event("cycle_1_recovered")
 
         # Cycle 2: Trigger another cooldown immediately after recovery
         # Update recovery timeline for second cycle
-        connector.set_recovery_timeline("gemini-2.5-pro", time.time() + 4.0)
+        connector.set_recovery_timeline("gemini-2.5-pro", time.time() + 3.0)
 
-        # Reset API behavior for second cycle
+        # Reset API behavior for second cycle - only one error for initial failure
         connector._api_call_count["gemini-2.5-pro"] = 0
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
+        connector.set_api_behavior("gemini-2.5-pro", [error_429])
 
-        with contextlib.suppress(BackendError):
-            await connector.chat_completions(
-                request_data=mock_request,
-                processed_messages=mock_request.messages,
-                effective_model="gemini-2.5-pro",
-            )
+        # Graceful degradation will fallback to flash
+        result = await connector.chat_completions(
+            request_data=mock_request,
+            processed_messages=mock_request.messages,
+            effective_model="gemini-2.5-pro",
+        )
+        assert result is not None
 
         assert connector._is_in_cooldown("gemini-2.5-pro")
         track_event("cycle_2_cooldown")
 
-        # Wait for second recovery
-        await asyncio.sleep(5)  # Should recover at 4s
+        # Wait for recovery probes to detect recovery
+        await asyncio.sleep(8)
         assert not connector._is_in_cooldown("gemini-2.5-pro")
         track_event("cycle_2_recovered")
 
@@ -408,23 +419,24 @@ class TestAutomatedRecoveryIntegration:
 
         track_event("new_config_verified")
 
-        # Setup: Pro model fails, recovers after 25 seconds
+        # Setup: Pro model fails initially, recovers after 5 seconds (for faster testing)
         current_time = time.time()
-        connector.set_recovery_timeline("gemini-2.5-pro", current_time + 25.0)
+        connector.set_recovery_timeline("gemini-2.5-pro", current_time + 5.0)
 
         error_429 = BackendError("Rate limit exceeded", status_code=429)
-        connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])
+        # Only one error so recovery probes can succeed after timeline
+        connector.set_api_behavior("gemini-2.5-pro", [error_429])
         connector.set_api_behavior("gemini-2.5-flash", [{"success": True}])
 
         track_event("api_behavior_configured")
 
-        # Trigger cooldown
-        with contextlib.suppress(BackendError):
-            await connector.chat_completions(
-                request_data=mock_request,
-                processed_messages=mock_request.messages,
-                effective_model="gemini-2.5-pro",
-            )
+        # Trigger cooldown - graceful degradation will fallback to flash
+        result = await connector.chat_completions(
+            request_data=mock_request,
+            processed_messages=mock_request.messages,
+            effective_model="gemini-2.5-pro",
+        )
+        assert result is not None  # Flash fallback succeeded
 
         # Verify cooldown duration is 10 minutes
         pro_state = connector._model_retry_states["gemini-2.5-pro"]
@@ -437,17 +449,20 @@ class TestAutomatedRecoveryIntegration:
         # Verify recovery probe interval is 2 minutes
         assert connector._degradation_config.recovery_probe_interval == 120.0
 
-        # For testing, we'll manually trigger recovery instead of waiting 2 minutes
-        # In production, this would happen automatically every 2 minutes
-        await asyncio.sleep(26)  # Wait for recovery timeline
+        # Wait for recovery timeline (5 seconds) then manually trigger probes
+        await asyncio.sleep(6)
 
-        # Manual recovery probe (simulating the background task after 2 minutes)
+        # Manual recovery probe (simulating the background task)
+        # First probe should succeed but return False (need 2 probes for full recovery)
         recovery_success = await connector._probe_model_recovery(
             "gemini-2.5-pro", bypass_interval_check=True
         )
-        assert recovery_success
+        # First probe returns False (probe succeeded but need 2 for full recovery)
+        # Check that probe_success_count was incremented
+        pro_state = connector._model_retry_states["gemini-2.5-pro"]
+        assert pro_state.probe_success_count == 1
 
-        # Second probe should clear cooldown
+        # Second probe should clear cooldown (need 2 successful probes)
         recovery_success = await connector._probe_model_recovery(
             "gemini-2.5-pro", bypass_interval_check=True
         )

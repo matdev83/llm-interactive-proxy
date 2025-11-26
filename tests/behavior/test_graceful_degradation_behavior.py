@@ -189,6 +189,7 @@ class TestGracefulDegradationBehavior:
         metrics = connector.get_graceful_degradation_metrics()
         assert metrics["fallback_invocations"] == 1
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_multiple_429_triggers_exponential_backoff(
         self, connector, mock_request
@@ -252,6 +253,7 @@ class TestGracefulDegradationBehavior:
             with contextlib.suppress(asyncio.CancelledError):
                 await connector._recovery_probe_task
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_both_models_exhausted_marks_permanently_failed(
         self, connector, mock_request
@@ -513,6 +515,7 @@ class TestEdgeCaseBehavior:
         assert result is not None
         assert connector._api_call_count["gemini-2.5-flash"] == 1
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_model_without_fallback(self, connector, mock_request):
         """Test behavior with a model that has no configured fallback."""
@@ -620,6 +623,7 @@ class TestOracleImprovementsBehavior:
             connector._api_call_count["gemini-2.5-pro"] >= len(requests) * 2
         )  # Initial request + degradation probe per request
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_jitter_prevents_thundering_herd(self, connector, mock_request):
         """Test that jitter is added to retry delays to prevent synchronized retries."""
@@ -657,6 +661,7 @@ class TestOracleImprovementsBehavior:
         # Verify jitter introduced variance among sequential requests
         assert (max(durations) - min(durations)) > 0.2
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_jitter_range_validation(self, connector, mock_request):
         """Test that jitter is within reasonable bounds (±25% of base delay)."""
@@ -690,6 +695,7 @@ class TestOracleImprovementsBehavior:
             f"but got {actual_delay:.1f}s"
         )
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_per_request_attempts_limit_enforcement(
         self, connector, mock_request

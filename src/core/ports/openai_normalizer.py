@@ -211,9 +211,10 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         if finish_reason:
             metadata["finish_reason"] = finish_reason
 
-        # Add tool_calls if present
-        if "tool_calls" in delta:
-            metadata["tool_calls"] = delta["tool_calls"]
+        # Add tool_calls if present and is a valid list
+        tool_calls_val = delta.get("tool_calls")
+        if isinstance(tool_calls_val, list) and tool_calls_val:
+            metadata["tool_calls"] = tool_calls_val
 
         # Add tool_call_id if present
         if "tool_call_id" in delta:

@@ -1,0 +1,15 @@
+# Example: Impersonate KiloCode Client
+#
+# Use this configuration to make the proxy identify itself as KiloCode
+# when connecting to LLM providers.
+
+identity:
+  user_agent:
+    mode: override
+    override_value: "Kilo-Code/4.122.1"
+  url:
+    mode: override
+    override_value: "https://kilocode.com"
+  title:
+    mode: override
+    override_value: "Kilo Code"

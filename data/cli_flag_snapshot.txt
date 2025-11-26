@@ -58,6 +58,9 @@
 --hybrid-backend-repeat-messages
 --hybrid-reasoning-force-initial-turns
 --hybrid-reasoning-model-timeout
+--identity-title
+--identity-url
+--identity-user-agent
 --llm-assessment-confidence-threshold
 --llm-assessment-history-window
 --llm-assessment-model

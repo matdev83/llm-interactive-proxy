@@ -660,6 +660,33 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Number of recent conversation turns to include in assessment (default: 20, replicates gemini-cli LLM_LOOP_CHECK_HISTORY_COUNT)",
     )
 
+    # Client Identity Override arguments
+    identity_group = parser.add_argument_group(
+        "Client Identity Override",
+        "Options for overriding client identification headers sent to LLM backends",
+    )
+    identity_group.add_argument(
+        "--identity-user-agent",
+        dest="identity_user_agent",
+        type=str,
+        metavar="VALUE",
+        help="Override User-Agent header (client name/version, e.g., 'MyApp/1.0.0')",
+    )
+    identity_group.add_argument(
+        "--identity-url",
+        dest="identity_url",
+        type=str,
+        metavar="URL",
+        help="Override HTTP-Referer header (application URL, e.g., 'https://example.com')",
+    )
+    identity_group.add_argument(
+        "--identity-title",
+        dest="identity_title",
+        type=str,
+        metavar="TITLE",
+        help="Override X-Title header (application display name, e.g., 'My Application')",
+    )
+
     # Security and process options
     parser.add_argument(
         "--allow-admin",
@@ -1537,6 +1564,37 @@ def apply_cli_args(
             "--edit-precision-exclude-agents",
         )
 
+    # Client Identity Override configuration
+    identity_overrides: dict[str, Any] = {}
+    if getattr(args, "identity_user_agent", None) is not None:
+        user_agent_override = identity_overrides.setdefault("user_agent", {})
+        user_agent_override["mode"] = "override"
+        user_agent_override["override_value"] = args.identity_user_agent
+        record_cli(
+            "identity.user_agent.override_value",
+            args.identity_user_agent,
+            "--identity-user-agent",
+        )
+        record_cli("identity.user_agent.mode", "override", "--identity-user-agent")
+    if getattr(args, "identity_url", None) is not None:
+        url_override = identity_overrides.setdefault("url", {})
+        url_override["mode"] = "override"
+        url_override["override_value"] = args.identity_url
+        record_cli("identity.url.override_value", args.identity_url, "--identity-url")
+        record_cli("identity.url.mode", "override", "--identity-url")
+    if getattr(args, "identity_title", None) is not None:
+        title_override = identity_overrides.setdefault("title", {})
+        title_override["mode"] = "override"
+        title_override["override_value"] = args.identity_title
+        record_cli(
+            "identity.title.override_value", args.identity_title, "--identity-title"
+        )
+        record_cli("identity.title.mode", "override", "--identity-title")
+
+    # Add identity overrides to main overrides if any
+    if identity_overrides:
+        cli_overrides["identity"] = identity_overrides
+
     # Add edit-precision overrides to main overrides if any
     if edit_precision_overrides:
         cli_overrides["edit_precision"] = edit_precision_overrides
@@ -1721,6 +1779,34 @@ def _configure_logging(cfg: AppConfig) -> None:
     )
 
 
+def _with_pid_suffix(path: str | None, pid: int) -> str | None:
+    """Append a process-id suffix to the filename portion of a path."""
+    if not path:
+        return None
+    p = Path(path)
+    marker = f"pid-{pid}"
+    if f"-{marker}" in p.stem:
+        return str(p)
+    new_name = f"{p.stem}-{marker}{p.suffix}"
+    return str(p.with_name(new_name))
+
+
+def _apply_pid_suffixes(cfg: AppConfig) -> AppConfig:
+    """Return a copy of cfg with PID-suffixed log and capture files."""
+    pid = os.getpid()
+    updated_logging: dict[str, Any] = {}
+    new_log = _with_pid_suffix(cfg.logging.log_file, pid)
+    if new_log != cfg.logging.log_file:
+        updated_logging["log_file"] = new_log
+    new_capture = _with_pid_suffix(getattr(cfg.logging, "capture_file", None), pid)
+    if new_capture != getattr(cfg.logging, "capture_file", None):
+        updated_logging["capture_file"] = new_capture
+    if not updated_logging:
+        return cfg
+    new_logging = cfg.logging.model_copy(update=updated_logging)
+    return cfg.model_copy(update={"logging": new_logging})
+
+
 def _enforce_localhost_if_auth_disabled(cfg: AppConfig) -> AppConfig:
     """Enforce localhost binding when authentication is disabled."""
     if not cfg.auth.disable_auth:
@@ -1885,6 +1971,7 @@ def main(
     args: argparse.Namespace = parse_cli_args(argv)
     cfg_result = apply_cli_args(args, return_resolution=True)
     cfg, resolution = cast(tuple[AppConfig, ParameterResolution], cfg_result)
+    cfg = _apply_pid_suffixes(cfg)
 
     # Handle daemon mode early
     if _maybe_run_as_daemon(args, cfg):

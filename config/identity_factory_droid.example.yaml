@@ -1,0 +1,15 @@
+# Example: Impersonate Factory Droid Client
+#
+# Use this configuration to make the proxy identify itself as Factory Droid
+# when connecting to LLM providers.
+
+identity:
+  user_agent:
+    mode: override
+    override_value: "factory-cli/0.27.1"
+  url:
+    mode: override
+    override_value: "https://factory.ai"
+  title:
+    mode: override
+    override_value: "Factory Droid"

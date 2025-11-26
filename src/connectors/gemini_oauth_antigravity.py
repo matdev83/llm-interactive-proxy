@@ -26,12 +26,18 @@ logger = logging.getLogger(__name__)
 ANTIGRAVITY_AUTH_KEY = "antigravityAuthStatus"
 ANTIGRAVITY_SANDBOX_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 ANTIGRAVITY_STATE_DB_ENV = "ANTIGRAVITY_STATE_DB"
+ANTIGRAVITY_USER_AGENT = "antigravity/1.11.5 windows/amd64"
 GLOBAL_STORAGE_SUBPATH = Path("Antigravity") / "User" / "globalStorage"
 
 
 class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
     """
     Connector for Gemini using OAuth credentials from the Antigravity app.
+
+    This connector uses the Antigravity sandbox endpoint instead of the standard
+    Code Assist API endpoint. Model enumeration, validation, health checks, and
+    listing are all inherited from the base class, which uses the
+    fetchAvailableModels endpoint that works with both endpoints.
     """
 
     backend_type: str = "gemini-oauth-antigravity"
@@ -50,9 +56,71 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
             name=name or self.backend_type,
         )
 
+    def _get_api_headers(self) -> dict[str, str]:
+        """
+        Get headers for API requests with Antigravity-specific User-Agent.
+
+        The Antigravity sandbox endpoint requires a specific User-Agent header.
+        """
+        headers = super()._get_api_headers()
+        headers["User-Agent"] = ANTIGRAVITY_USER_AGENT
+        return headers
+
+    def _get_session_headers(self) -> dict[str, str]:
+        """
+        Get headers for AuthorizedSession requests with Antigravity User-Agent.
+
+        The Antigravity sandbox endpoint requires a specific User-Agent header
+        for all API calls, including those made via AuthorizedSession.
+        """
+        headers = super()._get_session_headers()
+        headers["User-Agent"] = ANTIGRAVITY_USER_AGENT
+        return headers
+
+    def _build_code_assist_request_body(
+        self,
+        effective_model: str,
+        project_id: str,
+        request_data: Any,
+        code_assist_request: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build Antigravity-specific request body format.
+
+        The Antigravity sandbox API uses a different wrapper structure than
+        the standard Code Assist API:
+        - 'requestId' instead of 'user_prompt_id'
+        - 'model' at top level (not inside 'request')
+        - Additional 'userAgent' and 'requestType' fields required
+
+        Args:
+            effective_model: The model name to use
+            project_id: The project ID from loadCodeAssist
+            request_data: The original request data (for generating requestId)
+            code_assist_request: The inner request with contents, generationConfig, etc.
+
+        Returns:
+            Antigravity-formatted request body dict
+        """
+        return {
+            "project": project_id,
+            "requestId": self._generate_user_prompt_id(request_data),
+            "request": code_assist_request,
+            "model": effective_model,
+            "userAgent": "antigravity",
+            "requestType": "agent",
+        }
+
     async def initialize(self, **kwargs: Any) -> None:
-        """Initialize using Antigravity's sandbox endpoint by default."""
+        """Initialize using Antigravity's sandbox endpoint and custom User-Agent."""
         kwargs.setdefault("gemini_api_base_url", ANTIGRAVITY_SANDBOX_ENDPOINT)
+
+        # Create a custom client with Antigravity-specific User-Agent
+        # This ensures all requests use the correct User-Agent regardless of settings
+        self.client = httpx.AsyncClient(
+            headers={"User-Agent": ANTIGRAVITY_USER_AGENT},
+            timeout=httpx.Timeout(60.0, connect=30.0),
+        )
+
         try:
             await super().initialize(**kwargs)
         except Exception as exc:
@@ -64,111 +132,60 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
             )
             self._fail_init([f"Initialization failed: {exc}"])
 
-    async def _ensure_models_loaded(self) -> None:
+    async def chat_completions(  # type: ignore[override]
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+        identity: Any = None,
+        openrouter_api_base_url: str | None = None,
+        openrouter_headers_provider: Any = None,
+        key_name: str | None = None,
+        api_key: str | None = None,
+        project: str | None = None,
+        agent: str | None = None,
+        gemini_api_base_url: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Handle chat completions with model validation.
+
+        This method validates the requested model against the available models list
+        before delegating to the parent implementation.
+
+        Raises:
+            BackendError: If the requested model is not available
         """
-        Fetch available models from the Antigravity sandbox if possible.
+        # Ensure models are loaded (cached after first call)
+        await self._ensure_models_loaded()
 
-        If enumeration fails, fall back to the base class hardcoded list used by
-        other OAuth connectors to keep the backend usable.
-        """
-        if self.available_models:
-            return
+        # Strip any prefix from the model name for validation
+        model_name = effective_model
+        prefix = "gemini-oauth-plan:"
+        if model_name.startswith(prefix):
+            model_name = model_name[len(prefix) :]
 
-        try:
-            await self._load_models_from_api()
-            if self.available_models:
-                return
-        except Exception as exc:
-            logger.warning("Model enumeration failed, using defaults: %s", exc)
+        # Validate the model is available on this backend
+        self.validate_model(model_name)
 
-        await super()._ensure_models_loaded()
-
-    async def _load_models_from_api(self) -> None:
-        """
-        Attempt to retrieve model slugs from available sandbox endpoints.
-        """
-        if not await self._refresh_token_if_needed():
-            return
-        if not self._oauth_credentials or not self._oauth_credentials.get(
-            "access_token"
-        ):
-            return
-
-        base_url = (self.gemini_api_base_url or ANTIGRAVITY_SANDBOX_ENDPOINT).rstrip(
-            "/"
+        # Delegate to parent implementation
+        return await super().chat_completions(
+            request_data=request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            identity=identity,
+            openrouter_api_base_url=openrouter_api_base_url,
+            openrouter_headers_provider=openrouter_headers_provider,
+            key_name=key_name,
+            api_key=api_key,
+            project=project,
+            agent=agent,
+            gemini_api_base_url=gemini_api_base_url,
+            **kwargs,
         )
-        headers = {
-            "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
-            "Content-Type": "application/json",
-        }
 
-        candidate_paths = [
-            "/v1beta/models",
-            "/v1/models",
-            "/v1internal/models",
-        ]
-
-        def _normalize(name: str) -> str:
-            value = name.strip()
-            if value.startswith("models/"):
-                value = value[len("models/") :]
-            return value
-
-        slugs: set[str] = set()
-        for path in candidate_paths:
-            url = f"{base_url}{path}"
-            try:
-                response = await self.client.get(url, headers=headers, timeout=15.0)
-            except Exception as exc:
-                logger.warning("Failed to reach models endpoint %s: %s", url, exc)
-                continue
-
-            if response.status_code == 404:
-                logger.debug("Models endpoint %s not found (404). Trying next.", url)
-                continue
-            if response.status_code != 200:
-                logger.warning(
-                    "Models endpoint %s returned %s: %s",
-                    url,
-                    response.status_code,
-                    response.text,
-                )
-                continue
-
-            try:
-                data = response.json()
-            except Exception as exc:
-                logger.warning("Failed to decode models response from %s: %s", url, exc)
-                continue
-
-            models_raw = (
-                data.get("models")
-                or data.get("model")
-                or data.get("modelIds")
-                or data.get("items")
-                or []
-            )
-
-            for entry in models_raw:
-                if isinstance(entry, str):
-                    if entry.strip():
-                        slugs.add(_normalize(entry))
-                    continue
-                if isinstance(entry, dict):
-                    name = (
-                        entry.get("name")
-                        or entry.get("id")
-                        or entry.get("displayName")
-                        or entry.get("model")
-                    )
-                    if isinstance(name, str) and name.strip():
-                        slugs.add(_normalize(name))
-
-            if slugs:
-                break
-
-        if slugs:
-            self.available_models = sorted(slugs)
+    # -------------------------------------------------------------------------
+    # Antigravity-specific credential loading methods
+    # -------------------------------------------------------------------------
 
     def _candidate_state_db_paths(self) -> list[Path]:
         """

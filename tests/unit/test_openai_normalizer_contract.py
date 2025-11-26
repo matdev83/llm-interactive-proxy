@@ -141,6 +141,56 @@ class TestOpenAIStreamNormalizerContract:
         assert chunk.metadata["provider"] == "openai"
 
     @pytest.mark.asyncio
+    async def test_ignores_null_tool_calls(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """Test that null tool_calls in delta are ignored (regression for zenmux backend)."""
+        # Arrange - Some backends return tool_calls: null instead of omitting the field
+        raw_chunk = b'data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"content":"Hello","tool_calls":null}}]}\n\n'
+
+        async def mock_stream():
+            yield raw_chunk
+
+        # Act
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "openai")
+        ]
+
+        # Assert - Should not crash and tool_calls should NOT be in metadata
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        assert chunk.content == "Hello"
+        assert "tool_calls" not in chunk.metadata
+        assert chunk.metadata["provider"] == "openai"
+
+    @pytest.mark.asyncio
+    async def test_ignores_empty_tool_calls_list(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """Test that empty tool_calls list in delta is ignored."""
+        # Arrange - Empty list should not be added to metadata
+        raw_chunk = b'data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"content":"Hello","tool_calls":[]}}]}\n\n'
+
+        async def mock_stream():
+            yield raw_chunk
+
+        # Act
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "openai")
+        ]
+
+        # Assert - Should not crash and empty tool_calls should NOT be in metadata
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        assert chunk.content == "Hello"
+        assert "tool_calls" not in chunk.metadata
+        assert chunk.metadata["provider"] == "openai"
+
+    @pytest.mark.asyncio
     async def test_normalizes_chunk_with_reasoning_content(
         self, normalizer: OpenAIStreamNormalizer
     ) -> None:

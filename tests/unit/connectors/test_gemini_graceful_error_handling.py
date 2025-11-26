@@ -34,9 +34,10 @@ class TestGeminiGracefulErrorHandling:
 
             # Look for the problematic pattern: raising BackendError in streaming
 
-            # Look for the good pattern: yielding error chunks
+            # Look for the good pattern: yielding error chunks (with or without metadata)
             good_pattern_1 = (
-                "yield ProcessedResponse(content=error_chunk)" in source_code
+                "yield ProcessedResponse(" in source_code
+                and "content=error_chunk" in source_code
             )
             good_pattern_2 = '"type": "quota_exceeded"' in source_code
             good_pattern_3 = '"error":' in source_code and "error_chunk" in source_code

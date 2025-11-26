@@ -1098,67 +1098,96 @@ class BackendService(IBackendService):
                     details={"error": str(e)},
                 ) from e
 
-            # Check if backend is functional
+            # Check if backend is functional, with recovery attempt
             if (
                 hasattr(backend, "is_backend_functional")
                 and not backend.is_backend_functional()
             ):
-                # Get detailed validation errors if available
-                validation_errors: list[str] = []
-                if hasattr(backend, "get_validation_errors"):
-                    validation_errors = backend.get_validation_errors()
+                # Try to recover the backend before giving up
+                # This handles cases where quota was exhausted but time has passed
+                recovered = False
+                if hasattr(backend, "_validate_runtime_credentials"):
+                    try:
+                        recovered = await backend._validate_runtime_credentials()
+                        if recovered:
+                            logger.info(
+                                "Backend %s recovered after validation check",
+                                backend_type,
+                            )
+                    except Exception as e:
+                        logger.debug(
+                            "Backend %s recovery attempt failed: %s",
+                            backend_type,
+                            e,
+                        )
 
-                error_details: dict[str, Any] = {
-                    "reason": "Backend reported as non-functional",
-                }
+                # Re-check functional status after recovery attempt
+                if not recovered and not backend.is_backend_functional():
+                    # Get detailed validation errors if available
+                    validation_errors: list[str] = []
+                    if hasattr(backend, "get_validation_errors"):
+                        validation_errors = backend.get_validation_errors()
 
-                if validation_errors:
-                    error_details["validation_errors"] = validation_errors
-                    error_message = f"Backend {backend_type} is not functional: {'; '.join(validation_errors)}"
-                else:
-                    error_message = f"Backend {backend_type} is not functional"
+                    error_details: dict[str, Any] = {
+                        "reason": "Backend reported as non-functional",
+                    }
 
-                # If streaming is enabled, return SSE error stream instead of raising
-                if stream or getattr(request, "stream", False):
-                    from collections.abc import AsyncGenerator
+                    if validation_errors:
+                        error_details["validation_errors"] = validation_errors
+                        error_message = f"Backend {backend_type} is not functional: {'; '.join(validation_errors)}"
+                    else:
+                        error_message = f"Backend {backend_type} is not functional"
 
-                    from src.core.domain.responses import StreamingResponseEnvelope
-                    from src.core.interfaces.response_processor_interface import (
-                        ProcessedResponse,
+                    # Log the error for visibility
+                    logger.warning(
+                        "Backend %s is not functional: %s",
+                        backend_type,
+                        error_message,
                     )
-                    from src.core.ports.streaming_contracts import (
-                        handle_streaming_error,
-                    )
 
-                    backend_error = BackendError(
+                    # If streaming is enabled, return SSE error stream instead of raising
+                    if stream or getattr(request, "stream", False):
+                        from collections.abc import AsyncGenerator
+
+                        from src.core.domain.responses import StreamingResponseEnvelope
+                        from src.core.interfaces.response_processor_interface import (
+                            ProcessedResponse,
+                        )
+                        from src.core.ports.streaming_contracts import (
+                            handle_streaming_error,
+                        )
+
+                        backend_error = BackendError(
+                            message=error_message,
+                            backend_name=backend_type,
+                            details=error_details,
+                        )
+
+                        async def error_stream() -> (
+                            AsyncGenerator[ProcessedResponse, None]
+                        ):
+                            chunk = await handle_streaming_error(
+                                backend_error,
+                                getattr(request, "session_id", None),
+                                backend_type,
+                            )
+                            # Yield as string so response_adapters legacy SSE check passes
+                            yield ProcessedResponse(
+                                content=chunk.to_bytes().decode("utf-8")
+                            )
+
+                        return StreamingResponseEnvelope(
+                            content=error_stream(),
+                            media_type="text/event-stream",
+                            headers={},
+                        )
+
+                    # Non-streaming: raise as usual
+                    raise BackendError(
                         message=error_message,
                         backend_name=backend_type,
                         details=error_details,
                     )
-
-                    async def error_stream() -> AsyncGenerator[ProcessedResponse, None]:
-                        chunk = await handle_streaming_error(
-                            backend_error,
-                            getattr(request, "session_id", None),
-                            backend_type,
-                        )
-                        # Yield as string so response_adapters legacy SSE check passes
-                        yield ProcessedResponse(
-                            content=chunk.to_bytes().decode("utf-8")
-                        )
-
-                    return StreamingResponseEnvelope(
-                        content=error_stream(),
-                        media_type="text/event-stream",
-                        headers={},
-                    )
-
-                # Non-streaming: raise as usual
-                raise BackendError(
-                    message=error_message,
-                    backend_name=backend_type,
-                    details=error_details,
-                )
 
             domain_request: ChatRequest = request
 

@@ -273,7 +273,8 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
 
                     now = time.time()
                     if now - self.connector._last_credentials_event_log_ts >= 30:
-                        logger.info("Credentials file modified: %s", event.src_path)
+                        # Log at DEBUG level to reduce noise - SQLite DBs update frequently
+                        logger.debug("Credentials file modified: %s", event.src_path)
                         self.connector._last_credentials_event_log_ts = now
                     else:
                         logger.debug(
@@ -564,6 +565,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._permanently_failed = False
         self._recovery_probe_task: asyncio.Task[Any] | None = None
 
+        # Cache for fast model validation lookups
+        self._available_models_set: set[str] = set()
+        # Flag to track if models were loaded from API (vs hardcoded fallback)
+        self._models_from_api: bool = False
+
         # Prompt-limit configuration (overrides can be supplied by subclasses)
         self._default_prompt_limit = getattr(
             self, "default_prompt_limit", DEFAULT_CODE_ASSIST_PROMPT_LIMIT
@@ -762,7 +768,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             )
 
             if is_quota_error:
-                self._mark_backend_unusable()
+                # Set the quota exceeded flag, but keep backend functional for other models
+                self._quota_exceeded = True
+                logger.warning(
+                    "Quota exhausted for backend %s: %s",
+                    self.name,
+                    error_message,
+                )
                 raise BackendError(
                     message=f"Gemini CLI OAuth quota exhausted: {error_detail}",
                     code="quota_exceeded",
@@ -775,20 +787,35 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 status_code=response.status_code,
             )
 
-    def _mark_backend_unusable(self) -> None:
-        """Mark this backend as unusable by removing it from functional backends list.
+    def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:
+        """Mark this backend as unusable.
 
-        This method is called when quota exceeded errors are detected and the backend
-        should no longer be used for requests.
+        For quota-style errors, we only set a flag but keep the backend functional
+        so other models can still be used. The specific model should be put in cooldown
+        instead of disabling the entire backend.
+
+        Args:
+            reason: The reason for marking the backend unusable. If "quota_exceeded",
+                    only sets the quota flag but keeps backend functional.
         """
-        # We don't have direct access to the DI container here; just mark ourselves unusable.
-        self.is_functional = False
         self._quota_exceeded = True
 
+        # For quota exhaustion, don't disable the entire backend - other models may work
+        if reason == "quota_exceeded":
+            logger.warning(
+                "Backend %s has quota exhaustion for some models. "
+                "Specific models will be in cooldown but backend remains functional.",
+                self.name,
+            )
+            return
+
+        # For non-quota errors (e.g., auth failures), disable the backend entirely
+        self.is_functional = False
         logger.error(
-            "Backend %s marked as unusable due to quota exceeded. "
+            "Backend %s marked as unusable due to %s. "
             "Manual intervention may be required to restore functionality.",
             self.name,
+            reason,
         )
 
     def _estimate_prompt_tokens(
@@ -1071,7 +1098,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """
         success = False
         try:
-            logger.info("Handling credentials file change...")
+            logger.debug("Handling credentials file change...")
 
             previous_fingerprint = self._credentials_fingerprint
 
@@ -1510,12 +1537,23 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     async def _ensure_models_loaded(self) -> None:
         """Fetch models if not already cached - OAuth version.
 
-        Note: The Code Assist API doesn't have a models list endpoint,
-        so we use a hardcoded list of known models based on the official
-        gemini-cli source code (as of 2025).
+        First tries to load models from the fetchAvailableModels API endpoint.
+        Falls back to a hardcoded list if the API call fails.
+
+        Results are cached in self.available_models and self._available_models_set
+        to avoid repeated API calls.
         """
-        if not self.available_models and self._oauth_credentials:
-            # Code Assist API doesn't have a /v1internal/models endpoint
+        if self.available_models:
+            return
+
+        if not self._oauth_credentials:
+            return
+
+        # Try to load models from the fetchAvailableModels API
+        await self._load_models_from_api()
+
+        # If API loading failed, fall back to hardcoded model list
+        if not self.available_models:
             # Use a hardcoded list based on gemini-cli's tokenLimits.ts and models.ts
             self.available_models = [
                 # Current generation (2.5 series) - DEFAULT models
@@ -1536,12 +1574,172 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 # Embedding model
                 "gemini-embedding-001",
             ]
-            logger.info(f"Loaded {len(self.available_models)} known Code Assist models")
+            # Build the set cache from the fallback list
+            self._available_models_set = set(self.available_models)
+            logger.info(
+                f"Loaded {len(self.available_models)} known Code Assist models (hardcoded fallback)"
+            )
+
+    def _get_api_headers(self) -> dict[str, str]:
+        """
+        Get headers for API requests (used with httpx client).
+
+        Subclasses can override this to add custom headers (e.g., User-Agent).
+        """
+        headers: dict[str, str] = {}
+        if self._oauth_credentials and self._oauth_credentials.get("access_token"):
+            headers["Authorization"] = (
+                f"Bearer {self._oauth_credentials['access_token']}"
+            )
+        headers["Content-Type"] = "application/json"
+        return headers
+
+    def _get_session_headers(self) -> dict[str, str]:
+        """
+        Get headers for AuthorizedSession requests (used with requests library).
+
+        Subclasses can override this to add custom headers (e.g., User-Agent).
+        These headers are applied to the google.auth AuthorizedSession used for
+        API calls like streamGenerateContent.
+        """
+        return {}
+
+    async def _load_models_from_api(self) -> None:
+        """
+        Retrieve model slugs from the fetchAvailableModels endpoint.
+
+        Uses the v1internal:fetchAvailableModels endpoint which returns a dictionary
+        of available models. The models are extracted from the "models" dictionary keys
+        in the response, which contains the exhaustive list of all supported models.
+
+        This method is designed to work with both the standard Code Assist API
+        (cloudcode-pa.googleapis.com) and sandbox variants (e.g., Antigravity).
+        """
+        if not await self._refresh_token_if_needed():
+            return
+        if not self._oauth_credentials or not self._oauth_credentials.get(
+            "access_token"
+        ):
+            return
+
+        headers = self._get_api_headers()
+
+        base_url = (self.gemini_api_base_url or CODE_ASSIST_ENDPOINT).rstrip("/")
+        url = f"{base_url}/v1internal:fetchAvailableModels"
+
+        try:
+            response = await self.client.get(url, headers=headers, timeout=15.0)
+        except Exception as exc:
+            logger.warning(
+                "Failed to reach fetchAvailableModels endpoint %s: %s", url, exc
+            )
+            return
+
+        if response.status_code != 200:
+            logger.debug(
+                "fetchAvailableModels endpoint %s returned %s: %s",
+                url,
+                response.status_code,
+                response.text[:200] if response.text else "",
+            )
+            return
+
+        try:
+            data = response.json()
+        except Exception as exc:
+            logger.warning(
+                "Failed to decode fetchAvailableModels response from %s: %s", url, exc
+            )
+            return
+
+        # Extract model IDs from "models" dictionary keys
+        # This is the exhaustive list of all supported models
+        slugs: set[str] = set()
+        models_dict = data.get("models", {})
+        if isinstance(models_dict, dict):
+            for model_key in models_dict:
+                if isinstance(model_key, str) and model_key.strip():
+                    slugs.add(model_key.strip())
+
+        if slugs:
+            self.available_models = sorted(slugs)
+            # Update the cached model set for fast validation lookups
+            self._available_models_set = slugs
+            # Mark that models were loaded from API (enables validation)
+            self._models_from_api = True
+            logger.info(
+                "Loaded %d models from fetchAvailableModels endpoint",
+                len(self.available_models),
+            )
+
+    def _get_available_models_set(self) -> set[str]:
+        """
+        Get the cached set of available models for fast lookups.
+
+        Returns:
+            set[str]: Set of available model names
+        """
+        if not self._available_models_set:
+            self._available_models_set = set(self.available_models or [])
+        return self._available_models_set
+
+    def validate_model(self, model_name: str) -> None:
+        """
+        Validate that the requested model is available on this backend.
+
+        Validation is only performed when models were loaded from the API.
+        When using the hardcoded fallback list, validation is skipped since
+        the hardcoded list may be outdated.
+
+        Args:
+            model_name: The model name to validate
+
+        Raises:
+            BackendError: If the model is not in the available models list
+        """
+        # Only validate if models were loaded from the API
+        # Skip validation when using hardcoded fallback (may be outdated)
+        if not getattr(self, "_models_from_api", False):
+            logger.debug(
+                "Model validation skipped - using hardcoded fallback model list"
+            )
+            return
+
+        available_set = self._get_available_models_set()
+        if not available_set:
+            # Models not loaded yet or empty - skip validation
+            logger.debug(
+                "Model validation skipped - available models list not loaded yet"
+            )
+            return
+
+        if model_name not in available_set:
+            available_list = sorted(available_set)[:10]  # Show first 10 models
+            suffix = (
+                f"... and {len(available_set) - 10} more"
+                if len(available_set) > 10
+                else ""
+            )
+            raise BackendError(
+                message=f"Model '{model_name}' is not available on this backend. "
+                f"Available models: {', '.join(available_list)}{suffix}",
+                code="model_not_found",
+                status_code=400,
+                backend_name=self.backend_type,
+                details={
+                    "requested_model": model_name,
+                    "available_count": len(available_set),
+                },
+            )
 
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
     ) -> dict[str, Any]:
-        """List available models using OAuth authentication - ignores API key params."""
+        """List available models using the fetchAvailableModels endpoint.
+
+        Uses the v1internal:fetchAvailableModels endpoint and transforms the response
+        to match the expected format. Ignores API key params since this uses OAuth.
+        """
         if not self._oauth_credentials or not self._oauth_credentials.get(
             "access_token"
         ):
@@ -1549,12 +1747,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 status_code=401, detail="No OAuth access token available"
             )
 
-        headers = {"Authorization": f"Bearer {self._oauth_credentials['access_token']}"}
-        base_url = self.gemini_api_base_url or CODE_ASSIST_ENDPOINT
-        url = f"{base_url}/v1internal/models"
+        headers = self._get_api_headers()
+        base_url = (self.gemini_api_base_url or CODE_ASSIST_ENDPOINT).rstrip("/")
+        url = f"{base_url}/v1internal:fetchAvailableModels"
 
         try:
-            response = await self.client.get(url, headers=headers)
+            response = await self.client.get(url, headers=headers, timeout=15.0)
             if response.status_code >= 400:
                 try:
                     error_detail = response.json()
@@ -1566,8 +1764,30 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     status_code=response.status_code,
                     backend_name=self.backend_type,
                 )
-            result: dict[str, Any] = response.json()
-            return result
+
+            data = response.json()
+
+            # Transform the response to match expected format
+            # Extract models from the response
+            models_list = []
+            models_dict = data.get("models", {})
+            if isinstance(models_dict, dict):
+                for model_id, model_info in models_dict.items():
+                    model_entry: dict[str, Any] = {"name": f"models/{model_id}"}
+                    if isinstance(model_info, dict):
+                        if "displayName" in model_info:
+                            model_entry["displayName"] = model_info["displayName"]
+                        if "maxTokens" in model_info:
+                            model_entry["inputTokenLimit"] = model_info["maxTokens"]
+                        if "maxOutputTokens" in model_info:
+                            model_entry["outputTokenLimit"] = model_info[
+                                "maxOutputTokens"
+                            ]
+
+                    models_list.append(model_entry)
+
+            return {"models": models_list}
+
         except httpx.TimeoutException as e:
             logger.error("Timeout connecting to Gemini OAuth API: %s", e, exc_info=True)
             raise ServiceUnavailableError(
@@ -1631,6 +1851,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         This method tests actual API connectivity by making a simple request to verify
         the OAuth token works and the service is accessible.
 
+        Uses the fetchAvailableModels endpoint which is supported by all Code Assist API
+        variants (standard and sandbox).
+
         Returns:
             bool: True if health check passes, False otherwise
         """
@@ -1647,32 +1870,33 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 logger.warning("Health check failed - no access token available")
                 return False
 
-            base_url = self.gemini_api_base_url or CODE_ASSIST_ENDPOINT
-            headers = {
-                "Authorization": f"Bearer {self._oauth_credentials['access_token']}",
-                "Content-Type": "application/json",
-            }
+            base_url = (self.gemini_api_base_url or CODE_ASSIST_ENDPOINT).rstrip("/")
+            headers = self._get_api_headers()
 
-            # First try the legacy models endpoint (keeps existing tests/assertions working)
-            models_url = f"{base_url}/v1internal/models"
+            # Use fetchAvailableModels endpoint for health check
+            # This endpoint is supported by all Code Assist API variants
+            fetch_models_url = f"{base_url}/v1internal:fetchAvailableModels"
             try:
                 response = await self.client.get(
-                    models_url, headers=headers, timeout=10.0
+                    fetch_models_url, headers=headers, timeout=10.0
                 )
             except httpx.TimeoutException as te:
                 logger.error(
-                    f"Health check timeout calling {models_url}: {te}", exc_info=True
+                    f"Health check timeout calling {fetch_models_url}: {te}",
+                    exc_info=True,
                 )
                 return False
             except httpx.RequestError as rexc:
                 logger.error(
-                    f"Health check connection error calling {models_url}: {rexc}",
+                    f"Health check connection error calling {fetch_models_url}: {rexc}",
                     exc_info=True,
                 )
                 return False
 
             if response.status_code == 200:
-                logger.info("Health check passed - API connectivity verified")
+                logger.info(
+                    "Health check passed - API connectivity verified via fetchAvailableModels"
+                )
                 self._health_checked = True
                 return True
 
@@ -1855,6 +2079,35 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 message=f"Gemini OAuth Personal chat completion failed: {e!s}"
             ) from e
 
+    def _build_code_assist_request_body(
+        self,
+        effective_model: str,
+        project_id: str,
+        request_data: Any,
+        code_assist_request: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build the outer request body wrapper for Code Assist API.
+
+        This method builds the wrapper structure around the inner code_assist_request.
+        Subclasses can override this to customize the request body format
+        (e.g., Antigravity uses a different wrapper structure).
+
+        Args:
+            effective_model: The model name to use
+            project_id: The project ID from loadCodeAssist
+            request_data: The original request data (for generating user_prompt_id)
+            code_assist_request: The inner request with contents, generationConfig, etc.
+
+        Returns:
+            Complete request body dict ready to send to the API
+        """
+        return {
+            "model": effective_model,
+            "project": project_id,
+            "user_prompt_id": self._generate_user_prompt_id(request_data),
+            "request": code_assist_request,
+        }
+
     async def _chat_completions_code_assist(
         self,
         request_data: Any,
@@ -1890,7 +2143,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 _StaticTokenCreds(access_token)
             )
             auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
-            auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
+            # Apply custom headers (e.g., User-Agent for Antigravity)
+            for key, value in self._get_session_headers().items():
+                auth_session.headers[key] = value
 
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
@@ -1940,12 +2195,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             )
 
             # Prepare request body for Code Assist API
-            request_body = {
-                "model": effective_model,
-                "project": project_id,
-                "user_prompt_id": self._generate_user_prompt_id(request_data),
-                "request": code_assist_request,
-            }
+            # Using hook method to allow subclasses to customize the wrapper format
+            request_body = self._build_code_assist_request_body(
+                effective_model=effective_model,
+                project_id=project_id,
+                request_data=request_data,
+                code_assist_request=code_assist_request,
+            )
 
             # Log request details for debugging token issues
             if logger.isEnabledFor(logging.DEBUG):
@@ -2078,6 +2334,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             auth_session = google.auth.transport.requests.AuthorizedSession(
                 _StaticTokenCreds(access_token)
             )
+            # Apply custom headers (e.g., User-Agent for Antigravity)
+            for key, value in self._get_session_headers().items():
+                auth_session.headers[key] = value
 
             # Discover project ID (required for Code Assist API)
             project_id = await self._discover_project_id(auth_session)
@@ -2127,12 +2386,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             )
 
             # Prepare request body for Code Assist API
-            request_body = {
-                "model": effective_model,
-                "project": project_id,
-                "user_prompt_id": self._generate_user_prompt_id(request_data),
-                "request": code_assist_request,
-            }
+            # Using hook method to allow subclasses to customize the wrapper format
+            request_body = self._build_code_assist_request_body(
+                effective_model=effective_model,
+                project_id=project_id,
+                request_data=request_data,
+                code_assist_request=code_assist_request,
+            )
 
             # Log request details for debugging token issues
             if logger.isEnabledFor(logging.DEBUG):
@@ -2414,9 +2674,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     "created": error_chunk["created"],
                                 },
                             )
-                            # Mark backend unusable for quota-style errors
+                            # Put specific model in cooldown for quota errors
+                            # but keep backend functional for other models
                             if error_type == "quota_exceeded":
-                                self._mark_backend_unusable()
+                                self._set_cooldown(effective_model)
                             return
 
                         # For non-429 errors, yield error chunk
@@ -2444,7 +2705,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         )
 
                         if is_quota_error:
-                            self._mark_backend_unusable()
+                            # Put specific model in cooldown, keep backend functional
+                            self._set_cooldown(effective_model)
                             # Extract user-friendly error message
                             user_message = (
                                 "Service temporarily unavailable due to rate limiting."
@@ -2477,7 +2739,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     "code": quota_code,
                                 },
                             }
-                            yield ProcessedResponse(content=error_chunk)
+                            yield ProcessedResponse(
+                                content=error_chunk,
+                                metadata={
+                                    "finish_reason": "error",
+                                    "error": error_chunk["error"],
+                                    "id": error_chunk["id"],
+                                    "model": error_chunk["model"],
+                                    "created": error_chunk["created"],
+                                },
+                            )
                             return
                         else:
                             # Extract user-friendly error message
@@ -2501,7 +2772,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     "code": response.status_code,
                                 },
                             }
-                            yield ProcessedResponse(content=error_chunk)
+                            yield ProcessedResponse(
+                                content=error_chunk,
+                                metadata={
+                                    "finish_reason": "error",
+                                    "error": error_chunk["error"],
+                                    "id": error_chunk["id"],
+                                    "model": error_chunk["model"],
+                                    "created": error_chunk["created"],
+                                },
+                            )
                             return
 
                     line_buffer = ""
@@ -2807,6 +3087,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                         continue
 
                                     yield processed_chunk
+                                    # Yield control to the event loop to allow sending
+                                    # chunks to the client immediately
+                                    await asyncio.sleep(0)
                                 if done:
                                     break
 
@@ -2832,6 +3115,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     continue
 
                                 yield processed_chunk
+                                # Yield control to the event loop
+                                await asyncio.sleep(0)
                             line_buffer = ""
 
                         logger.debug(
@@ -2890,10 +3175,33 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     raise
                 except Exception as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
-                    error_chunk = self.translation_service.to_domain_stream_chunk(
-                        chunk=None, source_format="code_assist"
+                    # Build proper error chunk with full error details
+                    now = int(time.time())
+                    error_message = str(e) if str(e) else "An unexpected error occurred"
+                    error_chunk = {
+                        "id": f"chatcmpl-error-{now}",
+                        "object": "chat.completion.chunk",
+                        "created": now,
+                        "model": effective_model,
+                        "choices": [
+                            {"index": 0, "delta": {}, "finish_reason": "error"}
+                        ],
+                        "error": {
+                            "message": error_message,
+                            "type": "internal_error",
+                            "code": 500,
+                        },
+                    }
+                    yield ProcessedResponse(
+                        content=error_chunk,
+                        metadata={
+                            "finish_reason": "error",
+                            "error": error_chunk["error"],
+                            "id": error_chunk["id"],
+                            "model": error_chunk["model"],
+                            "created": error_chunk["created"],
+                        },
                     )
-                    yield ProcessedResponse(content=error_chunk)
                 finally:
                     if response is not None:
                         with contextlib.suppress(Exception):
@@ -3481,20 +3789,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         self._recovery_probing_loop()
                     )
             elif model == fallback_model:
-                # Fallback model failed, mark backend as unusable
-                if fallback_model == "gemini-2.5-flash" or not fallback_model:
-                    # Flash model failed or no fallback, mark backend unusable
-                    self._mark_backend_unusable()
-                    self._permanently_failed = True
-                    self.is_functional = False
+                # Fallback model failed - put it in cooldown too
+                self._set_cooldown(model)
+                logger.info("Fallback model %s exhausted, put in cooldown", model)
 
-        # If we get here, all models failed
+        # If we get here, all requested models failed
+        # Mark quota exceeded but keep backend functional for other models
         self._graceful_metrics.record_duration(time.time() - start_time)
-        self._mark_backend_unusable()
-        self._permanently_failed = True
+        self._mark_backend_unusable(reason="quota_exceeded")
+
+        # Raise error to inform client about rate limiting
         raise BackendError(
-            message="All models exhausted in graceful degradation",
-            code="all_models_exhausted",
+            message="Requested models are rate limited. Please try a different model or wait.",
+            code="models_rate_limited",
             status_code=429,
         )
 

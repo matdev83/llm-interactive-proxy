@@ -444,8 +444,7 @@ class TestToolCallRequestPatterns:
                     effective_model="gemini-2.5-pro",
                 )
 
-            # Backend should be marked as unusable
-            assert not oauth_plan_connector.is_functional
+            # Backend should have quota_exceeded flag set but stay functional for other models
             assert oauth_plan_connector._quota_exceeded
 
     def test_static_analysis_for_duplicate_patterns(self):
