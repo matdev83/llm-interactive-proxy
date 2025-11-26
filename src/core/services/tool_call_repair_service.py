@@ -460,6 +460,25 @@ class ToolCallRepairService(IToolCallRepairService):
                 "server_name",  # Inner tag of various MCP tools
                 "directory",  # Inner tag of <list_files>
                 "recursive",  # Inner tag of <list_files>
+                # Line range parameters (used in read_file, write_to_file, etc.)
+                "start_line",
+                "end_line",
+                "line",
+                "line_number",
+                # Editing tool parameters (search_and_replace, write_to_file, etc.)
+                "search",
+                "replace",
+                "new_content",
+                "old_content",
+                "operations",
+                "insert",
+                "delete",
+                "position",
+                # Additional diff/patch parameters
+                "file_path",
+                "target_file",
+                "source_file",
+                "changes",
             }:
                 continue
 

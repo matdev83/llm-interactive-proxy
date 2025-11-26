@@ -1308,7 +1308,9 @@ class QwenOAuthConnector(OpenAIConnector):
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
-            logger.error(f"Error in Qwen OAuth chat_completions: {e}, type: {type(e).__name__}")
+            logger.error(
+                f"Error in Qwen OAuth chat_completions: {e}, type: {type(e).__name__}"
+            )
             raise BackendError(
                 message=f"Qwen OAuth chat completion failed: {e!s}"
             ) from e

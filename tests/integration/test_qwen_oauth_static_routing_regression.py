@@ -15,7 +15,7 @@ import httpx
 import pytest
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatRequest, ChatMessage
+from src.core.domain.chat import ChatMessage, ChatRequest
 
 pytestmark = [
     pytest.mark.integration,
@@ -193,7 +193,9 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
 
                     test_request_data = ChatRequest(
                         model=case["original_model"],
-                        messages=[ChatMessage(role="user", content=f"test message {i}")],
+                        messages=[
+                            ChatMessage(role="user", content=f"test message {i}")
+                        ],
                         max_tokens=100,
                     )
 
@@ -217,7 +219,8 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
 
                     call_kwargs = mock_parent_chat.call_args.kwargs
                     assert (
-                        call_kwargs["effective_model"] == case["expected_effective_model"]
+                        call_kwargs["effective_model"]
+                        == case["expected_effective_model"]
                     ), f"Case {i}: Expected effective_model to be '{case['expected_effective_model']}', got '{call_kwargs['effective_model']}'"
 
     finally:

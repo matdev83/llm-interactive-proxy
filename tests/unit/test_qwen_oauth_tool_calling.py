@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
-from src.core.common.exceptions import BackendError
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
@@ -466,9 +466,9 @@ class TestQwenOAuthToolCallingUnit:
             # Verify message types
             assert sent_payload["messages"][0]["role"] == "user"
             assert sent_payload["messages"][1]["role"] == "assistant"
-            # Check if tool_calls is in the message or content is None (indicating tool calls)
+            # Check if tool_calls is in the message or content is None/missing (indicating tool calls)
             assert (
-                sent_payload["messages"][1]["content"] is None
+                sent_payload["messages"][1].get("content") is None
                 or "tool_calls" in sent_payload["messages"][1]
             )
             assert sent_payload["messages"][2]["role"] == "tool"
@@ -514,14 +514,16 @@ class TestQwenOAuthToolCallingUnit:
         mock_client.post = AsyncMock(return_value=mock_response)
 
         with patch.object(connector, "_refresh_token_if_needed", return_value=True):
-            with pytest.raises(BackendError) as exc_info:
+            # HTTPException is raised directly for HTTP errors, not wrapped in BackendError
+            with pytest.raises(HTTPException) as exc_info:
                 await connector.chat_completions(
                     request_data=request_data,
                     processed_messages=[test_message],
                     effective_model="qwen3-coder-plus",
                 )
 
-            assert "Invalid tool definition" in str(exc_info.value)
+            assert exc_info.value.status_code == 400
+            assert "Invalid tool definition" in str(exc_info.value.detail)
 
     def test_tool_call_serialization(self, connector):
         """Test that tool calls are properly serialized in requests."""

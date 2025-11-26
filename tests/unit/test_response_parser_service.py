@@ -96,7 +96,7 @@ class TestResponseParser:
                         }
                     ]
                 },
-                '[{"id": "call_1", "type": "function", "function": {"name": "func", "arguments": "{}"}}]',
+                "",  # tool_calls are stored in metadata, not content; extract_content returns empty
             ),
             (
                 {"error": "some error"},
