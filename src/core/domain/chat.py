@@ -52,6 +52,8 @@ class ToolCall(DomainModel):
     id: str
     type: str = "function"
     function: FunctionCall
+    # Extra content for provider-specific metadata (e.g., Gemini thought_signature)
+    extra_content: dict[str, Any] | None = None
 
 
 class FunctionDefinition(DomainModel):

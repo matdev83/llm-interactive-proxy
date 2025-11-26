@@ -149,7 +149,9 @@ def gemini_content_to_chat_messages(
                 from src.core.domain.translation import Translation
 
                 tool_calls.append(
-                    Translation._process_gemini_function_call(part["functionCall"])
+                    Translation._process_gemini_function_call(
+                        part["functionCall"], part=part
+                    )
                 )
                 continue
 

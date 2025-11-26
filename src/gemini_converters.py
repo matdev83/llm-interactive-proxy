@@ -71,9 +71,14 @@ def gemini_to_openai_messages(contents: list[Content]) -> list[ChatMessage]:
             elif getattr(part, "function_call", None):
                 try:
                     if part.function_call is not None:
+                        # Check for thought_signature in the part (Gemini API requirement)
+                        part_dict: dict[str, Any] | None = None
+                        thought_sig = getattr(part, "thought_signature", None)
+                        if thought_sig:
+                            part_dict = {"thoughtSignature": thought_sig}
                         tool_calls.append(
                             Translation._process_gemini_function_call(
-                                part.function_call
+                                part.function_call, part=part_dict
                             )
                         )
                 except Exception:

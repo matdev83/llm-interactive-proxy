@@ -112,6 +112,96 @@ def test_tool_result_message_only_has_function_response_not_text() -> None:
     assert func_resp["response"]["text"] == "TODO List Updated"
 
 
+def test_thought_signature_server_side_injection() -> None:
+    """Test that thought_signature can be injected server-side for clients that strip it.
+
+    Some clients like Droid don't preserve extra_content when storing tool calls.
+    The server must store and inject the signature from cache.
+    """
+    from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
+
+    # Simulate a tool call without extra_content (as Droid would send)
+    tc_without_sig = ToolCall(
+        id="call_test123",
+        type="function",
+        function=FunctionCall(name="get_weather", arguments='{"city": "Paris"}'),
+        extra_content=None,  # No signature - client stripped it
+    )
+
+    # Store a signature in the cache (simulating what happens when we receive a response)
+    session_id = "test_session_abc"
+    cache_key = f"{session_id}:{tc_without_sig.id}"
+    GeminiOAuthBaseConnector._thought_signature_cache[cache_key] = "cached_signature_xyz"
+
+    # Create a request with the tool call
+    req = CanonicalChatRequest(
+        model="gemini-2.5-pro",
+        messages=[
+            ChatMessage(role="user", content="What's the weather?"),
+            ChatMessage(role="assistant", tool_calls=[tc_without_sig]),
+        ],
+    )
+
+    # Inject signatures
+    GeminiOAuthBaseConnector._inject_thought_signatures(req, session_id)
+
+    # Verify the signature was injected
+    injected_tc = req.messages[1].tool_calls[0]
+    assert injected_tc.extra_content is not None
+    assert "google" in injected_tc.extra_content
+    assert injected_tc.extra_content["google"]["thought_signature"] == "cached_signature_xyz"
+
+    # Clean up the cache
+    del GeminiOAuthBaseConnector._thought_signature_cache[cache_key]
+
+
+def test_thought_signature_preserved_in_function_call_round_trip() -> None:
+    """Thought signature must be preserved when converting Gemini -> OpenAI -> Gemini.
+
+    Gemini API requires thoughtSignature in functionCall parts for multi-turn
+    conversations with tool use. This signature must be preserved through
+    the OpenAI format conversion.
+    """
+    # Simulate a Gemini response part with functionCall and thoughtSignature
+    gemini_part = {
+        "functionCall": {"name": "get_weather", "args": {"city": "Paris"}},
+        "thoughtSignature": "test_signature_abc123",
+    }
+
+    # Process into ToolCall (should preserve signature)
+    tool_call = Translation._process_gemini_function_call(
+        gemini_part["functionCall"], part=gemini_part
+    )
+
+    # Verify extra_content contains the signature
+    assert tool_call.extra_content is not None
+    assert "google" in tool_call.extra_content
+    assert tool_call.extra_content["google"]["thought_signature"] == "test_signature_abc123"
+
+    # Now create a request with this tool call and convert back to Gemini
+    req = CanonicalChatRequest(
+        model="gemini-2.5-pro",
+        messages=[
+            ChatMessage(role="user", content="What's the weather?"),
+            ChatMessage(role="assistant", tool_calls=[tool_call]),
+        ],
+    )
+
+    gemini = Translation.from_domain_to_gemini_request(req)
+    contents = gemini["contents"]
+
+    # Find the assistant message with functionCall
+    assistant_content = contents[1]
+    assert assistant_content["role"] == "model"
+
+    # Verify the thoughtSignature is preserved in the output
+    parts = assistant_content["parts"]
+    assert len(parts) == 1
+    assert "functionCall" in parts[0]
+    assert "thoughtSignature" in parts[0]
+    assert parts[0]["thoughtSignature"] == "test_signature_abc123"
+
+
 def test_tools_grouped_and_sanitized_for_code_assist() -> None:
     tools = [
         {

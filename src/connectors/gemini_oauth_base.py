@@ -317,6 +317,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     _project_id: str | None = None
 
+    # Server-side storage for Gemini thought_signatures.
+    # Droid and similar clients don't preserve extra_content, so we store
+    # the mapping of tool_call_id -> thought_signature server-side and
+    # inject it when processing subsequent requests.
+    # Key format: "session_id:tool_call_id" -> thought_signature
+    _thought_signature_cache: dict[str, str] = {}
+
     @staticmethod
     def _normalize_model_key(model_name: str) -> str:
         """Normalize model identifiers for prompt-limit lookups."""
@@ -326,6 +333,71 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         if normalized.startswith("models/"):
             normalized = normalized[len("models/") :]
         return normalized
+
+    @classmethod
+    def _inject_thought_signatures(
+        cls, canonical_request: Any, session_id: str
+    ) -> None:
+        """Inject stored thought_signatures into tool_calls that are missing them.
+
+        Clients like Droid don't preserve extra_content when storing tool calls,
+        so we need to look up and inject the thought_signature from our server-side cache.
+
+        Args:
+            canonical_request: The canonical request with messages to process
+            session_id: The session ID for cache key lookup
+        """
+        if not hasattr(canonical_request, "messages"):
+            return
+
+        for message in canonical_request.messages:
+            if getattr(message, "role", None) != "assistant":
+                continue
+            tool_calls = getattr(message, "tool_calls", None)
+            if not tool_calls:
+                continue
+
+            for tc in tool_calls:
+                # Get tool call ID
+                tc_id = None
+                if isinstance(tc, dict):
+                    tc_id = tc.get("id")
+                elif hasattr(tc, "id"):
+                    tc_id = tc.id
+
+                if not tc_id:
+                    continue
+
+                # Check if already has thought_signature
+                extra_content = None
+                if isinstance(tc, dict):
+                    extra_content = tc.get("extra_content")
+                elif hasattr(tc, "extra_content"):
+                    extra_content = tc.extra_content
+
+                if extra_content:
+                    google_extra = (
+                        extra_content.get("google", {})
+                        if isinstance(extra_content, dict)
+                        else {}
+                    )
+                    if google_extra.get("thought_signature"):
+                        continue  # Already has signature
+
+                # Look up in cache
+                cache_key = f"{session_id}:{tc_id}"
+                sig = cls._thought_signature_cache.get(cache_key)
+                if sig:
+                    # Inject the signature
+                    if isinstance(tc, dict):
+                        tc["extra_content"] = {"google": {"thought_signature": sig}}
+                    elif hasattr(tc, "extra_content"):
+                        tc.extra_content = {"google": {"thought_signature": sig}}
+                    logger.debug(
+                        "Injected thought_signature for tool_call_id=%s (session=%s)",
+                        tc_id,
+                        session_id[:8] if session_id else "none",
+                    )
 
     @staticmethod
     def _extract_generated_text_from_response(response_payload: Any) -> str:
@@ -2345,6 +2417,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         f"Last message role={getattr(last_msg, 'role', 'unknown')}, content length={len(str(getattr(last_msg, 'content', '')))}"
                     )
 
+            # Inject stored thought_signatures for clients that don't preserve extra_content
+            session_id = getattr(request_data, "session_id", None) or ""
+            self._inject_thought_signatures(canonical_request, session_id)
+
             # Convert from canonical/domain format to Gemini API format
             gemini_request = self.translation_service.from_domain_to_gemini_request(
                 canonical_request
@@ -2543,6 +2619,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     logger.debug(
                         f"[STREAMING] Last message role={getattr(last_msg, 'role', 'unknown')}, content length={len(str(getattr(last_msg, 'content', '')))}"
                     )
+
+            # Inject stored thought_signatures for clients that don't preserve extra_content
+            session_id = getattr(request_data, "session_id", None) or ""
+            self._inject_thought_signatures(canonical_request, session_id)
 
             # Convert from canonical/domain format to Gemini API format
             gemini_request = self.translation_service.from_domain_to_gemini_request(
@@ -3236,18 +3316,48 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 key_name=getattr(self, "_key_name", None),
                             ).model_dump()
 
+                            raw_tool_calls = (
+                                domain_chunk.get("choices", [{}])[0]
+                                .get("delta", {})
+                                .get("tool_calls")
+                            )
                             metadata.update(
                                 {
-                                    "raw_tool_calls": domain_chunk.get("choices", [{}])[
-                                        0
-                                    ]
-                                    .get("delta", {})
-                                    .get("tool_calls"),
+                                    "raw_tool_calls": raw_tool_calls,
                                     "raw_finish_reason": domain_chunk.get(
                                         "choices", [{}]
                                     )[0].get("finish_reason"),
                                 }
                             )
+
+                            # Store thought_signatures server-side for clients that don't preserve extra_content
+                            # (e.g., Droid). This allows us to inject signatures in subsequent requests.
+                            if raw_tool_calls and isinstance(raw_tool_calls, list):
+                                session_id = (
+                                    getattr(request_data, "session_id", None) or ""
+                                )
+                                for tc in raw_tool_calls:
+                                    if not isinstance(tc, dict):
+                                        continue
+                                    tc_id = tc.get("id", "")
+                                    extra = tc.get("extra_content")
+                                    if isinstance(extra, dict):
+                                        google_extra = extra.get("google", {})
+                                        sig = google_extra.get("thought_signature")
+                                        if sig and tc_id:
+                                            cache_key = f"{session_id}:{tc_id}"
+                                            GeminiOAuthBaseConnector._thought_signature_cache[
+                                                cache_key
+                                            ] = sig
+                                            logger.debug(
+                                                "Stored thought_signature for tool_call_id=%s (session=%s)",
+                                                tc_id,
+                                                (
+                                                    session_id[:8]
+                                                    if session_id
+                                                    else "none"
+                                                ),
+                                            )
 
                             yield ProcessedResponse(
                                 content=domain_chunk,

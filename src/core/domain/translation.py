@@ -744,18 +744,39 @@ class Translation(BaseTranslator):
             _seen.remove(obj_id)
 
     @staticmethod
-    def _process_gemini_function_call(function_call: dict[str, Any]) -> ToolCall:
-        """Process a Gemini function call part into a ToolCall."""
+    def _process_gemini_function_call(
+        function_call: dict[str, Any], part: dict[str, Any] | None = None
+    ) -> ToolCall:
+        """Process a Gemini function call part into a ToolCall.
+
+        Args:
+            function_call: The functionCall object from the Gemini response
+            part: The full part containing the functionCall (may include thoughtSignature)
+
+        Returns:
+            ToolCall with preserved thought_signature if present
+        """
         import uuid
 
         name = function_call.get("name", "")
+        # Use id from functionCall if present, otherwise generate one
+        call_id = function_call.get("id") or f"call_{uuid.uuid4().hex[:12]}"
         raw_args = function_call.get("args", function_call.get("arguments"))
         normalized_args = Translation._normalize_tool_arguments(raw_args)
 
+        # Preserve thoughtSignature for Gemini API multi-turn conversations
+        # The signature is required when sending tool results back
+        extra_content: dict[str, Any] | None = None
+        if part is not None:
+            thought_sig = part.get("thoughtSignature") or part.get("thought_signature")
+            if thought_sig:
+                extra_content = {"google": {"thought_signature": thought_sig}}
+
         return ToolCall(
-            id=f"call_{uuid.uuid4().hex[:12]}",
+            id=call_id,
             type="function",
             function=FunctionCall(name=name, arguments=normalized_args),
+            extra_content=extra_content,
         )
 
     @staticmethod
@@ -955,7 +976,9 @@ class Translation(BaseTranslator):
 
                             function_call = part["functionCall"]
                             tool_calls.append(
-                                Translation._process_gemini_function_call(function_call)
+                                Translation._process_gemini_function_call(
+                                    function_call, part=part
+                                )
                             )
                         elif part.get("type") in {"reasoning", "thinking"}:
                             normalized_reasoning = _coerce_reasoning_text(
@@ -1072,7 +1095,7 @@ class Translation(BaseTranslator):
                             try:
                                 tool_calls.append(
                                     Translation._process_gemini_function_call(
-                                        part["functionCall"]
+                                        part["functionCall"], part=part
                                     ).model_dump()
                                 )
                             except Exception:
@@ -2250,7 +2273,22 @@ class Translation(BaseTranslator):
                             )
                         except Exception:
                             args_val = args_raw
-                        parts.append({"functionCall": {"name": fn, "args": args_val}})
+
+                        # Build the functionCall part
+                        function_call_part: dict[str, Any] = {
+                            "functionCall": {"name": fn, "args": args_val}
+                        }
+
+                        # Preserve thoughtSignature if present in extra_content
+                        # This is required for Gemini API multi-turn conversations
+                        extra_content = tc_dict.get("extra_content")
+                        if isinstance(extra_content, dict):
+                            google_extra = extra_content.get("google", {})
+                            thought_sig = google_extra.get("thought_signature")
+                            if thought_sig:
+                                function_call_part["thoughtSignature"] = thought_sig
+
+                        parts.append(function_call_part)
                 except Exception:
                     # Best-effort; continue even if a tool call cannot be parsed
                     pass
@@ -3158,7 +3196,7 @@ class Translation(BaseTranslator):
                                 tool_calls = []
                             tool_calls.append(
                                 Translation._process_gemini_function_call(
-                                    part["functionCall"]
+                                    part["functionCall"], part=part
                                 ).model_dump()
                             )
                         except Exception:
