@@ -137,6 +137,9 @@ class StreamingContent:
 
     def _compute_is_empty(self) -> bool:
         """Compute whether the chunk is empty based on its content and metadata."""
+        if isinstance(self.metadata, dict) and self.metadata.get("error"):
+            return False
+
         if self.content:
             if isinstance(self.content, str):
                 if self.content.strip():
@@ -162,6 +165,10 @@ class StreamingContent:
         """Detect terminal payloads that do not carry any assistant content."""
 
         if not isinstance(self.content, dict):
+            return False
+
+        # Error chunks should never be treated as empty completions
+        if self.content.get("error"):
             return False
 
         tool_calls_meta = self.metadata.get("tool_calls")
@@ -212,6 +219,11 @@ class StreamingContent:
                         error_data[key] = self.metadata[key]
 
                 return f"data: {json.dumps(error_data)}\n\ndata: [DONE]\n\n".encode()
+
+            # If the content already carries an error payload, preserve it even when
+            # metadata is missing the error details.
+            if isinstance(self.content, dict) and self.content.get("error"):
+                return f"data: {json.dumps(self.content)}\n\ndata: [DONE]\n\n".encode()
 
             # Check for cancellation
             if self.is_cancellation and self.content:

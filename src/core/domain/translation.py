@@ -2259,7 +2259,9 @@ class Translation(BaseTranslator):
             # IMPORTANT: Gemini API requires that if a message has functionCall parts,
             # it should NOT have text content in the same message. This prevents
             # "number of function response parts not equal to function call parts" errors.
-            if not has_tool_calls:
+            # Also skip content processing for tool messages - they will be converted
+            # to functionResponse parts below.
+            if not has_tool_calls and message.role != "tool":
                 if isinstance(message.content, str):
                     # Simple text content
                     parts.append({"text": message.content})
@@ -2300,9 +2302,30 @@ class Translation(BaseTranslator):
                 # Process all tool messages into functionResponse parts
                 for tool_msg in tool_messages:
                     # Try to map tool_call_id back to the function name
-                    name = tool_name_by_id.get(
-                        getattr(tool_msg, "tool_call_id", ""), ""
-                    )
+                    tool_call_id = getattr(tool_msg, "tool_call_id", "") or ""
+                    name = tool_name_by_id.get(tool_call_id, "")
+                    # Fallback to direct name attribute if tool_call_id lookup fails
+                    if not name:
+                        name = getattr(tool_msg, "name", "") or ""
+                    # Last resort: extract name from tool_call_id if it contains the name
+                    if not name and tool_call_id:
+                        # Some tool_call_ids use format "call_<hash>" or "toolu_<hash>"
+                        # but others might embed the function name
+                        name = "function_response"
+
+                    # Log mapping details at DEBUG level for troubleshooting
+                    import logging as _logging
+
+                    _logger = _logging.getLogger(__name__)
+                    if _logger.isEnabledFor(_logging.DEBUG):
+                        _logger.debug(
+                            "Tool result translation: tool_call_id=%s, "
+                            "resolved_name=%s, available_mappings=%s",
+                            tool_call_id,
+                            name,
+                            list(tool_name_by_id.keys()),
+                        )
+
                     resp_obj: dict[str, Any]
                     val = tool_msg.content
                     # Try to parse JSON result if provided
@@ -2456,10 +2479,13 @@ class Translation(BaseTranslator):
     def _sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
         """Sanitize OpenAI tool JSON schema for Gemini Code Assist function_declarations.
 
-        The Code Assist API rejects certain JSON Schema keywords (e.g., "$schema",
-        and sometimes draft-specific fields like "exclusiveMinimum"). This method
-        removes unsupported keywords while preserving the core shape (type,
-        properties, required, items, enum, etc.).
+        The Code Assist API (when routing to Claude models) rejects certain JSON Schema
+        keywords that don't conform to JSON Schema draft 2020-12. This method removes
+        unsupported keywords while preserving the core shape (type, properties, required,
+        items, enum, etc.).
+
+        This is critical for compatibility with clients like Droid/Factory CLI that may
+        send tool definitions with non-standard or draft-specific schema fields.
 
         Args:
             schema: Original JSON schema dict from OpenAI tool definition
@@ -2470,12 +2496,44 @@ class Translation(BaseTranslator):
         if not isinstance(schema, dict):
             return {}
 
+        # Comprehensive blacklist of JSON Schema fields that can cause validation errors
+        # when sent to Claude via Gemini Code Assist API
         blacklist = {
+            # JSON Schema meta keywords
             "$schema",
             "$id",
             "$comment",
+            "$defs",  # draft 2020-12 uses $defs, older drafts use definitions
+            "definitions",  # Older JSON Schema keyword
+            "$ref",  # References can cause issues if not resolved
+            # Validation keywords that may not be supported
             "exclusiveMinimum",
             "exclusiveMaximum",
+            "additionalProperties",  # Causes issues with Claude models via Gemini API
+            "format",  # Can cause draft 2020-12 validation errors
+            "pattern",  # Regex patterns may not be supported
+            "minLength",  # String constraints may cause issues
+            "maxLength",
+            "minimum",  # Numeric constraints may cause issues
+            "maximum",
+            "multipleOf",
+            "minItems",  # Array constraints may cause issues
+            "maxItems",
+            "uniqueItems",
+            "minProperties",  # Object constraints may cause issues
+            "maxProperties",
+            # OpenAI-specific extensions
+            "strict",  # OpenAI-specific, not standard JSON Schema
+            # Other potentially problematic fields
+            "title",  # May not be supported in some contexts
+            "default",  # Default values can cause validation issues
+            "examples",  # Example values not needed for function calling
+            "deprecated",  # Not relevant for function calling
+            "readOnly",  # Not relevant for input parameters
+            "writeOnly",  # Not relevant for input parameters
+            "const",  # Constant values may cause issues
+            "contentMediaType",  # Media type hints not supported
+            "contentEncoding",  # Encoding hints not supported
         }
 
         def _clean(obj: Any) -> Any:
@@ -2490,7 +2548,47 @@ class Translation(BaseTranslator):
                 return [_clean(x) for x in obj]
             return obj
 
+        def _validate_required(obj: dict[str, Any]) -> dict[str, Any]:
+            """Ensure 'required' array only references properties that exist.
+
+            The Gemini API rejects schemas where required[i] references a property
+            that doesn't exist in the properties object.
+            """
+            if not isinstance(obj, dict):
+                return obj
+
+            properties = obj.get("properties")
+            required = obj.get("required")
+
+            # If we have both properties and required, filter required to only valid property names
+            if isinstance(properties, dict) and isinstance(required, list):
+                valid_required = [
+                    prop_name
+                    for prop_name in required
+                    if isinstance(prop_name, str) and prop_name in properties
+                ]
+                if valid_required:
+                    obj["required"] = valid_required
+                else:
+                    # Remove required if no valid entries remain
+                    obj.pop("required", None)
+
+            # Recursively validate nested objects in properties
+            if isinstance(properties, dict):
+                for prop_name, prop_schema in properties.items():
+                    if isinstance(prop_schema, dict):
+                        properties[prop_name] = _validate_required(prop_schema)
+
+            # Recursively validate items in array schemas
+            items = obj.get("items")
+            if isinstance(items, dict):
+                obj["items"] = _validate_required(items)
+
+            return obj
+
         cleaned = _clean(schema)
+        if isinstance(cleaned, dict):
+            cleaned = _validate_required(cleaned)
         return cleaned if isinstance(cleaned, dict) else {}
 
     @staticmethod

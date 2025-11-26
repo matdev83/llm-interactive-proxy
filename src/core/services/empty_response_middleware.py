@@ -123,8 +123,29 @@ class EmptyResponseMiddleware(IResponseMiddleware):
         if isinstance(finish_reason, str) and finish_reason.lower() == "tool_calls":
             return False
 
+        def _content_is_empty(val: Any) -> bool:
+            if val is None:
+                return True
+            if isinstance(val, dict):
+                # Treat structured payloads (including error chunks) as non-empty
+                if val.get("error"):
+                    return False
+                if val.get("choices"):
+                    return False
+                return not bool(val)
+            if isinstance(val, (list, tuple, set)):
+                return len(val) == 0
+            if isinstance(val, bytes | bytearray):
+                try:
+                    val = val.decode("utf-8")
+                except Exception:
+                    val = val.decode("utf-8", errors="ignore")
+            if isinstance(val, str):
+                return not val.strip()
+            return not bool(val)
+
         # Check if content is empty (after stripping whitespace)
-        content_empty = not response.content or not response.content.strip()
+        content_empty = _content_is_empty(response.content)
 
         has_tool_calls = self._has_tool_calls(response, context)
         # Response is empty if it has no content AND no tool calls

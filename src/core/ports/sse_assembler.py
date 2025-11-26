@@ -8,6 +8,7 @@ to Server-Sent Events (SSE) format for client transmission.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -132,8 +133,25 @@ class SSEAssembler(IStreamAssembler):
                 has_cancellation = chunk.is_cancellation and chunk.content
 
                 if chunk.is_done and (has_error or has_cancellation):
-                    # Error or cancellation chunk - serialize with metadata
+                    # Error or cancellation chunk - serialize with metadata. If the
+                    # chunk serialized to only a sentinel, rebuild an error payload
+                    # so clients see the failure instead of an empty stream.
                     chunk_bytes = chunk.to_bytes()
+                    if (
+                        has_error
+                        and chunk_bytes.strip() == b"data: [DONE]"
+                        and "error" in chunk.metadata
+                    ):
+                        error_payload = {
+                            "choices": [{"delta": {}, "finish_reason": "error"}],
+                            "error": chunk.metadata.get("error"),
+                        }
+                        for key in ("id", "model", "created"):
+                            if key in chunk.metadata:
+                                error_payload[key] = chunk.metadata[key]
+                        chunk_bytes = (
+                            f"data: {json.dumps(error_payload)}\n\ndata: [DONE]\n\n"
+                        ).encode()
                     _ensure_stream_started(stream_id_for_metrics)
                     metrics.increment_chunks_sent(stream_id_for_metrics)
                     metrics.increment_sentinels_emitted(stream_id_for_metrics)

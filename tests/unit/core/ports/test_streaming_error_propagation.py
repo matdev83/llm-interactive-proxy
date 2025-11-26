@@ -259,3 +259,73 @@ class TestErrorChunkSerializationRoundtrip:
         assert "choices" in payload
         assert "error" in payload
         assert payload["choices"][0]["finish_reason"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_sse_assembler_emits_error_when_bytes_would_be_done_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SSEAssembler should not collapse error chunks into a bare [DONE]."""
+        from src.core.ports.sse_assembler import SSEAssembler
+        from tests.utils.property_test_helpers import async_iter, async_list
+
+        chunk = StreamingContent(
+            content="",
+            metadata={
+                "finish_reason": "error",
+                "error": {"message": "boom", "type": "api_error", "code": 400},
+                "id": "chatcmpl-error-test",
+                "model": "test-model",
+                "created": 123,
+            },
+            is_done=True,
+        )
+
+        # Simulate a faulty serialization that would return only [DONE]
+        original_to_bytes = StreamingContent.to_bytes
+
+        def _fake_to_bytes(self: StreamingContent) -> bytes:  # type: ignore[override]
+            if self is chunk:
+                return b"data: [DONE]\n\n"
+            return original_to_bytes(self)
+
+        monkeypatch.setattr(StreamingContent, "to_bytes", _fake_to_bytes)
+
+        assembler = SSEAssembler()
+        outputs = await async_list(assembler.assemble_stream(async_iter([chunk])))
+        combined = b"".join(outputs).decode("utf-8")
+
+        assert "boom" in combined
+        assert (
+            '"error": {"message": "boom", "type": "api_error", "code": 400}' in combined
+        )
+        assert "chatcmpl-error-test" in combined
+        assert combined.strip().endswith("[DONE]")
+
+    def test_error_chunk_preserved_when_error_only_in_content(self) -> None:
+        """Error chunks should serialize even if metadata.error is missing."""
+        chunk = StreamingContent(
+            content={
+                "id": "chatcmpl-error-content-only",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "test-model",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                "error": {
+                    "message": "Error from payload",
+                    "type": "api_error",
+                    "code": 503,
+                },
+            },
+            metadata={"finish_reason": "error"},
+            is_done=True,
+        )
+
+        result = chunk.to_bytes().decode("utf-8")
+
+        assert result.startswith("data:")
+        assert "data: [DONE]" in result
+        # The serialized chunk must include the error payload from the content
+        assert (
+            '"error": {"message": "Error from payload", "type": "api_error", "code": 503}'
+            in result
+        )

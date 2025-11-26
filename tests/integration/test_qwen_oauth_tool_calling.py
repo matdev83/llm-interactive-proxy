@@ -12,14 +12,12 @@ Run with: pytest -m "integration and network" tests/integration/test_qwen_oauth_
 
 import json
 import os
-import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import respx
-from httpx import Response
 from fastapi.testclient import TestClient
+from httpx import Response
 from src.core.app.test_builder import build_httpx_mock_test_app as build_app
 
 # Mark all tests in this module as integration and network tests
@@ -282,7 +280,9 @@ class TestQwenOAuthToolCalling:
                 Response(200, json=mock_response_2),
             ]
 
-            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload
+            )
             assert response.status_code == 200
 
             result = response.json()
@@ -383,17 +383,21 @@ class TestQwenOAuthToolCalling:
             b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"qwen-oauth:qwen3-coder-plus","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n',
             b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"qwen-oauth:qwen3-coder-plus","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_123","type":"function","function":{"name":"search_web","arguments":""}}]},"finish_reason":null}]}\n\n',
             b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"qwen-oauth:qwen3-coder-plus","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"query\\": \\"Python\\"}"}}]},"finish_reason":null}]}\n\n',
-            b'data: [DONE]\n\n',
+            b"data: [DONE]\n\n",
         ]
 
         with respx.mock(assert_all_called=False) as respx_mock:
             respx_mock.post(path="/v1/chat/completions").mock(
                 return_value=Response(
-                    200, content=iter(chunks), headers={"Content-Type": "text/event-stream"}
+                    200,
+                    content=iter(chunks),
+                    headers={"Content-Type": "text/event-stream"},
                 )
             )
 
-            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload
+            )
 
         assert response.status_code == 200
         assert "text/event-stream" in response.headers.get("content-type", "")
@@ -486,7 +490,9 @@ class TestQwenOAuthToolCalling:
                 return_value=Response(200, json=mock_response)
             )
 
-            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload
+            )
 
         assert response.status_code == 200
 
@@ -576,7 +582,9 @@ class TestQwenOAuthToolCalling:
                 return_value=Response(200, json=mock_response)
             )
 
-            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload
+            )
 
         assert response.status_code == 200
 
@@ -795,10 +803,14 @@ class TestQwenOAuthToolCallingErrorHandling:
 
         with respx.mock(assert_all_called=False) as respx_mock:
             respx_mock.post(path="/v1/chat/completions").mock(
-                return_value=Response(400, json={"error": {"message": "Invalid tool definition"}})
+                return_value=Response(
+                    400, json={"error": {"message": "Invalid tool definition"}}
+                )
             )
 
-            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload
+            )
 
         # Should either:
         # 1. Return 400 error for invalid tool definition
@@ -832,10 +844,14 @@ class TestQwenOAuthToolCallingErrorHandling:
 
         with respx.mock(assert_all_called=False) as respx_mock:
             respx_mock.post(path="/v1/chat/completions").mock(
-                return_value=Response(404, json={"error": {"message": "Model not found"}})
+                return_value=Response(
+                    404, json={"error": {"message": "Model not found"}}
+                )
             )
 
-            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload
+            )
 
         # Should return error for invalid model
         assert response.status_code in [400, 404, 422]

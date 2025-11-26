@@ -217,6 +217,27 @@ class TestEmptyResponseMiddleware:
         assert "sess-dict-content" not in middleware._retry_counts
 
     @pytest.mark.asyncio
+    async def test_process_handles_error_dict_chunk(self):
+        """Error payloads should not be treated as empty responses."""
+        middleware = EmptyResponseMiddleware()
+        error_chunk = ProcessedResponse(
+            content={
+                "id": "chatcmpl-error-x",
+                "choices": [{"delta": {}, "finish_reason": "error"}],
+                "error": {
+                    "message": "Something went wrong",
+                    "type": "api_error",
+                    "code": 400,
+                },
+            },
+            metadata={"finish_reason": "error"},
+        )
+
+        result = await middleware.process(error_chunk, "sess-error", context={})
+        assert result is error_chunk
+        assert "sess-error" not in middleware._retry_counts
+
+    @pytest.mark.asyncio
     @patch("builtins.open", mock_open(read_data="Recovery prompt"))
     @patch("pathlib.Path.exists", return_value=True)
     async def test_process_empty_response_first_retry(self, mock_exists):

@@ -87,9 +87,7 @@ class RollingHashTracker:
             truncate_amount = len(self.content) - self.max_history
             self.content = self.content[truncate_amount:]
             self._adjust_positions_after_truncation(truncate_amount)
-            self._last_check_length = max(
-                0, self._last_check_length - truncate_amount
-            )
+            self._last_check_length = max(0, self._last_check_length - truncate_amount)
 
         # Only analyze if we have enough content
         content_length = len(self.content)

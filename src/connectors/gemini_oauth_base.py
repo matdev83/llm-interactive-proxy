@@ -53,6 +53,7 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
+from src.core.domain.translation import Translation
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.translation_service import TranslationService
@@ -674,8 +675,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 import datetime
 
                 current_utc_s = datetime.datetime.now(datetime.timezone.utc).timestamp()
-                if current_utc_s >= float(expiry) / 1000.0 and not silent and logger.isEnabledFor(
-                    logging.INFO
+                if (
+                    current_utc_s >= float(expiry) / 1000.0
+                    and not silent
+                    and logger.isEnabledFor(logging.INFO)
                 ):
                     logger.info(
                         "Loaded Gemini OAuth credentials appear expired; refresh will be triggered."
@@ -729,6 +732,32 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         except Exception as e:
             errors.append(f"Unexpected error reading credentials file: {e}")
             return False, errors
+
+    def _validate_active_credentials_path(self) -> tuple[bool, list[str]]:
+        """Validate the currently used credentials path, if known.
+
+        This avoids incorrectly validating a different credential source (e.g.,
+        oauth_creds.json when a connector uses an alternate database file).
+        """
+        if self._credentials_path:
+            errors: list[str] = []
+            try:
+                if not self._credentials_path.exists():
+                    errors.append(
+                        f"Credentials path not found: {self._credentials_path}"
+                    )
+                elif not self._credentials_path.is_file():
+                    errors.append(
+                        f"Credentials path exists but is not a file: {self._credentials_path}"
+                    )
+            except OSError as exc:
+                errors.append(
+                    f"Error accessing credentials path {self._credentials_path}: {exc}"
+                )
+
+            return len(errors) == 0, errors
+
+        return self._validate_credentials_file_exists()
 
     def _fail_init(self, errors: list[str]) -> None:
         """Mark initialization as failed with given errors."""
@@ -1104,7 +1133,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             previous_fingerprint = self._credentials_fingerprint
 
             # Validate file first (silently)
-            ok, errs = self._validate_credentials_file_exists()
+            ok, errs = self._validate_active_credentials_path()
             if not ok:
                 self._degrade(errs)
                 logger.warning(
@@ -1123,13 +1152,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     credentials_changed = True
                     logger.debug("Handling credentials file change...")
                     logger.info("Detected credential change; refreshing token...")
-                
+
                 # Always refresh token, even if credentials unchanged (token may be expired)
                 refreshed = await self._refresh_token_if_needed()
                 if refreshed:
                     self._recover()
                     if credentials_changed:
-                        logger.info("Successfully reloaded credentials from updated file")
+                        logger.info(
+                            "Successfully reloaded credentials from updated file"
+                        )
                     success = True
                 else:
                     self._degrade(
@@ -1383,7 +1414,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         payload = json.dumps(relevant, sort_keys=True, default=str)
         return hashlib.sha256(payload.encode("utf-8", "ignore")).hexdigest()
 
-    async def _load_oauth_credentials(self, force_reload: bool = False, silent: bool = False) -> bool:
+    async def _load_oauth_credentials(
+        self, force_reload: bool = False, silent: bool = False
+    ) -> bool:
         """Load OAuth credentials from oauth_creds.json file.
 
         Args:
@@ -2119,6 +2152,136 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             "request": code_assist_request,
         }
 
+    @staticmethod
+    def _sanitize_code_assist_tools(
+        canonical_request: Any, code_assist_request: dict[str, Any]
+    ) -> None:
+        """Ensure only Gemini-compatible function tools are sent.
+
+        This method handles various tool formats from different clients:
+        1. OpenAI format: {"type": "function", "function": {"name": ..., "parameters": ...}}
+        2. Anthropic/custom format: {"type": "custom", "name": ..., "input_schema": ...}
+        3. Direct format: {"name": ..., "description": ..., "parameters": ...}
+        4. Custom nested format: {"type": "custom", "custom": {"input_schema": ...}}
+
+        All formats are converted to Gemini function_declarations format.
+        """
+
+        tools = getattr(canonical_request, "tools", None) or []
+
+        def _extract_function_declarations(
+            source_tools: list[Any],
+        ) -> list[dict[str, Any]]:
+            declarations: list[dict[str, Any]] = []
+            for tool in source_tools:
+                tool_dict = tool if isinstance(tool, dict) else None
+                if tool_dict is None and hasattr(tool, "model_dump"):
+                    try:
+                        tool_dict = tool.model_dump()  # type: ignore[attr-defined]
+                    except Exception:
+                        tool_dict = None
+                if not isinstance(tool_dict, dict):
+                    continue
+
+                # Try to extract function declaration from various formats
+                name: str = ""
+                description: str = ""
+                params: dict[str, Any] = {}
+
+                # Format 1: OpenAI standard format - {"type": "function", "function": {...}}
+                function = tool_dict.get("function")
+                if isinstance(function, dict):
+                    name = function.get("name", "")
+                    description = function.get("description", "")
+                    params = function.get("parameters", {})
+                # Format 2: Anthropic/direct format - {"name": ..., "input_schema": ...}
+                elif tool_dict.get("name"):
+                    name = tool_dict.get("name", "")
+                    description = tool_dict.get("description", "")
+                    # Support both "parameters" and "input_schema" keys
+                    params = (
+                        tool_dict.get("parameters")
+                        or tool_dict.get("input_schema")
+                        or {}
+                    )
+                # Format 3: Custom nested format - {"type": "custom", "custom": {"input_schema": ...}}
+                elif tool_dict.get("type") == "custom":
+                    custom_data = tool_dict.get("custom")
+                    if isinstance(custom_data, dict):
+                        # Try to extract name from custom data or use a generated name
+                        name = custom_data.get("name", "")
+                        description = custom_data.get("description", "")
+                        params = (
+                            custom_data.get("input_schema")
+                            or custom_data.get("parameters")
+                            or {}
+                        )
+                    # Skip custom tools without extractable function info
+                    if not name:
+                        logger.debug(
+                            "Skipping custom tool without name: %s",
+                            str(tool_dict)[:200],
+                        )
+                        continue
+
+                # Skip tools without a name (can't create valid function declaration)
+                if not name:
+                    continue
+
+                sanitized_params = (
+                    Translation._sanitize_gemini_parameters(params)
+                    if isinstance(params, dict)
+                    else {}
+                )
+                declarations.append(
+                    {
+                        "name": name,
+                        "description": description,
+                        "parameters": sanitized_params,
+                    }
+                )
+            return declarations
+
+        function_declarations: list[dict[str, Any]] = _extract_function_declarations(
+            tools
+        )
+
+        # Fallback: if canonical_request had no tools, try to salvage any existing function declarations
+        if not function_declarations:
+            existing_tools = code_assist_request.get("tools")
+            if isinstance(existing_tools, list):
+                for entry in existing_tools:
+                    fd_list = None
+                    if isinstance(entry, dict):
+                        fd_list = entry.get("function_declarations")
+                    if isinstance(fd_list, list):
+                        function_declarations.extend(
+                            [fd for fd in fd_list if isinstance(fd, dict)]
+                        )
+
+        if function_declarations:
+            code_assist_request["tools"] = [
+                {"function_declarations": function_declarations}
+            ]
+
+            # Filter allowedFunctionNames to declared functions, if present
+            tool_config = code_assist_request.get("toolConfig", {})
+            if isinstance(tool_config, dict):
+                fcc = tool_config.get("functionCallingConfig")
+                if isinstance(fcc, dict):
+                    allowed = fcc.get("allowedFunctionNames")
+                    if isinstance(allowed, list):
+                        declared = {fd.get("name", "") for fd in function_declarations}
+                        filtered = [n for n in allowed if n in declared]
+                        if filtered:
+                            fcc["allowedFunctionNames"] = filtered
+                        else:
+                            fcc.pop("allowedFunctionNames", None)
+        else:
+            code_assist_request.pop("tools", None)
+            # If no tools, drop toolConfig entirely to avoid invalid references
+            code_assist_request.pop("toolConfig", None)
+
     async def _chat_completions_code_assist(
         self,
         request_data: Any,
@@ -2198,6 +2361,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 gemini_request, final_contents
             )
 
+            # Strip/repair unsupported tool definitions (e.g., custom tools from clients)
+            self._sanitize_code_assist_tools(canonical_request, code_assist_request)
+
             prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
             self._enforce_prompt_limit(
                 prompt_tokens_estimate,
@@ -2207,12 +2373,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             # Prepare request body for Code Assist API
             # Using hook method to allow subclasses to customize the wrapper format
-            request_body = self._build_code_assist_request_body(
-                effective_model=effective_model,
-                project_id=project_id,
-                request_data=request_data,
-                code_assist_request=code_assist_request,
-            )
+            def _build_request_body() -> dict[str, Any]:
+                return self._build_code_assist_request_body(
+                    effective_model=effective_model,
+                    project_id=project_id,
+                    request_data=request_data,
+                    code_assist_request=code_assist_request,
+                )
 
             # Log request details for debugging token issues
             if logger.isEnabledFor(logging.DEBUG):
@@ -2233,6 +2400,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # IMPORTANT: KiloCode uses :streamGenerateContent, not :generateContent
             url = f"{self.gemini_api_base_url}/v1internal:streamGenerateContent"
             logger.info(f"Making Code Assist API call to: {url}")
+
+            # Build the request body (must be called after sanitization)
+            request_body = _build_request_body()
 
             # Make the actual API call
             try:
@@ -2390,6 +2560,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 gemini_request, final_contents
             )
 
+            # Strip/repair unsupported tool definitions (e.g., custom tools from clients)
+            # This is critical for Droid/Factory CLI compatibility which sends tools
+            # with type: "custom" and input_schema instead of function parameters
+            self._sanitize_code_assist_tools(canonical_request, code_assist_request)
+
             prompt_tokens_estimate = self._estimate_prompt_tokens(code_assist_request)
             self._enforce_prompt_limit(
                 prompt_tokens_estimate,
@@ -2397,14 +2572,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 request_id=getattr(request_data, "id", None),
             )
 
-            # Prepare request body for Code Assist API
-            # Using hook method to allow subclasses to customize the wrapper format
-            request_body = self._build_code_assist_request_body(
-                effective_model=effective_model,
-                project_id=project_id,
-                request_data=request_data,
-                code_assist_request=code_assist_request,
-            )
+            # Define request body builder as closure for use in stream_generator
+            # This allows retry logic to rebuild request body with modified tools
+            def _build_request_body() -> dict[str, Any]:
+                return self._build_code_assist_request_body(
+                    effective_model=effective_model,
+                    project_id=project_id,
+                    request_data=request_data,
+                    code_assist_request=code_assist_request,
+                )
 
             # Log request details for debugging token issues
             if logger.isEnabledFor(logging.DEBUG):
@@ -2450,7 +2626,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     )
                     prompt_tokens = 0
 
-            async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
+            async def stream_generator(
+                *,
+                allow_tool_retry: bool = True,
+                without_tools: bool = False,
+            ) -> AsyncGenerator[ProcessedResponse, None]:
                 import json
 
                 import google.auth.exceptions
@@ -2513,6 +2693,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                 try:
                     try:
+                        if without_tools:
+                            code_assist_request.pop("tools", None)
+                            code_assist_request.pop("toolConfig", None)
+                        request_body = _build_request_body()
+                        if logger.isEnabledFor(logging.DEBUG):
+                            tools_snapshot = request_body.get("request", {}).get(
+                                "tools"
+                            )
+                            if tools_snapshot:
+                                try:
+                                    logger.debug(
+                                        "Code Assist sanitized tools payload: %s",
+                                        json.dumps(tools_snapshot)[:1000],
+                                    )
+                                except Exception:
+                                    logger.debug(
+                                        "Code Assist sanitized tools payload present (non-serializable)"
+                                    )
                         response = await asyncio.to_thread(
                             auth_session.request,
                             method="POST",
@@ -2594,9 +2792,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         return
 
                     if response.status_code != 200:
-                        logger.warning(
-                            f"Gemini streaming error response: {response.status_code}"
-                        )
+                        # Capture and log error response body for debugging
+                        try:
+                            error_body = response.json()
+                            logger.warning(
+                                f"Gemini streaming error response: {response.status_code}, "
+                                f"error: {error_body}"
+                            )
+                        except Exception:
+                            error_body_text = response.text
+                            logger.warning(
+                                f"Gemini streaming error response: {response.status_code}, "
+                                f"body: {error_body_text[:500]}"
+                            )
                         # Handle 429 with graceful degradation
                         if response.status_code == 429:
                             if self._degradation_config.enabled:
@@ -2692,7 +2900,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 self._set_cooldown(effective_model)
                             return
 
-                        # For non-429 errors, yield error chunk
+                        # For non-429 errors, yield error chunk (with optional retry sans tools)
                         # Graceful error handling - yield error chunk instead of raising exception
                         try:
                             error_detail = response.json()
@@ -2700,8 +2908,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             error_detail = response.text
 
                         error_message = ""
+                        raw_message = ""
                         if isinstance(error_detail, dict):
                             error_message = error_detail.get("error", {}).get(
+                                "message", ""
+                            )
+                            raw_message = error_detail.get("error", {}).get(
                                 "message", ""
                             )
 
@@ -2763,6 +2975,29 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             )
                             return
                         else:
+                            # Detect schema/tool validation errors and retry once without tools/toolConfig
+                            schema_error = False
+                            if response.status_code == 400 and isinstance(
+                                error_detail, dict
+                            ):
+                                lower_msg = (raw_message or error_message or "").lower()
+                                schema_error = (
+                                    "input_schema" in lower_msg or "custom" in lower_msg
+                                )
+
+                            if schema_error:
+                                logger.info(
+                                    "Retrying Code Assist request without tools due to schema error: %s",
+                                    raw_message or error_message,
+                                )
+                                response.close()
+                                # Retry once without tools/toolConfig
+                                async for retry_chunk in stream_generator(
+                                    allow_tool_retry=False, without_tools=True
+                                ):
+                                    yield retry_chunk
+                                return
+
                             # Extract user-friendly error message
                             user_message = "An API error occurred. Please try again."
                             if isinstance(error_detail, dict):

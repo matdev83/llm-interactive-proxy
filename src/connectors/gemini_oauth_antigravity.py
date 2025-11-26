@@ -6,6 +6,7 @@ token from Antigravity's VS Code style state database and targets the Cloud
 Code PA sandbox endpoint observed in Antigravity logs.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -345,12 +346,20 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
             # Both present - prefer access_token but keep apiKey for compatibility
             normalized.pop("apiKey")
 
+        # The Antigravity token behaves like a static bearer; if no refresh_token is
+        # present, ignore expiry metadata so the base class does not mark it stale.
+        if not normalized.get("refresh_token"):
+            normalized.pop("expiry_date", None)
+            normalized.pop("refresh_token", None)
+
         return normalized
 
-    async def _load_oauth_credentials(self, force_reload: bool = False, silent: bool = False) -> bool:
+    async def _load_oauth_credentials(
+        self, force_reload: bool = False, silent: bool = False
+    ) -> bool:
         """
         Load OAuth credentials from the Antigravity state database or its backup.
-        
+
         Args:
             force_reload: If True, bypass cache and force reload from file
             silent: If True, suppress INFO level logging (used when checking for changes)
@@ -416,6 +425,14 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
                 self._credentials_fingerprint = self._compute_credentials_fingerprint(
                     credentials
                 )
+                try:
+                    credentials_file_hash = hashlib.sha256(
+                        path.read_bytes()
+                    ).hexdigest()
+                except OSError:
+                    credentials_file_hash = None
+                self._credentials_file_hash = credentials_file_hash
+                self._last_credentials_event_hash = credentials_file_hash
                 if not silent:
                     logger.info(
                         "Loaded Antigravity OAuth credentials from %s%s",

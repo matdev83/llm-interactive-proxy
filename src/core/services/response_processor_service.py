@@ -499,9 +499,11 @@ class ResponseProcessor(IResponseProcessor):
 
     @staticmethod
     def _normalize_chunk_text(chunk: Any) -> str:
-        """Normalize streaming payloads into string form."""
+        """Normalize streaming payloads into client-friendly form."""
         if chunk is None:
             return ""
+        if isinstance(chunk, dict):
+            return chunk  # Preserve structured payloads (e.g., error chunks)
         if isinstance(chunk, str):
             return chunk
         if isinstance(chunk, bytes | bytearray):
@@ -509,9 +511,4 @@ class ResponseProcessor(IResponseProcessor):
                 return chunk.decode("utf-8")
             except UnicodeDecodeError:
                 return chunk.decode("utf-8", errors="ignore")
-        if isinstance(chunk, dict):
-            try:
-                return json.dumps(chunk)
-            except (TypeError, ValueError):
-                return str(chunk)
         return str(chunk)
