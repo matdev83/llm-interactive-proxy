@@ -347,9 +347,13 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
 
         return normalized
 
-    async def _load_oauth_credentials(self, force_reload: bool = False) -> bool:
+    async def _load_oauth_credentials(self, force_reload: bool = False, silent: bool = False) -> bool:
         """
         Load OAuth credentials from the Antigravity state database or its backup.
+        
+        Args:
+            force_reload: If True, bypass cache and force reload from file
+            silent: If True, suppress INFO level logging (used when checking for changes)
         """
         # Prefer the currently used path first to keep file watching stable
         candidate_paths = self._candidate_state_db_paths()
@@ -397,7 +401,7 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
                 credentials = self._normalize_antigravity_credentials(credentials)
 
                 is_valid, validation_errors = self._validate_credentials_structure(
-                    credentials
+                    credentials, silent=silent
                 )
                 errors.extend(validation_errors)
                 if not is_valid:
@@ -412,11 +416,12 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
                 self._credentials_fingerprint = self._compute_credentials_fingerprint(
                     credentials
                 )
-                logger.info(
-                    "Loaded Antigravity OAuth credentials from %s%s",
-                    path,
-                    " (force reload)" if force_reload else "",
-                )
+                if not silent:
+                    logger.info(
+                        "Loaded Antigravity OAuth credentials from %s%s",
+                        path,
+                        " (force reload)" if force_reload else "",
+                    )
                 return True
             except Exception as exc:
                 errors.append(f"Unexpected error reading {path}: {exc}")

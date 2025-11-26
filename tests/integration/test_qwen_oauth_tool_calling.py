@@ -12,12 +12,15 @@ Run with: pytest -m "integration and network" tests/integration/test_qwen_oauth_
 
 import json
 import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import respx
+from httpx import Response
 from fastapi.testclient import TestClient
-from src.core.app.test_builder import build_test_app as build_app
+from src.core.app.test_builder import build_httpx_mock_test_app as build_app
 
 # Mark all tests in this module as integration and network tests
 pytestmark = [
@@ -54,14 +57,13 @@ class TestQwenOAuthToolCalling:
     @pytest.fixture
     def qwen_oauth_app(self):
         """Create a FastAPI app configured for Qwen OAuth backend."""
-        with patch("src.core.config.load_dotenv"):
-            os.environ["LLM_BACKEND"] = "qwen-oauth"
-            os.environ["DISABLE_AUTH"] = "true"
-            os.environ["DISABLE_ACCOUNTING"] = "true"
-            os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
+        os.environ["LLM_BACKEND"] = "qwen-oauth"
+        os.environ["DISABLE_AUTH"] = "true"
+        os.environ["DISABLE_ACCOUNTING"] = "true"
+        os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
 
-            app = build_app()
-            yield app
+        app = build_app()
+        yield app
 
     @pytest.fixture
     def qwen_oauth_client(self, qwen_oauth_app):
@@ -112,7 +114,46 @@ class TestQwenOAuthToolCalling:
             "stream": False,
         }
 
-        response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+        mock_response = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "qwen-oauth:qwen3-coder-plus",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_abc123",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"location": "San Francisco, CA"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 9,
+                "completion_tokens": 12,
+                "total_tokens": 21,
+            },
+        }
+
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").mock(
+                return_value=Response(200, json=mock_response)
+            )
+
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload
+            )
 
         if response.status_code != 200:
             print(f"Error response: {response.status_code}")
@@ -188,54 +229,107 @@ class TestQwenOAuthToolCalling:
             "stream": False,
         }
 
-        response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
-        assert response.status_code == 200
+        # Mock responses for multi-turn
+        mock_response_1 = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "qwen-oauth:qwen3-coder-plus",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_abc123",
+                                "type": "function",
+                                "function": {
+                                    "name": "calculate",
+                                    "arguments": '{"expression": "15 * 7"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
+        }
 
-        result = response.json()
-        first_choice = result["choices"][0]
+        mock_response_2 = {
+            "id": "chatcmpl-124",
+            "object": "chat.completion",
+            "created": 1677652299,
+            "model": "qwen-oauth:qwen3-coder-plus",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "The result is 105.",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 10, "total_tokens": 40},
+        }
 
-        # If the model made a tool call, simulate the tool response
-        if first_choice.get("finish_reason") == "tool_calls":
-            tool_calls = first_choice["message"]["tool_calls"]
-
-            # Simulate tool execution
-            tool_responses = []
-            for tool_call in tool_calls:
-                if tool_call["function"]["name"] == "calculate":
-                    args = json.loads(tool_call["function"]["arguments"])
-                    # Simple calculation simulation
-                    if "15" in args["expression"] and "7" in args["expression"]:
-                        result_value = "105"
-                    else:
-                        result_value = "Calculation result"
-
-                    tool_responses.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call["id"],
-                            "content": result_value,
-                        }
-                    )
-
-            # Second turn: Include tool responses
-            messages = [
-                {"role": "user", "content": "Calculate 15 * 7 for me"},
-                first_choice["message"],  # Assistant's tool call
-                *tool_responses,  # Tool responses
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").side_effect = [
+                Response(200, json=mock_response_1),
+                Response(200, json=mock_response_2),
             ]
 
-            request_payload_2 = {
-                "model": "qwen-oauth:qwen3-coder-plus",
-                "messages": messages,
-                "tools": tools,
-                "max_tokens": 100,
-                "temperature": 0.1,
-                "stream": False,
-            }
+            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+            assert response.status_code == 200
 
-            response_2 = qwen_oauth_client.post(
-                "/v1/chat/completions", json=request_payload_2
-            )
+            result = response.json()
+            first_choice = result["choices"][0]
+
+            # If the model made a tool call, simulate the tool response
+            if first_choice.get("finish_reason") == "tool_calls":
+                tool_calls = first_choice["message"]["tool_calls"]
+
+                # Simulate tool execution
+                tool_responses = []
+                for tool_call in tool_calls:
+                    if tool_call["function"]["name"] == "calculate":
+                        args = json.loads(tool_call["function"]["arguments"])
+                        # Simple calculation simulation
+                        if "15" in args["expression"] and "7" in args["expression"]:
+                            result_value = "105"
+                        else:
+                            result_value = "Calculation result"
+
+                        tool_responses.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call["id"],
+                                "content": result_value,
+                            }
+                        )
+
+                # Second turn: Include tool responses
+                messages = [
+                    {"role": "user", "content": "Calculate 15 * 7 for me"},
+                    first_choice["message"],  # Assistant's tool call
+                    *tool_responses,  # Tool responses
+                ]
+
+                request_payload_2 = {
+                    "model": "qwen-oauth:qwen3-coder-plus",
+                    "messages": messages,
+                    "tools": tools,
+                    "max_tokens": 100,
+                    "temperature": 0.1,
+                    "stream": False,
+                }
+
+                response_2 = qwen_oauth_client.post(
+                    "/v1/chat/completions", json=request_payload_2
+                )
             assert response_2.status_code == 200
 
             result_2 = response_2.json()
@@ -284,7 +378,22 @@ class TestQwenOAuthToolCalling:
             "stream": True,
         }
 
-        response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+        # Mock streaming chunks
+        chunks = [
+            b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"qwen-oauth:qwen3-coder-plus","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n',
+            b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"qwen-oauth:qwen3-coder-plus","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_123","type":"function","function":{"name":"search_web","arguments":""}}]},"finish_reason":null}]}\n\n',
+            b'data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677652288,"model":"qwen-oauth:qwen3-coder-plus","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"query\\": \\"Python\\"}"}}]},"finish_reason":null}]}\n\n',
+            b'data: [DONE]\n\n',
+        ]
+
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").mock(
+                return_value=Response(
+                    200, content=iter(chunks), headers={"Content-Type": "text/event-stream"}
+                )
+            )
+
+            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
 
         assert response.status_code == 200
         assert "text/event-stream" in response.headers.get("content-type", "")
@@ -353,7 +462,31 @@ class TestQwenOAuthToolCalling:
             "stream": False,
         }
 
-        response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+        mock_response = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "qwen-oauth:qwen3-coder-plus",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "It is 12:00 PM.",
+                        "tool_calls": None,
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        }
+
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").mock(
+                return_value=Response(200, json=mock_response)
+            )
+
+            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
 
         assert response.status_code == 200
 
@@ -410,7 +543,40 @@ class TestQwenOAuthToolCalling:
             "stream": False,
         }
 
-        response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+        mock_response = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "qwen-oauth:qwen3-coder-plus",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_abc123",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"location": "New York"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
+        }
+
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").mock(
+                return_value=Response(200, json=mock_response)
+            )
+
+            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
 
         assert response.status_code == 200
 
@@ -433,14 +599,13 @@ class TestQwenOAuthAgentToolCalling:
     @pytest.fixture
     def qwen_oauth_app(self):
         """Create a FastAPI app configured for Qwen OAuth backend."""
-        with patch("src.core.config.load_dotenv"):
-            os.environ["LLM_BACKEND"] = "qwen-oauth"
-            os.environ["DISABLE_AUTH"] = "true"
-            os.environ["DISABLE_ACCOUNTING"] = "true"
-            os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
+        os.environ["LLM_BACKEND"] = "qwen-oauth"
+        os.environ["DISABLE_AUTH"] = "true"
+        os.environ["DISABLE_ACCOUNTING"] = "true"
+        os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
 
-            app = build_app()
-            yield app
+        app = build_app()
+        yield app
 
     @pytest.fixture
     def qwen_oauth_client(self, qwen_oauth_app):
@@ -469,9 +634,43 @@ class TestQwenOAuthAgentToolCalling:
             "stream": False,
         }
 
-        response = qwen_oauth_client.post(
-            "/v1/chat/completions", json=request_payload, headers=headers
-        )
+        # Mock response with attempt_completion tool call
+        mock_response = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "qwen-oauth:qwen3-coder-plus",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_abc123",
+                                "type": "function",
+                                "function": {
+                                    "name": "attempt_completion",
+                                    "arguments": '{"result": "Command executed"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
+        }
+
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").mock(
+                return_value=Response(200, json=mock_response)
+            )
+
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload, headers=headers
+            )
 
         assert response.status_code == 200
 
@@ -509,9 +708,33 @@ class TestQwenOAuthAgentToolCalling:
             "stream": False,
         }
 
-        response = qwen_oauth_client.post(
-            "/v1/chat/completions", json=request_payload, headers=headers
-        )
+        mock_response = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "qwen-oauth:qwen3-coder-plus",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello! How can I help you?",
+                        "tool_calls": None,
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
+        }
+
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").mock(
+                return_value=Response(200, json=mock_response)
+            )
+
+            response = qwen_oauth_client.post(
+                "/v1/chat/completions", json=request_payload, headers=headers
+            )
 
         assert response.status_code == 200
 
@@ -531,14 +754,13 @@ class TestQwenOAuthToolCallingErrorHandling:
     @pytest.fixture
     def qwen_oauth_app(self):
         """Create a FastAPI app configured for Qwen OAuth backend."""
-        with patch("src.core.config.load_dotenv"):
-            os.environ["LLM_BACKEND"] = "qwen-oauth"
-            os.environ["DISABLE_AUTH"] = "true"
-            os.environ["DISABLE_ACCOUNTING"] = "true"
-            os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
+        os.environ["LLM_BACKEND"] = "qwen-oauth"
+        os.environ["DISABLE_AUTH"] = "true"
+        os.environ["DISABLE_ACCOUNTING"] = "true"
+        os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
 
-            app = build_app()
-            yield app
+        app = build_app()
+        yield app
 
     @pytest.fixture
     def qwen_oauth_client(self, qwen_oauth_app):
@@ -571,7 +793,12 @@ class TestQwenOAuthToolCallingErrorHandling:
             "stream": False,
         }
 
-        response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").mock(
+                return_value=Response(400, json={"error": {"message": "Invalid tool definition"}})
+            )
+
+            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
 
         # Should either:
         # 1. Return 400 error for invalid tool definition
@@ -603,7 +830,12 @@ class TestQwenOAuthToolCallingErrorHandling:
             "stream": False,
         }
 
-        response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
+        with respx.mock(assert_all_called=False) as respx_mock:
+            respx_mock.post(path="/v1/chat/completions").mock(
+                return_value=Response(404, json={"error": {"message": "Model not found"}})
+            )
+
+            response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
 
         # Should return error for invalid model
         assert response.status_code in [400, 404, 422]

@@ -221,7 +221,7 @@ async def test_flash_failure_marks_backend_unusable() -> None:
             processed_messages=[],
         )
 
-    assert exc.value.code == "all_models_exhausted"
+    assert exc.value.code == "models_rate_limited"
     assert connector._permanently_failed
     assert not connector.is_backend_functional()
 

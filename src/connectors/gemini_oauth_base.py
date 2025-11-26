@@ -310,7 +310,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     default_prompt_limit: int | None = DEFAULT_CODE_ASSIST_PROMPT_LIMIT
     prompt_limit_overrides: dict[str, int] = {}
-    prompt_limit_prefix_overrides: tuple[tuple[str, int], ...] = ()
+    # Claude models have 200K context windows; Gemini 2.5 series has 1M.
+    # Subclasses can extend these prefixes (e.g., GeminiOAuthPlanConnector).
+    prompt_limit_prefix_overrides: tuple[tuple[str, int], ...] = (("claude", 200_000),)
 
     _project_id: str | None = None
 
@@ -634,12 +636,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return self._credential_validation_errors.copy()
 
     def _validate_credentials_structure(
-        self, credentials: dict[str, Any]
+        self, credentials: dict[str, Any], silent: bool = False
     ) -> tuple[bool, list[str]]:
         """Validate the structure and content of OAuth credentials.
 
         Args:
             credentials: The credentials dictionary to validate
+            silent: If True, suppress INFO level logging
 
         Returns:
             Tuple of (is_valid, list_of_errors)
@@ -671,7 +674,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 import datetime
 
                 current_utc_s = datetime.datetime.now(datetime.timezone.utc).timestamp()
-                if current_utc_s >= float(expiry) / 1000.0 and logger.isEnabledFor(
+                if current_utc_s >= float(expiry) / 1000.0 and not silent and logger.isEnabledFor(
                     logging.INFO
                 ):
                     logger.info(
@@ -1098,11 +1101,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """
         success = False
         try:
-            logger.debug("Handling credentials file change...")
-
             previous_fingerprint = self._credentials_fingerprint
 
-            # Validate file first
+            # Validate file first (silently)
             ok, errs = self._validate_credentials_file_exists()
             if not ok:
                 self._degrade(errs)
@@ -1111,21 +1112,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 )
                 return
 
-            # Attempt to reload with force_reload=True to bypass cache
-            if await self._load_oauth_credentials(force_reload=True):
+            # Attempt to reload silently first to check if credentials actually changed
+            credentials_changed = False
+            if await self._load_oauth_credentials(force_reload=True, silent=True):
                 if (
-                    previous_fingerprint is not None
-                    and previous_fingerprint == self._credentials_fingerprint
+                    previous_fingerprint is None
+                    or previous_fingerprint != self._credentials_fingerprint
                 ):
-                    logger.debug(
-                        "Credentials file change detected but contents are unchanged; skipping reload."
-                    )
-                    success = True
-                    return
+                    # Credentials actually changed
+                    credentials_changed = True
+                    logger.debug("Handling credentials file change...")
+                    logger.info("Detected credential change; refreshing token...")
+                
+                # Always refresh token, even if credentials unchanged (token may be expired)
                 refreshed = await self._refresh_token_if_needed()
                 if refreshed:
                     self._recover()
-                    logger.info("Successfully reloaded credentials from updated file")
+                    if credentials_changed:
+                        logger.info("Successfully reloaded credentials from updated file")
                     success = True
                 else:
                     self._degrade(
@@ -1379,11 +1383,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         payload = json.dumps(relevant, sort_keys=True, default=str)
         return hashlib.sha256(payload.encode("utf-8", "ignore")).hexdigest()
 
-    async def _load_oauth_credentials(self, force_reload: bool = False) -> bool:
+    async def _load_oauth_credentials(self, force_reload: bool = False, silent: bool = False) -> bool:
         """Load OAuth credentials from oauth_creds.json file.
 
         Args:
             force_reload: If True, bypass cache and force reload from file even if timestamp unchanged
+            silent: If True, suppress INFO level logging (used when checking for changes)
 
         Returns:
             bool: True if credentials loaded successfully, False otherwise
@@ -1443,7 +1448,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 raw_text.encode("utf-8", "ignore")
             ).hexdigest()
             self._last_credentials_event_hash = self._credentials_file_hash
-            if logger.isEnabledFor(logging.INFO):
+            if not silent and logger.isEnabledFor(logging.INFO):
                 log_msg = "Successfully loaded Gemini OAuth credentials"
                 if force_reload:
                     log_msg += " (force reload)"
@@ -2051,7 +2056,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         )
                     else:
                         # Graceful degradation disabled, use original behavior
-                        self._mark_backend_unusable()
+                        self._quota_exceeded = True
+                        self.is_functional = False
+                        logger.error(
+                            "Backend %s marked as unusable due to rate limit and graceful degradation disabled. "
+                            "Manual intervention may be required to restore functionality.",
+                            self.name,
+                        )
                         raise
                 else:
                     # Re-raise non-429 BackendErrors
@@ -3614,7 +3625,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         if not self._degradation_config.enabled:
             # If graceful degradation is disabled, use original behavior
-            self._mark_backend_unusable()
+            # Mark backend as completely unusable (not just quota exceeded)
+            self._quota_exceeded = True
+            self.is_functional = False
+            logger.error(
+                "Backend %s marked as unusable due to rate limit and graceful degradation disabled. "
+                "Manual intervention may be required to restore functionality.",
+                self.name,
+            )
             raise BackendError(
                 message="Rate limit exceeded and graceful degradation is disabled",
                 code="rate_limit_exceeded",

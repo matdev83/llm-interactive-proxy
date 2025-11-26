@@ -77,6 +77,7 @@ class HybridDetectorInternalState(BaseModel):
     short_detector_state: dict[str, Any]  # Stored as dict to match internal return type
     long_detector_content: str
     loop_events: list[Any]  # list[LoopDetectionEvent] but avoiding circular import
+    long_detector_last_check_length: int = 0
 
 
 class PatternThresholdsModel(BaseModel):

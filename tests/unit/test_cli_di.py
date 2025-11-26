@@ -280,6 +280,7 @@ def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
             # Extract the base name without PID suffix for comparison
             # Format is: srv-pid-12345.log
             import os
+
             assert handler_path.startswith(str(tmp_path))
             assert "srv" in os.path.basename(handler_path)
             assert handler_path.endswith(".log")

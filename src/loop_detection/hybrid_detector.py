@@ -63,6 +63,7 @@ class RollingHashTracker:
         self.pattern_candidates: dict[int, dict[int, list[int]]] = (
             {}
         )  # {hash: {length: [positions]}}
+        self._last_check_length = 0
 
         # Performance optimization: precompute powers
         self._powers = [1]
@@ -86,15 +87,24 @@ class RollingHashTracker:
             truncate_amount = len(self.content) - self.max_history
             self.content = self.content[truncate_amount:]
             self._adjust_positions_after_truncation(truncate_amount)
+            self._last_check_length = max(
+                0, self._last_check_length - truncate_amount
+            )
 
         # Only analyze if we have enough content
-        if len(self.content) < self.min_pattern_length * self.min_repetitions:
+        content_length = len(self.content)
+        if content_length < self.min_pattern_length * self.min_repetitions:
             return None
+
+        if not self._should_run_long_detection(content_length):
+            return None
+
+        self._last_check_length = content_length
 
         # Check for patterns of various lengths
         # Start with longer patterns first (more specific)
         for pattern_length in range(
-            min(self.max_pattern_length, len(self.content) // self.min_repetitions),
+            min(self.max_pattern_length, content_length // self.min_repetitions),
             self.min_pattern_length - 1,
             -1,
         ):
@@ -185,10 +195,41 @@ class RollingHashTracker:
         # This is simpler and safer than trying to adjust all positions
         self.pattern_candidates.clear()
 
+    def _should_run_long_detection(self, content_length: int) -> bool:
+        """
+        Decide whether to run the expensive long-pattern scan.
+
+        The scan is throttled based on how much new content has arrived since the
+        previous check to avoid O(n^2) work on every tiny chunk when streaming.
+        """
+        if self._last_check_length == 0:
+            return True
+
+        interval = self._compute_check_interval(content_length)
+        return (content_length - self._last_check_length) >= interval
+
+    def _compute_check_interval(self, content_length: int) -> int:
+        """
+        Compute how many new characters should arrive before the next long scan.
+
+        - For short buffers (<= ~2 * min loop length), we keep the interval small to
+          ensure fast detection.
+        - For larger buffers we scale the interval with content length to cap the
+          number of full scans while keeping at least a couple of scans per window.
+        """
+        small_buffer_limit = self.min_pattern_length * self.min_repetitions * 2
+        if content_length <= small_buffer_limit:
+            return self.min_pattern_length
+
+        dynamic_interval = max(self.min_pattern_length * 2, content_length // 3)
+        max_interval = max(self.min_pattern_length * 2, self.max_history // 2)
+        return min(dynamic_interval, max_interval)
+
     def reset(self) -> None:
         """Reset all tracking state."""
         self.content = ""
         self.pattern_candidates.clear()
+        self._last_check_length = 0
 
 
 class HybridLoopDetector(ILoopDetector):
@@ -477,6 +518,9 @@ class HybridLoopDetector(ILoopDetector):
             short_detector_state=self.short_detector._save_state().model_dump(),
             long_detector_content=self.long_detector.content,
             loop_events=self._loop_events.copy(),
+            long_detector_last_check_length=getattr(
+                self.long_detector, "_last_check_length", 0
+            ),
         )
 
     def _restore_state(self, state: HybridDetectorInternalState) -> None:
@@ -487,4 +531,12 @@ class HybridLoopDetector(ILoopDetector):
         short_state = LoopDetectorInternalState(**state.short_detector_state)
         self.short_detector._restore_state(short_state)
         self.long_detector.content = state.long_detector_content
+        if hasattr(self.long_detector, "_last_check_length"):
+            self.long_detector._last_check_length = max(
+                0,
+                min(
+                    getattr(state, "long_detector_last_check_length", 0),
+                    len(self.long_detector.content),
+                ),
+            )
         self._loop_events = state.loop_events
