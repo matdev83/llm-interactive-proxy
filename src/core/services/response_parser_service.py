@@ -120,12 +120,10 @@ class ResponseParser(IResponseParser):
                             )
             usage = raw_response.get("usage")
 
-            # If content is still empty, prioritize tool_calls if present
-            if not content:
-                if metadata.get("tool_calls"):
-                    content = json.dumps(metadata["tool_calls"])
-                elif not choices:  # Original logic for non-chat dictionaries
-                    content = json.dumps(raw_response)
+            # If content is still empty and there are no choices, serialize the entire response
+            # This handles edge cases like non-chat completion responses
+            if not content and not choices:
+                content = json.dumps(raw_response)
 
         elif raw_response is None:
             content = ""

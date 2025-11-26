@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from fastapi import HTTPException
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 
@@ -1297,12 +1298,17 @@ class QwenOAuthConnector(OpenAIConnector):
 
             return response_envelope
 
-        except (AuthenticationError, BackendError, ServiceUnavailableError):
+        except (AuthenticationError, BackendError, ServiceUnavailableError) as e:
             # Re-raise domain exceptions
+            logger.warning(f"DEBUG: Re-raising domain exception: {type(e).__name__}")
+            raise
+        except HTTPException as e:
+            # Re-raise HTTP exceptions (e.g., 400, 404) without wrapping
+            logger.warning(f"DEBUG: Re-raising HTTPException: {e.status_code}")
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
-            logger.error(f"Error in Qwen OAuth chat_completions: {e}")
+            logger.error(f"Error in Qwen OAuth chat_completions: {e}, type: {type(e).__name__}")
             raise BackendError(
                 message=f"Qwen OAuth chat completion failed: {e!s}"
             ) from e

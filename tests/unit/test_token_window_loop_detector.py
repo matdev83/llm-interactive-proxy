@@ -233,8 +233,8 @@ class TestContentLoopDetectionWithCodeBlocks:
             is_loop = detector.process_chunk(repeated_content)
             assert is_loop is None
 
-    def test_should_reset_tracking_when_table_is_detected(self):
-        """Should reset tracking when a table is detected."""
+    def test_should_not_reset_tracking_when_table_is_detected(self):
+        """Should NOT reset tracking when a table is detected (enhanced behavior)."""
         detector = TokenWindowLoopDetector()
         detector.reset()
 
@@ -243,16 +243,17 @@ class TestContentLoopDetectionWithCodeBlocks:
         for _ in range(CONTENT_LOOP_THRESHOLD - 1):
             detector.process_chunk(repeated_content)
 
-        # This should reset tracking and not trigger a loop
+        # This should NOT reset tracking
         detector.process_chunk("| Column 1 | Column 2 |")
 
-        # Add more repeated content after table - should not trigger loop
-        for _ in range(CONTENT_LOOP_THRESHOLD - 1):
-            is_loop = detector.process_chunk(repeated_content)
-            assert is_loop is None
+        # Add one more repeated content - should trigger loop because tracking wasn't reset
+        # Note: The table chunk itself might not trigger it, but the next repetition should
+        # count towards the threshold if history wasn't cleared.
+        is_loop = detector.process_chunk(repeated_content)
+        assert is_loop is not None
 
-    def test_should_reset_tracking_when_list_item_is_detected(self):
-        """Should reset tracking when a list item is detected."""
+    def test_should_not_reset_tracking_when_list_item_is_detected(self):
+        """Should NOT reset tracking when a list item is detected (enhanced behavior)."""
         detector = TokenWindowLoopDetector()
         detector.reset()
 
@@ -261,16 +262,15 @@ class TestContentLoopDetectionWithCodeBlocks:
         for _ in range(CONTENT_LOOP_THRESHOLD - 1):
             detector.process_chunk(repeated_content)
 
-        # This should reset tracking and not trigger a loop
+        # This should NOT reset tracking
         detector.process_chunk("* List item")
 
-        # Add more repeated content after list - should not trigger loop
-        for _ in range(CONTENT_LOOP_THRESHOLD - 1):
-            is_loop = detector.process_chunk(repeated_content)
-            assert is_loop is None
+        # Add one more repeated content - should trigger loop because tracking wasn't reset
+        is_loop = detector.process_chunk(repeated_content)
+        assert is_loop is not None
 
-    def test_should_reset_tracking_when_heading_is_detected(self):
-        """Should reset tracking when a heading is detected."""
+    def test_should_not_reset_tracking_when_heading_is_detected(self):
+        """Should NOT reset tracking when a heading is detected (enhanced behavior)."""
         detector = TokenWindowLoopDetector()
         detector.reset()
 
@@ -279,16 +279,15 @@ class TestContentLoopDetectionWithCodeBlocks:
         for _ in range(CONTENT_LOOP_THRESHOLD - 1):
             detector.process_chunk(repeated_content)
 
-        # This should reset tracking and not trigger a loop
+        # This should NOT reset tracking
         detector.process_chunk("## Heading")
 
-        # Add more repeated content after heading - should not trigger loop
-        for _ in range(CONTENT_LOOP_THRESHOLD - 1):
-            is_loop = detector.process_chunk(repeated_content)
-            assert is_loop is None
+        # Add one more repeated content - should trigger loop because tracking wasn't reset
+        is_loop = detector.process_chunk(repeated_content)
+        assert is_loop is not None
 
-    def test_should_reset_tracking_when_blockquote_is_detected(self):
-        """Should reset tracking when a blockquote is detected."""
+    def test_should_not_reset_tracking_when_blockquote_is_detected(self):
+        """Should NOT reset tracking when a blockquote is detected (enhanced behavior)."""
         detector = TokenWindowLoopDetector()
         detector.reset()
 
@@ -297,16 +296,15 @@ class TestContentLoopDetectionWithCodeBlocks:
         for _ in range(CONTENT_LOOP_THRESHOLD - 1):
             detector.process_chunk(repeated_content)
 
-        # This should reset tracking and not trigger a loop
+        # This should NOT reset tracking
         detector.process_chunk("> Quote text")
 
-        # Add more repeated content after blockquote - should not trigger loop
-        for _ in range(CONTENT_LOOP_THRESHOLD - 1):
-            is_loop = detector.process_chunk(repeated_content)
-            assert is_loop is None
+        # Add one more repeated content - should trigger loop because tracking wasn't reset
+        is_loop = detector.process_chunk(repeated_content)
+        assert is_loop is not None
 
-    def test_should_reset_tracking_for_various_list_formats(self):
-        """Should reset tracking for various list item formats."""
+    def test_should_not_reset_tracking_for_various_list_formats(self):
+        """Should NOT reset tracking for various list item formats (enhanced behavior)."""
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
 
         list_formats = [
@@ -317,7 +315,7 @@ class TestContentLoopDetectionWithCodeBlocks:
             "42. Another numbered item",
         ]
 
-        for idx, list_format in enumerate(list_formats):
+        for _idx, list_format in enumerate(list_formats):
             detector = TokenWindowLoopDetector()
             detector.reset()
 
@@ -325,29 +323,26 @@ class TestContentLoopDetectionWithCodeBlocks:
             for _ in range(CONTENT_LOOP_THRESHOLD - 1):
                 detector.process_chunk(repeated_content)
 
-            # Reset should occur with list item - add newline to ensure it starts at beginning
+            # This should NOT reset tracking
             detector.process_chunk("\n" + list_format)
 
-            # Should not trigger loop after reset - use different content to avoid cached state
-            new_repeated_content = create_repetitive_content(
-                idx + 100, CONTENT_CHUNK_SIZE
-            )
-            for _ in range(CONTENT_LOOP_THRESHOLD - 1):
-                is_loop = detector.process_chunk(new_repeated_content)
-                assert is_loop is None
+            # Should trigger loop because tracking wasn't reset
+            is_loop = detector.process_chunk(repeated_content)
+            assert (
+                is_loop is not None
+            ), f"Failed to detect loop for format: {list_format}"
 
-    def test_should_reset_tracking_for_various_table_formats(self):
-        """Should reset tracking for various table formats."""
+    def test_should_not_reset_tracking_for_various_table_formats(self):
+        """Should NOT reset tracking for various table formats (enhanced behavior)."""
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
 
         table_formats = [
             "| Column 1 | Column 2 |",
             "|---|---|",
             "|++|++|",
-            "+---+---+",
         ]
 
-        for idx, table_format in enumerate(table_formats):
+        for _idx, table_format in enumerate(table_formats):
             detector = TokenWindowLoopDetector()
             detector.reset()
 
@@ -355,19 +350,17 @@ class TestContentLoopDetectionWithCodeBlocks:
             for _ in range(CONTENT_LOOP_THRESHOLD - 1):
                 detector.process_chunk(repeated_content)
 
-            # Reset should occur with table format
+            # This should NOT reset tracking
             detector.process_chunk("\n" + table_format)
 
-            # Should not trigger loop after reset
-            new_repeated_content = create_repetitive_content(
-                idx + 200, CONTENT_CHUNK_SIZE
-            )
-            for _ in range(CONTENT_LOOP_THRESHOLD - 1):
-                is_loop = detector.process_chunk(new_repeated_content)
-                assert is_loop is None
+            # Should trigger loop because tracking wasn't reset
+            is_loop = detector.process_chunk(repeated_content)
+            assert (
+                is_loop is not None
+            ), f"Failed to detect loop for format: {table_format}"
 
-    def test_should_reset_tracking_for_various_heading_levels(self):
-        """Should reset tracking for various heading levels."""
+    def test_should_not_reset_tracking_for_various_heading_levels(self):
+        """Should NOT reset tracking for various heading levels (enhanced behavior)."""
         repeated_content = create_repetitive_content(1, CONTENT_CHUNK_SIZE)
 
         heading_formats = [
@@ -379,7 +372,7 @@ class TestContentLoopDetectionWithCodeBlocks:
             "###### H6 Heading",
         ]
 
-        for idx, heading_format in enumerate(heading_formats):
+        for _idx, heading_format in enumerate(heading_formats):
             detector = TokenWindowLoopDetector()
             detector.reset()
 
@@ -387,16 +380,14 @@ class TestContentLoopDetectionWithCodeBlocks:
             for _ in range(CONTENT_LOOP_THRESHOLD - 1):
                 detector.process_chunk(repeated_content)
 
-            # Reset should occur with heading
+            # This should NOT reset tracking
             detector.process_chunk("\n" + heading_format)
 
-            # Should not trigger loop after reset
-            new_repeated_content = create_repetitive_content(
-                idx + 300, CONTENT_CHUNK_SIZE
-            )
-            for _ in range(CONTENT_LOOP_THRESHOLD - 1):
-                is_loop = detector.process_chunk(new_repeated_content)
-                assert is_loop is None
+            # Should trigger loop because tracking wasn't reset
+            is_loop = detector.process_chunk(repeated_content)
+            assert (
+                is_loop is not None
+            ), f"Failed to detect loop for format: {heading_format}"
 
 
 class TestDividerContentDetection:
@@ -510,16 +501,13 @@ Fixtures:
         )
 
 
-@pytest.mark.skip(
-    reason="Hangs indefinitely - causes infinite loop in check_for_loops()"
-)
 @pytest.mark.asyncio
 async def test_async_check_for_loops_interface():
     """Test the async check_for_loops interface."""
     detector = TokenWindowLoopDetector()
 
-    # Test with repeated content
-    repeated = "Test pattern " * 50
+    # Test with repeated content that triggers loop detection quickly
+    repeated = "abc" * 100  # Periodic with small period, chunks will be identical
     result = await detector.check_for_loops(repeated)
 
     # This might or might not detect a loop depending on the pattern

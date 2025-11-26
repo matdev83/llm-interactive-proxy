@@ -911,7 +911,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 "Specific models will be in cooldown but backend remains functional.",
                 self.name,
             )
-            self._permanently_failed = True
             return
 
         # For non-quota errors (e.g., auth failures), disable the backend entirely
@@ -4165,10 +4164,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._permanently_failed = True
         self.is_functional = False
 
+        # If fallback is disabled, the error should reflect that all models are
+        # considered exhausted because no fallback was attempted.
+        if disable_fallback:
+            error_code = "all_models_exhausted"
+            error_message = "all models exhausted; fallback is disabled."
+        else:
+            error_code = "models_rate_limited"
+            error_message = (
+                "All models exhausted including fallbacks. Please try again later."
+            )
+
         # Raise error to inform client about rate limiting
         raise BackendError(
-            message="All models exhausted including fallbacks. Please try again later.",
-            code="all_models_exhausted",
+            message=error_message,
+            code=error_code,
             status_code=429,
         )
 

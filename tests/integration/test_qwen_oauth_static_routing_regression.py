@@ -15,6 +15,7 @@ import httpx
 import pytest
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import ChatRequest, ChatMessage
 
 pytestmark = [
     pytest.mark.integration,
@@ -143,75 +144,81 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
 
         connector._oauth_credentials = test_creds
 
-        # Mock the parent OpenAIConnector.chat_completions method
-        with patch(
-            "src.connectors.openai.OpenAIConnector.chat_completions",
-            new_callable=AsyncMock,
-        ) as mock_parent_chat:
+        # Mock the validation method
+        with patch.object(
+            connector, "_validate_runtime_credentials", new_callable=AsyncMock
+        ) as mock_validate:
+            mock_validate.return_value = True
 
-            from src.core.domain.responses import ResponseEnvelope
+            # Mock the parent OpenAIConnector.chat_completions method
+            with patch(
+                "src.connectors.openai.OpenAIConnector.chat_completions",
+                new_callable=AsyncMock,
+            ) as mock_parent_chat:
 
-            mock_response_envelope = ResponseEnvelope(
-                content="Test response", usage=MagicMock(total_tokens=10)
-            )
-            mock_parent_chat.return_value = mock_response_envelope
+                from src.core.domain.responses import ResponseEnvelope
 
-            # Test various static routing scenarios
-            test_cases = [
-                {
-                    "original_model": "gemini-cli-oauth-personal:models/gemini-2.5-pro",
-                    "static_override": "qwen-oauth:qwen3-coder-plus",
-                    "expected_effective_model": "qwen3-coder-plus",
-                },
-                {
-                    "original_model": "openai:gpt-4",
-                    "static_override": "qwen-oauth:qwen-turbo",
-                    "expected_effective_model": "qwen-turbo",
-                },
-                {
-                    "original_model": "models/claude-3-sonnet",
-                    "static_override": "qwen-oauth:qwen-plus",
-                    "expected_effective_model": "qwen-plus",
-                },
-                {
-                    "original_model": "any-backend:any-model",
-                    "static_override": "qwen-oauth:qwen-max",
-                    "expected_effective_model": "qwen-max",
-                },
-            ]
-
-            for i, case in enumerate(test_cases):
-                # Reset the mock for each test case
-                mock_parent_chat.reset_mock()
-
-                test_request_data = {
-                    "model": case["original_model"],
-                    "messages": [{"role": "user", "content": f"test message {i}"}],
-                    "max_tokens": 100,
-                }
-
-                processed_messages = []
-
-                # Call with the static route override
-                effective_model = case["static_override"].split(":", 1)[
-                    1
-                ]  # Extract model part
-
-                await connector.chat_completions(
-                    request_data=test_request_data,
-                    processed_messages=processed_messages,
-                    effective_model=effective_model,
+                mock_response_envelope = ResponseEnvelope(
+                    content="Test response", usage=MagicMock(total_tokens=10)
                 )
+                mock_parent_chat.return_value = mock_response_envelope
 
-                # Verify the call
-                assert (
-                    mock_parent_chat.called
-                ), f"Parent method should be called for case {i}"
+                # Test various static routing scenarios
+                test_cases = [
+                    {
+                        "original_model": "gemini-cli-oauth-personal:models/gemini-2.5-pro",
+                        "static_override": "qwen-oauth:qwen3-coder-plus",
+                        "expected_effective_model": "qwen3-coder-plus",
+                    },
+                    {
+                        "original_model": "openai:gpt-4",
+                        "static_override": "qwen-oauth:qwen-turbo",
+                        "expected_effective_model": "qwen-turbo",
+                    },
+                    {
+                        "original_model": "models/claude-3-sonnet",
+                        "static_override": "qwen-oauth:qwen-plus",
+                        "expected_effective_model": "qwen-plus",
+                    },
+                    {
+                        "original_model": "any-backend:any-model",
+                        "static_override": "qwen-oauth:qwen-max",
+                        "expected_effective_model": "qwen-max",
+                    },
+                ]
 
-                call_kwargs = mock_parent_chat.call_args.kwargs
-                assert (
-                    call_kwargs["effective_model"] == case["expected_effective_model"]
-                ), f"Case {i}: Expected effective_model to be '{case['expected_effective_model']}', got '{call_kwargs['effective_model']}'"
+                for i, case in enumerate(test_cases):
+                    # Reset the mock for each test case
+                    mock_parent_chat.reset_mock()
+
+                    test_request_data = ChatRequest(
+                        model=case["original_model"],
+                        messages=[ChatMessage(role="user", content=f"test message {i}")],
+                        max_tokens=100,
+                    )
+
+                    processed_messages = []
+
+                    # Call with the static route override
+                    effective_model = case["static_override"].split(":", 1)[
+                        1
+                    ]  # Extract model part
+
+                    await connector.chat_completions(
+                        request_data=test_request_data,
+                        processed_messages=processed_messages,
+                        effective_model=effective_model,
+                    )
+
+                    # Verify the call
+                    assert (
+                        mock_parent_chat.called
+                    ), f"Parent method should be called for case {i}"
+
+                    call_kwargs = mock_parent_chat.call_args.kwargs
+                    assert (
+                        call_kwargs["effective_model"] == case["expected_effective_model"]
+                    ), f"Case {i}: Expected effective_model to be '{case['expected_effective_model']}', got '{call_kwargs['effective_model']}'"
 
     finally:
         await async_client.aclose()
@@ -337,11 +344,11 @@ async def test_qwen_oauth_static_routing_with_real_credentials():
                 mock_post.return_value = mock_response
 
                 # Create test request with original model
-                test_request_data = {
-                    "model": "gemini-cli-oauth-personal:models/gemini-2.5-pro",
-                    "messages": [{"role": "user", "content": "test"}],
-                    "max_tokens": 1,
-                }
+                test_request_data = ChatRequest(
+                    model="gemini-cli-oauth-personal:models/gemini-2.5-pro",
+                    messages=[ChatMessage(role="user", content="test")],
+                    max_tokens=1,
+                )
 
                 # Call with static routing override
                 static_override_model = "qwen3-coder-plus"

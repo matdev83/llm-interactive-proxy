@@ -72,7 +72,7 @@ class TestQwenOAuthToolCalling:
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
                 "expiry_date": time.time() + 3600,
-                "resource_url": "https://portal.qwen.ai/v1",
+                "resource_url": "portal.qwen.ai",
             }
             self_obj.is_functional = True
             return
@@ -418,36 +418,40 @@ class TestQwenOAuthToolCalling:
                 )
             )
 
-            response = qwen_oauth_client.post(
-                "/v1/chat/completions", json=request_payload
-            )
+            with qwen_oauth_client.stream(
+                "POST", "/v1/chat/completions", json=request_payload
+            ) as response:
+                assert response.status_code == 200
+                assert "text/event-stream" in response.headers.get("content-type", "")
 
-        assert response.status_code == 200
-        assert "text/event-stream" in response.headers.get("content-type", "")
+                # Collect streaming chunks
+                chunks = []
+                tool_calls_found = False
 
-        # Collect streaming chunks
-        chunks = []
-        tool_calls_found = False
+                for line in response.iter_lines():
+                    if line:
+                        line_str = (
+                            line if isinstance(line, str) else line.decode("utf-8")
+                        )
+                        if line_str.startswith("data: "):
+                            data_part = line_str[6:]
+                            if data_part.strip() == "[DONE]":
+                                break
+                            try:
+                                chunk_data = json.loads(data_part)
+                                chunks.append(chunk_data)
 
-        for line in response.iter_lines():
-            if line:
-                line_str = line if isinstance(line, str) else line.decode("utf-8")
-                if line_str.startswith("data: "):
-                    data_part = line_str[6:]
-                    if data_part.strip() == "[DONE]":
-                        break
-                    try:
-                        chunk_data = json.loads(data_part)
-                        chunks.append(chunk_data)
+                                # Check for tool calls in streaming chunks
+                                if (
+                                    "choices" in chunk_data
+                                    and len(chunk_data["choices"]) > 0
+                                ):
+                                    delta = chunk_data["choices"][0].get("delta", {})
+                                    if "tool_calls" in delta:
+                                        tool_calls_found = True
 
-                        # Check for tool calls in streaming chunks
-                        if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
-                            delta = chunk_data["choices"][0].get("delta", {})
-                            if "tool_calls" in delta:
-                                tool_calls_found = True
-
-                    except json.JSONDecodeError:
-                        continue
+                            except json.JSONDecodeError:
+                                continue
 
         assert len(chunks) > 0, "Should receive streaming chunks"
 
@@ -645,7 +649,7 @@ class TestQwenOAuthAgentToolCalling:
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
                 "expiry_date": time.time() + 3600,
-                "resource_url": "https://portal.qwen.ai/v1",
+                "resource_url": "portal.qwen.ai",
             }
             self_obj.is_functional = True
             return
@@ -836,7 +840,7 @@ class TestQwenOAuthToolCallingErrorHandling:
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
                 "expiry_date": time.time() + 3600,
-                "resource_url": "https://portal.qwen.ai/v1",
+                "resource_url": "portal.qwen.ai",
             }
             self_obj.is_functional = True
             return
@@ -859,7 +863,7 @@ class TestQwenOAuthToolCallingErrorHandling:
     @pytest.mark.skipif(
         not is_qwen_oauth_available(), reason="Qwen OAuth credentials not available"
     )
-    def test_qwen_oauth_invalid_tool_definition(self, qwen_oauth_client):
+    def test_qwen_oauth_invalid_tool_definition(self, qwen_oauth_client, respx_mock):
         """Test handling of invalid tool definitions."""
         # Invalid tool definition (missing required fields)
         invalid_tools = [
@@ -881,16 +885,13 @@ class TestQwenOAuthToolCallingErrorHandling:
             "stream": False,
         }
 
-        with respx.mock(assert_all_called=False) as respx_mock:
-            respx_mock.post(path="/v1/chat/completions").mock(
-                return_value=Response(
-                    400, json={"error": {"message": "Invalid tool definition"}}
-                )
+        respx_mock.post(path="/v1/chat/completions").mock(
+            return_value=Response(
+                400, json={"error": {"message": "Invalid tool definition"}}
             )
+        )
 
-            response = qwen_oauth_client.post(
-                "/v1/chat/completions", json=request_payload
-            )
+        response = qwen_oauth_client.post("/v1/chat/completions", json=request_payload)
 
         # Should either:
         # 1. Return 400 error for invalid tool definition

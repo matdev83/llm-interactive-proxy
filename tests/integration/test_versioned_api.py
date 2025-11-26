@@ -26,7 +26,11 @@ def app():
     os.environ["USE_NEW_BACKEND_SERVICE"] = "true"
     os.environ["USE_NEW_SESSION_SERVICE"] = "true"
     os.environ["USE_NEW_COMMAND_SERVICE"] = "true"
+    os.environ["USE_NEW_COMMAND_SERVICE"] = "true"
     os.environ["USE_NEW_REQUEST_PROCESSOR"] = "true"
+    # Ensure auth is NOT disabled by stray env vars from other tests
+    if "DISABLE_AUTH" in os.environ:
+        del os.environ["DISABLE_AUTH"]
 
     # Create a test configuration with proper API keys
     test_config = AppConfig(

@@ -570,7 +570,9 @@ class OpenAIConnector(LLMBackend):
 
         def _strip_none(value: Any) -> Any:
             if isinstance(value, list):
-                cleaned_list = [item for item in (_strip_none(v) for v in value) if item is not None]
+                cleaned_list = [
+                    item for item in (_strip_none(v) for v in value) if item is not None
+                ]
                 return cleaned_list
             if isinstance(value, dict):
                 cleaned_dict: dict[str, Any] = {}
@@ -629,14 +631,8 @@ class OpenAIConnector(LLMBackend):
             except Exception:
                 response_headers = {}
 
-        content_dict = domain_response.model_dump()
-        logger.info(f"DEBUG: OpenAIConnector content type: {type(content_dict)}")
-        if isinstance(content_dict, dict) and "choices" in content_dict:
-             logger.info(f"DEBUG: OpenAIConnector choice content: {content_dict['choices'][0]['message'].get('content')}")
-             logger.info(f"DEBUG: OpenAIConnector choice tool_calls: {content_dict['choices'][0]['message'].get('tool_calls')}")
-
         return ResponseEnvelope(
-            content=content_dict,
+            content=domain_response.model_dump(),
             status_code=response.status_code,
             headers=response_headers,
             usage=domain_response.usage,

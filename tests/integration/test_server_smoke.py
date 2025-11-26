@@ -164,11 +164,11 @@ def _log_has_critical_errors(path: str) -> bool:
             with open(candidate, encoding="utf-8", errors="ignore") as f:
                 data = f.read()
                 # Allow WARNINGs; fail on ERROR/CRITICAL (line starts or anywhere)
-                if data.startswith(("ERROR", "CRITICAL")):
-                    return True
-                if ("\nERROR" in data) or ("\nCRITICAL" in data):
-                    return True
-                return False
+                return (
+                    data.startswith(("ERROR", "CRITICAL"))
+                    or ("\nERROR" in data)
+                    or ("\nCRITICAL" in data)
+                )
         except FileNotFoundError:
             continue
     # If no log file could be found, treat as failure to surface startup issues
