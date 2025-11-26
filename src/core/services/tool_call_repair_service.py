@@ -392,11 +392,18 @@ class ToolCallRepairService(IToolCallRepairService):
         if "<" not in content or "</" not in content:
             return None
 
+        normalized_allowed = allowed_tools or None
+        allowed_set = (
+            {tool_name.lower() for tool_name in normalized_allowed}
+            if normalized_allowed
+            else None
+        )
+
         # Priority matching for known tool tags (to avoid matching inner tags like <command>)
         # Use allowed_tools if provided, otherwise fallback to known_tools
         target_tools = (
-            allowed_tools
-            if allowed_tools is not None
+            normalized_allowed
+            if normalized_allowed is not None
             else [
                 "use_mcp_tool",
                 "execute_command",
@@ -425,6 +432,16 @@ class ToolCallRepairService(IToolCallRepairService):
             if not matches:
                 return None
             candidate_snippets = [match.group(0) for match in matches]
+
+        if allowed_set is not None:
+            filtered_snippets: list[str] = []
+            for snippet in candidate_snippets:
+                tag_match = re.match(r"<([A-Za-z0-9_\-]+)", snippet)
+                if tag_match and tag_match.group(1).lower() in allowed_set:
+                    filtered_snippets.append(snippet)
+            candidate_snippets = filtered_snippets
+            if not candidate_snippets:
+                return None
 
         for xml_snippet in candidate_snippets:
 

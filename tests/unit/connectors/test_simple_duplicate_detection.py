@@ -11,6 +11,27 @@ import os
 import pytest
 
 
+class CallExtractor(ast.NodeVisitor):
+    """AST visitor to extract function calls without performance issues from nested ast.walk()."""
+
+    def __init__(self):
+        self.calls = []
+
+    def visit_Call(self, node: ast.Call) -> None:
+        """Extract the called function name from Call nodes."""
+        called_name = None
+        if hasattr(node.func, "id"):
+            called_name = node.func.id
+        elif hasattr(node.func, "attr"):
+            called_name = node.func.attr
+
+        if called_name:
+            self.calls.append({"name": called_name, "line": node.lineno})
+
+        # Continue visiting child nodes
+        self.generic_visit(node)
+
+
 def test_static_analysis_for_non_streaming_calling_streaming():
     """
     Static analysis test that will fail if non-streaming methods call streaming methods.
@@ -47,19 +68,10 @@ def test_static_analysis_for_non_streaming_calling_streaming():
 
         # Analyze function calls within each function
         for _func_name, func_info in functions.items():
-            for child in ast.walk(func_info["node"]):
-                if isinstance(child, ast.Call):
-                    # Get the name of the called function
-                    called_name = None
-                    if hasattr(child.func, "id"):
-                        called_name = child.func.id
-                    elif hasattr(child.func, "attr"):
-                        called_name = child.func.attr
-
-                    if called_name:
-                        func_info["calls"].append(
-                            {"name": called_name, "line": child.lineno}
-                        )
+            # Use a visitor pattern to extract only direct calls, avoiding nested ast.walk inefficiency
+            call_extractor = CallExtractor()
+            call_extractor.visit(func_info["node"])
+            func_info["calls"] = call_extractor.calls
 
         # Check for problematic patterns
         for func_name, func_info in functions.items():

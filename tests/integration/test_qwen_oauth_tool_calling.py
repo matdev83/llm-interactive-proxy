@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 import respx
 from fastapi.testclient import TestClient
-from httpx import Response
+from httpx import AsyncByteStream, Response
 from src.core.app.test_builder import build_httpx_mock_test_app as build_app
 
 # Mark all tests in this module as integration and network tests
@@ -409,11 +409,22 @@ class TestQwenOAuthToolCalling:
             b"data: [DONE]\n\n",
         ]
 
+        class _AsyncListStream(AsyncByteStream):
+            def __init__(self, body: list[bytes]) -> None:
+                self._body = body
+
+            async def __aiter__(self):
+                for chunk in self._body:
+                    yield chunk
+
+            async def aclose(self) -> None:  # pragma: no cover - nothing to clean up
+                return None
+
         with respx.mock(assert_all_called=False) as respx_mock:
             respx_mock.post(path="/v1/chat/completions").mock(
                 return_value=Response(
                     200,
-                    content=iter(chunks),
+                    stream=_AsyncListStream(chunks),
                     headers={"Content-Type": "text/event-stream"},
                 )
             )

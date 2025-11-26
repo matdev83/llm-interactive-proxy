@@ -113,6 +113,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     # Format: (outer_opener, inner_tag, outer_closer)
                     # inner_tag is used to close truncated inner tags before closing outer
                     synthetic_calls = (
+                        ("<new_task", "message", "</new_task>"),
+                        ("<update_todo_list", "todos", "</update_todo_list>"),
+                        ("<switch_mode", "mode_slug", "</switch_mode>"),
                         ("<use_mcp_tool", "arguments", "</use_mcp_tool>"),
                         ("<patch_file", "patch_content", "</patch_file>"),
                         ("<execute_command", "command", "</execute_command>"),
@@ -150,25 +153,26 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
                             repaired_result = (
                                 self.tool_call_repair_service.repair_tool_calls(
-                                    synthetic_buffer
+                                    synthetic_buffer,
+                                    allowed_tools=buffer_state.allowed_tools,
                                 )
                             )
-                            if repaired_result:
-                                detected_tool_calls.append(repaired_result.tool_call)
-                                snippet = repaired_result.snippet
-                                if snippet:
-                                    idx = synthetic_buffer.find(snippet)
-                                    prefix = synthetic_buffer[:idx]
-                                    suffix = synthetic_buffer[idx + len(snippet) :]
-                                    if prefix.strip():
-                                        repaired_content_parts.append(prefix)
-                                    # CRITICAL: Keep the XML in content for clients like Kilo-Code
-                                    repaired_content_parts.append(snippet)
-                                    if suffix.strip():
-                                        repaired_content_parts.append(suffix)
-                                handled = True
-                                buffer_text = ""
-                                break
+                        if repaired_result:
+                            detected_tool_calls.append(repaired_result.tool_call)
+                            snippet = repaired_result.snippet
+                            if snippet:
+                                idx = synthetic_buffer.find(snippet)
+                                prefix = synthetic_buffer[:idx]
+                                suffix = synthetic_buffer[idx + len(snippet) :]
+                                if prefix.strip():
+                                    repaired_content_parts.append(prefix)
+                                # CRITICAL: Keep the XML in content for clients like Kilo-Code
+                                repaired_content_parts.append(snippet)
+                                if suffix.strip():
+                                    repaired_content_parts.append(suffix)
+                            handled = True
+                            buffer_text = ""
+                            break
                     if not handled and buffer_text:
                         repaired_content_parts.append(buffer_text)
                 buffer_state.pending_text = ""
@@ -187,6 +191,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     # Markers for XML tool tags that should NOT be flushed prematurely
                     # Must match the tags in synthetic_calls above
                     markers = (
+                        "<new_task",
+                        "<update_todo_list",
+                        "<switch_mode",
                         "<use_mcp_tool",
                         "<patch_file",
                         "<execute_command",
@@ -306,6 +313,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
         # Must match the markers used in process() to prevent premature flushing
         markers = (
+            "<new_task",
+            "<update_todo_list",
+            "<switch_mode",
             "<use_mcp_tool",
             "<patch_file",
             "<execute_command",

@@ -127,6 +127,9 @@ class TestToolCallMarkerDetection:
     ) -> None:
         """All tool markers should be protected from mid-buffer flushing."""
         tool_markers = [
+            "<new_task",
+            "<update_todo_list",
+            "<switch_mode",
             "<use_mcp_tool",
             "<patch_file",
             "<execute_command",

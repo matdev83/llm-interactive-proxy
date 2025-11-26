@@ -338,6 +338,49 @@ class TestSyntheticClosingTagInjection:
         arguments = json.loads(tool_calls[0]["function"]["arguments"])
         assert "./.venv/Scripts/python.exe -m pytest" in arguments["command"]
 
+    @pytest.mark.asyncio
+    async def test_truncated_new_task_repaired_with_allowed_tools(
+        self,
+        processor: ToolCallRepairProcessor,
+        registry: StreamingContextRegistry,
+    ) -> None:
+        """
+        Ensure truncated new_task XML is repaired when allowed tools are set,
+        and does not incorrectly emit inner parameter tags as tool calls.
+        """
+        session_id = "new-task-session"
+        registry.get_tool_call_buffer(session_id).allowed_tools = ["new_task"]
+
+        initial_chunk = StreamingContent(
+            content="<new_task>\n<mode>code</mode>\n<message>Fix cleanliness tests",
+            is_done=False,
+            metadata={"session_id": session_id},
+        )
+
+        intermediate = await processor.process(initial_chunk)
+        tool_calls = (
+            intermediate.metadata.get("tool_calls") if intermediate.metadata else None
+        )
+        assert not tool_calls, f"Unexpected tool calls detected early: {tool_calls}"
+
+        final_chunk = await processor.process(
+            StreamingContent(
+                content="", is_done=True, metadata={"session_id": session_id}
+            )
+        )
+
+        final_tool_calls = (
+            final_chunk.metadata.get("tool_calls") if final_chunk.metadata else None
+        )
+        assert final_tool_calls, "Expected repaired new_task tool call at end-of-stream"
+        tool_call = cast(dict[str, Any], final_tool_calls[0])
+        assert tool_call["function"]["name"] == "new_task"
+
+        arguments = json.loads(tool_call["function"]["arguments"])
+        assert arguments.get("mode") == "code"
+        assert "Fix cleanliness tests" in arguments.get("message", "")
+        assert final_chunk.metadata.get("finish_reason") == "tool_calls"
+
 
 class TestAllToolTagsAreBuffered:
     """
@@ -360,6 +403,9 @@ class TestAllToolTagsAreBuffered:
         "access_mcp_resource",
         "use_mcp_tool",
         "patch_file",
+        "new_task",
+        "update_todo_list",
+        "switch_mode",
     ]
 
     def test_all_tool_tags_in_processor_markers(self) -> None:
