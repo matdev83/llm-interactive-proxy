@@ -162,20 +162,25 @@ async def test_in_chat_reasoning_commands() -> None:
             "thinking-budget": ThinkingBudgetHandler(),
         }
 
-        processor = CoreCommandProcessor(command_service)
+        # Patch _is_cli_thinking_budget_enabled to ensure test isolation
+        with patch(
+            "src.core.commands.handlers.reasoning_handlers._is_cli_thinking_budget_enabled",
+            return_value=False,
+        ):
+            processor = CoreCommandProcessor(command_service)
 
-        messages = [
-            ChatMessage(
-                role="user",
-                content="Continue working. !/set(reasoning-effort=high, thinking-budget=1024)",
+            messages = [
+                ChatMessage(
+                    role="user",
+                    content="Continue working. !/set(reasoning-effort=high, thinking-budget=1024)",
+                )
+            ]
+
+            result = await processor.process_messages(
+                messages, session_id=session.session_id
             )
-        ]
 
-        result = await processor.process_messages(
-            messages, session_id=session.session_id
-        )
-
-        assert result.command_executed is True
+            assert result.command_executed is True
     assert result.command_results, "Expected at least one command result"
     assert result.command_results[0].message == "Settings updated"
 

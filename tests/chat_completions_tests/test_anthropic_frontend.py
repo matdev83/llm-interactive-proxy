@@ -34,6 +34,7 @@ def anthropic_client():
             "src.connectors.anthropic.AnthropicBackend.get_available_models",
             return_value=["claude-3-haiku-20240229"],
         ),
+        patch.dict("os.environ", {"DISABLE_AUTH": "false"}),
     ):
         # Create a proper AppConfig object with all settings
         auth_config = AuthConfig(disable_auth=False, api_keys=["test-proxy-key"])
