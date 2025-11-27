@@ -228,7 +228,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--log",
         dest="log_file",
         metavar="FILE",
-        help="Write logs to FILE (default: logs/proxy.log)",
+        help="Write logs to FILE (default: ./var/logs/proxy.log)",
     )
     parser.add_argument(
         "--capture-file",
@@ -878,7 +878,7 @@ def apply_cli_args(
         record_cli("logging.log_file", str(log_path), "--log")
     elif cfg.logging.log_file is None:
         # Set default log file only if none specified in config or CLI
-        default_log_file = Path("logs/proxy.log")
+        default_log_file = Path("./var/logs/proxy.log")
         # Ensure logs directory exists
         default_log_file.parent.mkdir(parents=True, exist_ok=True)
         # Apply the default to logging_overrides so it gets used

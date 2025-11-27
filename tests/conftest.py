@@ -202,7 +202,7 @@ pytestmark = pytest.mark.filterwarnings(
 
 
 def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
-    """Install warning filters in each worker process (xdist)."""
+    """Install warning filters in each worker process (xdist) and configure PID-based logging."""
     _install_global_warning_filters()
     config.addinivalue_line(
         "markers", "httpx_mock: mark tests that require pytest_httpx"
@@ -210,6 +210,21 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
     config.addinivalue_line(
         "markers", "asyncio: mark tests that require pytest_asyncio"
     )
+    
+    # Configure PID-based logging to avoid file locking with concurrent test runs
+    log_file = config.getini("log_file")
+    if log_file:
+        # Create ./var/logs/ directory if it doesn't exist
+        log_dir = Path("./var/logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique log filename with PID
+        pid = os.getpid()
+        log_path = log_dir / f"pytest-pid-{pid}.log"
+        
+        # Update pytest configuration with PID-based log file
+        config.option.log_file = str(log_path)
+        config.option.log_file_level = config.getini("log_file_level")
 
 
 # Test helper utilities expected by some tests

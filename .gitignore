@@ -95,3 +95,9 @@ data/test_suite_state.json
 dev/test_anthropic_client.py
 .dependency_check_cache
 ORACLE_OUTPUT.md
+var/logs/*
+!var/logs/.gitkeep
+var/wire_captures_json/*
+!var/wire_captures_json/.gitkeep
+var/wire_captures_cbor/*
+!var/wire_captures_cbor/.gitkeep
