@@ -256,7 +256,11 @@ class CoreServicesStage(InitializationStage):
         self._register_wire_capture_service(services)
 
     def _register_wire_capture_service(self, services: ServiceCollection) -> None:
-        """Register wire capture service."""
+        """Register wire capture service.
+
+        Selects between BufferedWireCapture (JSON) and CborWireCaptureService (CBOR)
+        based on configuration. CBOR capture is preferred when cbor_capture_dir is set.
+        """
         try:
             from src.core.interfaces.wire_capture_interface import IWireCapture
             from src.core.services.buffered_wire_capture_service import (
@@ -265,8 +269,34 @@ class CoreServicesStage(InitializationStage):
 
             def wire_capture_factory(
                 provider: IServiceProvider,
-            ) -> BufferedWireCapture:
+            ) -> IWireCapture:
                 config = provider.get_required_service(AppConfig)
+                logging_cfg = getattr(config, "logging", None)
+                cbor_capture_dir = (
+                    getattr(logging_cfg, "cbor_capture_dir", None)
+                    if logging_cfg
+                    else None
+                )
+
+                # Use CBOR capture if directory is configured
+                if cbor_capture_dir:
+                    from src.core.services.cbor_wire_capture_service import (
+                        CborWireCaptureService,
+                    )
+
+                    cbor_session_id = (
+                        getattr(logging_cfg, "cbor_capture_session_id", None)
+                        if logging_cfg
+                        else None
+                    )
+                    logger.info(f"Using CBOR wire capture: {cbor_capture_dir}")
+                    return CborWireCaptureService(
+                        config=config,
+                        capture_dir=cbor_capture_dir,
+                        session_id=cbor_session_id,
+                    )
+
+                # Fall back to JSON-based buffered capture
                 return BufferedWireCapture(config)
 
             services.add_singleton(

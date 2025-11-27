@@ -331,6 +331,12 @@ class LoggingConfig(DomainModel):
     # Maximum entries to buffer before forcing flush. Default 100.
     capture_max_entries_per_flush: int = 100
 
+    # CBOR byte-precise capture configuration (optional, complementary to JSON capture)
+    # Directory for CBOR capture files; when set, enables CBOR capture with byte precision
+    cbor_capture_dir: str | None = None
+    # Optional fixed session ID for CBOR capture; auto-generated if not provided
+    cbor_capture_session_id: str | None = None
+
 
 class ToolCallReactorConfig(DomainModel):
     """Configuration for the Tool Call Reactor system.

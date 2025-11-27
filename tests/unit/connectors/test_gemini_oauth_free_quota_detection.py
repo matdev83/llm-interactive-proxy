@@ -2,6 +2,8 @@
 Test quota exceeded detection for Gemini OAuth Personal connector.
 """
 
+import asyncio
+import contextlib
 from typing import cast
 from unittest.mock import AsyncMock, Mock, create_autospec, patch
 
@@ -17,7 +19,7 @@ class TestGeminiOAuthFreeQuotaDetection:
     """Test quota exceeded detection functionality."""
 
     @pytest.fixture
-    def connector(self) -> GeminiOAuthFreeConnector:
+    async def connector(self) -> GeminiOAuthFreeConnector:
         """Create a GeminiOAuthFreeConnector instance for testing."""
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
@@ -28,11 +30,27 @@ class TestGeminiOAuthFreeQuotaDetection:
         client = Mock()
         translation_service = create_autospec(TranslationService, instance=True)
 
-        return GeminiOAuthFreeConnector(
+        connector = GeminiOAuthFreeConnector(
             client=client,
             config=mock_config,
             translation_service=translation_service,
         )
+
+        yield connector
+
+        # Cleanup: Cancel any running background tasks
+        if connector._recovery_probe_task and not connector._recovery_probe_task.done():
+            connector._recovery_probe_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await connector._recovery_probe_task
+
+        # Cleanup wire capture flush tasks if they exist
+        if hasattr(connector, "client") and hasattr(connector.client, "_flush_task"):
+            flush_task = connector.client._flush_task
+            if flush_task and not flush_task.done():
+                flush_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await flush_task
 
     def test_mark_backend_unusable_sets_flags(
         self, connector: GeminiOAuthFreeConnector
@@ -191,6 +209,7 @@ class TestGeminiOAuthFreeQuotaDetection:
         assert exc_info.value.code == "quota_exceeded"
         assert "quota exhausted" in str(exc_info.value).lower()
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_streaming_quota_error_propagates_backend_error(
         self, connector: GeminiOAuthFreeConnector

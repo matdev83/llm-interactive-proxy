@@ -272,6 +272,18 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Total disk cap across capture files in bytes (env: CAPTURE_TOTAL_MAX_BYTES)",
     )
     parser.add_argument(
+        "--cbor-capture-dir",
+        dest="cbor_capture_dir",
+        metavar="DIR",
+        help="Directory for CBOR byte-precise capture files (enables CBOR capture)",
+    )
+    parser.add_argument(
+        "--cbor-capture-session",
+        dest="cbor_capture_session_id",
+        metavar="ID",
+        help="Fixed session ID for CBOR capture (auto-generated if omitted)",
+    )
+    parser.add_argument(
         "--config",
         dest="config_file",
         metavar="FILE",
@@ -912,6 +924,22 @@ def apply_cli_args(
             "logging.capture_total_max_bytes",
             args.capture_total_max_bytes,
             "--capture-total-max-bytes",
+        )
+
+    # CBOR byte-precise capture configuration
+    if getattr(args, "cbor_capture_dir", None) is not None:
+        logging_overrides["cbor_capture_dir"] = args.cbor_capture_dir
+        record_cli(
+            "logging.cbor_capture_dir",
+            args.cbor_capture_dir,
+            "--cbor-capture-dir",
+        )
+    if getattr(args, "cbor_capture_session_id", None) is not None:
+        logging_overrides["cbor_capture_session_id"] = args.cbor_capture_session_id
+        record_cli(
+            "logging.cbor_capture_session_id",
+            args.cbor_capture_session_id,
+            "--cbor-capture-session",
         )
 
     # Add logging overrides to main overrides if any

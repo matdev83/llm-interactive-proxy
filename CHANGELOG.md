@@ -1,5 +1,102 @@
 # Changelog
 
+## [2025-11-27] - CBOR Wire Capture and Simulation Engine
+
+### New Feature: Byte-Precise Wire Capture with CBOR
+
+- **CBOR Binary Format**: Introduced a new wire capture format using CBOR (Concise Binary Object Representation) for byte-level precision capture of all proxy traffic
+  - **Nanosecond Timestamps**: Uses CBOR Tag 1 for precise timing information, enabling accurate replay of streaming responses
+  - **Raw Byte Capture**: Captures exact bytes without JSON serialization overhead or escaping issues
+  - **Streaming Chunk Tracking**: Each SSE chunk captured individually with sequence numbers and timing metadata
+  - **Direction Tracking**: Distinguishes between client->proxy, proxy->client, proxy->backend, and backend->proxy traffic
+
+- **Domain Models**: New `src/core/domain/cbor_capture.py` with:
+  - `CaptureDirection` enum for traffic direction
+  - `CaptureMetadata` for session, backend, model, and streaming metadata
+  - `CaptureEntry` for individual capture entries with timestamps and raw bytes
+  - `CaptureFileHeader` for file metadata and validation
+  - `CaptureSession` for complete session representation with filtering methods
+
+- **CBOR Wire Capture Service**: New `src/core/services/cbor_wire_capture_service.py` implementing `IWireCapture`:
+  - Async buffered I/O with background flushing for minimal performance impact
+  - Automatic session file creation and management
+  - Stream wrapping for capturing SSE chunks with timing
+  - Graceful shutdown with final buffer flush
+
+- **CLI Integration**: New command-line arguments:
+  - `--cbor-capture-dir DIR`: Enable CBOR capture to specified directory
+  - `--cbor-capture-session ID`: Set specific session ID for capture file naming
+
+- **Configuration**: New `LoggingConfig` options:
+  - `cbor_capture_dir`: Directory for CBOR capture files
+  - `cbor_capture_session`: Optional fixed session ID
+
+### New Feature: Traffic Simulation Engine
+
+- **Simulation Module**: New `src/core/simulation/` package for replay-based regression testing:
+  - `CaptureReader`: Loads and parses CBOR capture files with filtering and statistics
+  - `TimingController`: Manages timing delays for accurate replay
+  - `BackendSimulator`: Mock backend server that replays captured responses with timing
+  - `ClientSimulator`: Replays client requests and validates responses
+  - `SimulationRunner`: Orchestrates full session replay with comprehensive validation
+
+- **Simulation CLI**: New command-line tool (`python -m src.core.simulation.cli`):
+  - `inspect`: View capture file summary and statistics
+  - `list`: List all capture files in a directory
+  - `replay`: Replay captured session against a running proxy with validation
+
+- **Validation Results**: Comprehensive validation including:
+  - Content mismatch detection with byte-level comparison
+  - Timing deviation tracking with configurable tolerance
+  - Detailed reports with summaries and failure details
+
+### Test Infrastructure
+
+- **Pytest Fixtures**: New `tests/simulation/conftest.py` with:
+  - `temp_capture_dir`: Temporary directory for test captures
+  - `capture_reader`, `timing_controller`, `simulation_runner`: Pre-configured instances
+  - `simple_capture_file`, `streaming_capture_file`: Ready-to-use test captures
+  - Helper functions: `create_capture_file`, `create_simple_request_response`, `create_streaming_response`
+
+- **Unit Tests**: Comprehensive test coverage in `tests/unit/core/services/test_cbor_wire_capture_service.py`:
+  - Domain model serialization and deserialization
+  - Capture service initialization and configuration
+  - Request/response capture for all directions
+  - Streaming capture with timing preservation
+  - Shutdown and buffer flushing
+
+### Architecture
+
+- **Conditional Registration**: `CoreServicesStage` now conditionally registers either `BufferedWireCapture` (JSON format) or `CborWireCaptureService` based on `cbor_capture_dir` configuration
+- **Interface Compliance**: New CBOR service implements existing `IWireCapture` interface for seamless integration
+- **Backward Compatible**: JSON wire capture remains the default; CBOR capture is opt-in via configuration
+
+### Use Cases
+
+- **Regression Testing**: Capture known-good sessions and replay to detect behavioral changes
+- **Streaming Debugging**: Inspect exact byte sequences and timing for SSE issues
+- **CI/CD Integration**: Automated replay tests in continuous integration pipelines
+- **Performance Analysis**: Analyze timing patterns and identify bottlenecks
+
+### Files Added
+
+- `src/core/domain/cbor_capture.py` - Domain models for CBOR capture
+- `src/core/services/cbor_wire_capture_service.py` - CBOR wire capture implementation
+- `src/core/simulation/__init__.py` - Simulation module exports
+- `src/core/simulation/capture_reader.py` - CBOR file parser
+- `src/core/simulation/timing_controller.py` - Timing management for replay
+- `src/core/simulation/backend_simulator.py` - Mock backend server
+- `src/core/simulation/client_simulator.py` - Client request replayer
+- `src/core/simulation/simulation_runner.py` - Orchestration and validation
+- `src/core/simulation/cli.py` - Simulation CLI tool
+- `tests/simulation/__init__.py` - Test package marker
+- `tests/simulation/conftest.py` - Pytest fixtures
+- `tests/unit/core/services/test_cbor_wire_capture_service.py` - Unit tests
+
+### Dependencies
+
+- Added `cbor2` library for CBOR encoding/decoding
+
 ## [2025-11-25] - Unified Streaming Pipeline & Tool Call Reliability
 
 ### Major Refactoring: Unified Response Pipeline

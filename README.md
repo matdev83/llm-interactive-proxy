@@ -86,6 +86,7 @@ graph TD
 - [File Access Sandboxing](#file-access-sandboxing)
 - [Security](#security)
 - [Debugging (Wire Capture)](#debugging-wire-capture)
+  - [CBOR Wire Capture and Simulation Engine](#cbor-wire-capture-and-simulation-engine)
 - [Optional Capabilities (Short List)](#optional-capabilities-short-list)
 - [Example Config (minimal)](#example-config-minimal)
 - [Popular Scenarios](#popular-scenarios)
@@ -1574,6 +1575,227 @@ authentications reset the counter immediately.
 ### Advanced Wire Capture Documentation
 
 For detailed information about wire capture formats, migration between versions, and processing examples, see [docs/wire_capture_formats.md](docs/wire_capture_formats.md).
+
+### CBOR Wire Capture and Simulation Engine
+
+The proxy includes an advanced byte-precise wire capture system using CBOR (Concise Binary Object Representation) format, designed for regression testing and session replay. This captures raw bytes with nanosecond-precision timestamps, enabling exact reproduction of client/server interactions.
+
+#### Why CBOR Capture?
+
+- **Byte-Level Precision**: Captures raw bytes without JSON serialization overhead or escaping issues
+- **Nanosecond Timestamps**: CBOR Tag 1 timestamps enable precise timing replay for streaming responses
+- **Streaming Support**: Each SSE chunk is captured individually with timing metadata
+- **Regression Testing**: Replay captured sessions to detect behavioral changes in proxy processing
+- **Debugging**: Inspect exact byte sequences for troubleshooting complex streaming issues
+
+#### Enabling CBOR Capture
+
+**CLI Arguments:**
+
+```bash
+# Enable CBOR capture to a directory
+python -m src.core.cli --cbor-capture-dir ./captures
+
+# With a specific session ID (useful for organizing captures)
+python -m src.core.cli --cbor-capture-dir ./captures --cbor-capture-session my-test-session
+```
+
+**Configuration File (config.yaml):**
+
+```yaml
+logging:
+  # CBOR capture configuration
+  cbor_capture_dir: "./captures"           # Directory for CBOR capture files
+  cbor_capture_session: "session-001"       # Optional: fixed session ID
+  
+  # Shared settings (used by both JSON and CBOR capture)
+  capture_flush_interval: 1.0               # Flush interval in seconds
+```
+
+**Environment Variables:**
+
+```bash
+export CBOR_CAPTURE_DIR="./captures"
+export CBOR_CAPTURE_SESSION="my-session-id"
+```
+
+#### Capture File Format
+
+Each session creates a file named `{session_id}.cbor` containing:
+
+1. **File Header**: Magic number, version, session metadata, start timestamp
+2. **Capture Entries**: Sequence of entries, each containing:
+   - `ts`: Unix timestamp with nanosecond precision (CBOR Tag 1)
+   - `dir`: Direction (0=client->proxy, 1=proxy->client, 2=proxy->backend, 3=backend->proxy)
+   - `seq`: Sequence number within session
+   - `data`: Raw bytes captured
+   - `meta`: Optional metadata (session_id, backend, model, chunk info)
+
+#### Simulation CLI
+
+The proxy includes a simulation CLI for inspecting and replaying captured sessions:
+
+**Inspect a Capture File:**
+
+```bash
+# View summary of a capture file
+python -m src.core.simulation.cli inspect ./captures/session-001.cbor
+
+# Output in JSON format
+python -m src.core.simulation.cli inspect ./captures/session-001.cbor --json
+```
+
+Example output:
+
+```
+--- Capture File Inspection: ./captures/session-001.cbor ---
+Session ID: session-001
+Start Timestamp: 1732752000.123456
+Statistics:
+  Total Entries: 47
+  Total Bytes: 125432
+  Duration: 3.45s
+  Streams: 2
+
+Direction Counts:
+  client_to_proxy: 5
+  proxy_to_backend: 5
+  backend_to_proxy: 32
+  proxy_to_client: 5
+
+Timing:
+  Min Delta: 0.0001s
+  Max Delta: 0.8234s
+  Avg Delta: 0.0734s
+```
+
+**List Capture Files in Directory:**
+
+```bash
+python -m src.core.simulation.cli list ./captures/
+```
+
+**Replay a Captured Session:**
+
+```bash
+# Replay against a running proxy instance
+python -m src.core.simulation.cli replay ./captures/session-001.cbor \
+  --proxy-url http://localhost:8000 \
+  --backend-port 8001
+```
+
+The replay command:
+
+1. Starts a mock backend server on the specified port that replays captured backend responses
+2. Sends captured client requests to the proxy
+3. Validates proxy responses against captured expectations
+4. Reports mismatches in content or timing
+
+#### Using in Automated Tests
+
+**Pytest Fixtures:**
+
+The simulation module provides pytest fixtures for integration testing:
+
+```python
+import pytest
+from tests.simulation.conftest import (
+    create_capture_file,
+    create_simple_request_response,
+    create_streaming_response,
+)
+
+def test_with_captured_session(temp_capture_dir, capture_reader):
+    """Test using a captured session."""
+    # Create a test capture file
+    path = temp_capture_dir / "test.cbor"
+    entries = create_simple_request_response(
+        request_data=b'{"model": "test", "messages": []}',
+        response_data=b'{"choices": [{"message": {"content": "Hello"}}]}',
+    )
+    create_capture_file(path, entries)
+    
+    # Load and validate
+    session = capture_reader.load(path)
+    assert len(session.entries) == 4
+    assert session.header.session_id == "test-session"
+
+
+@pytest.mark.asyncio
+async def test_client_simulation(client_simulator_fixture):
+    """Test client simulation against a proxy."""
+    async with client_simulator_fixture as simulator:
+        results = await simulator.replay_session()
+        for result in results:
+            assert result.success, result.summary
+```
+
+**Streaming Regression Tests with Captured Data:**
+
+```python
+from src.core.domain.cbor_capture import CaptureDirection
+from src.core.simulation import CaptureReader
+
+def test_streaming_behavior_matches_capture(capture_file_path):
+    """Verify streaming behavior matches a known-good capture."""
+    reader = CaptureReader()
+    session = reader.load(capture_file_path)
+    
+    # Get backend streaming chunks
+    backend_entries = session.get_backend_entries()
+    stream_chunks = [
+        e for e in backend_entries
+        if e.direction == CaptureDirection.BACKEND_TO_PROXY
+        and e.metadata.chunk_index is not None
+    ]
+    
+    # Validate timing deltas are within expected range
+    timing_deltas = session.get_timing_deltas()
+    assert all(d >= 0 for d in timing_deltas), "Negative timing delta detected"
+```
+
+**Simulation Runner for End-to-End Tests:**
+
+```python
+import pytest
+from src.core.simulation import SimulationRunner
+
+@pytest.mark.asyncio
+async def test_full_session_replay():
+    """End-to-end test using captured session."""
+    runner = SimulationRunner(
+        proxy_base_url="http://localhost:8000",
+        timing_tolerance_ms=100.0,
+        speed_multiplier=10.0,  # 10x speed for faster tests
+    )
+    
+    result = await runner.run("./captures/known-good-session.cbor")
+    
+    assert result.success, result.summary
+    assert result.failed_requests == 0
+    assert len(result.content_mismatches) == 0
+```
+
+#### Capture vs JSON Wire Capture
+
+| Feature | JSON Wire Capture | CBOR Wire Capture |
+|---------|------------------|-------------------|
+| Format | JSON Lines (.log) | CBOR Binary (.cbor) |
+| Precision | Millisecond timestamps | Nanosecond timestamps |
+| Streaming | Aggregated chunks | Individual chunks with timing |
+| Use Case | Debugging, analysis | Regression testing, replay |
+| Overhead | Higher (JSON encoding) | Lower (binary) |
+| Tooling | jq, text editors | Simulation CLI |
+
+**Recommendation**: Use JSON wire capture for debugging and log analysis. Use CBOR capture for automated regression testing and session replay.
+
+#### Best Practices
+
+1. **Organize Captures**: Use meaningful session IDs that include date and test scenario
+2. **Capture Golden Sessions**: Create captures of known-good behavior for regression testing
+3. **Version Captures**: Store captures in version control for CI/CD pipelines
+4. **Timing Tolerance**: Set appropriate timing tolerance for your test environment (CI may need higher values)
+5. **Cleanup**: Regularly clean up old capture files to manage disk usage
 
 ## URI Model Parameters
 

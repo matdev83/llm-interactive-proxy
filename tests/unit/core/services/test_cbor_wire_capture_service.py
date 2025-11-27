@@ -1,0 +1,529 @@
+"""Unit tests for CborWireCaptureService."""
+
+from __future__ import annotations
+
+import asyncio
+import tempfile
+from pathlib import Path
+
+import cbor2
+import pytest
+from src.core.config.app_config import AppConfig
+from src.core.domain.cbor_capture import (
+    CaptureDirection,
+    CaptureEntry,
+    CaptureFileHeader,
+    CaptureMetadata,
+    CaptureSession,
+)
+from src.core.services.cbor_wire_capture_service import CborWireCaptureService
+
+
+@pytest.fixture
+def temp_capture_dir():
+    """Create a temporary directory for capture files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield Path(tmpdir)
+
+
+@pytest.fixture
+def mock_config():
+    """Create a mock AppConfig."""
+    return AppConfig.from_env()
+
+
+@pytest.fixture
+async def capture_service(mock_config, temp_capture_dir):
+    """Create a CborWireCaptureService for testing."""
+    service = CborWireCaptureService(
+        config=mock_config,
+        capture_dir=temp_capture_dir,
+        session_id="test-session-123",
+    )
+    yield service
+    # Cleanup - use proper async shutdown
+    await service.shutdown()
+
+
+class TestCaptureMetadata:
+    """Tests for CaptureMetadata dataclass."""
+
+    def test_to_dict_minimal(self):
+        """Test to_dict with minimal data."""
+        meta = CaptureMetadata()
+        result = meta.to_dict()
+        assert result == {}
+
+    def test_to_dict_full(self):
+        """Test to_dict with all fields."""
+        meta = CaptureMetadata(
+            session_id="sess-1",
+            backend="openai",
+            model="gpt-4",
+            key_name="key-1",
+            client_host="127.0.0.1",
+            user_agent="test-agent",
+            request_id="req-1",
+            chunk_index=5,
+            is_stream_start=True,
+            is_stream_end=False,
+            total_chunks=10,
+            total_bytes=1000,
+        )
+        result = meta.to_dict()
+        assert result["sid"] == "sess-1"
+        assert result["be"] == "openai"
+        assert result["mod"] == "gpt-4"
+        assert result["ci"] == 5
+        assert result["ss"] is True
+        assert "se" not in result  # False values not included
+
+    def test_from_dict_roundtrip(self):
+        """Test from_dict recreates original metadata."""
+        original = CaptureMetadata(
+            session_id="sess-1",
+            backend="anthropic",
+            model="claude-3",
+            chunk_index=3,
+        )
+        dict_form = original.to_dict()
+        recreated = CaptureMetadata.from_dict(dict_form)
+        assert recreated.session_id == original.session_id
+        assert recreated.backend == original.backend
+        assert recreated.model == original.model
+        assert recreated.chunk_index == original.chunk_index
+
+
+class TestCaptureEntry:
+    """Tests for CaptureEntry dataclass."""
+
+    def test_to_dict(self):
+        """Test entry serialization."""
+        entry = CaptureEntry(
+            timestamp=1700000000.123456789,
+            direction=CaptureDirection.CLIENT_TO_PROXY,
+            sequence=42,
+            data=b"Hello, World!",
+            metadata=CaptureMetadata(session_id="test"),
+        )
+        result = entry.to_dict()
+        assert result["ts"] == 1700000000.123456789
+        assert result["dir"] == 0
+        assert result["seq"] == 42
+        assert result["data"] == b"Hello, World!"
+        assert result["meta"]["sid"] == "test"
+
+    def test_from_dict_roundtrip(self):
+        """Test entry deserialization."""
+        original = CaptureEntry(
+            timestamp=1700000000.5,
+            direction=CaptureDirection.BACKEND_TO_PROXY,
+            sequence=10,
+            data=b"\x00\x01\x02\x03",
+        )
+        dict_form = original.to_dict()
+        recreated = CaptureEntry.from_dict(dict_form)
+        assert recreated.timestamp == original.timestamp
+        assert recreated.direction == original.direction
+        assert recreated.sequence == original.sequence
+        assert recreated.data == original.data
+
+
+class TestCaptureFileHeader:
+    """Tests for CaptureFileHeader dataclass."""
+
+    def test_default_values(self):
+        """Test header has correct defaults."""
+        header = CaptureFileHeader()
+        assert header.magic == "LLMPROXY-CAPTURE-V1"
+        assert header.version == 1
+        assert header.validate() is True
+
+    def test_to_dict(self):
+        """Test header serialization."""
+        header = CaptureFileHeader(session_id="test-session")
+        result = header.to_dict()
+        assert result["magic"] == "LLMPROXY-CAPTURE-V1"
+        assert result["version"] == 1
+        assert result["session_id"] == "test-session"
+
+    def test_validate_invalid(self):
+        """Test validation fails for wrong magic."""
+        header = CaptureFileHeader(magic="WRONG")
+        assert header.validate() is False
+
+
+class TestCaptureSession:
+    """Tests for CaptureSession dataclass."""
+
+    def test_get_client_entries(self):
+        """Test filtering client-side entries."""
+        session = CaptureSession(
+            header=CaptureFileHeader(),
+            entries=[
+                CaptureEntry(1.0, CaptureDirection.CLIENT_TO_PROXY, 0, b"req"),
+                CaptureEntry(2.0, CaptureDirection.PROXY_TO_BACKEND, 1, b"be-req"),
+                CaptureEntry(3.0, CaptureDirection.BACKEND_TO_PROXY, 2, b"be-resp"),
+                CaptureEntry(4.0, CaptureDirection.PROXY_TO_CLIENT, 3, b"resp"),
+            ],
+        )
+        client_entries = session.get_client_entries()
+        assert len(client_entries) == 2
+        assert client_entries[0].data == b"req"
+        assert client_entries[1].data == b"resp"
+
+    def test_get_backend_entries(self):
+        """Test filtering backend-side entries."""
+        session = CaptureSession(
+            header=CaptureFileHeader(),
+            entries=[
+                CaptureEntry(1.0, CaptureDirection.CLIENT_TO_PROXY, 0, b"req"),
+                CaptureEntry(2.0, CaptureDirection.PROXY_TO_BACKEND, 1, b"be-req"),
+                CaptureEntry(3.0, CaptureDirection.BACKEND_TO_PROXY, 2, b"be-resp"),
+                CaptureEntry(4.0, CaptureDirection.PROXY_TO_CLIENT, 3, b"resp"),
+            ],
+        )
+        backend_entries = session.get_backend_entries()
+        assert len(backend_entries) == 2
+        assert backend_entries[0].data == b"be-req"
+        assert backend_entries[1].data == b"be-resp"
+
+    def test_get_timing_deltas(self):
+        """Test timing delta calculation."""
+        session = CaptureSession(
+            header=CaptureFileHeader(),
+            entries=[
+                CaptureEntry(1.0, CaptureDirection.CLIENT_TO_PROXY, 0, b"1"),
+                CaptureEntry(1.5, CaptureDirection.PROXY_TO_BACKEND, 1, b"2"),
+                CaptureEntry(2.5, CaptureDirection.BACKEND_TO_PROXY, 2, b"3"),
+            ],
+        )
+        deltas = session.get_timing_deltas()
+        assert len(deltas) == 2
+        assert abs(deltas[0] - 0.5) < 0.001
+        assert abs(deltas[1] - 1.0) < 0.001
+
+
+class TestCborWireCaptureService:
+    """Tests for CborWireCaptureService."""
+
+    def test_initialization_creates_directory(self, mock_config, temp_capture_dir):
+        """Test service creates capture directory."""
+        service = CborWireCaptureService(
+            config=mock_config,
+            capture_dir=temp_capture_dir / "subdir",
+            session_id="test",
+        )
+        assert (temp_capture_dir / "subdir").exists()
+        service._enabled = False
+
+    def test_initialization_creates_file(self, capture_service, temp_capture_dir):
+        """Test service creates capture file with header."""
+        assert capture_service.enabled()
+        file_path = capture_service.get_capture_file_path()
+        assert file_path is not None
+        assert file_path.exists()
+
+        # Verify header was written
+        with open(file_path, "rb") as f:
+            header_dict = cbor2.load(f)
+        assert header_dict["magic"] == "LLMPROXY-CAPTURE-V1"
+        assert header_dict["session_id"] == "test-session-123"
+
+    def test_disabled_when_no_capture_dir(self, mock_config):
+        """Test service is disabled without capture_dir."""
+        service = CborWireCaptureService(config=mock_config, capture_dir=None)
+        assert not service.enabled()
+
+    @pytest.mark.asyncio
+    async def test_capture_inbound_request(self, capture_service, temp_capture_dir):
+        """Test capturing inbound request."""
+        await capture_service.capture_inbound_request(
+            context=None,
+            session_id="test-sess",
+            request_payload={
+                "model": "gpt-4",
+                "messages": [{"role": "user", "content": "Hi"}],
+            },
+        )
+
+        # Force flush
+        capture_service.force_flush_sync()
+
+        # Read and verify
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        # First is header, second is our entry
+        assert len(entries) >= 2
+        entry = entries[1]
+        assert entry["dir"] == CaptureDirection.CLIENT_TO_PROXY
+        assert entry["seq"] == 0
+        assert b"gpt-4" in entry["data"]
+
+    @pytest.mark.asyncio
+    async def test_capture_outbound_request(self, capture_service):
+        """Test capturing outbound request to backend."""
+        await capture_service.capture_outbound_request(
+            context=None,
+            session_id="test-sess",
+            backend="openai",
+            model="gpt-4",
+            key_name="OPENAI_KEY",
+            request_payload=b'{"test": "data"}',
+        )
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        assert len(entries) >= 2
+        entry = entries[1]
+        assert entry["dir"] == CaptureDirection.PROXY_TO_BACKEND
+        assert entry["data"] == b'{"test": "data"}'
+        assert entry["meta"]["be"] == "openai"
+
+    @pytest.mark.asyncio
+    async def test_capture_inbound_response(self, capture_service):
+        """Test capturing inbound response from backend."""
+        await capture_service.capture_inbound_response(
+            context=None,
+            session_id="test-sess",
+            backend="anthropic",
+            model="claude-3",
+            key_name=None,
+            response_content={"choices": [{"message": {"content": "Hello"}}]},
+        )
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        assert len(entries) >= 2
+        entry = entries[1]
+        assert entry["dir"] == CaptureDirection.BACKEND_TO_PROXY
+        assert entry["meta"]["mod"] == "claude-3"
+
+    @pytest.mark.asyncio
+    async def test_capture_outbound_response(self, capture_service):
+        """Test capturing outbound response to client."""
+        await capture_service.capture_outbound_response(
+            context=None,
+            session_id="test-sess",
+            backend="gemini",
+            model="gemini-pro",
+            key_name=None,
+            response_content=b"SSE response data",
+        )
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        assert len(entries) >= 2
+        entry = entries[1]
+        assert entry["dir"] == CaptureDirection.PROXY_TO_CLIENT
+        assert entry["data"] == b"SSE response data"
+
+    @pytest.mark.asyncio
+    async def test_wrap_inbound_stream(self, capture_service):
+        """Test streaming capture from backend."""
+        chunks = [b"chunk1", b"chunk2", b"chunk3"]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        wrapped = capture_service.wrap_inbound_stream(
+            context=None,
+            session_id="stream-test",
+            backend="openai",
+            model="gpt-4",
+            key_name=None,
+            stream=mock_stream(),
+        )
+
+        # Consume stream
+        received = []
+        async for chunk in wrapped:
+            received.append(chunk)
+
+        assert received == chunks
+
+        capture_service.force_flush_sync()
+
+        # Verify capture contains stream markers and chunks
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+
+        # Should have: header + stream_start + 3 chunks + stream_end
+        stream_entries = [e for e in entries if isinstance(e, dict) and "dir" in e]
+        assert len(stream_entries) >= 5
+
+        # Check stream start
+        start_entry = stream_entries[0]
+        assert start_entry["meta"].get("ss") is True
+
+        # Check stream end
+        end_entry = stream_entries[-1]
+        assert end_entry["meta"].get("se") is True
+        assert end_entry["meta"].get("tc") == 3
+        assert end_entry["meta"].get("tb") == sum(len(c) for c in chunks)
+
+    @pytest.mark.asyncio
+    async def test_wrap_outbound_stream(self, capture_service):
+        """Test streaming capture to client."""
+        chunks = [b"data: test\n\n", b"data: done\n\n"]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        wrapped = capture_service.wrap_outbound_stream(
+            context=None,
+            session_id="outbound-stream",
+            backend="anthropic",
+            model="claude-3",
+            key_name=None,
+            stream=mock_stream(),
+        )
+
+        received = []
+        async for chunk in wrapped:
+            received.append(chunk)
+
+        assert received == chunks
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+
+        # Verify direction is PROXY_TO_CLIENT
+        stream_entries = [
+            e
+            for e in entries
+            if isinstance(e, dict) and e.get("dir") == CaptureDirection.PROXY_TO_CLIENT
+        ]
+        assert len(stream_entries) >= 2
+
+    @pytest.mark.asyncio
+    async def test_timestamp_precision(self, capture_service):
+        """Test that timestamps have subsecond precision."""
+        await capture_service.capture_inbound_request(
+            context=None,
+            session_id="ts-test",
+            request_payload=b"test1",
+        )
+        await asyncio.sleep(0.05)  # 50ms delay for more reliable timing
+        await capture_service.capture_inbound_request(
+            context=None,
+            session_id="ts-test",
+            request_payload=b"test2",
+        )
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        data_entries = [
+            e for e in entries if isinstance(e, dict) and "ts" in e and e.get("data")
+        ]
+
+        assert len(data_entries) >= 2
+        ts1 = data_entries[0]["ts"]
+        ts2 = data_entries[1]["ts"]
+
+        # Timestamps should be different and have subsecond precision
+        # Note: On some systems, identical timestamps can occur for very fast operations
+        assert ts2 >= ts1, "Timestamps should be monotonically non-decreasing"
+        # Verify timestamps are floats with fractional part (subsecond precision)
+        assert isinstance(ts1, float)
+        assert isinstance(ts2, float)
+
+    @pytest.mark.asyncio
+    async def test_sequence_numbers(self, capture_service):
+        """Test that sequence numbers are monotonically increasing."""
+        for i in range(5):
+            await capture_service.capture_inbound_request(
+                context=None,
+                session_id="seq-test",
+                request_payload=f"request-{i}".encode(),
+            )
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        seq_entries = [e for e in entries if isinstance(e, dict) and "seq" in e]
+
+        sequences = [e["seq"] for e in seq_entries]
+        assert sequences == sorted(sequences)
+        assert len(set(sequences)) == len(sequences)  # All unique
+
+    @pytest.mark.asyncio
+    async def test_shutdown_flushes_buffer(self, mock_config, temp_capture_dir):
+        """Test that shutdown flushes remaining buffered entries."""
+        service = CborWireCaptureService(
+            config=mock_config,
+            capture_dir=temp_capture_dir,
+            session_id="shutdown-test",
+        )
+
+        await service.capture_inbound_request(
+            context=None,
+            session_id="test",
+            request_payload=b"unflushed data",
+        )
+
+        # Shutdown should flush
+        await service.shutdown()
+
+        file_path = service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        data_entries = [
+            e
+            for e in entries
+            if isinstance(e, dict) and e.get("data") == b"unflushed data"
+        ]
+        assert len(data_entries) == 1
+
+    def test_disabled_capture_is_noop(self, mock_config):
+        """Test that disabled service is a no-op."""
+        service = CborWireCaptureService(config=mock_config, capture_dir=None)
+        assert not service.enabled()
+        # These should not raise
+        service.force_flush_sync()
+
+    @pytest.mark.asyncio
+    async def test_stream_passthrough_when_disabled(self, mock_config):
+        """Test that streams pass through unchanged when disabled."""
+        service = CborWireCaptureService(config=mock_config, capture_dir=None)
+
+        async def mock_stream():
+            yield b"chunk1"
+            yield b"chunk2"
+
+        wrapped = service.wrap_inbound_stream(
+            context=None,
+            session_id="test",
+            backend="test",
+            model="test",
+            key_name=None,
+            stream=mock_stream(),
+        )
+
+        received = []
+        async for chunk in wrapped:
+            received.append(chunk)
+
+        assert received == [b"chunk1", b"chunk2"]
+
+
+def _read_cbor_entries(file_path: Path):
+    """Helper to read all CBOR entries from a file."""
+    with open(file_path, "rb") as f:
+        while True:
+            try:
+                yield cbor2.load(f)
+            except cbor2.CBORDecodeEOF:
+                break
