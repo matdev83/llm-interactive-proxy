@@ -311,9 +311,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     default_prompt_limit: int | None = DEFAULT_CODE_ASSIST_PROMPT_LIMIT
     prompt_limit_overrides: dict[str, int] = {}
-    # Claude models have 200K context windows; Gemini 2.5 series has 1M.
-    # Subclasses can extend these prefixes (e.g., GeminiOAuthPlanConnector).
-    prompt_limit_prefix_overrides: tuple[tuple[str, int], ...] = (("claude", 200_000),)
+    # Claude models have 200K context windows; Gemini 2.5/3.x series has 1M.
+    # Subclasses can extend these prefixes.
+    prompt_limit_prefix_overrides: tuple[tuple[str, int], ...] = (
+        ("claude", 200_000),
+        ("gemini-2.5", 1_000_000),
+        ("gemini-3", 1_000_000),
+    )
 
     _project_id: str | None = None
 
@@ -3808,12 +3812,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             The fallback model name, or None if no fallback available
         """
         fallback_map = {
+            # Gemini 3.x series
+            "gemini-3-pro": "gemini-3-flash",
+            "gemini-3-pro-high": "gemini-3-flash",
+            "gemini-3-flash": None,  # No fallback for flash variants
+            "gemini-3-flash-lite": None,
+            # Gemini 2.5 series
             "gemini-2.5-pro": "gemini-2.5-flash",
             "gemini-2.5-flash": None,  # No fallback for flash
             "gemini-2.5-flash-lite": None,
             "gemini-2.5-pro-preview-05-06": "gemini-2.5-flash",
             "gemini-2.5-pro-preview-06-05": "gemini-2.5-flash",
             "gemini-2.5-flash-preview-05-20": None,
+            # Gemini 2.0/1.5 series
             "gemini-2.0-flash": "gemini-1.5-flash",
             "gemini-1.5-pro": "gemini-1.5-flash",
             "gemini-1.5-flash": None,
@@ -4076,27 +4087,31 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 state.attempts = attempt
 
                 try:
+                    # Calculate delay for this attempt
+                    # Even for attempt 0, we add a small initial delay (2s) since
+                    # we're already in graceful degradation due to a 429 error.
+                    # This prevents burst rate limiting from immediate retries.
                     if attempt == 0:
-                        # First attempt, no delay
-                        pass
+                        # Initial delay after 429 to avoid immediate retry burst
+                        base_delay = 2.0
                     else:
-                        # Retry with delay and jitter to prevent thundering herd
+                        # Retry with configured delays
                         delay_idx = min(
                             attempt - 1, len(self._degradation_config.retry_delays) - 1
                         )
                         base_delay = self._degradation_config.retry_delays[delay_idx]
 
-                        # Add jitter: ±25% of the base delay to prevent synchronized retries
-                        jitter_factor = 0.25
-                        jitter_range = base_delay * jitter_factor
-                        jitter = random.uniform(-jitter_range, jitter_range)
-                        delay = max(0, base_delay + jitter)  # Ensure non-negative delay
+                    # Add jitter: ±25% of the base delay to prevent synchronized retries
+                    jitter_factor = 0.25
+                    jitter_range = base_delay * jitter_factor
+                    jitter = random.uniform(-jitter_range, jitter_range)
+                    delay = max(0.5, base_delay + jitter)  # Ensure minimum 0.5s delay
 
-                        logger.info(
-                            f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt}, base: {base_delay}s, jitter: {jitter:+.1f}s)"
-                        )
-                        self._graceful_metrics.record_wait(delay)
-                        await asyncio.sleep(delay)
+                    logger.info(
+                        f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt}, base: {base_delay}s, jitter: {jitter:+.1f}s)"
+                    )
+                    self._graceful_metrics.record_wait(delay)
+                    await asyncio.sleep(delay)
 
                     if is_fallback_model and not fallback_recorded:
                         self._graceful_metrics.record_fallback()

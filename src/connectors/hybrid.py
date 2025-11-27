@@ -1863,6 +1863,21 @@ class HybridConnector(LLMBackend):
                 execution_params,
             ) = self._parse_hybrid_model_spec(effective_model)
 
+            # Validate reasoning backend compatibility
+            if reasoning_backend in {
+                "gemini-oauth-plan",
+                "gemini-oauth-free",
+                "gemini-oauth-antigravity",
+            }:
+                raise BackendError(
+                    message=f"Backend '{reasoning_backend}' does not support reasoning tags and cannot be used for the reasoning phase.",
+                    code="incompatible_reasoning_backend",
+                    details={
+                        "reasoning_backend": reasoning_backend,
+                        "reasoning_model": reasoning_model,
+                    },
+                )
+
             # Check for reasoning_effort parameter and log warning
             has_reasoning_effort_in_reasoning = "reasoning_effort" in reasoning_params
             has_reasoning_effort_in_execution = "reasoning_effort" in execution_params

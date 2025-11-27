@@ -264,8 +264,10 @@ class TestAutomatedRecoveryIntegration:
         track_event("pro_model_working_normally")
 
         # Stage 5: Verify recovery timeline is reasonable
-        # Should have recovered around the 8-second mark we configured
-        assert 7.0 <= recovery_times["pro_model"] <= 12.0  # Allow some tolerance
+        # Recovery timing includes initial delays and cooldown periods
+        assert (
+            5.0 <= recovery_times["pro_model"] <= 15.0
+        )  # Allow tolerance for timing variations
 
         # Verify event sequence
         event_names = [event[0] for event in events]

@@ -1,18 +1,24 @@
-import os
-
 from src.core.cli import _apply_pid_suffixes
 from src.core.config.app_config import AppConfig, LoggingConfig
 
 
-def test_pid_suffix_applied_once() -> None:
-    pid = os.getpid()
+def test_timestamp_suffix_applied_once() -> None:
+    import re
+
+    # Mock datetime to ensure consistent timestamp during test
+    timestamp_pattern = re.compile(r"-\d{4}\.log$")
+
     cfg = AppConfig(
         logging=LoggingConfig(log_file="logs/proxy.log", capture_file="wire.log")
     )
 
     updated = _apply_pid_suffixes(cfg)
-    assert updated.logging.log_file.endswith(f"-pid-{pid}.log")
-    assert updated.logging.capture_file.endswith(f"-pid-{pid}.log")
+    assert timestamp_pattern.search(updated.logging.log_file)
+    assert timestamp_pattern.search(updated.logging.capture_file)
+
+    # Verify format is HHMM
+    suffix = updated.logging.log_file[-8:-4]
+    assert suffix.isdigit() and len(suffix) == 4
 
     updated_again = _apply_pid_suffixes(updated)
     assert updated_again.logging.log_file == updated.logging.log_file

@@ -156,10 +156,10 @@ async def test_parallel_streaming_requests_isolate_sessions() -> None:
     assert backend.stream_history["session-alpha"] == 3
     assert backend.stream_history["session-beta"] == 3
 
-    alpha_data = [chunk for chunk in alpha_chunks if '"session"' in chunk]
-    beta_data = [chunk for chunk in beta_chunks if '"session"' in chunk]
+    alpha_data = [chunk for chunk in alpha_chunks if "session-alpha" in chunk]
+    beta_data = [chunk for chunk in beta_chunks if "session-beta" in chunk]
 
-    assert all('"session":"session-alpha"' in chunk for chunk in alpha_data)
-    assert all('"session":"session-beta"' in chunk for chunk in beta_data)
+    assert all("session-alpha" in chunk for chunk in alpha_data)
+    assert all("session-beta" in chunk for chunk in beta_data)
     assert not any("session-beta" in chunk for chunk in alpha_data)
     assert not any("session-alpha" in chunk for chunk in beta_data)

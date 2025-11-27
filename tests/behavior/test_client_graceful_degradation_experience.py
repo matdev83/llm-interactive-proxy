@@ -204,7 +204,9 @@ async def test_immediate_fallback_returns_flash_response(
     assert connector._call_count["gemini-2.5-flash"] == 1
     metrics = connector.get_graceful_degradation_metrics()
     assert metrics["fallback_invocations"] == 1
-    assert elapsed < 1.0  # No multi-second backoff before fallback
+    # Initial 2s delay per model to prevent burst rate limiting (+ jitter)
+    # gemini-2.5-pro ~2s + gemini-2.5-flash ~2s = ~4s total
+    assert elapsed < 6.0
 
 
 @pytest.mark.asyncio

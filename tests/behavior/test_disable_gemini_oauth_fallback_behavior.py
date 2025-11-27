@@ -279,8 +279,9 @@ class TestDisableGeminiOAuthFallbackBehavior:
 
         elapsed = time.time() - start_time
 
-        # Verify: Failure happens relatively quickly (retries but no fallback)
-        assert elapsed < 1.0
+        # Verify: Failure happens with configured retries (no fallback)
+        # Initial 2s delay + retry delays to prevent burst rate limiting
+        assert elapsed < 6.0
 
         # Verify: Error indicates exhaustion without fallback
         error = exc_info.value

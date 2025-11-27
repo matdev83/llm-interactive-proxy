@@ -28,6 +28,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
 from pathlib import Path
@@ -140,6 +141,13 @@ def print_summary(header: dict[str, Any], entries: list[dict[str, Any]]) -> None
         print(f"Duration: {duration:.2f}s")
 
 
+
+def format_timestamp(ts: float) -> str:
+    """Format a timestamp into a human-readable string."""
+    dt = datetime.datetime.fromtimestamp(ts)
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
 def print_entries(
     entries: list[dict[str, Any]],
     max_entries: int = 20,
@@ -171,8 +179,9 @@ def print_entries(
         data = e.get("data", b"")
         seq = e.get("seq", "?")
         ts = e.get("ts", 0)
+        ts_str = format_timestamp(ts)
 
-        print(f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts:.4f}")
+        print(f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}")
 
         if data:
             preview = safe_decode(data, max_data_length)

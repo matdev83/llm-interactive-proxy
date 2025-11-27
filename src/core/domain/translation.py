@@ -3144,6 +3144,9 @@ class Translation(BaseTranslator):
         Translate a Code Assist API streaming chunk to a canonical dictionary format.
 
         Code Assist API uses Server-Sent Events (SSE) format with "data: " prefix.
+        The Antigravity sandbox returns chunks in OpenAI format directly, so we
+        detect and pass through OpenAI-format chunks while still handling native
+        Code Assist format for compatibility.
         """
         import time
         import uuid
@@ -3167,6 +3170,12 @@ class Translation(BaseTranslator):
         if not isinstance(chunk, dict):
             return {"error": "Invalid chunk format: expected a dictionary"}
 
+        # Detect OpenAI-format chunks (returned by Antigravity sandbox and some
+        # Code Assist endpoints). Pass them through using the OpenAI translator
+        # which preserves the original structure.
+        if chunk.get("choices") and chunk.get("id"):
+            return Translation.openai_to_domain_stream_chunk(chunk)
+
         response_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
         created = int(time.time())
         model = "code-assist-model"
@@ -3175,7 +3184,7 @@ class Translation(BaseTranslator):
         finish_reason = None
         tool_calls: list[dict[str, Any]] | None = None
 
-        # Extract from Code Assist response wrapper
+        # Extract from Code Assist response wrapper (native format)
         response_wrapper = chunk.get("response", {})
         candidates = response_wrapper.get("candidates", [])
 

@@ -1807,26 +1807,30 @@ def _configure_logging(cfg: AppConfig) -> None:
     )
 
 
-def _with_pid_suffix(path: str | None, pid: int) -> str | None:
-    """Append a process-id suffix to the filename portion of a path."""
+def _with_timestamp_suffix(path: str | None) -> str | None:
+    """Append a timestamp suffix (HHMM) to the filename portion of a path."""
     if not path:
         return None
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%H%M")
     p = Path(path)
-    marker = f"pid-{pid}"
-    if f"-{marker}" in p.stem:
+    # Check if already has a timestamp-like suffix to avoid double appending
+    # Simple check for 4 digits at end of stem
+    if re.search(r"-\d{4}$", p.stem):
         return str(p)
-    new_name = f"{p.stem}-{marker}{p.suffix}"
+    new_name = f"{p.stem}-{timestamp}{p.suffix}"
     return str(p.with_name(new_name))
 
 
 def _apply_pid_suffixes(cfg: AppConfig) -> AppConfig:
-    """Return a copy of cfg with PID-suffixed log and capture files."""
-    pid = os.getpid()
+    """Return a copy of cfg with timestamp-suffixed log and capture files."""
+    # Note: Function name kept as _apply_pid_suffixes for compatibility but implementation changed to timestamp
     updated_logging: dict[str, Any] = {}
-    new_log = _with_pid_suffix(cfg.logging.log_file, pid)
+    new_log = _with_timestamp_suffix(cfg.logging.log_file)
     if new_log != cfg.logging.log_file:
         updated_logging["log_file"] = new_log
-    new_capture = _with_pid_suffix(getattr(cfg.logging, "capture_file", None), pid)
+    new_capture = _with_timestamp_suffix(getattr(cfg.logging, "capture_file", None))
     if new_capture != getattr(cfg.logging, "capture_file", None):
         updated_logging["capture_file"] = new_capture
     if not updated_logging:
@@ -2007,6 +2011,9 @@ def main(
 
     # Configure logging
     _configure_logging(cfg)
+
+    # Apply PID suffixes to log files
+    cfg = _apply_pid_suffixes(cfg)
 
     resolution.log(logging.getLogger("config.resolution"), cfg)
 

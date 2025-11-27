@@ -28,6 +28,7 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
 
     prompt_limit_prefix_overrides: tuple[tuple[str, int], ...] = (
         ("gemini-2.5", 1_000_000),
+        ("gemini-3", 1_000_000),
     )
 
     backend_type: str = "gemini-oauth-plan"
