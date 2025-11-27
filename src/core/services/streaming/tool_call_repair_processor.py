@@ -183,6 +183,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 "ToolCallRepairProcessor captured tool call(s): %s",
                 detected_tool_calls,
             )
+            # Mark that a tool call has been detected in this stream
+            buffer_state.tool_call_detected = True
+
             metadata.pop("reasoning_content", None)
             metadata.pop("reasoning", None)
             registered_calls = self._register_tool_calls(

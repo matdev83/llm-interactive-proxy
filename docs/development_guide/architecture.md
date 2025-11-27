@@ -351,4 +351,4 @@ For detailed information on specific aspects of the architecture:
 - **Testing**: See [testing.md](testing.md) for testing architecture and strategies
 - **Adding Features**: See [adding-features.md](adding-features.md) for feature development guidelines
 - **Adding Backends**: See [adding-backends.md](adding-backends.md) for backend connector development
-- **Coding Standards**: See [AGENTS.md](../../AGENTS.md) for coding standards and best practices
+- **Coding Standards**: See [AGENTS.md](../../dev/AGENTS.md) for coding standards and best practices

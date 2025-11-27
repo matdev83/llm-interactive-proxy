@@ -100,7 +100,7 @@ llm-interactive-proxy/
 ├── var/                    # Runtime data (logs, captures)
 ├── pyproject.toml          # Project metadata and dependencies
 ├── setup.py                # Package setup
-└── README.md               # Project overview
+└── dev/README.md           # Project overview
 ```
 
 ## Build Commands
@@ -357,4 +357,4 @@ See `.github/workflows/` for workflow definitions.
 - **Testing**: See [testing.md](testing.md) for running tests
 - **Contributing**: See [contributing.md](contributing.md) for contribution workflow
 - **Code Organization**: See [code-organization.md](code-organization.md) for project structure
-- **Coding Standards**: See [AGENTS.md](../../AGENTS.md) for coding standards
+- **Coding Standards**: See [AGENTS.md](../../dev/AGENTS.md) for coding standards

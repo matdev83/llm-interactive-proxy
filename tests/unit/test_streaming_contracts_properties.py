@@ -259,10 +259,10 @@ def test_streaming_content_populates_metadata_stream_id_when_missing() -> None:
 
 
 @pytest.mark.parametrize(
-    "finish_reason", ["stop", "length", "tool_calls", "content_filter", "error"]
+    "finish_reason", ["error", "cancelled", "user_cancelled", "system_cancelled"]
 )
-def test_finish_reason_marks_chunk_done(finish_reason: str) -> None:
-    """Chunks with finish_reason metadata should default to terminal state."""
+def test_terminal_finish_reason_marks_chunk_done(finish_reason: str) -> None:
+    """Terminal finish_reason values should mark a chunk as done."""
     chunk = StreamingContent(
         content="",
         metadata={"finish_reason": finish_reason},
@@ -270,6 +270,20 @@ def test_finish_reason_marks_chunk_done(finish_reason: str) -> None:
     )
 
     assert chunk.is_done is True
+
+
+@pytest.mark.parametrize(
+    "finish_reason", ["stop", "length", "tool_calls", "content_filter"]
+)
+def test_non_terminal_finish_reason_keeps_stream_open(finish_reason: str) -> None:
+    """Non-terminal finish_reason values should not stop the stream by themselves."""
+    chunk = StreamingContent(
+        content="",
+        metadata={"finish_reason": finish_reason},
+        is_done=False,
+    )
+
+    assert chunk.is_done is False
 
 
 # Additional validation tests for edge cases

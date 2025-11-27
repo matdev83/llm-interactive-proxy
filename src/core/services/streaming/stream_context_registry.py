@@ -35,6 +35,9 @@ class ToolCallBufferState:
     reactor_cursor: int = 0
     allowed_tools: list[str] | None = None
     tracked_tags: set[str] = field(default_factory=set)
+    # Flag to track if a tool call has been detected in this stream
+    # Used to prevent immediate stop without content issues
+    tool_call_detected: bool = False
 
 
 @dataclass

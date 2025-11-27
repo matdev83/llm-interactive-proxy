@@ -38,6 +38,36 @@ logger = logging.getLogger(__name__)
 def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
     """Detect if a streaming chunk signals end-of-stream."""
 
+    def _has_meaningful_payload(payload: Any) -> bool:
+        """Check whether a chunk carries assistant content, tool calls, or usage."""
+        if payload is None:
+            return False
+
+        if isinstance(payload, dict):
+            usage_block = payload.get("usage")
+            if isinstance(usage_block, dict):
+                return True
+
+            choices = payload.get("choices")
+            if isinstance(choices, list) and choices:
+                first_choice = choices[0]
+                if isinstance(first_choice, dict):
+                    delta = first_choice.get("delta") or first_choice.get("message")
+                    if isinstance(delta, dict) and any(
+                        delta.get(key)
+                        for key in (
+                            "content",
+                            "tool_calls",
+                            "reasoning_content",
+                            "reasoning",
+                        )
+                    ):
+                        return True
+
+            return bool(payload)
+
+        return bool(payload)
+
     text_value: str | None = None
     if isinstance(content, bytes | bytearray):
         text_value = content.decode("utf-8", errors="ignore").strip()
@@ -60,37 +90,29 @@ def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
         if isinstance(event_type, str):
             normalized_event = event_type.strip().lower()
 
-    finish_reason_present = bool(metadata and metadata.get("finish_reason"))
-    if finish_reason_present and (
-        not normalized_event or normalized_event in {"message_stop", "message_done"}
-    ):
-        # Only treat as done when there is no payload content/delta
-        if content is None or content == "":
-            return True
-        if isinstance(content, dict):
-            choices = content.get("choices") or []
-            if choices:
-                delta = choices[0].get("delta") if isinstance(choices[0], dict) else {}
-                if not delta or all(
-                    not delta.get(key)
-                    for key in (
-                        "content",
-                        "tool_calls",
-                        "reasoning_content",
-                        "reasoning",
-                    )
-                ):
-                    return True
+    # Honor explicit done markers propagated via metadata
+    if metadata and metadata.get("is_done") is True:
+        return True
 
-    if isinstance(content, dict):
-        content_metadata = content.get("metadata")
-        if isinstance(content_metadata, dict) and content_metadata.get("finish_reason"):
+    # Treat explicit terminal events as done only when the chunk is otherwise empty
+    if normalized_event in {
+        "message_stop",
+        "message_done",
+    } and not _has_meaningful_payload(content):
+        return True
+
+    if metadata:
+        finish_reason = metadata.get("finish_reason")
+        normalized_reason = (
+            finish_reason.strip().lower() if isinstance(finish_reason, str) else None
+        )
+        if normalized_reason in {
+            "error",
+            "cancelled",
+            "user_cancelled",
+            "system_cancelled",
+        } and not _has_meaningful_payload(content):
             return True
-        choices = content.get("choices")
-        if isinstance(choices, list):
-            for choice in choices:
-                if isinstance(choice, dict) and choice.get("finish_reason"):
-                    return True
 
     return False
 

@@ -468,4 +468,4 @@ def test_no_regression(capture_file):
 - [Architecture](architecture.md) - System architecture overview
 - [Testing](testing.md) - Testing guidelines
 - [Adding Backends](adding-backends.md) - Backend development guide
-- [AGENTS.md](../../AGENTS.md) - Development guidelines
+- [AGENTS.md](../../dev/AGENTS.md) - Development guidelines

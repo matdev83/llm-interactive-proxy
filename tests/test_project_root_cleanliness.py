@@ -24,22 +24,6 @@ def test_no_md_files_in_root_except_important():
         for f in root_files
         if f.endswith(".md") and os.path.isfile(os.path.join(root_dir, f))
     ]
-    important_md = ["README.md", "AGENTS.md", "CONTRIBUTING.md", "CHANGELOG.md"]
-    additional_allowed_md = [
-        "CLAUDE.md",
-        "GEMINI.md",
-        "MEMORY.md",
-        "QWEN.md",
-        "TEST.md",
-        "STREAMING_REGRESSION_FIX.md",
-    ]
-
-    for f in important_md:
-        assert f in md_files, f"Expected {f} to be in root but not found"
-        md_files.remove(f)
-
-    md_files = [f for f in md_files if f not in additional_allowed_md]
-
     assert (
         len(md_files) == 0
     ), f"Found development artifacts (temporary *.md files) in root: {md_files}"

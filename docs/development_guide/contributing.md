@@ -9,7 +9,7 @@ We welcome contributions to the LLM Interactive Proxy! This guide covers the con
 - Python 3.10 or higher
 - Git
 - GitHub account
-- Familiarity with the project (read [README.md](../../README.md))
+- Familiarity with the project (read [README.md](../../dev/README.md))
 
 ### Setting Up Development Environment
 
@@ -295,7 +295,7 @@ git push --force-with-lease origin feature/your-feature-name
 
 ## Coding Standards
 
-Follow the project's coding standards (see [AGENTS.md](../../AGENTS.md)):
+Follow the project's coding standards (see [AGENTS.md](../../dev/AGENTS.md)):
 
 ### Code Style
 
@@ -491,4 +491,4 @@ When reporting bugs:
 - **Testing**: See [testing.md](testing.md) for testing guidelines
 - **Adding Features**: See [adding-features.md](adding-features.md) for feature development
 - **Adding Backends**: See [adding-backends.md](adding-backends.md) for backend development
-- **Coding Standards**: See [AGENTS.md](../../AGENTS.md) for detailed coding standards
+- **Coding Standards**: See [AGENTS.md](../../dev/AGENTS.md) for detailed coding standards

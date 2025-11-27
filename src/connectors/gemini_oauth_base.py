@@ -338,6 +338,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             normalized = normalized[len("models/") :]
         return normalized
 
+    @staticmethod
+    def _sanitize_model_name(model_name: str) -> str:
+        """Sanitize model name to prevent internal leaks."""
+        if not model_name:
+            return "unknown"
+        # If it's an internal model name, map it to a generic one or the requested one
+        if "code-assist-model" in model_name:
+            return "gemini-2.5-pro"  # Default fallback for code assist
+        return model_name
+
     @classmethod
     def _inject_thought_signatures(
         cls, canonical_request: Any, session_id: str
@@ -3171,6 +3181,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     )
                                 )
                                 if domain_chunk is not None:
+                                    # Ensure we use the effective model name, not what the backend returns
+                                    # This prevents leaking internal model names like 'code-assist-model'
                                     domain_chunk["model"] = effective_model
                             except Exception as e:
                                 logger.error(
@@ -3485,7 +3497,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         )
 
                     except GeneratorExit:
-                        logger.warning("Stream closed by consumer before completion")
+                        logger.debug("Stream closed by consumer before completion")
                         raise
                     except Exception as e:
                         logger.error(

@@ -450,4 +450,4 @@ Study these existing backends for reference:
 - [Architecture](architecture.md) - System architecture overview
 - [Code Organization](code-organization.md) - Codebase structure
 - [Testing](testing.md) - Testing guidelines
-- [AGENTS.md](../../AGENTS.md) - Coding standards
+- [AGENTS.md](../../dev/AGENTS.md) - Coding standards

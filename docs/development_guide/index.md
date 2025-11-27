@@ -24,12 +24,12 @@ Welcome to the LLM Interactive Proxy development guide. This section contains do
 
 ## Related Documentation
 
-- [AGENTS.md](../../AGENTS.md) - Coding standards and development guidelines
-- [CONTRIBUTING.md](../../CONTRIBUTING.md) - Project contribution guidelines
+- [AGENTS.md](../../dev/AGENTS.md) - Coding standards and development guidelines
+- [CONTRIBUTING.md](../../dev/CONTRIBUTING.md) - Project contribution guidelines
+- [CHANGELOG.md](../../dev/CHANGELOG.md) - Project changelog with version history
 - [User Guide](../user_guide/index.md) - Documentation for end-users
 
 ## Quick Links
 
 - [Project Repository](https://github.com/matdev83/llm-interactive-proxy)
 - [Issue Tracker](https://github.com/matdev83/llm-interactive-proxy/issues)
-- [Changelog](../../CHANGELOG.md)

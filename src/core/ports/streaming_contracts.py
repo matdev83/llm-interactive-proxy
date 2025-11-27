@@ -79,7 +79,8 @@ class StreamingContent:
         if (
             not self.is_done
             and isinstance(finish_reason, str)
-            and finish_reason.strip()
+            and finish_reason.strip().lower()
+            in {"error", "cancelled", "user_cancelled", "system_cancelled"}
         ):
             self.is_done = True
 
@@ -591,7 +592,15 @@ class StreamingContent:
 
                 if finish_reason is not None:
                     metadata["finish_reason"] = finish_reason
-                    if str(finish_reason):
+                    normalized_reason = (
+                        str(finish_reason).strip().lower() if finish_reason else ""
+                    )
+                    if normalized_reason in {
+                        "error",
+                        "cancelled",
+                        "user_cancelled",
+                        "system_cancelled",
+                    }:
                         is_done = True
 
                 # Capture top-level error from OpenAI-style error responses

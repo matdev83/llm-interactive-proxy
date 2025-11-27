@@ -524,4 +524,4 @@ See `.github/workflows/ci.yml` for CI configuration.
 - **Building**: See [building.md](building.md) for build instructions
 - **Contributing**: See [contributing.md](contributing.md) for contribution workflow
 - **Code Organization**: See [code-organization.md](code-organization.md) for project structure
-- **Coding Standards**: See [AGENTS.md](../../AGENTS.md) for coding standards and testing guidelines
+- **Coding Standards**: See [AGENTS.md](../../dev/AGENTS.md) for coding standards and testing guidelines

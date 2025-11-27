@@ -6,8 +6,8 @@ and prevents regression of the issue where the original model name was sent to t
 instead of the static route override.
 """
 
-import asyncio
 import json
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -44,7 +44,7 @@ async def test_qwen_oauth_static_routing_model_override_regression():
             "refresh_token": "test_refresh_token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000),
+            "expiry_date": int((time.time() + 3600) * 1000),
         }
 
         connector._oauth_credentials = test_creds
@@ -139,7 +139,7 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
             "refresh_token": "test_refresh_token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000),
+            "expiry_date": int((time.time() + 3600) * 1000),
         }
 
         connector._oauth_credentials = test_creds
@@ -247,7 +247,7 @@ async def test_qwen_oauth_prevents_original_model_leakage():
             "refresh_token": "test_refresh_token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int((asyncio.get_event_loop().time() + 3600) * 1000),
+            "expiry_date": int((time.time() + 3600) * 1000),
         }
 
         connector._oauth_credentials = test_creds

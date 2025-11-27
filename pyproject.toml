@@ -34,7 +34,7 @@ dependencies = [
     "cbor2>=5.6.0",
 ]
 requires-python = ">=3.10"
-readme = "README.md"
+readme = "dev/README.md"
 # License per PEP 621: string SPDX identifier
 license = "AGPL-3.0-or-later"
 keywords = ["llm", "proxy", "interactive", "api", "ai", "chatgpt", "openai", "gemini", "openrouter"]

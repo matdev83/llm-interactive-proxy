@@ -15,7 +15,7 @@ llm-interactive-proxy/
 ├── pyproject.toml          # Project metadata and dependencies
 ├── setup.py                # Package setup
 ├── README.md               # Project overview
-├── AGENTS.md               # Coding standards
+├── dev/AGENTS.md           # Coding standards
 ├── CONTRIBUTING.md         # Contribution guidelines
 ├── CHANGELOG.md            # Version history
 └── LICENSE                 # License information
@@ -350,7 +350,7 @@ LLM Providers
 
 ## Naming Conventions
 
-The codebase follows these naming conventions (see [AGENTS.md](../../AGENTS.md) for complete standards):
+The codebase follows these naming conventions (see [AGENTS.md](../../dev/AGENTS.md) for complete standards):
 
 - **Files**: `snake_case.py`
 - **Classes**: `PascalCase`
@@ -387,4 +387,4 @@ from src.connectors.base import BaseConnector
 - **Building**: See [building.md](building.md) for build instructions
 - **Testing**: See [testing.md](testing.md) for testing guidelines
 - **Contributing**: See [contributing.md](contributing.md) for contribution workflow
-- **Coding Standards**: See [AGENTS.md](../../AGENTS.md) for detailed coding standards
+- **Coding Standards**: See [AGENTS.md](../../dev/AGENTS.md) for detailed coding standards

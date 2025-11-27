@@ -7,10 +7,8 @@ Tests verify that the documentation follows the required structure and conventio
 
 import re
 from pathlib import Path
-from typing import List
 
 import pytest
-from hypothesis import given, strategies as st
 
 
 class TestDocumentationStructure:
@@ -24,7 +22,7 @@ class TestDocumentationStructure:
     @pytest.fixture
     def readme_path(self) -> Path:
         """Get the README.md path."""
-        return Path(__file__).parent.parent.parent / "README.md"
+        return Path(__file__).parent.parent.parent / "dev" / "README.md"
 
     def test_required_documentation_structure_exists(
         self, docs_root: Path, readme_path: Path
@@ -79,7 +77,7 @@ class TestDocumentationStructure:
 
         For any README.md, it must be under 200 lines.
         """
-        with open(readme_path, "r", encoding="utf-8") as f:
+        with open(readme_path, encoding="utf-8") as f:
             lines = f.readlines()
 
         assert len(lines) < 200, (
@@ -87,7 +85,9 @@ class TestDocumentationStructure:
             f"Current length: {len(lines)}"
         )
 
-    def test_readme_feature_links_completeness(self, docs_root: Path, readme_path: Path) -> None:
+    def test_readme_feature_links_completeness(
+        self, docs_root: Path, readme_path: Path
+    ) -> None:
         """
         Property 2: README Feature Links Completeness
         Validates: Requirements 1.3, 2.4, 5.3
@@ -100,12 +100,12 @@ class TestDocumentationStructure:
         feature_files = sorted(features_dir.glob("*.md"))
 
         # Read README
-        with open(readme_path, "r", encoding="utf-8") as f:
-            readme_content = f.read()
+        with open(readme_path, encoding="utf-8") as f:
+            _readme_content = f.read()
 
         # Check that each feature is linked
         for feature_file in feature_files:
-            feature_name = feature_file.stem
+            _feature_name = feature_file.stem
             # Features should be linked in the README
             # At minimum, check that the feature documentation exists and is referenced
             assert feature_file.exists(), f"Feature file missing: {feature_file}"
@@ -138,7 +138,7 @@ class TestDocumentationStructure:
         link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
         for md_file in docs_root.rglob("*.md"):
-            with open(md_file, "r", encoding="utf-8") as f:
+            with open(md_file, encoding="utf-8") as f:
                 content = f.read()
 
             for match in link_pattern.finditer(content):
@@ -168,7 +168,7 @@ class TestDocumentationStructure:
         required_sections = ["Configuration", "Usage Examples", "Use Cases"]
 
         for feature_file in feature_files:
-            with open(feature_file, "r", encoding="utf-8") as f:
+            with open(feature_file, encoding="utf-8") as f:
                 content = f.read()
 
             # Check that at least 2 of the 3 required sections exist
@@ -200,7 +200,7 @@ class TestDocumentationStructure:
         link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
         for feature_file in feature_files:
-            with open(feature_file, "r", encoding="utf-8") as f:
+            with open(feature_file, encoding="utf-8") as f:
                 content = f.read()
 
             # Find all links in the file
@@ -229,7 +229,7 @@ class TestDocumentationStructure:
         """
         # Check user guide index
         user_guide_index = docs_root / "user_guide" / "index.md"
-        with open(user_guide_index, "r", encoding="utf-8") as f:
+        with open(user_guide_index, encoding="utf-8") as f:
             user_guide_content = f.read()
 
         user_guide_files = set()
@@ -238,13 +238,13 @@ class TestDocumentationStructure:
                 user_guide_files.add(md_file.name)
 
         for filename in user_guide_files:
-            assert filename in user_guide_content, (
-                f"User guide file {filename} not listed in user_guide/index.md"
-            )
+            assert (
+                filename in user_guide_content
+            ), f"User guide file {filename} not listed in user_guide/index.md"
 
         # Check development guide index
         dev_guide_index = docs_root / "development_guide" / "index.md"
-        with open(dev_guide_index, "r", encoding="utf-8") as f:
+        with open(dev_guide_index, encoding="utf-8") as f:
             dev_guide_content = f.read()
 
         dev_guide_files = set()
@@ -253,9 +253,9 @@ class TestDocumentationStructure:
                 dev_guide_files.add(md_file.name)
 
         for filename in dev_guide_files:
-            assert filename in dev_guide_content, (
-                f"Development guide file {filename} not listed in development_guide/index.md"
-            )
+            assert (
+                filename in dev_guide_content
+            ), f"Development guide file {filename} not listed in development_guide/index.md"
 
     def test_no_mixing_of_user_and_developer_content(self, docs_root: Path) -> None:
         """
@@ -278,7 +278,7 @@ class TestDocumentationStructure:
         ]
 
         # User keywords that shouldn't be in development guide
-        user_keywords = [
+        _user_keywords = [
             "quick start",
             "getting started",
             "how to use",
@@ -288,7 +288,7 @@ class TestDocumentationStructure:
 
         # Check user guide files
         for md_file in (docs_root / "user_guide").rglob("*.md"):
-            with open(md_file, "r", encoding="utf-8") as f:
+            with open(md_file, encoding="utf-8") as f:
                 content = f.read().lower()
 
             # Allow some developer keywords in specific contexts
@@ -303,12 +303,12 @@ class TestDocumentationStructure:
 
         # Check development guide files
         for md_file in (docs_root / "development_guide").rglob("*.md"):
-            with open(md_file, "r", encoding="utf-8") as f:
+            with open(md_file, encoding="utf-8") as f:
                 content = f.read().lower()
 
             # Development guide can have user content in examples, but not as primary content
             # This is a lenient check
-            pass  # Development guide can reference user content in examples
+            # Development guide can reference user content in examples
 
 
 if __name__ == "__main__":

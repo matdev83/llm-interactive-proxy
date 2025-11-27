@@ -682,4 +682,4 @@ async def your_feature(request):
 - **Testing**: See [testing.md](testing.md) for testing guidelines
 - **Contributing**: See [contributing.md](contributing.md) for contribution workflow
 - **Adding Backends**: See [adding-backends.md](adding-backends.md) for backend development
-- **Coding Standards**: See [AGENTS.md](../../AGENTS.md) for detailed coding standards
+- **Coding Standards**: See [AGENTS.md](../../dev/AGENTS.md) for detailed coding standards

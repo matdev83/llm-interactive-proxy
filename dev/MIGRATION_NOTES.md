@@ -9,6 +9,7 @@ The LLM Interactive Proxy documentation has been restructured from a monolithic 
 ### README.md
 
 The main README.md has been condensed from 2842 lines to 127 lines, focusing on:
+
 - Project overview and key benefits
 - Architecture diagram
 - Quick feature list with links to detailed docs

@@ -644,9 +644,17 @@ class TestFileRotationBehavior:
             await asyncio.sleep(0.2)
             await service.shutdown()
 
+            # Allow background rotation to complete on slower systems
+            rotated_path = f"{capture_file}.1"
+            if not os.path.exists(rotated_path):
+                for _ in range(10):
+                    await asyncio.sleep(0.05)
+                    if os.path.exists(rotated_path):
+                        break
+
             # Then - Rotation should have occurred
             assert os.path.exists(capture_file)  # Current file
-            assert os.path.exists(f"{capture_file}.1")  # Rotated file
+            assert os.path.exists(rotated_path)  # Rotated file
 
     @pytest.mark.asyncio
     async def test_max_files_rotation_limit(self):
