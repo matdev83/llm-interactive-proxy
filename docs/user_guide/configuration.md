@@ -47,7 +47,7 @@ python -m src.core.cli \
   --disable-auth
 ```
 
-See the [Quick Start Guide](quick-start.md#useful-cli-flags) for a list of common CLI flags.
+See the [CLI Parameters Reference](cli-parameters.md) for a complete list of all available CLI flags and their corresponding environment variables.
 
 ### 2. Environment Variables
 
@@ -348,6 +348,7 @@ To verify your configuration is loaded correctly:
 ## Related Documentation
 
 - [Quick Start Guide](quick-start.md) - Get started quickly
+- [CLI Parameters Reference](cli-parameters.md) - Complete CLI and environment variable reference
 - [Backend Configuration](backends/overview.md) - Backend-specific setup
 - [Feature Configuration](features/) - Feature-specific settings
 - [Security Configuration](security/authentication.md) - Authentication and security

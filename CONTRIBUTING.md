@@ -28,7 +28,7 @@ We welcome contributions to the LLM Interactive Proxy! This guide provides an ov
     pip install -e .[dev]
     ```
 
-5. **Create a `.env` file**: With your API keys (see `README.md` for details).
+5. **Create a `.env` file**: With your API keys (see [Configuration Guide](docs/user_guide/configuration.md) for details).
 
 ### Running the Application
 
@@ -588,11 +588,10 @@ Security best practices:
 ## Additional Resources
 
 - [CHANGELOG.md](CHANGELOG.md): Project Changelog.
-- `docs/API_REFERENCE.md`: Detailed API documentation.
-- `docs/ARCHITECTURE_GUIDE.md`: Comprehensive architecture guide.
-- `docs/CONFIGURATION.md`: Configuration options.
-- `docs/FAILOVER_ROUTES.md`: Failover routing information.
-- `docs/TOOL_CALL_LOOP_DETECTION.md`: Tool call loop detection details.
+- [User Guide](docs/user_guide/index.md): Feature documentation and configuration.
+- [Development Guide](docs/development_guide/index.md): Architecture, building, and testing.
+- [Configuration Guide](docs/user_guide/configuration.md): Complete configuration options.
+- [Architecture Guide](docs/development_guide/architecture.md): System architecture and design patterns.
 
 ### JSON Repair, Strict Gating, and Helpers
 
