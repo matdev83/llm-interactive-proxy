@@ -1145,6 +1145,10 @@ def to_fastapi_streaming_response(
                         decoded_payload, metadata, streaming=True
                     )
 
+                    usage_payload = (
+                        enriched.get("usage") if isinstance(enriched, dict) else None
+                    )
+
                     # Check if this chunk signals completion
                     is_done = forced_done or _chunk_signals_done(enriched, metadata)
 
@@ -1156,6 +1160,9 @@ def to_fastapi_streaming_response(
                         metadata=metadata,
                         is_done=is_done,
                         stream_id=metadata.get("stream_id"),
+                        usage=(
+                            usage_payload if isinstance(usage_payload, dict) else None
+                        ),
                     )
 
                     yield streaming_content

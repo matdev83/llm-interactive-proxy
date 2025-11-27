@@ -123,9 +123,20 @@ The dedicated inspection script provides advanced analysis capabilities:
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/capture_file.cbor
 
+# List all backends in the capture file
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/capture_file.cbor \
+  --list-backends
+
 # Show first 10 entries with data preview
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/capture_file.cbor \
+  --entries 10
+
+# Filter entries by backend
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/capture_file.cbor \
+  --backend openai \
   --entries 10
 
 # Analyze request/response pairs and detect issues (MOST USEFUL)
@@ -133,16 +144,35 @@ The dedicated inspection script provides advanced analysis capabilities:
   var/wire_captures_cbor/capture_file.cbor \
   --analyze
 
+# Analyze only pairs from a specific backend
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/capture_file.cbor \
+  --analyze \
+  --backend anthropic
+
 # Filter by traffic direction
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/capture_file.cbor \
   --entries 20 \
   --direction backend_to_proxy
 
+# Combine backend and direction filters
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/capture_file.cbor \
+  --backend openai \
+  --direction backend_to_proxy \
+  --entries 20
+
 # Export to JSON
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/capture_file.cbor \
   --json > analysis.json
+
+# Export only entries from a specific backend to JSON
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/capture_file.cbor \
+  --backend gemini \
+  --json > gemini_only.json
 ```
 
 ### Automatic Issue Detection

@@ -433,7 +433,9 @@ class ResponseProcessor(IResponseProcessor):
 
             async for processed_chunk in stream_processor:
                 if isinstance(processed_chunk, StreamingContent):
-                    content = self._normalize_chunk_text(processed_chunk.content)
+                    chunk_content: str | dict[str, Any] = self._normalize_chunk_text(
+                        processed_chunk.content
+                    )
                     source_metadata = processed_chunk.metadata or {}
                     metadata = dict(source_metadata)
                     if session_id:
@@ -449,13 +451,15 @@ class ResponseProcessor(IResponseProcessor):
                     elif "stream_id" in source_metadata:
                         metadata["stream_id"] = source_metadata["stream_id"]
                     yield ProcessedResponse(
-                        content=content,
+                        content=chunk_content,
                         usage=processed_chunk.usage,
                         metadata=metadata,
                     )
                 elif isinstance(processed_chunk, ProcessedResponse):
                     # Extract content from ProcessedResponse
-                    content = self._normalize_chunk_text(processed_chunk.content)
+                    normalized: str | dict[str, Any] = self._normalize_chunk_text(
+                        processed_chunk.content
+                    )
                     metadata = (
                         dict(processed_chunk.metadata)
                         if processed_chunk.metadata
@@ -464,7 +468,7 @@ class ResponseProcessor(IResponseProcessor):
                     if session_id:
                         metadata.setdefault("session_id", session_id)
                     yield ProcessedResponse(
-                        content=content,
+                        content=normalized,
                         usage=processed_chunk.usage,
                         metadata=metadata,
                     )
@@ -498,12 +502,22 @@ class ResponseProcessor(IResponseProcessor):
             )
 
     @staticmethod
-    def _normalize_chunk_text(chunk: Any) -> str:
-        """Normalize streaming payloads into client-friendly form."""
+    def _normalize_chunk_text(chunk: Any) -> str | dict[str, Any]:
+        """Normalize streaming payloads into client-friendly form.
+
+        For OpenAI-format chunks (dicts with 'choices'), preserve the structure
+        so downstream code (e.g., to_bytes()) can handle them properly.
+        Other dicts are stringified to JSON.
+        """
         if chunk is None:
             return ""
         if isinstance(chunk, dict):
-            return json.dumps(chunk)  # Preserve structured payloads as JSON string
+            # Preserve OpenAI-format chunks as dicts for proper downstream handling
+            # This includes usage-only chunks (choices: []) and regular content chunks
+            if "choices" in chunk:
+                return chunk
+            # Other structured payloads become JSON strings
+            return json.dumps(chunk)
         if isinstance(chunk, str):
             return chunk
         if isinstance(chunk, bytes | bytearray):

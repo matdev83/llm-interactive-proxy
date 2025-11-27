@@ -2200,15 +2200,23 @@ class Translation(BaseTranslator):
             )
 
         # Handle thinking budget overrides and reasoning effort mapping.
-        def _resolve_thinking_budget(reasoning_effort: str | None) -> int | None:
-            """Resolve thinking budget from CLI override or reasoning effort."""
+        def _resolve_thinking_budget(
+            reasoning_effort: str | None, explicit_budget: int | None
+        ) -> int | None:
+            """Resolve thinking budget from CLI override, explicit value, or reasoning effort."""
+            # 1. Check CLI environment variable (highest priority)
             cli_value = os.environ.get("THINKING_BUDGET")
             if cli_value is not None:
                 try:
                     return int(cli_value)
                 except ValueError:
-                    return None
+                    pass
 
+            # 2. Use explicitly set thinking_budget if provided
+            if explicit_budget is not None:
+                return explicit_budget
+
+            # 3. Fall back to reasoning_effort mapping
             if reasoning_effort is None:
                 return None
 
@@ -2220,7 +2228,9 @@ class Translation(BaseTranslator):
 
             return effort_to_budget.get(reasoning_effort.lower(), None)
 
-        thinking_budget = _resolve_thinking_budget(request.reasoning_effort)
+        thinking_budget = _resolve_thinking_budget(
+            request.reasoning_effort, getattr(request, "thinking_budget", None)
+        )
         if thinking_budget is not None:
             config["thinkingConfig"] = {
                 "thinkingBudget": thinking_budget,

@@ -61,6 +61,23 @@ class ContentAccumulationProcessor(IStreamProcessor):
         stream_id = get_stream_id(content)
         state = self._get_state(stream_id)
 
+        # Preserve usage-only chunks instead of treating them as empty text.
+        if isinstance(content.content, dict) and (
+            isinstance(content.content.get("usage"), dict) or content.usage
+        ):
+            return StreamingContent(
+                content=content.content,
+                is_done=content.is_done,
+                is_cancellation=content.is_cancellation,
+                metadata=dict(content.metadata or {}),
+                usage=(
+                    content.content.get("usage")
+                    if isinstance(content.content, dict)
+                    else content.usage
+                ),
+                raw_data=content.raw_data,
+            )
+
         # Merge metadata so downstream processors have a holistic view
         if content.metadata:
             merged_metadata = dict(state.metadata_snapshot)

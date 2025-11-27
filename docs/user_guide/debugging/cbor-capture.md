@@ -183,8 +183,29 @@ For detailed debugging and issue detection, use the dedicated inspection script:
 # Basic inspection with summary
 python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor
 
+# List all backends in the capture file
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --list-backends
+
 # Show first 20 entries with data preview
 python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --entries 20
+```
+
+### Filter by Backend
+
+For multi-backend scenarios, use the `--backend` flag to focus on a specific backend:
+
+```bash
+# Filter entries by backend
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --backend openai \
+  --entries 10
+
+# Analyze only pairs from a specific backend
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --analyze \
+  --backend anthropic
 ```
 
 ### Analyze Request/Response Pairs
@@ -226,6 +247,13 @@ python scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/session.cbor \
   --direction backend_to_proxy \
   --entries 10
+
+# Combine backend and direction filters
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --backend openai \
+  --direction backend_to_proxy \
+  --entries 20
 ```
 
 Available directions:
@@ -242,6 +270,12 @@ Available directions:
 python scripts/inspect_cbor_capture.py \
   var/wire_captures_cbor/session.cbor \
   --json > analysis.json
+
+# Export only entries from a specific backend to JSON
+python scripts/inspect_cbor_capture.py \
+  var/wire_captures_cbor/session.cbor \
+  --backend gemini \
+  --json > gemini_only.json
 ```
 
 ## Usage Examples

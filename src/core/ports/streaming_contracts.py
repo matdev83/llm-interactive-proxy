@@ -631,6 +631,11 @@ class StreamingContent:
                 else:
                     usage = raw_data.get("usage")
 
+                # Preserve usage-only payloads as content so downstream processors
+                # do not discard them as empty chunks.
+                if usage and not content:
+                    content = raw_data
+
         elif isinstance(raw_data, str):
             if raw_data.strip().startswith(("{", "[")):
                 try:

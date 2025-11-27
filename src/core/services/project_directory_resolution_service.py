@@ -241,6 +241,13 @@ class ProjectDirectoryResolutionService:
 
         parts = pure_path.parts
 
+        # Check if any part of the path is a virtual environment directory
+        # These should NEVER be valid project roots
+        VENV_DIRS = {".venv", "venv", ".virtualenv", "virtualenv", "env", ".env"}
+        for part in parts[1:]:  # Skip drive/root
+            if part.lower() in VENV_DIRS:
+                return False
+
         if path_type == "windows":
             # Path must be at least C:\foo (2 parts)
             if len(parts) < 2:
@@ -347,10 +354,49 @@ class ProjectDirectoryResolutionService:
             common_path = self._normalize_unc_path(common_path)
         return common_path, len(common_parts)
 
+    def _score_path_candidate(self, directory: str, path_type: _PathType) -> int:
+        """Score an individual path candidate based on depth and characteristics."""
+        try:
+            pure_path = (
+                PureWindowsPath(directory)
+                if path_type in ("windows", "unc")
+                else PurePosixPath(directory)
+            )
+
+            # Base score is the depth (number of parts)
+            depth = len(pure_path.parts)
+            score = depth
+
+            # Give extra bonus only for paths that are significantly deeper
+            if depth > 3:
+                score += 1  # Small bonus for very deep paths
+
+            # Penalty if the last part is a common source subdirectory
+            if pure_path.name.lower() in _COMMON_PROJECT_SUBDIRS:
+                score -= 10  # Heavy penalty for source directories
+
+            # Bonus if the directory name looks like a project name
+            # (not a generic system/user directory)
+            GENERIC_NAMES = {
+                "users",
+                "test",
+                "project",
+                "projects",
+                "code",
+                "dev",
+                "development",
+            }
+            if pure_path.name.lower() not in GENERIC_NAMES:
+                score += 2  # Bonus for specific project names
+
+            return score
+        except Exception:
+            return 0
+
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
         """
-        Find the best project directory from all absolute paths in the prompt
-        by scoring individual candidates.
+        Find the best project directory from all absolute paths in the prompt.
+        When multiple paths are found, attempts to find their longest common directory.
         """
         candidates: list[tuple[str, _PathType]] = []
         patterns = [
@@ -359,6 +405,7 @@ class ProjectDirectoryResolutionService:
             _UNIX_PATH_PATTERN,
         ]
 
+        # Step 1: Extract and validate all path candidates
         for pattern in patterns:
             for match in pattern.finditer(prompt_text):
                 raw_value = match.group(1) if match.lastindex else match.group(0)
@@ -396,74 +443,38 @@ class ProjectDirectoryResolutionService:
         if not candidates:
             return None
 
-        # Score candidates and prefer the best one
-        # Prefer deeper paths over shallow ones, but exclude paths that are too deep
-        # (like src directories which are children of project directories)
-        scored_candidates = []
+        # Step 2: Group candidates by path type
+        candidates_by_type: dict[_PathType, list[str]] = {}
         for directory, path_type in candidates:
-            try:
-                pure_path = (
-                    PureWindowsPath(directory)
-                    if path_type in ("windows", "unc")
-                    else PurePosixPath(directory)
-                )
+            if path_type not in candidates_by_type:
+                candidates_by_type[path_type] = []
+            candidates_by_type[path_type].append(directory)
 
-                # Base score is the depth (number of parts)
-                # but don't over-pref depth - only give bonus for significant depth
-                depth = len(pure_path.parts)
-                score = depth
+        # Step 3: For each type, try to find longest common directory
+        best_result: tuple[int, str] | None = None  # (score, path)
 
-                # Give extra bonus only for paths that are significantly deeper
-                # This prevents slight depth differences from overriding first-occurrence preference
-                if depth > 3:
-                    score += 1  # Small bonus for very deep paths
+        for path_type, paths in candidates_by_type.items():
+            if len(paths) > 1:
+                # Try to find longest common directory
+                common_result = self._longest_common_directory(paths, path_type)
+                if common_result:
+                    common_path, common_depth = common_result
+                    # Validate the common path is a valid project directory
+                    if self._is_valid_project_directory_candidate(
+                        common_path, path_type
+                    ):
+                        # Give common paths high priority score based on depth + bonus
+                        score = common_depth + 100  # Bonus for being a common directory
+                        if best_result is None or score > best_result[0]:
+                            best_result = (score, common_path)
 
-                # Penalty if the last part is a common source subdirectory
-                if pure_path.name.lower() in _COMMON_PROJECT_SUBDIRS:
-                    score -= 10  # Heavy penalty for source directories
+            # Also consider individual candidates from this type
+            for path in paths:
+                score = self._score_path_candidate(path, path_type)
+                if best_result is None or score > best_result[0]:
+                    best_result = (score, path)
 
-                # Bonus if the directory name looks like a project name
-                # (not a generic system/user directory)
-                GENERIC_NAMES = {
-                    "users",
-                    "test",
-                    "project",
-                    "projects",
-                    "code",
-                    "dev",
-                    "development",
-                }
-                if pure_path.name.lower() not in GENERIC_NAMES:
-                    score += 2  # Bonus for specific project names
-
-                scored_candidates.append((score, directory))
-            except Exception:
-                continue
-
-        if scored_candidates:
-            # Find the best scoring candidate, but prefer first occurrence when scores are close
-            best_score = max(score for score, _ in scored_candidates)
-            best_candidates = [
-                (score, directory)
-                for score, directory in scored_candidates
-                if score == best_score
-            ]
-
-            # If there's a clear winner by score, return it
-            if len(best_candidates) == 1:
-                return best_candidates[0][1]
-
-            # If multiple candidates have the same best score, prefer the first one
-            # But if there's a significant score difference (>2), prefer the higher scoring one
-            first_score = scored_candidates[0][0]
-            if best_score > first_score + 2:
-                return best_candidates[0][
-                    1
-                ]  # Return the first of the best scoring candidates
-            else:
-                return scored_candidates[0][1]  # Return the first candidate overall
-
-        return None
+        return best_result[1] if best_result else None
 
     def _extract_directory_from_path(self, path: str) -> str:
         """Extract directory portion from a path that may include a filename."""

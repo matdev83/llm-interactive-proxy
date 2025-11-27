@@ -3746,7 +3746,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return code_assist_request
 
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
-        """Build Code Assist generationConfig from request_data using Pydantic models."""
+        """Build Code Assist generationConfig from request_data using Pydantic models.
+
+        This method builds the generationConfig including thinkingConfig for models
+        that support thinking/reasoning (like gemini-2.5-pro, gemini-3-pro).
+        """
         # Extract parameters with defaults
         temperature = float(getattr(request_data, "temperature", 0.7))
         max_tokens = int(getattr(request_data, "max_tokens", 1024))
@@ -3771,6 +3775,33 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             cfg["topP"] = cfg.pop("top_p")
         if "top_k" in cfg:
             cfg["topK"] = cfg.pop("top_k")
+
+        # Add thinkingConfig for thinking/reasoning support
+        # This enables the model to include reasoning content in responses
+        thinking_budget = getattr(request_data, "thinking_budget", None)
+        reasoning_effort = getattr(request_data, "reasoning_effort", None)
+
+        # Map reasoning_effort to thinking_budget if thinking_budget not explicit
+        if thinking_budget is None and reasoning_effort is not None:
+            effort_to_budget: dict[str, int] = {
+                "low": 512,
+                "medium": 2048,
+                "high": -1,  # -1 means unlimited
+            }
+            thinking_budget = effort_to_budget.get(
+                reasoning_effort.lower() if isinstance(reasoning_effort, str) else "",
+                None,
+            )
+
+        # Default to medium thinking budget if not specified to enable reasoning
+        # This ensures Code Assist models produce reasoning content by default
+        if thinking_budget is None:
+            thinking_budget = 2048  # Default medium thinking budget
+
+        cfg["thinkingConfig"] = {
+            "thinkingBudget": thinking_budget,
+            "includeThoughts": True,
+        }
 
         return cfg
 

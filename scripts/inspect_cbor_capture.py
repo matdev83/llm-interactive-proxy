@@ -12,17 +12,32 @@ Examples:
     # Basic inspection with summary
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor
 
+    # List all backends in the capture file
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --list-backends
+
     # Show first 10 entries with full data
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --entries 10
+
+    # Filter entries by backend
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --backend openai --entries 10
 
     # Analyze request/response pairs
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --analyze
 
+    # Analyze only pairs from a specific backend
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --analyze --backend anthropic
+
     # Export to JSON for further processing
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --json > output.json
 
+    # Export only entries from a specific backend to JSON
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --backend gemini --json > gemini_only.json
+
     # Filter by direction
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --direction backend_to_proxy
+
+    # Combine backend and direction filters
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --backend openai --direction backend_to_proxy --entries 20
 """
 
 from __future__ import annotations
@@ -148,11 +163,54 @@ def format_timestamp(ts: float) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+def get_unique_backends(entries: list[dict[str, Any]]) -> dict[str, int]:
+    """Extract unique backends from capture entries with their counts.
+    
+    Args:
+        entries: List of capture entry dictionaries
+        
+    Returns:
+        Dictionary mapping backend name to count of entries with that backend,
+        sorted by count in descending order
+    """
+    backend_counts: dict[str, int] = {}
+    for e in entries:
+        meta = e.get("meta", {})
+        backend = meta.get("be")
+        if backend:
+            backend_counts[backend] = backend_counts.get(backend, 0) + 1
+    
+    # Sort by count descending
+    return dict(sorted(backend_counts.items(), key=lambda x: x[1], reverse=True))
+
+
+def filter_entries_by_backend(
+    entries: list[dict[str, Any]], backend_name: str | None
+) -> list[dict[str, Any]]:
+    """Filter entries by backend name.
+    
+    Args:
+        entries: List of capture entry dictionaries
+        backend_name: Backend name to filter by, or None for no filtering
+        
+    Returns:
+        Filtered list of entries
+    """
+    if backend_name is None:
+        return entries
+    
+    return [
+        e for e in entries
+        if e.get("meta", {}).get("be") == backend_name
+    ]
+
+
 def print_entries(
     entries: list[dict[str, Any]],
     max_entries: int = 20,
     max_data_length: int = 200,
     direction_filter: int | None = None,
+    backend_filter: str | None = None,
 ) -> None:
     """Print individual entries."""
     print()
@@ -164,12 +222,16 @@ def print_entries(
     for i, e in enumerate(entries):
         if direction_filter is not None and e["dir"] != direction_filter:
             continue
+        
+        if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
+            continue
 
         if count >= max_entries:
             remaining = sum(
                 1
                 for x in entries[i:]
-                if direction_filter is None or x["dir"] == direction_filter
+                if (direction_filter is None or x["dir"] == direction_filter)
+                and (backend_filter is None or x.get("meta", {}).get("be") == backend_filter)
             )
             print(f"\n... and {remaining} more entries")
             break
@@ -180,8 +242,10 @@ def print_entries(
         seq = e.get("seq", "?")
         ts = e.get("ts", 0)
         ts_str = format_timestamp(ts)
+        backend = e.get("meta", {}).get("be", "")
+        backend_str = f" | backend={backend}" if backend else ""
 
-        print(f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}")
+        print(f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}{backend_str}")
 
         if data:
             preview = safe_decode(data, max_data_length)
@@ -192,18 +256,34 @@ def print_entries(
                 print(f"    ... ({len(data) - max_data_length} more bytes)")
 
 
-def analyze_request_response_pairs(entries: list[dict[str, Any]]) -> None:
-    """Analyze request/response pairs and detect issues."""
+def analyze_request_response_pairs(
+    entries: list[dict[str, Any]], backend_filter: str | None = None
+) -> None:
+    """Analyze request/response pairs and detect issues.
+    
+    Args:
+        entries: List of capture entry dictionaries
+        backend_filter: Optional backend name to filter analysis by
+    """
     print()
     print("=" * 70)
     print("REQUEST/RESPONSE ANALYSIS")
     print("=" * 70)
+    if backend_filter:
+        print(f"(Filtered to backend: {backend_filter})")
+        print("=" * 70)
 
     request_num = 0
     i = 0
 
     while i < len(entries):
         e = entries[i]
+        
+        # Skip if backend filter is set and doesn't match
+        if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
+            i += 1
+            continue
+        
         if e["dir"] == 0:  # CLIENT_TO_PROXY (new request)
             request_num += 1
             print(f"\n--- REQUEST #{request_num} ---")
@@ -258,9 +338,8 @@ def analyze_request_response_pairs(entries: list[dict[str, Any]]) -> None:
                     if "fallback" in msg_id:
                         issues.append("Fallback mechanism activated")
 
-                    # Check for internal model names
-                    if "code-assist" in model.lower():
-                        issues.append(f"Internal model name leak: {model}")
+                    # Note: Internal model names in backend responses are expected
+                    # Only flag as leak if they reach the client
 
             print(f"Backend models: {backend_models or 'N/A'}")
             print(f"Backend content: {backend_content_len} chars")
@@ -279,6 +358,11 @@ def analyze_request_response_pairs(entries: list[dict[str, Any]]) -> None:
                     client_has_data = True
                 parsed = parse_sse_chunk(chunk)
                 if parsed:
+                    # Check for internal model names leaking to client
+                    client_model = parsed.get("model", "")
+                    if client_model and "code-assist" in client_model.lower():
+                        issues.append(f"Internal model name leak to client: {client_model}")
+
                     choices = parsed.get("choices", [])
                     for choice in choices:
                         delta = choice.get("delta", {})
@@ -315,9 +399,19 @@ def analyze_request_response_pairs(entries: list[dict[str, Any]]) -> None:
 
 
 def export_to_json(
-    header: dict[str, Any], entries: list[dict[str, Any]], output_file: str | None
+    header: dict[str, Any],
+    entries: list[dict[str, Any]],
+    output_file: str | None,
+    backend_filter: str | None = None,
 ) -> None:
-    """Export capture data to JSON format."""
+    """Export capture data to JSON format.
+    
+    Args:
+        header: Capture file header
+        entries: List of capture entries
+        output_file: Output file path or None for stdout
+        backend_filter: Optional backend name to filter by
+    """
     entries_list: list[dict[str, Any]] = []
     output: dict[str, Any] = {
         "header": {
@@ -329,6 +423,9 @@ def export_to_json(
     }
 
     for e in entries:
+        # Apply backend filter
+        if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
+            continue
         entry_dict = {
             "seq": e.get("seq"),
             "direction": DIRECTION_NAMES.get(e["dir"], f"Unknown({e['dir']})"),
@@ -398,6 +495,18 @@ def main() -> int:
         help="Filter entries by direction",
     )
     parser.add_argument(
+        "--backend",
+        "-b",
+        metavar="BACKEND",
+        help="Filter entries by backend name (e.g., openai, anthropic, gemini)",
+    )
+    parser.add_argument(
+        "--list-backends",
+        "-l",
+        action="store_true",
+        help="List all unique backends found in the capture file",
+    )
+    parser.add_argument(
         "--max-data",
         type=int,
         default=200,
@@ -417,10 +526,38 @@ def main() -> int:
         print(f"Error loading capture file: {e}", file=sys.stderr)
         return 1
 
+    # Handle --list-backends flag
+    if args.list_backends:
+        backends = get_unique_backends(entries)
+        if not backends:
+            print("No backend information available in this capture file")
+        else:
+            print("=" * 70)
+            print("AVAILABLE BACKENDS")
+            print("=" * 70)
+            for backend, count in backends.items():
+                print(f"  {backend}: {count} entries")
+        return 0
+
+    # Validate backend filter if specified
+    backend_filter = args.backend
+    if backend_filter:
+        available_backends = get_unique_backends(entries)
+        if backend_filter not in available_backends:
+            print(
+                f"Warning: Backend '{backend_filter}' not found in capture.",
+                file=sys.stderr,
+            )
+            if available_backends:
+                backends_str = ", ".join(available_backends.keys())
+                print(f"Available backends: {backends_str}", file=sys.stderr)
+            else:
+                print("No backend information available in this capture.", file=sys.stderr)
+
     # Handle JSON export
     if args.json:
         output_file = None if args.json == "-" else args.json
-        export_to_json(header, entries, output_file)
+        export_to_json(header, entries, output_file, backend_filter=backend_filter)
         return 0
 
     # Print summary
@@ -444,11 +581,12 @@ def main() -> int:
             max_entries=args.entries,
             max_data_length=args.max_data,
             direction_filter=direction_filter,
+            backend_filter=backend_filter,
         )
 
     # Analyze if requested
     if args.analyze:
-        analyze_request_response_pairs(entries)
+        analyze_request_response_pairs(entries, backend_filter=backend_filter)
 
     return 0
 

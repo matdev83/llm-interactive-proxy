@@ -120,23 +120,39 @@ For detailed analysis including request/response pairing and issue detection, us
 - Request/response pair analysis
 - Automatic issue detection (empty responses, model name leaks, fallback activation)
 - Traffic direction filtering
+- Backend filtering for multi-backend scenarios
 - JSON export for further processing
 
 ```bash
 # Basic inspection (shows summary)
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor
 
+# List all backends in the capture file
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --list-backends
+
 # Show first 10 entries with data preview
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --entries 10
+
+# Filter entries by backend
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --backend openai --entries 10
 
 # Analyze request/response pairs and detect issues (MOST USEFUL FOR DEBUGGING)
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --analyze
 
+# Analyze only pairs from a specific backend
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --analyze --backend anthropic
+
 # Filter by traffic direction (client_to_proxy, proxy_to_client, proxy_to_backend, backend_to_proxy)
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --entries 20 --direction backend_to_proxy
 
+# Combine backend and direction filters
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --backend openai --direction backend_to_proxy --entries 20
+
 # Export to JSON for further processing
 ./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --json > output.json
+
+# Export only entries from a specific backend to JSON
+./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py var/wire_captures_cbor/capture_file.cbor --backend gemini --json > gemini_only.json
 ```
 
 The `--analyze` flag is particularly useful as it will automatically detect and report issues like:
