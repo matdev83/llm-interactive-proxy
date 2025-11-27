@@ -456,6 +456,11 @@ class OpenAIConnector(LLMBackend):
         # Ensure the outbound payload uses the resolved model name without backend prefixes.
         payload["model"] = effective_model
         payload["stream"] = bool(getattr(request_data, "stream", False))
+        if payload.get("stream"):
+            stream_options = payload.get("stream_options") or {}
+            # Explicitly request usage data in streaming responses when supported
+            stream_options.setdefault("include_usage", True)
+            payload["stream_options"] = stream_options
 
         # Prefer processed_messages (these are the canonical, post-processed
         # messages ready to send). Convert them to plain dicts to ensure JSON

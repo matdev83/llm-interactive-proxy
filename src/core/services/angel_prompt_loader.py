@@ -46,7 +46,7 @@ FALLBACK_STEERING_TEMPLATE = (
     "Your options now are as follows:\\n"
     "1. If you agree and want to correct, please just re-generate and re-submit new corrected message. And that's it. Corrected output, if verified, will be sent to the client. You don't need to do anything more. Just generate corrected output, including tool calls if you believe they are needed.\\n"
     "OR:\\n"
-    '2. If you don\'t agree with my analysis and you believe you don\'t need to correct anything. And YOU ARE PERFECTLY SURE about it, please output only the following XML and I\'ll pass your previously generated message back to the client. Just output now the following: "\u003coverride_angel\u003eTrue\u003c/override_angel\u003e". Output only that string in double quotes if you want me to pass your last message to the client. Do not comment, discuss or re-generate whole previous answer. Do not call any other tools. Say only: \u003coverride_angel\u003eTrue\u003c/override_angel\u003e if you want your latest message to be passed to the client verbatim with no corrections.\\n'
+    "2. If you don't agree with my analysis and you believe you don't need to correct anything. And YOU ARE PERFECTLY SURE about it, please output only the following XML and I'll pass your previously generated message back to the client. Just output now the following: \"\u003coverride_angel\u003eTrue\u003c/override_angel\u003e\". Output only that string in double quotes if you want me to pass your last message to the client. Do not comment, discuss or re-generate whole previous answer. Do not call any other tools. Say only: \u003coverride_angel\u003eTrue\u003c/override_angel\u003e if you want your latest message to be passed to the client verbatim with no corrections.\\n"
     "Remember: you have only two options at this stage. Choose one of the above to proceed. I'm not session-interactive. I cannot discuss details. I can only handle your next reply according to the rules outlined above."
 )
 
@@ -96,7 +96,9 @@ class AngelPromptLoader:
 
                     if not self._angel_prompt:
                         logger.warning("Angel prompt file is empty")
-                        logger.warning("Using fallback Angel prompt (hardcoded default)")
+                        logger.warning(
+                            "Using fallback Angel prompt (hardcoded default)"
+                        )
                         self._angel_prompt = FALLBACK_ANGEL_PROMPT
                 except Exception as e:
                     logger.warning(f"Failed to read Angel prompt file: {e}")
@@ -209,4 +211,3 @@ class AngelPromptLoader:
             "angel_prompt_length": len(self._angel_prompt or ""),
             "steering_template_length": len(self._steering_template or ""),
         }
-

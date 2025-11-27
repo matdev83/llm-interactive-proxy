@@ -1,4 +1,3 @@
-import os
 import subprocess
 from pathlib import Path
 
@@ -22,8 +21,24 @@ def run_pymarkdown_scan(file_path: Path) -> tuple[bool, str]:
     """
     try:
         # Run pymarkdown scan command using the executable directly
+        # Disable rules that are too restrictive for documentation:
+        # - MD013: Line length (80 chars is too short for docs)
+        # - MD036: Emphasis as heading (bold text is acceptable in docs)
+        # - MD024: Duplicate headings (common in docs with repeated sections)
+        # - MD040: Code fence language (not all examples need language tags)
+        # - MD029: Ordered list prefix (allows flexible list numbering)
+        # - MD033: Inline HTML (needed for collapsible sections, etc.)
+        # - MD031: Blank lines around fences (compact formatting is acceptable)
+        # - MD022: Blank lines around headings (compact formatting is acceptable)
+        # - MD007: List indentation (flexible indentation is acceptable)
         result = subprocess.run(
-            [".venv\\Scripts\\pymarkdown.exe", "scan", str(file_path)],
+            [
+                ".venv\\Scripts\\pymarkdown.exe",
+                "-d",
+                "MD013,MD036,MD024,MD040,MD029,MD033,MD031,MD022,MD007",
+                "scan",
+                str(file_path),
+            ],
             cwd=get_project_root(),
             capture_output=True,
             text=True,

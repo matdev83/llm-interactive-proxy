@@ -325,84 +325,33 @@ def to_fastapi_response(
     status_code = envelope.status_code
     media_type = getattr(envelope, "media_type", "application/json")
 
+    prepared_content = _prepare_json_content(content)
+
+    if envelope.metadata and isinstance(prepared_content, dict):
+        reasoning_meta = envelope.metadata.get(
+            "reasoning"
+        ) or envelope.metadata.get("reasoning_content")
+        if reasoning_meta:
+            metadata_section = prepared_content.setdefault("metadata", {})
+            if isinstance(metadata_section, dict):
+                metadata_section.setdefault("reasoning", reasoning_meta)
+                metadata_section.setdefault("reasoning_content", reasoning_meta)
+
+    prepared_content, usage_data = _ensure_usage(envelope, prepared_content)
+    headers = _apply_usage_headers(headers, usage_data)
+
     if media_type and media_type.startswith("application/json"):
-        json_content = _prepare_json_content(content)
-
-        if envelope.metadata and isinstance(json_content, dict):
-            reasoning_meta = envelope.metadata.get(
-                "reasoning"
-            ) or envelope.metadata.get("reasoning_content")
-            if reasoning_meta:
-                metadata_section = json_content.setdefault("metadata", {})
-                if isinstance(metadata_section, dict):
-                    metadata_section.setdefault("reasoning", reasoning_meta)
-                    metadata_section.setdefault("reasoning_content", reasoning_meta)
-
-        # If the envelope has usage data, merge it into the response content.
-        # This ensures that token usage from the backend is always included
-        # in the final response, overriding any default/zeroed values.
-        # If content appears to have been transformed, recalculate usage to match actual content.
-        allow_usage_recalculation = bool(
-            envelope.metadata.get("allow_usage_recalculation")
-            if envelope.metadata
-            else False
-        )
-
-        if envelope.usage and isinstance(json_content, dict):
-            from src.core.utils.usage_recalculation import (
-                extract_content_text,
-                should_recalculate_usage,
-            )
-
-            # Check if we should recalculate usage based on content
-            if allow_usage_recalculation and should_recalculate_usage(json_content):
-                current_content = extract_content_text(json_content)
-                if current_content:
-                    # Recalculate completion tokens based on actual content
-                    from src.core.utils.token_count import count_tokens
-
-                    actual_completion_tokens = count_tokens(current_content)
-                    original_completion_tokens = envelope.usage.get(
-                        "completion_tokens", 0
-                    )
-
-                    # Only update if there's a significant difference (>5% or >10 tokens)
-                    token_diff = abs(
-                        original_completion_tokens - actual_completion_tokens
-                    )
-                    if token_diff > 10 or (
-                        original_completion_tokens > 0
-                        and token_diff / original_completion_tokens > 0.05
-                    ):
-                        prompt_tokens = envelope.usage.get("prompt_tokens", 0)
-                        recalculated_usage = {
-                            "prompt_tokens": prompt_tokens,
-                            "completion_tokens": actual_completion_tokens,
-                            "total_tokens": prompt_tokens + actual_completion_tokens,
-                        }
-                        logger.info(
-                            f"Usage recalculated: completion_tokens {original_completion_tokens} -> {actual_completion_tokens} "
-                            f"(diff: {token_diff}, {token_diff/max(original_completion_tokens, 1)*100:.1f}%)"
-                        )
-                        json_content["usage"] = recalculated_usage
-                    else:
-                        json_content["usage"] = envelope.usage
-                else:
-                    json_content["usage"] = envelope.usage
-            else:
-                json_content["usage"] = envelope.usage
-
         # Surface middleware metadata such as reasoning streams when available.
-        if envelope.metadata and isinstance(json_content, dict):
+        if envelope.metadata and isinstance(prepared_content, dict):
             metadata_reasoning = envelope.metadata.get(
                 "reasoning"
             ) or envelope.metadata.get("reasoning_content")
             if metadata_reasoning:
-                metadata_block = json_content.setdefault("metadata", {})
+                metadata_block = prepared_content.setdefault("metadata", {})
                 if isinstance(metadata_block, dict):
                     metadata_block.setdefault("reasoning", metadata_reasoning)
 
-        safe_content = _sanitize_json_content(json_content)
+        safe_content = _sanitize_json_content(prepared_content)
         safe_headers = _sanitize_headers(headers)
         if "content-encoding" in {k.lower(): v for k, v in safe_headers.items()}:
             import logging
@@ -436,7 +385,11 @@ def _normalize_response_envelope(domain_response: Any) -> ResponseEnvelope:
         return domain_response
     elif isinstance(domain_response, ChatResponse):
         return ResponseEnvelope(
-            content=domain_response.model_dump(), headers=None, status_code=200
+            content=domain_response.model_dump(),
+            headers=None,
+            status_code=200,
+            usage=domain_response.usage,
+            metadata={"model": domain_response.model} if domain_response.model else None,
         )
     elif isinstance(domain_response, dict):
         return ResponseEnvelope(content=domain_response, headers=None, status_code=200)
@@ -458,6 +411,173 @@ def _prepare_json_content(content: Any) -> Any:
     elif is_dataclass(content) and not isinstance(content, type):
         return asdict(content)
     return content
+
+
+def _normalize_usage_dict(usage: Any) -> dict[str, int] | None:
+    """Normalize a usage dictionary to integer values."""
+    if not isinstance(usage, dict):
+        return None
+
+    try:
+        return {
+            "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+            "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+            "total_tokens": int(usage.get("total_tokens", 0) or 0),
+        }
+    except Exception:
+        logger.debug("Failed to normalize usage payload: %s", usage, exc_info=True)
+        return None
+
+
+def _resolve_model_name(
+    envelope: ResponseEnvelope, payload: Any
+) -> str | None:
+    """Extract model name from envelope metadata or payload."""
+    if isinstance(payload, dict):
+        model_name = payload.get("model") or payload.get("id")
+        if isinstance(model_name, str) and model_name:
+            return model_name
+
+    metadata = getattr(envelope, "metadata", None)
+    if isinstance(metadata, dict):
+        model_name = metadata.get("model")
+        if isinstance(model_name, str) and model_name:
+            return model_name
+    return None
+
+
+def _resolve_prompt_tokens(
+    usage: dict[str, int] | None, envelope: ResponseEnvelope
+) -> int | None:
+    """Get prompt tokens from usage or outbound token metadata."""
+    if usage and isinstance(usage.get("prompt_tokens"), int):
+        prompt_tokens = usage["prompt_tokens"]
+        if prompt_tokens > 0:
+            return prompt_tokens
+
+    metadata = getattr(envelope, "metadata", None)
+    if isinstance(metadata, dict):
+        outbound_tokens = metadata.get("outbound_tokens")
+        if isinstance(outbound_tokens, (int, float)):
+            try:
+                return int(outbound_tokens)
+            except (TypeError, ValueError):
+                logger.debug("Failed to coerce outbound_tokens: %s", outbound_tokens)
+    return None
+
+
+def _calculate_completion_tokens(
+    payload: Any, model_name: str | None
+) -> int | None:
+    """Calculate completion tokens from the response payload."""
+    text_value: str | None = None
+    if isinstance(payload, dict):
+        from src.core.utils.usage_recalculation import (
+            extract_content_text,
+            should_recalculate_usage,
+        )
+
+        if should_recalculate_usage(payload):
+            text_value = extract_content_text(payload)
+    elif isinstance(payload, str):
+        text_value = payload
+
+    if text_value:
+        from src.core.utils.token_count import count_tokens
+
+        try:
+            return count_tokens(text_value, model=model_name)
+        except Exception:
+            logger.debug("Failed to calculate completion tokens", exc_info=True)
+    return None
+
+
+def _should_replace_completion(
+    existing_tokens: int, recalculated_tokens: int
+) -> bool:
+    """Decide if recalculated completion tokens should replace existing values."""
+    if existing_tokens == 0:
+        return True
+
+    token_diff = abs(existing_tokens - recalculated_tokens)
+    if token_diff > 10:
+        return True
+
+    try:
+        return token_diff / existing_tokens > 0.05
+    except Exception:
+        return False
+
+
+def _ensure_usage(
+    envelope: ResponseEnvelope, payload: Any
+) -> tuple[Any, dict[str, int] | None]:
+    """Ensure usage information is present and aligned with transformed content."""
+    existing_usage = _normalize_usage_dict(envelope.usage)
+    if existing_usage is None and isinstance(payload, dict):
+        existing_usage = _normalize_usage_dict(payload.get("usage"))
+
+    model_name = _resolve_model_name(envelope, payload)
+    prompt_tokens_hint = _resolve_prompt_tokens(existing_usage, envelope)
+    completion_tokens = _calculate_completion_tokens(payload, model_name)
+
+    usage: dict[str, int] = existing_usage.copy() if existing_usage else {}
+
+    if prompt_tokens_hint is not None and usage.get("prompt_tokens", 0) == 0:
+        usage["prompt_tokens"] = prompt_tokens_hint
+
+    existing_completion = usage.get("completion_tokens", 0)
+    if completion_tokens is not None and _should_replace_completion(
+        existing_completion, completion_tokens
+    ):
+        if existing_completion != completion_tokens:
+            logger.info(
+                "Usage completion tokens recalculated: %s -> %s",
+                existing_completion,
+                completion_tokens,
+            )
+        usage["completion_tokens"] = completion_tokens
+
+    usage.setdefault("prompt_tokens", prompt_tokens_hint or 0)
+    usage.setdefault("completion_tokens", existing_completion or 0)
+    usage["total_tokens"] = usage.get("prompt_tokens", 0) + usage.get(
+        "completion_tokens", 0
+    )
+
+    usage_to_apply: dict[str, int] | None
+    if usage or existing_usage is not None or prompt_tokens_hint is not None:
+        usage_to_apply = usage
+    else:
+        usage_to_apply = None
+
+    if usage_to_apply:
+        envelope.usage = usage_to_apply
+        if isinstance(payload, dict):
+            payload["usage"] = usage_to_apply
+
+    return payload, usage_to_apply
+
+
+def _apply_usage_headers(
+    headers: dict[str, Any] | None, usage: dict[str, int] | None
+) -> dict[str, Any]:
+    """Attach usage details as response headers for clients."""
+    merged_headers: dict[str, Any] = dict(headers or {})
+    if not usage:
+        return merged_headers
+
+    def _coerce(value: int | float | None) -> str:
+        try:
+            return str(int(value or 0))
+        except Exception:
+            return "0"
+
+    merged_headers["x-usage-prompt-tokens"] = _coerce(usage.get("prompt_tokens"))
+    merged_headers["x-usage-completion-tokens"] = _coerce(
+        usage.get("completion_tokens")
+    )
+    merged_headers["x-usage-total-tokens"] = _coerce(usage.get("total_tokens"))
+    return merged_headers
 
 
 def _sanitize_json_content(obj: Any) -> Any:

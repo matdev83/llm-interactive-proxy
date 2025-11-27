@@ -585,49 +585,50 @@ class TestToolCallMetadataMarkers:
         assert args2["command"] == "pwd"
 
 
-class TestInnerTagSkipList:
+class TestStructuralDetectionHeuristics:
     """
-    Tests to verify that the inner tag skip list in ToolCallRepairService
-    is comprehensive.
+    Tests to verify that the structural heuristics in ToolCallRepairService
+    correctly identify tool calls vs parameters without hardcoded lists.
+
+    DESIGN PRINCIPLE: Detection uses ONLY structural patterns:
+    - Simple values (numbers, paths, identifiers) -> NOT tool calls
+    - Complex values (nested structure, JSON, multi-line) -> tool calls
     """
 
-    def test_skip_list_includes_all_inner_tags(self) -> None:
-        """Verify the skip list includes all known inner tags."""
-        import ast
-        import inspect
+    def test_simple_values_not_detected_as_tool_calls(self) -> None:
+        """Verify that simple value content is not detected as tool calls."""
+        from src.core.services.tool_call_repair_service import ToolCallRepairService
 
-        from src.core.services import tool_call_repair_service
+        service = ToolCallRepairService()
 
-        source = inspect.getsource(tool_call_repair_service)
-        tree = ast.parse(source)
-
-        # Find the skip list (it's a set literal in _extract_xml_tool_call)
-        skip_tags: list[str] = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Set):
-                for elt in node.elts:
-                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                        skip_tags.append(elt.value)
-
-        # These are the inner tags that MUST be skipped
-        required_skip_tags = [
-            "command",  # execute_command
-            "file",  # read_file, write_to_file
-            "question",  # ask_followup_question
-            "result",  # attempt_completion
-            "regex",  # search_files
-            "query",  # codebase_search
-            "uri",  # access_mcp_resource
-            "server_name",  # MCP tools
-            "directory",  # list_files
-            "recursive",  # list_files
+        # These should all be detected as simple values, NOT tool calls
+        simple_value_cases = [
+            "<command>ls -la</command>",  # Command string
+            "<file>src/main.py</file>",  # File path
+            "<line>42</line>",  # Number
+            "<recursive>true</recursive>",  # Boolean
+            "<directory>/home/user</directory>",  # Path
         ]
 
-        for tag in required_skip_tags:
-            assert tag in skip_tags, (
-                f"Inner tag '{tag}' MUST be in the skip list to prevent "
-                f"incorrect parsing! Found skip tags: {skip_tags}"
-            )
+        for case in simple_value_cases:
+            result = service.repair_tool_calls(case)
+            assert result is None, f"Expected {case} to NOT be detected as tool call"
+
+    def test_structured_content_detected_as_tool_calls(self) -> None:
+        """Verify that structured content IS detected as tool calls."""
+        from src.core.services.tool_call_repair_service import ToolCallRepairService
+
+        service = ToolCallRepairService()
+
+        # These should be detected as tool calls (have structure)
+        structured_cases = [
+            "<execute_command><command>ls</command></execute_command>",  # Nested
+            '<tool name="test"></tool>',  # Has attributes
+        ]
+
+        for case in structured_cases:
+            result = service.repair_tool_calls(case)
+            assert result is not None, f"Expected {case} to be detected as tool call"
 
 
 class TestEndToEndToolCallFlow:

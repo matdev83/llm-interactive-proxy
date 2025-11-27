@@ -491,10 +491,13 @@ class TestHeuristicMethods:
         """Test complex values are NOT detected as simple values."""
         # JSON should not be simple
         assert not repair_service._looks_like_simple_value('{"key": "value"}')
-        # Multi-word strings should not be simple
-        assert not repair_service._looks_like_simple_value("this is a sentence")
-        # Complex expressions should not be simple
+        # XML-like content should not be simple
+        assert not repair_service._looks_like_simple_value("<tag>content</tag>")
+        # Complex expressions with special chars should not be simple
         assert not repair_service._looks_like_simple_value("func(arg1, arg2)")
+        # Very long content should not be simple (even if it looks like a sentence)
+        long_text = "This is a very long sentence " * 10  # Over 200 chars
+        assert not repair_service._looks_like_simple_value(long_text)
 
 
 class TestRealWorldCapturePatterns:

@@ -46,6 +46,16 @@ def test_usage_recalculated_when_content_differs():
     body = json.loads(response.body)
     assert "usage" in body
 
+    assert response.headers["x-usage-prompt-tokens"] == str(
+        body["usage"]["prompt_tokens"]
+    )
+    assert response.headers["x-usage-completion-tokens"] == str(
+        body["usage"]["completion_tokens"]
+    )
+    assert response.headers["x-usage-total-tokens"] == str(
+        body["usage"]["total_tokens"]
+    )
+
     # Usage should be recalculated because difference is >5% and >10 tokens
     assert body["usage"]["prompt_tokens"] == 100  # Preserved
     assert body["usage"]["completion_tokens"] < 500  # Recalculated
@@ -261,4 +271,8 @@ def test_no_usage_in_envelope():
     # Assert
     body = json.loads(response.body)
     # Should not have usage field or should be None
-    assert "usage" not in body or body.get("usage") is None
+    assert "usage" in body
+    usage = body["usage"]
+    assert usage["completion_tokens"] > 0
+    assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"]
+    assert response.headers["x-usage-total-tokens"] == str(usage["total_tokens"])

@@ -414,9 +414,11 @@ class AnthropicBackend(LLMBackend):
             data, source_format="anthropic"
         )
         return ResponseEnvelope(
-            content=converted_response,
+            content=converted_response.model_dump(),
             headers=dict(response.headers),
             status_code=response.status_code,
+            usage=converted_response.usage,
+            metadata={"allow_usage_recalculation": True},
         )
 
     # -----------------------------------------------------------

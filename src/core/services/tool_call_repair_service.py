@@ -411,27 +411,28 @@ class ToolCallRepairService(IToolCallRepairService):
         if "<" not in content or "</" not in content:
             return None
 
-        # Find ALL XML elements using generic pattern - no hardcoded tool names
-        matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
-        if not matches:
-            return None
+        candidate_snippets: list[str] = []
 
-        candidate_snippets = [match.group(0) for match in matches]
-
-        # If allowed_tools is provided, use it ONLY for prioritization (check first)
-        # but NEVER reject tool calls not in the list
+        # If allowed_tools is provided, search for those FIRST (even if nested)
+        # This handles cases where the tool call is wrapped in another element
         if allowed_tools:
-            allowed_set = {tool_name.lower() for tool_name in allowed_tools}
-            # Sort: prioritized tools first, then others
-            prioritized = []
-            others = []
-            for snippet in candidate_snippets:
-                tag_match = re.match(r"<([A-Za-z0-9_\-]+)", snippet)
-                if tag_match and tag_match.group(1).lower() in allowed_set:
-                    prioritized.append(snippet)
-                else:
-                    others.append(snippet)
-            candidate_snippets = prioritized + others
+            for tool_name in allowed_tools:
+                # Search for this specific tool (case-insensitive)
+                pattern = rf"<{tool_name}(?:\s[^>]*)?>.*?</{tool_name}>"
+                match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+                if match:
+                    candidate_snippets.append(match.group(0))
+
+        # Also add generic matches for any other XML elements
+        generic_matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
+        for match in generic_matches:
+            snippet = match.group(0)
+            # Avoid duplicates
+            if snippet not in candidate_snippets:
+                candidate_snippets.append(snippet)
+
+        if not candidate_snippets:
+            return None
 
         for xml_snippet in candidate_snippets:
             try:
@@ -660,8 +661,8 @@ class ToolCallRepairService(IToolCallRepairService):
         if any(text.endswith(ext) for ext in common_extensions):
             return True
 
-        # URL-like values
-        if text.startswith(("http://", "https://", "ftp://", "file://")):
+        # URL-like values (including custom schemes like resource://, file://, etc.)
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", text):
             return True
 
         # Single-word identifiers (variable names, modes, etc.)
@@ -670,6 +671,15 @@ class ToolCallRepairService(IToolCallRepairService):
 
         # Hyphenated identifiers (like "my-project", "some-tool")
         if re.match(r"^[a-zA-Z][a-zA-Z0-9\-]*$", text):
+            return True
+
+        # Short words with common punctuation (like "Success!", "Yes?", "Done.")
+        if len(text) < 50 and re.match(r"^[a-zA-Z][a-zA-Z0-9]*[!?.]*$", text):
+            return True
+
+        # Regex-like patterns (contain regex metacharacters)
+        # These are clearly values, not tool call bodies
+        if len(text) < 100 and re.match(r"^[\w.*+?^$\\|\[\]{}()-]+$", text):
             return True
 
         # Short single-line strings without XML/JSON markers
