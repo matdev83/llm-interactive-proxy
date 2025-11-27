@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
 @pytest.mark.asyncio
@@ -135,6 +136,67 @@ async def test_ask_followup_question_buffered_prevents_xml_leakage():
 
 
 @pytest.mark.asyncio
+async def test_think_tags_do_not_block_streaming_chunks():
+    """
+    Ensure think/thought tags are not treated as tool markers (no over-buffering).
+
+    Regression coverage: when think tags were tracked as tool markers, the buffering
+    layer collapsed all chunks into a single SSE event. This test asserts that
+    multiple SSE payloads still flow when think tags appear in streamed content.
+    """
+    from src.core.transport.fastapi.response_adapters import (
+        to_fastapi_streaming_response,
+    )
+
+    async def mock_stream() -> AsyncIterator[ProcessedResponse]:
+        stream_id = "think-stream"
+        yield ProcessedResponse(
+            content='data: {"id": "chatcmpl-think-1", "object": "chat.completion.chunk", "created": 123, "model": "gpt-4", "choices": [{"index": 0, "delta": {"content": "<think>Let me analyze"}, "finish_reason": null}]}\n\n',
+            metadata={"session_id": stream_id},
+        )
+        yield ProcessedResponse(
+            content='data: {"id": "chatcmpl-think-1", "object": "chat.completion.chunk", "created": 123, "model": "gpt-4", "choices": [{"index": 0, "delta": {"content": " this</think>Now the answer"}, "finish_reason": null}]}\n\n',
+            metadata={"session_id": stream_id},
+        )
+        yield ProcessedResponse(
+            content='data: {"id": "chatcmpl-think-1", "object": "chat.completion.chunk", "created": 123, "model": "gpt-4", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\n',
+            metadata={"session_id": stream_id},
+        )
+
+    envelope = StreamingResponseEnvelope(
+        content=mock_stream(), media_type="text/event-stream", headers={}
+    )
+
+    response = to_fastapi_streaming_response(envelope)
+
+    chunks: list[str] = []
+    async for chunk in response.body_iterator:
+        decoded = chunk.decode("utf-8")
+        if decoded.strip():
+            chunks.append(decoded)
+
+    def _count_payload_events(items: list[str]) -> int:
+        event_count = 0
+        for item in items:
+            for line in item.splitlines():
+                stripped = line.strip()
+                if not stripped.startswith("data:"):
+                    continue
+                payload = stripped[5:].strip()
+                if not payload or payload == "[DONE]":
+                    continue
+                event_count += 1
+        return event_count
+
+    assert _count_payload_events(chunks) >= 2, (
+        "Think tags must not cause the streaming buffer to collapse into a single event. "
+        f"Chunks: {chunks}"
+    )
+    full_output = "".join(chunks)
+    assert "Now the answer" in full_output
+
+
+@pytest.mark.asyncio
 async def test_execute_command_buffered_across_different_chunk_ids():
     """
     Test that execute_command tool calls are properly buffered even when
@@ -211,20 +273,7 @@ async def test_all_tool_tags_are_buffered():
 
     from src.core.transport.fastapi import response_adapters
 
-    # These are the tool tags that MUST be buffered based on the system prompt
-    critical_tool_tags = [
-        "ask_followup_question",  # This was causing the leakage!
-        "attempt_completion",
-        "execute_command",
-        "apply_diff",
-        "write_to_file",
-        "read_file",
-        "use_mcp_tool",
-        "access_mcp_resource",
-        "browser_action",
-    ]
-
-    # Read the entire module source to find BUFFERED_TOOL_TAGS
+    # Read the entire module source to find buffering logic
     # (it's defined inside a nested function, so we need the full module)
     source = inspect.getsource(response_adapters)
     tree = ast.parse(source)
@@ -256,9 +305,6 @@ async def test_all_tool_tags_are_buffered():
                 if isinstance(elt, ast.Constant):
                     buffered_tags.append(elt.value)
 
-    # Verify all critical tags are buffered
-    for tag in critical_tool_tags:
-        assert tag in buffered_tags, (
-            f"Tool tag '{tag}' MUST be in BUFFERED_TOOL_TAGS to prevent XML leakage! "
-            f"Current buffered tags: {buffered_tags}"
-        )
+    # Dynamic buffering now relies on observed/allowed tags rather than hardcoded tuples
+    assert "tracked_tags" in source
+    assert "_apply_tag_buffer" in source

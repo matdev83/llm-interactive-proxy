@@ -14,7 +14,12 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend
-from src.core.common.exceptions import BackendError, RateLimitExceededError
+from src.core.common.exceptions import (
+    BackendError,
+    InvalidRequestError,
+    LLMProxyError,
+    RateLimitExceededError,
+)
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.config.config_loader import _collect_api_keys
 from src.core.domain.chat import ChatRequest
@@ -403,6 +408,41 @@ class BackendService(IBackendService):
                 message=message,
                 details=details,
                 reset_at=reset_at,
+            )
+
+        if isinstance(exc, HTTPException):
+            status_code = getattr(exc, "status_code", None)
+            detail_payload = getattr(exc, "detail", None)
+
+            http_message: str | None = None
+            if isinstance(detail_payload, dict):
+                http_message = detail_payload.get("message") or detail_payload.get(
+                    "error", {}
+                ).get(
+                    "message"
+                )  # type: ignore[index]
+            elif detail_payload is not None:
+                http_message = str(detail_payload)
+
+            http_message = http_message or "Backend request failed"
+            http_details: dict[str, Any] = {
+                "backend": backend_type,
+                "detail": detail_payload,
+            }
+            if isinstance(status_code, int):
+                http_details["status_code"] = status_code
+
+            if isinstance(status_code, int) and 400 <= status_code < 500:
+                return InvalidRequestError(
+                    message=http_message,
+                    details=http_details,
+                )
+
+            return BackendError(
+                message=http_message,
+                backend_name=backend_type,
+                status_code=status_code if isinstance(status_code, int) else 502,
+                details=http_details,
             )
 
         return exc
@@ -1499,7 +1539,7 @@ class BackendService(IBackendService):
                     backend_name=backend_type,
                 )
 
-        except (BackendError, RateLimitExceededError):
+        except (BackendError, RateLimitExceededError, LLMProxyError):
             # Propagate expected exceptions as-is
             raise
         except Exception as e:
@@ -2260,7 +2300,9 @@ class BackendService(IBackendService):
         normalized_last_error = self._normalize_provider_exception(
             last_error, backend_type
         )
-        if isinstance(normalized_last_error, RateLimitExceededError | BackendError):
+        if isinstance(
+            normalized_last_error, RateLimitExceededError | BackendError | LLMProxyError
+        ):
             raise normalized_last_error
 
         # If no failover options available, raise the original error

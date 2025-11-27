@@ -1,11 +1,11 @@
 """Integration tests for structured wire capture."""
 
-import asyncio
 import json
 import os
 import tempfile
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
@@ -35,8 +35,8 @@ def mock_app_config(temp_capture_file):
     return config
 
 
-@pytest.fixture
-def test_app(mock_app_config):
+@pytest_asyncio.fixture
+async def test_app(mock_app_config):
     """Create a test application with wire capture enabled."""
     builder = ApplicationBuilder().add_default_stages()
     app = builder.build_compat(mock_app_config)
@@ -53,7 +53,8 @@ def client(test_app):
         yield client
 
 
-def test_wire_capture_integration(client, test_app):
+@pytest.mark.asyncio
+async def test_wire_capture_integration(client, test_app):
     """Test that wire capture works through the application's middleware stack (buffered format)."""
     app, capture_file = test_app
 
@@ -80,53 +81,47 @@ def test_wire_capture_integration(client, test_app):
         ],
     }
 
-    # Since we can't easily make real backend calls in tests,
-    # we'll use the capture service directly to simulate calls
-    async def simulate_request_and_response():
-        context = {
-            "headers": {"user-agent": "test-client"},
-            "cookies": {},
-            "state": None,
-            "app_state": None,
-            "client_host": "127.0.0.1",
-            "session_id": "test-integration-session",
-            "agent": "test-agent",
-        }
+    context = {
+        "headers": {"user-agent": "test-client"},
+        "cookies": {},
+        "state": None,
+        "app_state": None,
+        "client_host": "127.0.0.1",
+        "session_id": "test-integration-session",
+        "agent": "test-agent",
+    }
 
-        request_payload = {
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Hello, world!"},
-            ],
-            "model": "gpt-4",
-        }
+    request_payload = {
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hello, world!"},
+        ],
+        "model": "gpt-4",
+    }
 
-        # Simulate request
-        await wire_capture.capture_outbound_request(
-            context=context,
-            session_id="test-integration-session",
-            backend="openai",
-            model="gpt-4",
-            key_name="OPENAI_API_KEY",
-            request_payload=request_payload,
-        )
+    # Simulate request
+    await wire_capture.capture_outbound_request(
+        context=context,
+        session_id="test-integration-session",
+        backend="openai",
+        model="gpt-4",
+        key_name="OPENAI_API_KEY",
+        request_payload=request_payload,
+    )
 
-        # Simulate response
-        await wire_capture.capture_inbound_response(
-            context=context,
-            session_id="test-integration-session",
-            backend="openai",
-            model="gpt-4",
-            key_name="OPENAI_API_KEY",
-            response_content=mock_response,
-        )
-
-    # Run the simulation
-    asyncio.run(simulate_request_and_response())
+    # Simulate response
+    await wire_capture.capture_inbound_response(
+        context=context,
+        session_id="test-integration-session",
+        backend="openai",
+        model="gpt-4",
+        key_name="OPENAI_API_KEY",
+        response_content=mock_response,
+    )
 
     # Force flush to ensure data is written
     wire_capture = app.state.service_provider.get_service(IWireCapture)
-    asyncio.run(wire_capture._flush_buffer())  # type: ignore[attr-defined]
+    await wire_capture._flush_buffer()  # type: ignore[attr-defined]
 
     # Read and validate the capture file (buffered JSON lines format)
     with open(capture_file) as f:

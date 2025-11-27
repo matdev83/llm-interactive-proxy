@@ -53,3 +53,41 @@ def gemini_oauth_plan_connector(
     connector.is_functional = True
 
     return connector
+
+
+@pytest.fixture(autouse=True)
+async def mock_qwen_oauth_refresh(monkeypatch):
+    """Auto-mock qwen-oauth token refresh to avoid API calls in integration tests."""
+    from src.connectors.qwen_oauth import QwenOAuthConnector
+
+    original_refresh = QwenOAuthConnector._refresh_token_if_needed
+    original_validate = QwenOAuthConnector._validate_runtime_credentials
+
+    async def mock_refresh(self):
+        # If credentials are set and not expired, return True
+        if hasattr(self, "_oauth_credentials") and self._oauth_credentials:
+            import asyncio
+
+            expiry = self._oauth_credentials.get("expiry_date", 0)
+            current_time = int(asyncio.get_event_loop().time() * 1000)
+            if expiry > current_time:
+                return True
+        # Otherwise call original
+        return await original_refresh(self)
+
+    async def mock_validate(self):
+        # If credentials are set and not expired, validate as true
+        if hasattr(self, "_oauth_credentials") and self._oauth_credentials:
+            import asyncio
+
+            expiry = self._oauth_credentials.get("expiry_date", 0)
+            current_time = int(asyncio.get_event_loop().time() * 1000)
+            if expiry > current_time:
+                return True
+        # Otherwise call original
+        return await original_validate(self)
+
+    monkeypatch.setattr(QwenOAuthConnector, "_refresh_token_if_needed", mock_refresh)
+    monkeypatch.setattr(
+        QwenOAuthConnector, "_validate_runtime_credentials", mock_validate
+    )

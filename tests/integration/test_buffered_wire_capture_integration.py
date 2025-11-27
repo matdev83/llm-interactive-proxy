@@ -7,6 +7,7 @@ import os
 import tempfile
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
@@ -46,14 +47,22 @@ def mock_app_config(temp_capture_file):
     return config
 
 
-@pytest.fixture
-def test_app(mock_app_config):
+@pytest_asyncio.fixture
+async def test_app(mock_app_config):
     """Create a test application with buffered wire capture enabled."""
     builder = ApplicationBuilder().add_default_stages()
     app = builder.build_compat(mock_app_config)
 
     # Return both the app and the capture file path for inspection
-    return app, mock_app_config.logging.capture_file
+    yield app, mock_app_config.logging.capture_file
+
+    # Cleanup
+    with contextlib.suppress(Exception):
+        from src.core.interfaces.wire_capture_interface import IWireCapture
+
+        wire_capture = app.state.service_provider.get_service(IWireCapture)
+        if wire_capture and hasattr(wire_capture, "shutdown"):
+            await wire_capture.shutdown()
 
 
 @pytest.fixture
@@ -286,7 +295,8 @@ async def test_buffered_wire_capture_performance(test_app, cleanup_wire_capture)
 
     # Capture many entries quickly
     num_entries = 50
-    start_time = asyncio.get_event_loop().time()
+    loop = asyncio.get_running_loop()
+    start_time = loop.time()
 
     for i in range(num_entries):
         await wire_capture.capture_outbound_request(
@@ -298,7 +308,7 @@ async def test_buffered_wire_capture_performance(test_app, cleanup_wire_capture)
             request_payload={"request_id": i, "data": f"test data {i}"},
         )
 
-    end_time = asyncio.get_event_loop().time()
+    end_time = loop.time()
     capture_time = end_time - start_time
     if capture_time <= 0:
         capture_time = 1e-9  # avoid division by zero on very fast systems
@@ -347,13 +357,17 @@ def test_buffered_wire_capture_configuration_validation(temp_capture_file):
     assert capture.enabled() is True
 
     # Clean up by disabling and cancelling the task
+    # Use async shutdown if possible, but this is a sync test
+    # So we rely on the improved force_shutdown_sync or just ensure we don't leave pending tasks
     capture._enabled = False
     if (
         hasattr(capture, "_flush_task")
         and capture._flush_task
         and not capture._flush_task.done()
     ):
-        capture._flush_task.cancel()
+        # We can't await in sync test, but we can cancel and suppress the warning
+        # The improved force_shutdown_sync handles this better now
+        capture.force_shutdown_sync()
 
 
 @pytest.mark.asyncio

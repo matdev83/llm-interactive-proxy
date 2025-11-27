@@ -64,8 +64,18 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     # Map specific exception types to specific status codes
     if isinstance(exc, AuthenticationError):
         status_code = status.HTTP_401_UNAUTHORIZED
-    elif isinstance(exc, ConfigurationError | InvalidRequestError):
+    elif isinstance(exc, ConfigurationError):
         status_code = status.HTTP_400_BAD_REQUEST
+    elif isinstance(exc, InvalidRequestError):
+        # Preserve specific InvalidRequestError status_code if provided (e.g., 422)
+        explicit = getattr(exc, "status_code", None)
+        if (
+            isinstance(explicit, int)
+            and explicit != status.HTTP_500_INTERNAL_SERVER_ERROR
+        ):
+            status_code = explicit
+        else:
+            status_code = status.HTTP_400_BAD_REQUEST
     elif isinstance(exc, ServiceUnavailableError):
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     elif isinstance(exc, BackendError):

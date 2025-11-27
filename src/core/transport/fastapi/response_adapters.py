@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterable
@@ -829,35 +830,6 @@ def to_fastapi_streaming_response(
                     return value
             return "anonymous-stream"
 
-        BUFFERED_TOOL_TAGS: tuple[str, ...] = (
-            # Command execution tools
-            "execute_command",
-            # File editing tools
-            "patch_file",
-            "apply_diff",
-            "write_to_file",
-            "insert_content",
-            "delete_file",
-            # File reading tools
-            "read_file",
-            "list_files",
-            "list_code_definition_names",
-            "search_files",
-            # MCP tools
-            "use_mcp_tool",
-            "access_mcp_resource",
-            # Conversation control tools (CRITICAL: prevents leakage like "What can I help you with today?</")
-            "ask_followup_question",
-            "attempt_completion",
-            "switch_mode",
-            "new_task",
-            "update_todo_list",
-            # Browser tools
-            "browser_action",
-            # Other tools
-            "fetch_instructions",
-        )
-
         def _split_tag_segments(buffer: str, tag_name: str) -> tuple[str, str]:
             if not buffer:
                 return "", ""
@@ -894,16 +866,61 @@ def to_fastapi_streaming_response(
 
             return "".join(parts), pending_tail
 
-        def _get_target_tags(stream_key: str) -> tuple[str, ...]:
-            """Get target tool tags, preferring dynamic ones from registry."""
-            # Try to get dynamic tools from registry
+        def _update_tracked_tags(stream_key: str, text_value: str) -> list[str]:
+            tags: list[str] = []
             try:
                 buffer_state = context_registry.get_tool_call_buffer(stream_key)
-                if buffer_state.allowed_tools:
-                    return tuple(buffer_state.allowed_tools)
+                disallowed_tags = (
+                    {"think", "thought"} if not buffer_state.allowed_tools else set()
+                )
             except Exception:
-                pass
-            return BUFFERED_TOOL_TAGS
+                buffer_state = None
+                disallowed_tags = {"think", "thought"}
+            if not text_value:
+                return tags
+            for match in re.finditer(r"<([A-Za-z0-9_\\-]+)(?=[\\s>/])", text_value):
+                tag = match.group(1)
+                if text_value[match.start() + 1] == "/":
+                    continue
+                tail = text_value[match.end() : match.end() + 2]
+                if tail.startswith("/"):
+                    continue  # self-closing tag
+                if tag.lower() in disallowed_tags:
+                    continue
+                tags.append(tag)
+            if buffer_state is not None and tags:
+                buffer_state.tracked_tags.update(tags)
+            return tags
+
+        def _get_target_tags(
+            stream_key: str, text_value: str | None
+        ) -> tuple[str, ...]:
+            """Get target tool tags using allowed tools and observed tags."""
+            try:
+                buffer_state = context_registry.get_tool_call_buffer(stream_key)
+                allowed = list(buffer_state.allowed_tools or [])
+                tracked = list(buffer_state.tracked_tags)
+            except Exception:
+                allowed = []
+                tracked = []
+
+            ordered_tags: list[str] = []
+            observed_in_text = (
+                _update_tracked_tags(stream_key, text_value) if text_value else []
+            )
+            for tag in observed_in_text:
+                if tag not in ordered_tags:
+                    ordered_tags.append(tag)
+
+            for tag in tracked:
+                if tag not in ordered_tags:
+                    ordered_tags.append(tag)
+
+            for tag in allowed:
+                if tag not in ordered_tags:
+                    ordered_tags.append(tag)
+
+            return tuple(ordered_tags)
 
         def _apply_tag_buffer(stream_key: str, tag_name: str, text_value: str) -> str:
             buffer_key = f"tool-block:{tag_name}"
@@ -926,7 +943,7 @@ def to_fastapi_streaming_response(
                 return
 
             updated_text = text_value
-            target_tags = _get_target_tags(stream_key)
+            target_tags = _get_target_tags(stream_key, text_value)
             for tag in target_tags:
                 updated_text = _apply_tag_buffer(stream_key, tag, updated_text)
 
@@ -935,7 +952,7 @@ def to_fastapi_streaming_response(
 
         def _flush_pending_tool_blocks(stream_key: str, payload: Any) -> None:
             pending_fragments: list[str] = []
-            target_tags = _get_target_tags(stream_key)
+            target_tags = _get_target_tags(stream_key, None)
             for tag in target_tags:
                 buffer_key = f"tool-block:{tag}"
                 fragment = context_registry.get_fragment(stream_key, buffer_key)

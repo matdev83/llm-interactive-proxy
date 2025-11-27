@@ -121,17 +121,16 @@ class RequestProcessor(IRequestProcessor):
                         if name:
                             allowed_tools.append(name)
 
-            if allowed_tools:
-                from src.core.services.streaming.stream_context_registry import (
-                    get_global_streaming_context_registry,
-                )
+            from src.core.services.streaming.stream_context_registry import (
+                get_global_streaming_context_registry,
+            )
 
-                registry = get_global_streaming_context_registry()
-                buffer = registry.get_tool_call_buffer(session_id)
-                buffer.allowed_tools = allowed_tools
-                logger.debug(
-                    f"Registered allowed tools for session {session_id}: {allowed_tools}"
-                )
+            registry = get_global_streaming_context_registry()
+            buffer = registry.get_tool_call_buffer(session_id)
+            buffer.allowed_tools = allowed_tools if allowed_tools else None
+            logger.debug(
+                f"Registered allowed tools for session {session_id}: {allowed_tools}"
+            )
         except Exception as e:
             logger.warning(f"Failed to register allowed tools: {e}", exc_info=True)
 

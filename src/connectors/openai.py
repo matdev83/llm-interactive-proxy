@@ -605,6 +605,7 @@ class OpenAIConnector(LLMBackend):
                 url, json=payload, headers=guarded_headers
             )
         except httpx.RequestError as e:
+            logger.error(f"DEBUG: Request failed to {url}. Error: {e}")
             raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
 
         if int(response.status_code) >= 400:

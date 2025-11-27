@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -61,6 +62,8 @@ class ToolCallRepairProcessor(IStreamProcessor):
         existing_calls = self._register_existing_tool_calls(buffer_state, metadata)
 
         chunk_text = self._normalize_chunk_text(content.content)
+        if buffer_state.allowed_tools or buffer_state.allowed_tools is None:
+            self._track_open_tags(buffer_state, chunk_text)
         reasoning_segments: list[str] = []
         for key in ("reasoning_content", "reasoning"):
             value = metadata.get(key)
@@ -78,9 +81,15 @@ class ToolCallRepairProcessor(IStreamProcessor):
         repaired_content_parts: list[str] = []
         buffer_text = buffer_state.pending_text
 
+        allowed_tool_list = (
+            buffer_state.allowed_tools
+            if buffer_state.allowed_tools is not None
+            else None
+        )
+
         repaired_result = (
             self.tool_call_repair_service.repair_tool_calls(
-                buffer_text, allowed_tools=buffer_state.allowed_tools
+                buffer_text, allowed_tools=allowed_tool_list
             )
             if buffer_text
             else None
@@ -112,68 +121,26 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     # incorrect parsing of inner tags (e.g., <command> inside <execute_command>)
                     # Format: (outer_opener, inner_tag, outer_closer)
                     # inner_tag is used to close truncated inner tags before closing outer
-                    synthetic_calls = (
-                        ("<new_task", "message", "</new_task>"),
-                        ("<update_todo_list", "todos", "</update_todo_list>"),
-                        ("<switch_mode", "mode_slug", "</switch_mode>"),
-                        ("<use_mcp_tool", "arguments", "</use_mcp_tool>"),
-                        ("<patch_file", "patch_content", "</patch_file>"),
-                        ("<execute_command", "command", "</execute_command>"),
-                        ("<read_file", "file", "</read_file>"),
-                        ("<write_to_file", "content", "</write_to_file>"),
-                        (
-                            "<ask_followup_question",
-                            "question",
-                            "</ask_followup_question>",
-                        ),
-                        ("<attempt_completion", "result", "</attempt_completion>"),
-                        ("<list_files", "directory", "</list_files>"),
-                        ("<search_files", "regex", "</search_files>"),
-                        ("<codebase_search", "query", "</codebase_search>"),
-                        ("<access_mcp_resource", "uri", "</access_mcp_resource>"),
-                    )
-                    handled = False
-                    for outer_opener, inner_tag, outer_closer in synthetic_calls:
-                        if (
-                            outer_opener in buffer_text
-                            and outer_closer not in buffer_text
-                        ):
-                            # Build synthetic buffer with both inner and outer closing tags
-                            synthetic_buffer = buffer_text
-                            inner_opener = f"<{inner_tag}>"
-                            inner_closer = f"</{inner_tag}>"
-                            # If inner tag is opened but not closed, close it first
-                            if (
-                                inner_opener in synthetic_buffer
-                                and inner_closer not in synthetic_buffer
-                            ):
-                                synthetic_buffer = synthetic_buffer + inner_closer
-                            # Always add outer closer
-                            synthetic_buffer = synthetic_buffer + outer_closer
+                    synthetic_closing = self._build_synthetic_closing(buffer_text)
+                    synthetic_buffer = buffer_text + synthetic_closing
 
-                            repaired_result = (
-                                self.tool_call_repair_service.repair_tool_calls(
-                                    synthetic_buffer,
-                                    allowed_tools=buffer_state.allowed_tools,
-                                )
-                            )
-                        if repaired_result:
-                            detected_tool_calls.append(repaired_result.tool_call)
-                            snippet = repaired_result.snippet
-                            if snippet:
-                                idx = synthetic_buffer.find(snippet)
-                                prefix = synthetic_buffer[:idx]
-                                suffix = synthetic_buffer[idx + len(snippet) :]
-                                if prefix.strip():
-                                    repaired_content_parts.append(prefix)
-                                # CRITICAL: Keep the XML in content for clients like Kilo-Code
-                                repaired_content_parts.append(snippet)
-                                if suffix.strip():
-                                    repaired_content_parts.append(suffix)
-                            handled = True
-                            buffer_text = ""
-                            break
-                    if not handled and buffer_text:
+                    repaired_result = self.tool_call_repair_service.repair_tool_calls(
+                        synthetic_buffer, allowed_tools=allowed_tool_list
+                    )
+                    if repaired_result:
+                        detected_tool_calls.append(repaired_result.tool_call)
+                        snippet = repaired_result.snippet
+                        if snippet:
+                            idx = synthetic_buffer.find(snippet)
+                            prefix = synthetic_buffer[:idx]
+                            suffix = synthetic_buffer[idx + len(snippet) :]
+                            if prefix.strip():
+                                repaired_content_parts.append(prefix)
+                            repaired_content_parts.append(snippet)
+                            if suffix.strip():
+                                repaired_content_parts.append(suffix)
+                        buffer_text = ""
+                    elif buffer_text:
                         repaired_content_parts.append(buffer_text)
                 buffer_state.pending_text = ""
             else:
@@ -190,22 +157,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 if should_flush_streaming:
                     # Markers for XML tool tags that should NOT be flushed prematurely
                     # Must match the tags in synthetic_calls above
-                    markers = (
-                        "<new_task",
-                        "<update_todo_list",
-                        "<switch_mode",
-                        "<use_mcp_tool",
-                        "<patch_file",
-                        "<execute_command",
-                        "<read_file",
-                        "<write_to_file",
-                        "<ask_followup_question",
-                        "<attempt_completion",
-                        "<list_files",
-                        "<search_files",
-                        "<codebase_search",
-                        "<access_mcp_resource",
-                    )
+                    markers = self._build_markers(buffer_state)
                     flush_text = ""
                     if not any(
                         marker in buffer_state.pending_text for marker in markers
@@ -214,7 +166,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
                         buffer_state.pending_text = ""
                     else:
                         flush_text, remainder = self._split_safe_prefix(
-                            buffer_state.pending_text
+                            buffer_state.pending_text, buffer_state
                         )
                         buffer_state.pending_text = remainder
 
@@ -303,7 +255,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
         return flush_text
 
-    def _split_safe_prefix(self, buffer: str) -> tuple[str, str]:
+    def _split_safe_prefix(
+        self, buffer: str, buffer_state: ToolCallBufferState
+    ) -> tuple[str, str]:
         """
         Flush most of the buffer while keeping a small suffix to detect tool markers
         that may span chunk boundaries.
@@ -311,23 +265,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         if not buffer:
             return "", ""
 
-        # Must match the markers used in process() to prevent premature flushing
-        markers = (
-            "<new_task",
-            "<update_todo_list",
-            "<switch_mode",
-            "<use_mcp_tool",
-            "<patch_file",
-            "<execute_command",
-            "<read_file",
-            "<write_to_file",
-            "<ask_followup_question",
-            "<attempt_completion",
-            "<list_files",
-            "<search_files",
-            "<codebase_search",
-            "<access_mcp_resource",
-        )
+        markers = self._build_markers(buffer_state)
         positions = [buffer.find(marker) for marker in markers if marker in buffer]
         if positions:
             marker_pos = min(pos for pos in positions if pos >= 0)
@@ -357,6 +295,57 @@ class ToolCallRepairProcessor(IStreamProcessor):
             except (TypeError, ValueError):
                 return str(chunk)
         return str(chunk)
+
+    def _track_open_tags(self, buffer_state: ToolCallBufferState, text: str) -> None:
+        """Discover and track open tag names for dynamic buffering."""
+        if not text:
+            return
+        disallowed_tags = {"think", "thought"}
+        for match in re.finditer(r"<([A-Za-z0-9_\-]+)(?=[\\s>/])", text):
+            tag = match.group(1)
+            if text[match.start() + 1] == "/":
+                continue
+            tail = text[match.end() : match.end() + 2]
+            if tail.startswith("/"):
+                continue  # self-closing
+            if tag.lower() in disallowed_tags and not buffer_state.allowed_tools:
+                continue
+            buffer_state.tracked_tags.add(tag)
+
+    def _build_markers(self, buffer_state: ToolCallBufferState) -> tuple[str, ...]:
+        """Build dynamic markers from allowed tools and observed tags."""
+        tags = {
+            tag
+            for tag in buffer_state.tracked_tags
+            if tag.lower() not in {"think", "thought"}
+        }
+        if buffer_state.allowed_tools:
+            tags.update(buffer_state.allowed_tools)
+        return tuple(f"<{tag}" for tag in tags if tag)
+
+    def _build_synthetic_closing(self, text: str) -> str:
+        """Create synthetic closing tags for any unclosed tags in the buffer."""
+        if not text:
+            return ""
+
+        tag_pattern = re.compile(r"</?([A-Za-z0-9_\-]+)(?=[\\s>/])")
+        stack: list[str] = []
+        for match in tag_pattern.finditer(text):
+            tag = match.group(1)
+            is_close = text[match.start() + 1] == "/"
+            if is_close:
+                # Pop matching tag if present
+                for idx in range(len(stack) - 1, -1, -1):
+                    if stack[idx] == tag:
+                        stack = stack[:idx]
+                        break
+            else:
+                tail = text[match.end() : match.end() + 2]
+                if tail.startswith("/"):
+                    continue  # self closing
+                stack.append(tag)
+
+        return "".join(f"</{tag}>" for tag in reversed(stack))
 
     def _get_buffer_state(self, stream_id: str) -> ToolCallBufferState:
         return self._registry.get_tool_call_buffer(stream_id)

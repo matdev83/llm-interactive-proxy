@@ -382,95 +382,56 @@ class TestSyntheticClosingTagInjection:
         assert final_chunk.metadata.get("finish_reason") == "tool_calls"
 
 
-class TestAllToolTagsAreBuffered:
-    """
-    Tests to ensure all known XML tool tags are properly buffered.
+class TestDynamicToolTagBuffering:
+    """Dynamic tool tags should be buffered without hardcoded lists."""
 
-    This is a comprehensive check to ensure no tool tags are missing from
-    the buffering logic.
-    """
+    @pytest.fixture
+    def repair_service(self) -> ToolCallRepairService:
+        return ToolCallRepairService()
 
-    # All XML tool tags that should be buffered
-    BUFFERED_TOOL_TAGS = [
-        "execute_command",
-        "read_file",
-        "write_to_file",
-        "ask_followup_question",
-        "attempt_completion",
-        "list_files",
-        "search_files",
-        "codebase_search",
-        "access_mcp_resource",
-        "use_mcp_tool",
-        "patch_file",
-        "new_task",
-        "update_todo_list",
-        "switch_mode",
-    ]
+    @pytest.fixture
+    def registry(self) -> StreamingContextRegistry:
+        return StreamingContextRegistry()
 
-    def test_all_tool_tags_in_processor_markers(self) -> None:
-        """Verify all tool tags are in the processor's marker list."""
-        import ast
-        import inspect
+    @pytest.fixture
+    def processor(
+        self, repair_service: ToolCallRepairService, registry: StreamingContextRegistry
+    ) -> ToolCallRepairProcessor:
+        return ToolCallRepairProcessor(
+            repair_service, max_buffer_bytes=64 * 1024, registry=registry
+        )
 
-        from src.core.services.streaming import tool_call_repair_processor
+    @pytest.mark.asyncio
+    async def test_dynamic_tag_from_allowed_tools(
+        self, processor: ToolCallRepairProcessor, registry: StreamingContextRegistry
+    ) -> None:
+        session_id = "dynamic-tools"
+        registry.get_tool_call_buffer(session_id).allowed_tools = ["custom_tool"]
 
-        source = inspect.getsource(tool_call_repair_processor)
-        tree = ast.parse(source)
+        first = StreamingContent(
+            content="Prep <custom_tool><param>value",
+            is_done=False,
+            metadata={"session_id": session_id},
+        )
+        interim = await processor.process(first)
+        assert not interim.metadata.get("tool_calls")
 
-        # Find the markers tuple in the source
-        markers_found: list[str] = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Tuple):
-                for elt in node.elts:
-                    if (
-                        isinstance(elt, ast.Constant)
-                        and isinstance(elt.value, str)
-                        and elt.value.startswith("<")
-                    ):
-                        # Extract tag name from "<tag_name"
-                        tag = elt.value[1:]  # Remove leading <
-                        markers_found.append(tag)
-
-        # Check that all required tags are present
-        for tag in self.BUFFERED_TOOL_TAGS:
-            assert tag in markers_found, (
-                f"Tool tag '{tag}' MUST be in processor markers to prevent "
-                f"premature flushing! Found markers: {markers_found}"
+        final = await processor.process(
+            StreamingContent(
+                content="</param></custom_tool>",
+                is_done=True,
+                metadata={"session_id": session_id},
             )
+        )
+        calls = final.metadata.get("tool_calls") if final.metadata else None
+        assert calls and calls[0]["function"]["name"] == "custom_tool"
 
-    def test_all_tool_tags_in_synthetic_calls(self) -> None:
-        """Verify all tool tags are in the synthetic_calls list."""
-        import ast
-        import inspect
-
-        from src.core.services.streaming import tool_call_repair_processor
-
-        source = inspect.getsource(tool_call_repair_processor)
-        tree = ast.parse(source)
-
-        # Find synthetic_calls tuples (now 3-tuples: outer_opener, inner_tag, outer_closer)
-        synthetic_openers: list[str] = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Tuple):
-                for elt in node.elts:
-                    # Look for 3-tuples (outer_opener, inner_tag, outer_closer)
-                    if isinstance(elt, ast.Tuple) and len(elt.elts) == 3:
-                        opener = elt.elts[0]
-                        if (
-                            isinstance(opener, ast.Constant)
-                            and isinstance(opener.value, str)
-                            and opener.value.startswith("<")
-                        ):
-                            tag = opener.value[1:]  # Remove leading <
-                            synthetic_openers.append(tag)
-
-        # Check that all required tags are present
-        for tag in self.BUFFERED_TOOL_TAGS:
-            assert tag in synthetic_openers, (
-                f"Tool tag '{tag}' MUST be in synthetic_calls to allow parsing "
-                f"truncated XML at EOS! Found: {synthetic_openers}"
-            )
+    def test_think_tags_ignored_without_allowed_tools(self) -> None:
+        repair_service = ToolCallRepairService()
+        result = repair_service.repair_tool_calls(
+            "<think>hello</think>", allowed_tools=[]
+        )
+        assert result is None
 
 
 class TestStreamKeyResolution:
@@ -507,41 +468,15 @@ class TestStreamKeyResolution:
         ), "Code should document that 'id' is NOT suitable for buffering"
 
     def test_buffered_tool_tags_includes_critical_tags(self) -> None:
-        """Verify BUFFERED_TOOL_TAGS includes all critical tags."""
-        import ast
+        """Ensure streaming adapter relies on dynamic tags, not hardcoded lists."""
         import inspect
 
         from src.core.transport.fastapi import response_adapters
 
         source = inspect.getsource(response_adapters.to_fastapi_streaming_response)
-        tree = ast.parse(source)
-
-        # Find BUFFERED_TOOL_TAGS
-        buffered_tags: list[str] = []
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.AnnAssign)
-                and isinstance(node.target, ast.Name)
-                and node.target.id == "BUFFERED_TOOL_TAGS"
-                and node.value is not None
-                and isinstance(node.value, ast.Tuple)
-            ):
-                for elt in node.value.elts:
-                    if isinstance(elt, ast.Constant):
-                        buffered_tags.append(elt.value)
-
-        critical_tags = [
-            "execute_command",
-            "read_file",
-            "write_to_file",
-            "ask_followup_question",
-            "attempt_completion",
-        ]
-
-        for tag in critical_tags:
-            assert (
-                tag in buffered_tags
-            ), f"Critical tag '{tag}' MUST be in BUFFERED_TOOL_TAGS!"
+        # Dynamic approach should reference allowed_tools or tracked_tags
+        assert "allowed_tools" in source
+        assert "tracked_tags" in source
 
 
 class TestToolCallMetadataMarkers:

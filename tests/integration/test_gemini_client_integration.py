@@ -631,8 +631,10 @@ class TestErrorHandling:
 
     @pytest.mark.integration
     # De-networked: uses mocked backend instead of real network
-    async def test_authentication_error(self, test_app):
+    def test_authentication_error(self, test_app):
         """Test authentication error handling."""
+        import asyncio
+
         # Mock the backend to return an authentication error
         from src.core.interfaces.backend_service_interface import IBackendService
 
@@ -640,30 +642,35 @@ class TestErrorHandling:
             IBackendService
         )
 
-        with patch.object(
-            backend_service,
-            "call_completion",
-            new=AsyncMock(
-                side_effect=HTTPException(
-                    status_code=401, detail="Authentication failed"
-                )
-            ),
-        ):
-            # This should raise an authentication error
-            # Directly call the backend service that will raise the exception
-            from src.core.domain.chat import ChatRequest
+        async def run_test():
+            with patch.object(
+                backend_service,
+                "call_completion",
+                new=AsyncMock(
+                    side_effect=HTTPException(
+                        status_code=401, detail="Authentication failed"
+                    )
+                ),
+            ):
+                # This should raise an authentication error
+                # Directly call the backend service that will raise the exception
+                from src.core.domain.chat import ChatRequest
 
-            request = ChatRequest(
-                model="test-model",
-                messages=[{"role": "user", "content": "Test message"}],
-            )
-            with pytest.raises(HTTPException):
-                await backend_service.call_completion(request)
+                request = ChatRequest(
+                    model="test-model",
+                    messages=[{"role": "user", "content": "Test message"}],
+                )
+                with pytest.raises(HTTPException):
+                    await backend_service.call_completion(request)
+
+        asyncio.run(run_test())
 
     @pytest.mark.integration
     # De-networked: uses mocked backend instead of real network
-    async def test_model_not_found_error(self, gemini_client, test_app):
+    def test_model_not_found_error(self, gemini_client, test_app):
         """Test model not found error handling."""
+        import asyncio
+
         from src.core.interfaces.backend_service_interface import IBackendService
 
         # Get backend service from test app and patch it
@@ -671,24 +678,29 @@ class TestErrorHandling:
             IBackendService
         )
 
-        with (
-            patch.object(
-                backend_service,
-                "call_completion",
-                new=AsyncMock(
-                    side_effect=HTTPException(status_code=404, detail="Model not found")
+        async def run_test():
+            with (
+                patch.object(
+                    backend_service,
+                    "call_completion",
+                    new=AsyncMock(
+                        side_effect=HTTPException(
+                            status_code=404, detail="Model not found"
+                        )
+                    ),
                 ),
-            ),
-            pytest.raises(HTTPException),
-        ):
-            # Directly call the backend service that will raise the exception
-            from src.core.domain.chat import ChatRequest
+                pytest.raises(HTTPException),
+            ):
+                # Directly call the backend service that will raise the exception
+                from src.core.domain.chat import ChatRequest
 
-            request = ChatRequest(
-                model="test-model",
-                messages=[{"role": "user", "content": "Test message"}],
-            )
-            await backend_service.call_completion(request)
+                request = ChatRequest(
+                    model="test-model",
+                    messages=[{"role": "user", "content": "Test message"}],
+                )
+                await backend_service.call_completion(request)
+
+        asyncio.run(run_test())
 
 
 class TestPerformanceAndReliability:

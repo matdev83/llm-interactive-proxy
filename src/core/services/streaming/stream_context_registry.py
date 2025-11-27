@@ -34,6 +34,7 @@ class ToolCallBufferState:
     loop_cursor: int = 0
     reactor_cursor: int = 0
     allowed_tools: list[str] | None = None
+    tracked_tags: set[str] = field(default_factory=set)
 
 
 @dataclass

@@ -119,47 +119,48 @@ class TestBufferHandlingWithToolCalls:
 
 
 class TestToolCallMarkerDetection:
-    """Test that all tool markers are correctly detected for buffer protection."""
+    """Test that dynamic tool markers are protected without hardcoded lists."""
 
     @pytest.mark.asyncio
-    async def test_all_tool_markers_protected(
-        self, processor: ToolCallRepairProcessor
+    async def test_dynamic_marker_from_allowed_tools_is_preserved(
+        self, processor: ToolCallRepairProcessor, registry: StreamingContextRegistry
     ) -> None:
-        """All tool markers should be protected from mid-buffer flushing."""
-        tool_markers = [
-            "<new_task",
-            "<update_todo_list",
-            "<switch_mode",
-            "<use_mcp_tool",
-            "<patch_file",
-            "<execute_command",
-            "<read_file",
-            "<write_to_file",
-            "<ask_followup_question",
-            "<attempt_completion",
-            "<list_files",
-            "<search_files",
-            "<codebase_search",
-            "<access_mcp_resource",
-            "<search_and_replace",
-            "<insert_content",
-            "<edit_file",
-            "<apply_diff",
-        ]
+        session_id = "marker-dynamic"
+        registry.get_tool_call_buffer(session_id).allowed_tools = ["custom_tool"]
 
-        for marker in tool_markers:
-            # Create content with unclosed marker
-            content = StreamingContent(
-                content=f"prefix text {marker}>some content",
-                is_done=False,
-                metadata={"session_id": f"test-{marker}"},
-            )
-            result = await processor.process(content)
+        content = StreamingContent(
+            content="prefix <custom_tool><arg>1",
+            is_done=False,
+            metadata={"session_id": session_id},
+        )
+        result = await processor.process(content)
+        assert result is not None
+        assert not result.metadata.get("tool_calls")
 
-            # The processor should recognize this as a potential tool
-            # and either buffer it or include it in output
-            # The key is it shouldn't corrupt the tool parsing
-            assert result is not None, f"Failed for marker: {marker}"
+        closing = StreamingContent(
+            content="</arg></custom_tool>",
+            is_done=True,
+            metadata={"session_id": session_id},
+        )
+        final = await processor.process(closing)
+        calls = final.metadata.get("tool_calls") if final.metadata else None
+        assert calls and calls[0]["function"]["name"] == "custom_tool"
+
+    @pytest.mark.asyncio
+    async def test_think_tags_are_not_tracked_as_tool_markers(
+        self, processor: ToolCallRepairProcessor, registry: StreamingContextRegistry
+    ) -> None:
+        """Ensure think/thought tags do not block streaming flush when no tools allowed."""
+        session_id = "think-ignore"
+        content = StreamingContent(
+            content="<think>reasoning</think>response",
+            is_done=False,
+            metadata={"session_id": session_id},
+        )
+        await processor.process(content)
+
+        buffer_state = registry.get_tool_call_buffer(session_id)
+        assert "think" not in buffer_state.tracked_tags
 
 
 class TestLargeToolCallHandling:

@@ -68,10 +68,11 @@ class TestQwenOAuthToolCalling:
         connector_class = backend_registry.get_backend_factory("qwen-oauth")
 
         async def mock_initialize(self_obj, **kwargs):
+            expiry_ms = int((time.time() + 3600) * 1000)
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
-                "expiry_date": time.time() + 3600,
+                "expiry_date": expiry_ms,
                 "resource_url": "portal.qwen.ai",
             }
             self_obj.is_functional = True
@@ -656,10 +657,11 @@ class TestQwenOAuthAgentToolCalling:
         connector_class = backend_registry.get_backend_factory("qwen-oauth")
 
         async def mock_initialize(self_obj, **kwargs):
+            expiry_ms = int((time.time() + 3600) * 1000)
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
-                "expiry_date": time.time() + 3600,
+                "expiry_date": expiry_ms,
                 "resource_url": "portal.qwen.ai",
             }
             self_obj.is_functional = True
@@ -847,10 +849,11 @@ class TestQwenOAuthToolCallingErrorHandling:
         connector_class = backend_registry.get_backend_factory("qwen-oauth")
 
         async def mock_initialize(self_obj, **kwargs):
+            expiry_ms = int((time.time() + 3600) * 1000)
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
-                "expiry_date": time.time() + 3600,
+                "expiry_date": expiry_ms,
                 "resource_url": "portal.qwen.ai",
             }
             self_obj.is_functional = True
@@ -896,7 +899,7 @@ class TestQwenOAuthToolCallingErrorHandling:
             "stream": False,
         }
 
-        respx_mock.post(path="/v1/chat/completions").mock(
+        respx_mock.post("https://portal.qwen.ai/v1/chat/completions").mock(
             return_value=Response(
                 400, json={"error": {"message": "Invalid tool definition"}}
             )
@@ -935,7 +938,7 @@ class TestQwenOAuthToolCallingErrorHandling:
         }
 
         with respx.mock(assert_all_called=False) as respx_mock:
-            respx_mock.post(path="/v1/chat/completions").mock(
+            respx_mock.post("https://portal.qwen.ai/v1/chat/completions").mock(
                 return_value=Response(
                     404, json={"error": {"message": "Model not found"}}
                 )

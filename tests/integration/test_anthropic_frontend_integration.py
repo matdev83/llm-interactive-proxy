@@ -147,8 +147,7 @@ class TestAnthropicFrontendIntegration:
         assert client.api_key == self.test_api_key
         assert self.proxy_base_url in str(client._client.base_url)
 
-    @pytest.mark.asyncio
-    async def test_async_anthropic_sdk_client_creation(self):
+    def test_async_anthropic_sdk_client_creation(self):
         """Test that AsyncAnthropic SDK client can be created with proxy URL."""
         client = AsyncAnthropic(api_key=self.test_api_key, base_url=self.proxy_base_url)
 
@@ -327,8 +326,7 @@ class TestAnthropicFrontendIntegration:
         assert "/v1/messages" in info["supported_endpoints"]
         assert "/v1/models" in info["supported_endpoints"]
 
-    @pytest.mark.asyncio
-    async def test_anthropic_sdk_models_call_mock(self):
+    def test_anthropic_sdk_models_call_mock(self):
         """Test Anthropic SDK models call with mocked response."""
         # This would test the SDK integration once the endpoint is fully implemented
         client = AsyncAnthropic(api_key=self.test_api_key, base_url=self.proxy_base_url)

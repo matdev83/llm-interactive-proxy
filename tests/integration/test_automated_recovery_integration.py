@@ -298,6 +298,8 @@ class TestAutomatedRecoveryIntegration:
 
         track_event("test_completed_successfully")
 
+    @pytest.mark.slow
+    @pytest.mark.timeout(120)
     @pytest.mark.asyncio
     async def test_recovery_system_resilience(self, connector, mock_request):
         """
@@ -388,6 +390,8 @@ class TestAutomatedRecoveryIntegration:
 
         track_event("resilience_test_passed")
 
+    @pytest.mark.slow
+    @pytest.mark.timeout(180)
     @pytest.mark.asyncio
     async def test_recovery_with_new_configuration(self, connector, mock_request):
         """

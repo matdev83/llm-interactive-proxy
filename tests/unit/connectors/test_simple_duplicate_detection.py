@@ -17,7 +17,7 @@ class CallExtractor(ast.NodeVisitor):
     def __init__(self):
         self.calls = []
 
-    def visit_Call(self, node: ast.Call) -> None:
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
         """Extract the called function name from Call nodes."""
         called_name = None
         if hasattr(node.func, "id"):

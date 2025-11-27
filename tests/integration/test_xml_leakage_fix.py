@@ -10,30 +10,17 @@ from __future__ import annotations
 
 
 def test_buffered_tool_tags_includes_ask_followup_question():
-    """Verify that ask_followup_question is in BUFFERED_TOOL_TAGS."""
-    # Read the source and check for the tuple definition
+    """Verify dynamic tag tracking is enabled to prevent XML leakage."""
+    # Read the source and check for dynamic tag handling
     import inspect
 
     import src.core.transport.fastapi.response_adapters as adapters_module
 
     source = inspect.getsource(adapters_module.to_fastapi_streaming_response)
 
-    # Verify the critical tag is present in the source
-    assert (
-        '"ask_followup_question"' in source
-    ), "ask_followup_question MUST be in BUFFERED_TOOL_TAGS to prevent XML leakage!"
-
-    # Also check other critical tags
-    critical_tags = [
-        '"ask_followup_question"',
-        '"attempt_completion"',
-        '"execute_command"',
-        '"apply_diff"',
-        '"write_to_file"',
-    ]
-
-    for tag in critical_tags:
-        assert tag in source, f"Critical tool tag {tag} must be buffered!"
+    # Verify the dynamic tracking hooks are present
+    assert "tracked_tags" in source
+    assert "_apply_tag_buffer" in source
 
 
 def test_xml_leakage_prevention_comment_present():
@@ -44,8 +31,5 @@ def test_xml_leakage_prevention_comment_present():
 
     source = inspect.getsource(adapters_module.to_fastapi_streaming_response)
 
-    # Verify the fix documentation is present
-    assert (
-        "What can I help you with today?</" in source
-        or "prevents leakage" in source.lower()
-    ), "Code should document the XML leakage fix"
+    # Verify the fix documentation or function names indicate buffering intent
+    assert "sanitize_multiline_tool_blocks" in source or "leakage" in source.lower()

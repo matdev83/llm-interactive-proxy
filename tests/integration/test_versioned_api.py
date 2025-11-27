@@ -209,261 +209,270 @@ def test_versioned_endpoint_requires_authentication(client: TestClient):
     assert response.json() == {"detail": "Unauthorized"}
 
 
-@pytest.mark.asyncio
-async def test_versioned_endpoint_with_backend_service(
+def test_versioned_endpoint_with_backend_service(
     initialized_app: FastAPI, client: TestClient
 ):
     """Test that the versioned endpoint uses the backend service."""
-    # Mock the backend service to return a successful response
-    from src.core.domain.chat import (
-        ChatCompletionChoice,
-        ChatCompletionChoiceMessage,
-    )
+    import asyncio
 
-    # Create a mock response
-    mock_response = ChatResponse(
-        id="test-id",
-        created=1629380000,
-        model="test-model",
-        choices=[
-            ChatCompletionChoice(
-                message=ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content="This is a test response from the backend service",
-                ),
-                index=0,
-                finish_reason="stop",
+    async def run_test():
+        # Mock the backend service to return a successful response
+        from src.core.domain.chat import (
+            ChatCompletionChoice,
+            ChatCompletionChoiceMessage,
+        )
+
+        # Create a mock response
+        mock_response = ChatResponse(
+            id="test-id",
+            created=1629380000,
+            model="test-model",
+            choices=[
+                ChatCompletionChoice(
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant",
+                        content="This is a test response from the backend service",
+                    ),
+                    index=0,
+                    finish_reason="stop",
+                )
+            ],
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        )
+
+        # Get the service provider from the app
+        service_provider = initialized_app.state.service_provider
+
+        # Get the backend service
+        backend_service = service_provider.get_service(IBackendService)
+
+        # Mock the call_completion method
+        original_call_completion = backend_service.call_completion
+
+        async def mock_call_completion(*args, **kwargs):
+            return mock_response
+
+        # Apply the mock
+        backend_service.call_completion = mock_call_completion
+
+        try:
+            # Test with a direct call to the backend service
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "test-model",
+                    "messages": [{"role": "user", "content": "Test backend service"}],
+                },
+                headers={"Authorization": "Bearer test-proxy-key"},
             )
-        ],
-        usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-    )
 
-    # Get the service provider from the app
-    service_provider = initialized_app.state.service_provider
+            # Check the response
+            assert response.status_code == 200
+            assert (
+                "This is a test response from the backend service"
+                in response.json()["choices"][0]["message"]["content"]
+            )
 
-    # Get the backend service
-    backend_service = service_provider.get_service(IBackendService)
+        finally:
+            # Restore the original method
+            backend_service.call_completion = original_call_completion
 
-    # Mock the call_completion method
-    original_call_completion = backend_service.call_completion
-
-    async def mock_call_completion(*args, **kwargs):
-        return mock_response
-
-    # Apply the mock
-    backend_service.call_completion = mock_call_completion
-
-    try:
-        # Test with a direct call to the backend service
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "test-model",
-                "messages": [{"role": "user", "content": "Test backend service"}],
-            },
-            headers={"Authorization": "Bearer test-proxy-key"},
-        )
-
-        # Check the response
-        assert response.status_code == 200
-        assert (
-            "This is a test response from the backend service"
-            in response.json()["choices"][0]["message"]["content"]
-        )
-
-    finally:
-        # Restore the original method
-        backend_service.call_completion = original_call_completion
+    asyncio.run(run_test())
 
 
-@pytest.mark.asyncio
-async def test_versioned_endpoint_with_commands(
-    initialized_app: FastAPI, client: TestClient
-):
+def test_versioned_endpoint_with_commands(initialized_app: FastAPI, client: TestClient):
     """Test that the versioned endpoint processes commands."""
-    # Mock the request processor to handle commands
-    from src.core.domain.chat import (
-        ChatCompletionChoice,
-        ChatCompletionChoiceMessage,
-    )
-    from src.core.interfaces.request_processor_interface import IRequestProcessor
+    import asyncio
 
-    # Create a mock response
-    mock_response = ChatResponse(
-        id="test-id",
-        created=1629380000,
-        model="test-model",
-        choices=[
-            ChatCompletionChoice(
-                message=ChatCompletionChoiceMessage(
-                    role="assistant", content="Command processed: hello"
-                ),
-                index=0,
-                finish_reason="stop",
+    async def run_test():
+        # Mock the request processor to handle commands
+        from src.core.domain.chat import (
+            ChatCompletionChoice,
+            ChatCompletionChoiceMessage,
+        )
+        from src.core.interfaces.request_processor_interface import IRequestProcessor
+
+        # Create a mock response
+        mock_response = ChatResponse(
+            id="test-id",
+            created=1629380000,
+            model="test-model",
+            choices=[
+                ChatCompletionChoice(
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant", content="Command processed: hello"
+                    ),
+                    index=0,
+                    finish_reason="stop",
+                )
+            ],
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        )
+
+        # Get the service provider from the app
+        service_provider = initialized_app.state.service_provider
+
+        # Get the request processor
+        request_processor = service_provider.get_service(IRequestProcessor)
+
+        # Mock the process_request method
+        original_process_request = request_processor.process_request
+
+        async def mock_process_request(*args, **kwargs):
+            # The real process_request signature is (request, request_data).
+            # Support both positional and keyword invocation so the mock
+            # intercepts commands regardless of how it's called.
+            messages = []
+            # If called with kwargs (unlikely), respect that first
+            if "messages" in kwargs:
+                messages = kwargs.get("messages") or []
+            else:
+                # Try to extract from positional args: args[1] is request_data
+                if len(args) >= 2:
+                    request_data = args[1]
+                    # request_data may be a pydantic model or dict
+                    if hasattr(request_data, "model_dump"):
+                        data = request_data.model_dump()
+                    elif isinstance(request_data, dict):
+                        data = request_data
+                    else:
+                        # Try to read attributes
+                        try:
+                            data = getattr(request_data, "__dict__", {})
+                        except Exception:
+                            data = {}
+                    messages = data.get("messages", []) or []
+
+            # Messages may be ChatMessage objects or dicts
+            for msg in messages:
+                content = None
+                if hasattr(msg, "content"):
+                    content = getattr(msg, "content", None)
+                elif isinstance(msg, dict):
+                    content = msg.get("content")
+                if isinstance(content, str) and content.startswith("!/hello"):
+                    return mock_response
+
+            return await original_process_request(*args, **kwargs)
+
+        # Apply the mock
+        request_processor.process_request = mock_process_request
+
+        try:
+            # Test with a command
+            response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "test-model",
+                    "messages": [{"role": "user", "content": "!/hello"}],
+                },
+                headers={"Authorization": "Bearer test-proxy-key"},
             )
-        ],
-        usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-    )
 
-    # Get the service provider from the app
-    service_provider = initialized_app.state.service_provider
+            # Check that the command was processed
+            assert response.status_code == 200
+            assert (
+                "Command processed: hello"
+                in response.json()["choices"][0]["message"]["content"]
+            )
 
-    # Get the request processor
-    request_processor = service_provider.get_service(IRequestProcessor)
+        finally:
+            # Restore the original method
+            request_processor.process_request = original_process_request
 
-    # Mock the process_request method
-    original_process_request = request_processor.process_request
-
-    async def mock_process_request(*args, **kwargs):
-        # The real process_request signature is (request, request_data).
-        # Support both positional and keyword invocation so the mock
-        # intercepts commands regardless of how it's called.
-        messages = []
-        # If called with kwargs (unlikely), respect that first
-        if "messages" in kwargs:
-            messages = kwargs.get("messages") or []
-        else:
-            # Try to extract from positional args: args[1] is request_data
-            if len(args) >= 2:
-                request_data = args[1]
-                # request_data may be a pydantic model or dict
-                if hasattr(request_data, "model_dump"):
-                    data = request_data.model_dump()
-                elif isinstance(request_data, dict):
-                    data = request_data
-                else:
-                    # Try to read attributes
-                    try:
-                        data = getattr(request_data, "__dict__", {})
-                    except Exception:
-                        data = {}
-                messages = data.get("messages", []) or []
-
-        # Messages may be ChatMessage objects or dicts
-        for msg in messages:
-            content = None
-            if hasattr(msg, "content"):
-                content = getattr(msg, "content", None)
-            elif isinstance(msg, dict):
-                content = msg.get("content")
-            if isinstance(content, str) and content.startswith("!/hello"):
-                return mock_response
-
-        return await original_process_request(*args, **kwargs)
-
-    # Apply the mock
-    request_processor.process_request = mock_process_request
-
-    try:
-        # Test with a command
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "test-model",
-                "messages": [{"role": "user", "content": "!/hello"}],
-            },
-            headers={"Authorization": "Bearer test-proxy-key"},
-        )
-
-        # Check that the command was processed
-        assert response.status_code == 200
-        assert (
-            "Command processed: hello"
-            in response.json()["choices"][0]["message"]["content"]
-        )
-
-    finally:
-        # Restore the original method
-        request_processor.process_request = original_process_request
+    asyncio.run(run_test())
 
 
-@pytest.mark.asyncio
-async def test_compatibility_endpoint(initialized_app: FastAPI, client: TestClient):
+def test_compatibility_endpoint(initialized_app: FastAPI, client: TestClient):
     """Test that the compatibility endpoint works."""
-    # Mock the request processor to return a successful response
-    from src.core.domain.chat import (
-        ChatCompletionChoice,
-        ChatCompletionChoiceMessage,
-    )
-    from src.core.interfaces.request_processor_interface import IRequestProcessor
+    import asyncio
 
-    # Create a mock response
-    mock_response = ChatResponse(
-        id="test-id",
-        created=1629380000,
-        model="test-model",
-        choices=[
-            ChatCompletionChoice(
-                message=ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content="This is a compatibility test response",
-                ),
-                index=0,
-                finish_reason="stop",
-            )
-        ],
-        usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-    )
+    async def run_test():
+        # Mock the request processor to return a successful response
+        from src.core.domain.chat import (
+            ChatCompletionChoice,
+            ChatCompletionChoiceMessage,
+        )
+        from src.core.interfaces.request_processor_interface import IRequestProcessor
 
-    # Get the service provider from the app
-    service_provider = initialized_app.state.service_provider
-
-    # Get the request processor
-    request_processor = service_provider.get_service(IRequestProcessor)
-
-    # Mock the process_request method
-    original_process_request = request_processor.process_request
-
-    async def mock_process_request(*args, **kwargs):
-        return mock_response
-
-    # Apply the mock
-    request_processor.process_request = mock_process_request
-
-    try:
-        # Test the compatibility endpoint (v1)
-        v1_response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "test-model",
-                "messages": [{"role": "user", "content": "Hello"}],
-            },
-            headers={"Authorization": "Bearer test-proxy-key"},
+        # Create a mock response
+        mock_response = ChatResponse(
+            id="test-id",
+            created=1629380000,
+            model="test-model",
+            choices=[
+                ChatCompletionChoice(
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant",
+                        content="This is a compatibility test response",
+                    ),
+                    index=0,
+                    finish_reason="stop",
+                )
+            ],
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         )
 
-        # Test the new endpoint (v2)
-        # The v2 endpoint has been removed, so this test should only use v1
-        # v2_response = client.post(
-        #     "/v2/chat/completions",
-        #     json={
-        #         "model": "test-model",
-        #         "messages": [{"role": "user", "content": "Hello"}],
-        #     },
-        #     headers={"Authorization": "Bearer test-proxy-key"},
-        # )
+        # Get the service provider from the app
+        service_provider = initialized_app.state.service_provider
 
-        # Check that both endpoints return the same response structure
-        assert v1_response.status_code == 200
-        # assert v2_response.status_code == 200
+        # Get the request processor
+        request_processor = service_provider.get_service(IRequestProcessor)
 
-        # Compare the response structures
-        # v1_json = v1_response.json()
-        # v2_json = v2_response.json()
+        # Mock the process_request method
+        original_process_request = request_processor.process_request
 
-        # Both should have the same structure
-        # assert v1_json["id"] == v2_json["id"]
-        # assert v1_json["model"] == v2_json["model"]
-        # assert (
-        #     v1_json["choices"][0]["message"]["content"]
-        #     == v2_json["choices"][0]["message"]["content"]
-        # )
+        async def mock_process_request(*args, **kwargs):
+            return mock_response
 
-    finally:
-        # Restore the original method
-        request_processor.process_request = original_process_request
+        # Apply the mock
+        request_processor.process_request = mock_process_request
 
+        try:
+            # Test the compatibility endpoint (v1)
+            v1_response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "test-model",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
+                headers={"Authorization": "Bearer test-proxy-key"},
+            )
 
-# Suppress Windows ProactorEventLoop warnings for this module
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
-)
+            # Test the new endpoint (v2)
+            # The v2 endpoint has been removed, so this test should only use v1
+            # v2_response = client.post(
+            #     "/v2/chat/completions",
+            #     json={
+            #         "model": "test-model",
+            #         "messages": [{"role": "user", "content": "Hello"}],
+            #     },
+            #     headers={"Authorization": "Bearer test-proxy-key"},
+            # )
+
+            # Check that both endpoints return the same response structure
+            assert v1_response.status_code == 200
+            # assert v2_response.status_code == 200
+
+            # Compare the response structures
+            # v1_json = v1_response.json()
+            # v2_json = v2_response.json()
+
+            # Both should have the same structure
+            # assert v1_json["id"] == v2_json["id"]
+            # assert v1_json["model"] == v2_json["model"]
+            # assert (
+            #     v1_json["choices"][0]["message"]["content"]
+            #     == v2_json["choices"][0]["message"]["content"]
+            # )
+
+        finally:
+            # Restore the original method
+            request_processor.process_request = original_process_request
+
+    # Suppress Windows ProactorEventLoop warnings for this module
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    )
+
+    asyncio.run(run_test())

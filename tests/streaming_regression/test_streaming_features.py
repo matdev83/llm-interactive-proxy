@@ -159,6 +159,13 @@ async def test_streaming_with_think_tags_fix() -> None:
                     chunk_times.append(asyncio.get_event_loop().time())
 
     # Verify streaming behavior (contract-level check)
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.warning(f"DEBUG: Received chunks count: {len(received_chunks)}")
+    for i, c in enumerate(received_chunks):
+        logger.warning(f"DEBUG: Chunk {i}: {c!r}")
+
     assert count_sse_events(received_chunks) > 3, "Should receive multiple chunks"
 
     # Verify backend stats (deterministic check)

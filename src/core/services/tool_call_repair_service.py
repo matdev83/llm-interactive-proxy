@@ -442,6 +442,17 @@ class ToolCallRepairService(IToolCallRepairService):
             candidate_snippets = filtered_snippets
             if not candidate_snippets:
                 return None
+        else:
+            disallowed_tags = {"think", "thought"}
+            filtered_snippets = []
+            for snippet in candidate_snippets:
+                tag_match = re.match(r"<([A-Za-z0-9_\-]+)", snippet)
+                if tag_match and tag_match.group(1).lower() in disallowed_tags:
+                    continue
+                filtered_snippets.append(snippet)
+            candidate_snippets = filtered_snippets
+            if not candidate_snippets:
+                return None
 
         for xml_snippet in candidate_snippets:
 

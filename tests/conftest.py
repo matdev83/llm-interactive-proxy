@@ -29,6 +29,26 @@ def _module_is_available(name: str) -> bool:
 HAS_PYTEST_ASYNCIO = _module_is_available("pytest_asyncio")
 HAS_PYTEST_HTTPX = _module_is_available("pytest_httpx")
 HAS_PYTEST_XDIST = _module_is_available("xdist")
+_SESSION_LOOP: asyncio.AbstractEventLoop | None = None
+
+if HAS_PYTEST_ASYNCIO:
+    import pytest_asyncio.plugin as pytest_asyncio_plugin
+
+    def _safe_get_event_loop_no_warn(  # type: ignore[too-many-branches]
+        policy: asyncio.AbstractEventLoopPolicy | None = None,
+    ) -> asyncio.AbstractEventLoop:
+        """Ensure pytest-asyncio always has a usable loop even if one was cleared."""
+
+        try:
+            if policy is not None:
+                return policy.get_event_loop()
+            return asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop
+
+    pytest_asyncio_plugin._get_event_loop_no_warn = _safe_get_event_loop_no_warn
 
 
 if not HAS_PYTEST_ASYNCIO:
@@ -154,11 +174,25 @@ def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]
     """Session start hook: clean artifacts and install warning filters."""
     _cleanup_root_artifacts()
     _install_global_warning_filters()
+    global _SESSION_LOOP
+    try:
+        _SESSION_LOOP = asyncio.get_event_loop()
+    except RuntimeError:
+        _SESSION_LOOP = asyncio.new_event_loop()
+        asyncio.set_event_loop(_SESSION_LOOP)
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untyped-def]
     """Cleanup potential artifacts after the test session finishes."""
     _cleanup_root_artifacts()
+    global _SESSION_LOOP
+    if _SESSION_LOOP is not None:
+        try:
+            if not _SESSION_LOOP.is_closed():
+                _SESSION_LOOP.close()
+        finally:
+            asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+        _SESSION_LOOP = None
 
 
 # Apply a global, message-targeted filter for Windows ProactorEventLoop noise
@@ -245,6 +279,7 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
     if not inspect.iscoroutinefunction(test_function):
         return None
 
+    policy_type = type(asyncio.get_event_loop_policy())
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
@@ -259,6 +294,9 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
     finally:
         asyncio.set_event_loop(None)
         loop.close()
+        asyncio.set_event_loop_policy(policy_type())
+        if _SESSION_LOOP is not None and not _SESSION_LOOP.is_closed():
+            asyncio.set_event_loop(_SESSION_LOOP)
 
     return True
 

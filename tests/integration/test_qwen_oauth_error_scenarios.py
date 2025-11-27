@@ -5,6 +5,7 @@ These tests ensure that real error conditions are properly handled and don't giv
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 import httpx
@@ -107,6 +108,12 @@ async def test_qwen_oauth_real_api_connectivity():
 
         if not creds.get("access_token"):
             pytest.skip("No access token in credentials")
+
+        # Skip if credentials are expired
+        expiry = creds.get("expiry_date", 0)
+        current_time = int(time.time() * 1000)
+        if expiry <= current_time:
+            pytest.skip("Credentials are expired")
 
         config = AppConfig()
         async_client = httpx.AsyncClient()

@@ -907,6 +907,9 @@ class BufferedWireCapture(IWireCapture):
                 except Exception:
                     # Don't use logger, but continue processing
                     continue
+        except asyncio.CancelledError:
+            # Handle outer cancellation
+            pass
         finally:
             # Final flush attempt on exit if still enabled
             if self._enabled and self._buffer:
@@ -950,8 +953,6 @@ class BufferedWireCapture(IWireCapture):
         """Synchronous best-effort shutdown. Deprecated and unsafe from __del__."""
         # This method is problematic when called from __del__ during interpreter shutdown.
         # The async shutdown() method should be used for proper cleanup.
-        # This is now a no-op to prevent errors during garbage collection.
-        # The real fix is to ensure the application lifecycle calls shutdown().
         if not getattr(self, "_enabled", False):
             return
 
@@ -962,14 +963,15 @@ class BufferedWireCapture(IWireCapture):
             with contextlib.suppress(Exception):
                 task = self._flush_task
                 # Suppress the 'task was destroyed but it is pending!' message
+                # This is a hack but necessary when we can't await the task
                 if hasattr(task, "_log_destroy_pending"):
                     cast(Any, task)._log_destroy_pending = False
+
                 loop = task.get_loop()
                 if loop.is_running() and not loop.is_closed():
                     loop.call_soon_threadsafe(task.cancel)
-                elif not loop.is_closed():
-                    # This is a fallback and might not always work if the loop is closing
-                    loop.run_until_complete(self.shutdown())
+
+                # We cannot await here, so we just clear the reference
 
         self._flush_task = None
 

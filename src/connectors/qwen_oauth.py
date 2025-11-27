@@ -602,6 +602,14 @@ class QwenOAuthConnector(OpenAIConnector):
                     return True
 
                 logger.error("Both CLI and API token refresh methods failed")
+                # Fall back to existing credentials if they are still valid without buffer
+                if self._oauth_credentials and not self._is_token_expired(
+                    buffer_seconds=0
+                ):
+                    logger.warning(
+                        "Proceeding with existing token despite refresh failure"
+                    )
+                    return True
                 return False
 
             # Not expired and not near expiry covered above; default allow
