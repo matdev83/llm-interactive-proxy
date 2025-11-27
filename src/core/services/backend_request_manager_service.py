@@ -1172,9 +1172,20 @@ class BackendRequestManager(IBackendRequestManager):
         metadata = getattr(chunk, "metadata", {}) or {}
         content = getattr(chunk, "content", None)
 
-        if isinstance(metadata.get("error"), dict):
+        # Check for error in metadata (including error dicts and error flag)
+        if metadata.get("error"):
             return True
+
+        # Check for finish_reason: "error" which indicates a backend error response
+        if metadata.get("finish_reason") == "error":
+            return True
+
+        # Check for error in content dict
         if isinstance(content, dict) and content.get("error"):
+            return True
+
+        # Check for error in content string (JSON-encoded error response)
+        if isinstance(content, str) and '"error"' in content:
             return True
 
         if metadata.get("tool_call_swallowed") or metadata.get(

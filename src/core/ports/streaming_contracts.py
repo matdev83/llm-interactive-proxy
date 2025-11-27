@@ -594,6 +594,15 @@ class StreamingContent:
                     if str(finish_reason):
                         is_done = True
 
+                # Capture top-level error from OpenAI-style error responses
+                # This handles streaming error responses like rate limit errors
+                # that have format: {"choices": [{"delta": {}, "finish_reason": "error"}], "error": {...}}
+                if "error" in raw_data:
+                    metadata["error"] = raw_data["error"]
+                    # Also store the full error response as content for debugging
+                    if not content:
+                        content = raw_data
+
                 if "id" in raw_data:
                     metadata["id"] = raw_data["id"]
                 if "model" in raw_data:

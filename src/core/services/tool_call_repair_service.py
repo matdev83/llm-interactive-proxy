@@ -387,75 +387,53 @@ class ToolCallRepairService(IToolCallRepairService):
     def _extract_xml_tool_call(
         self, content: str, allowed_tools: list[str] | None = None
     ) -> ToolCallRepairResult | None:
-        """Detect and convert XML-formatted tool calls."""
-        # Use content directly to ensure snippets match original text for removal
+        """Detect and convert XML-formatted tool calls using structural heuristics.
+
+        DESIGN PRINCIPLE: This method uses ONLY structural patterns and heuristics
+        to identify tool calls. It does NOT rely on:
+        - Hardcoded tool name lists
+        - Client/agent identifiers
+        - Any specific tool name enumeration
+
+        This design ensures compatibility with ANY tool from ANY agent/client,
+        including future tools that don't exist yet.
+
+        Detection heuristics:
+        1. XML elements with child elements (nested structure) = likely tool calls
+        2. XML elements with attributes = likely tool calls
+        3. XML elements containing JSON = likely tool calls
+        4. Simple text-only elements = likely parameters, NOT tool calls
+        5. Thinking/reasoning patterns = filtered out
+
+        The allowed_tools parameter, if provided, is used ONLY for prioritization
+        (checking those first), NEVER for rejection of valid tool calls.
+        """
         if "<" not in content or "</" not in content:
             return None
 
-        normalized_allowed = allowed_tools or None
-        allowed_set = (
-            {tool_name.lower() for tool_name in normalized_allowed}
-            if normalized_allowed
-            else None
-        )
+        # Find ALL XML elements using generic pattern - no hardcoded tool names
+        matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
+        if not matches:
+            return None
 
-        # Priority matching for known tool tags (to avoid matching inner tags like <command>)
-        # Use allowed_tools if provided, otherwise fallback to known_tools
-        target_tools = (
-            normalized_allowed
-            if normalized_allowed is not None
-            else [
-                "use_mcp_tool",
-                "execute_command",
-                "patch_file",
-                "ask_followup_question",
-                "attempt_completion",
-                "read_file",
-                "list_files",
-                "codebase_search",
-                "search_files",
-                "access_mcp_resource",
-            ]
-        )
+        candidate_snippets = [match.group(0) for match in matches]
 
-        candidate_snippets = []
-        for tool_tag in target_tools:
-            pattern = rf"<{tool_tag}(?:\s[^>]*)?>.*?</{tool_tag}>"
-            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
-            if match:
-                candidate_snippets.append(match.group(0))
-                break  # Use first matching known tool
-
-        # If no known tool matched, fall back to generic XML pattern
-        if not candidate_snippets:
-            matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
-            if not matches:
-                return None
-            candidate_snippets = [match.group(0) for match in matches]
-
-        if allowed_set is not None:
-            filtered_snippets: list[str] = []
+        # If allowed_tools is provided, use it ONLY for prioritization (check first)
+        # but NEVER reject tool calls not in the list
+        if allowed_tools:
+            allowed_set = {tool_name.lower() for tool_name in allowed_tools}
+            # Sort: prioritized tools first, then others
+            prioritized = []
+            others = []
             for snippet in candidate_snippets:
                 tag_match = re.match(r"<([A-Za-z0-9_\-]+)", snippet)
                 if tag_match and tag_match.group(1).lower() in allowed_set:
-                    filtered_snippets.append(snippet)
-            candidate_snippets = filtered_snippets
-            if not candidate_snippets:
-                return None
-        else:
-            disallowed_tags = {"think", "thought"}
-            filtered_snippets = []
-            for snippet in candidate_snippets:
-                tag_match = re.match(r"<([A-Za-z0-9_\-]+)", snippet)
-                if tag_match and tag_match.group(1).lower() in disallowed_tags:
-                    continue
-                filtered_snippets.append(snippet)
-            candidate_snippets = filtered_snippets
-            if not candidate_snippets:
-                return None
+                    prioritized.append(snippet)
+                else:
+                    others.append(snippet)
+            candidate_snippets = prioritized + others
 
         for xml_snippet in candidate_snippets:
-
             try:
                 import xml.etree.ElementTree as ElementTree
 
@@ -466,50 +444,11 @@ class ToolCallRepairService(IToolCallRepairService):
                     return fallback
                 continue
 
-            # Skip inner/child tags that are NOT actual tool calls
-            # These are typically parameter tags inside tool calls
-            if root.tag in {
-                "tool_name",
-                "tool_arguments",
-                "path",
-                "diff",
-                "patch_content",
-                "patch",
-                "content",
-                "arguments",
-                "args",
-                "command",  # Inner tag of <execute_command>
-                "file",  # Inner tag of <read_file>, <write_to_file>
-                "question",  # Inner tag of <ask_followup_question>
-                "result",  # Inner tag of <attempt_completion>
-                "regex",  # Inner tag of <search_files>
-                "query",  # Inner tag of <codebase_search>
-                "uri",  # Inner tag of <access_mcp_resource>
-                "server_name",  # Inner tag of various MCP tools
-                "directory",  # Inner tag of <list_files>
-                "recursive",  # Inner tag of <list_files>
-                # Line range parameters (used in read_file, write_to_file, etc.)
-                "start_line",
-                "end_line",
-                "line",
-                "line_number",
-                # Editing tool parameters (search_and_replace, write_to_file, etc.)
-                "search",
-                "replace",
-                "new_content",
-                "old_content",
-                "operations",
-                "insert",
-                "delete",
-                "position",
-                # Additional diff/patch parameters
-                "file_path",
-                "target_file",
-                "source_file",
-                "changes",
-            }:
+            # Use heuristics to determine if this is a tool call or not
+            if not self._is_likely_tool_call(root, xml_snippet):
                 continue
 
+            # Special handling for use_mcp_tool wrapper
             if root.tag == "use_mcp_tool":
                 tool_name_candidate = (
                     root.attrib.get("tool_name") or root.attrib.get("name") or ""
@@ -536,7 +475,7 @@ class ToolCallRepairService(IToolCallRepairService):
                             continue
                         arguments_raw[child.tag] = self._element_children_to_dict(child)
 
-                # Try to parse as JSON if arguments_raw is a string (common KiloCode format)
+                # Try to parse as JSON if arguments_raw is a string
                 if not isinstance(arguments_raw, dict):
                     if isinstance(arguments_raw, str) and arguments_raw.strip():
                         try:
@@ -554,6 +493,9 @@ class ToolCallRepairService(IToolCallRepairService):
                             {"content": arguments_raw} if arguments_raw else {}
                         )
 
+                # Unwrap double-nested content structures
+                arguments_raw = self._unwrap_nested_content(arguments_raw)
+
                 arguments = self._normalize_tool_arguments(
                     tool_name_candidate,
                     arguments_raw,
@@ -562,6 +504,7 @@ class ToolCallRepairService(IToolCallRepairService):
                     tool_name_candidate, arguments, xml_snippet
                 )
 
+            # Direct tool call (not wrapped in use_mcp_tool)
             arguments_raw = self._element_children_to_dict(root)
             if not isinstance(arguments_raw, dict):
                 arguments_raw = {"content": arguments_raw} if arguments_raw else {}
@@ -569,6 +512,176 @@ class ToolCallRepairService(IToolCallRepairService):
             return self._format_openai_tool_call(root.tag, arguments, xml_snippet)
 
         return None
+
+    def _is_likely_tool_call(self, element: Any, xml_snippet: str) -> bool:
+        """Determine if an XML element is likely a tool call using structural heuristics.
+
+        DESIGN PRINCIPLE: This method uses PURELY STRUCTURAL heuristics.
+        It does NOT rely on any hardcoded tool name lists.
+
+        Tool calls have structure (children, attributes, JSON content, complex text).
+        Parameters have simple values (paths, numbers, identifiers, short strings).
+
+        Heuristic priority:
+        1. Thinking/reasoning patterns -> NOT a tool call
+        2. Has children -> IS a tool call (nested structure)
+        3. Has attributes -> IS a tool call (structured data)
+        4. Contains JSON -> IS a tool call (structured arguments)
+        5. Contains multi-line/long text -> IS a tool call (complex content)
+        6. Contains only simple value (path, number, short string) -> NOT a tool call
+
+        Args:
+            element: Parsed XML element
+            xml_snippet: Original XML string
+
+        Returns:
+            True if the element appears to be a tool call, False otherwise
+        """
+        tag = element.tag.lower()
+
+        # REJECT 1: Thinking/reasoning tags (semantic pattern, not a name list)
+        # These are internal model monologue, not tool calls
+        thinking_patterns = {"think", "thought", "thinking", "reasoning", "reflection"}
+        if tag in thinking_patterns:
+            return False
+
+        # ACCEPT: Elements with child elements (nested structure = tool call)
+        children = list(element)
+        if children:
+            return True
+
+        # ACCEPT: Elements with attributes (attributes = structured data = tool call)
+        if element.attrib:
+            return True
+
+        # Check text content for elements without children
+        text_content = (element.text or "").strip()
+
+        # No content at all - ambiguous, but lean towards tool call for empty wrappers
+        if not text_content:
+            return True
+
+        # ACCEPT: Elements containing JSON (arguments in JSON format)
+        if text_content.startswith(("{", "[")):
+            return True
+
+        # ACCEPT: Elements with multi-line content (complex = tool call)
+        if "\n" in text_content:
+            return True
+
+        # ACCEPT: Elements with substantial content (long = likely tool call)
+        if len(text_content) > 500:
+            return True
+
+        # REJECT 2: Elements with ONLY simple value content
+        # This is purely structural - if content is just a path, number, identifier,
+        # or short string, it's almost certainly a parameter value, not a tool call.
+        # This catches <command>ls</command>, <file>main.py</file>, <line>42</line>
+        # regardless of the tag name.
+        # DEFAULT: Accept as tool call if NOT a simple value
+        return not self._looks_like_simple_value(text_content)
+
+    def _looks_like_simple_value(self, text: str) -> bool:
+        """Check if text looks like a simple parameter value using structural patterns.
+
+        DESIGN PRINCIPLE: This method identifies parameter VALUES (not names)
+        based on their structural characteristics. It does NOT rely on any
+        hardcoded lists - only on patterns that distinguish simple values
+        from complex tool call structures.
+
+        Simple values include:
+        - Empty or very short strings
+        - Boolean-like values (true, false, yes, no)
+        - Numbers (integers, floats)
+        - File paths (Unix, Windows)
+        - URLs
+        - Single-word identifiers
+        - Short command-like strings without special structure
+        - Simple quoted strings
+
+        Args:
+            text: Text content to check
+
+        Returns:
+            True if the text appears to be a simple value (not a tool call body)
+        """
+        text = text.strip()
+
+        # Empty or very short values are likely parameters
+        if not text or len(text) < 3:
+            return True
+
+        # Boolean-like values
+        if text.lower() in {"true", "false", "yes", "no", "on", "off", "null", "none"}:
+            return True
+
+        # Number-like values
+        try:
+            float(text)
+            return True
+        except ValueError:
+            pass
+
+        # Path-like values (Unix paths)
+        if text.startswith(("/", "./", "../", "~/")):
+            return True
+
+        # Path-like values (Windows paths)
+        if len(text) > 2 and text[1:3] in (":\\", ":/"):
+            return True
+
+        # File extensions (common file types)
+        common_extensions = (
+            ".py",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".jsx",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".md",
+            ".txt",
+            ".html",
+            ".css",
+            ".xml",
+            ".sh",
+            ".bash",
+            ".go",
+            ".rs",
+            ".java",
+            ".c",
+            ".cpp",
+            ".h",
+            ".rb",
+            ".php",
+        )
+        if any(text.endswith(ext) for ext in common_extensions):
+            return True
+
+        # URL-like values
+        if text.startswith(("http://", "https://", "ftp://", "file://")):
+            return True
+
+        # Single-word identifiers (variable names, modes, etc.)
+        if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", text):
+            return True
+
+        # Hyphenated identifiers (like "my-project", "some-tool")
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9\-]*$", text):
+            return True
+
+        # Short single-line strings without XML/JSON markers
+        # These are likely simple parameter values
+        # Check for command-like patterns (e.g., "python -m pytest")
+        return bool(
+            len(text) < 200
+            and "<" not in text
+            and "{" not in text
+            and "[" not in text
+            and re.match(r"^[a-zA-Z0-9_./-]+(\s+[^\n<>{}\[\]]+)?$", text)
+        )
 
     # Property last_tool_snippet removed as it is no longer needed
 
@@ -625,6 +738,8 @@ class ToolCallRepairService(IToolCallRepairService):
                 except json.JSONDecodeError:
                     # Not valid JSON, use as raw content
                     arguments = {"content": args_content}
+                # Unwrap double-nested content structures
+                arguments = self._unwrap_nested_content(arguments)
         else:
             # Fallback: extract individual tags, but skip wrapper tags
             # Tags to skip: use_mcp_tool (outer wrapper), server_name (metadata),
@@ -789,6 +904,20 @@ class ToolCallRepairService(IToolCallRepairService):
                             self._extract_leaf_values({inner_key: inner_value}, result)
             else:
                 # Leaf value - add directly
+                # Special case: if key is "content" and value is a JSON string, try to parse it
+                if key == "content" and isinstance(value, str):
+                    stripped = value.strip()
+                    if stripped.startswith("{") and stripped.endswith("}"):
+                        try:
+                            parsed = json.loads(stripped)
+                            if isinstance(parsed, dict) and parsed:
+                                # Unwrap the nested JSON and add its keys directly
+                                for inner_key, inner_value in parsed.items():
+                                    if inner_key not in result:
+                                        result[inner_key] = inner_value
+                                continue
+                        except json.JSONDecodeError:
+                            pass  # Fall through to add as-is
                 if key not in result:
                     result[key] = value
 
@@ -817,3 +946,49 @@ class ToolCallRepairService(IToolCallRepairService):
             if child.tail:
                 parts.append(child.tail)
         return "".join(parts).strip()
+
+    def _unwrap_nested_content(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Unwrap double-nested content structures from tool call arguments.
+
+        Some models output malformed arguments like:
+            {"content": "{\"file_path\": \"...\", \"patch_content\": \"...\"}"}
+
+        This should be unwrapped to:
+            {"file_path": "...", "patch_content": "..."}
+
+        The issue occurs when models double-serialize their JSON arguments,
+        resulting in a "content" wrapper containing a JSON string.
+
+        Args:
+            arguments: Dictionary of tool call arguments to potentially unwrap
+
+        Returns:
+            Unwrapped arguments dict, or original if no unwrapping needed
+        """
+        if not isinstance(arguments, dict):
+            return arguments
+
+        # Check for the specific pattern: {"content": "<json_string>"}
+        # where <json_string> is a valid JSON object when parsed
+        if (
+            len(arguments) == 1
+            and "content" in arguments
+            and isinstance(arguments["content"], str)
+        ):
+            content_str = arguments["content"].strip()
+            # Only try to parse if it looks like a JSON object
+            if content_str.startswith("{") and content_str.endswith("}"):
+                try:
+                    parsed = json.loads(content_str)
+                    if isinstance(parsed, dict) and parsed:
+                        # Successfully unwrapped - log for debugging
+                        logger.debug(
+                            "Unwrapped nested content structure: "
+                            "{'content': '<json>'} -> %s keys",
+                            len(parsed),
+                        )
+                        return parsed
+                except json.JSONDecodeError:
+                    pass  # Not valid JSON, keep original
+
+        return arguments
