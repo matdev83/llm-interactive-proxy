@@ -198,6 +198,28 @@ python -m src.core.cli \
 
 ### When Planning Phase Is Active
 
+```mermaid
+stateDiagram-v2
+    [*] --> PlanningPhase: Session Start
+    
+    state PlanningPhase {
+        direction LR
+        [*] --> CheckConditions
+        CheckConditions --> UseStrongModel: Limits Not Reached
+        UseStrongModel --> IncrementCounters: Request Complete
+        IncrementCounters --> CheckConditions
+    }
+
+    CheckConditions --> ExecutionPhase: Max Turns Reached
+    CheckConditions --> ExecutionPhase: File Write Detected
+    
+    state ExecutionPhase {
+        direction LR
+        [*] --> UseDefaultModel
+        UseDefaultModel --> [*]
+    }
+```
+
 - If enabled, the proxy routes early requests to the configured strong model
 - The strong model is used **unless** the current model is already the strong model
 - Configured parameter overrides (temperature, top_p, etc.) are applied to the strong model
@@ -217,7 +239,7 @@ The proxy automatically switches back to the default model when **either** condi
 
 ### File-Write Detection
 
-- File-write detection is handled by the existing Tool Call Reactor
+- File-write detection is handled by the existing [Tool Call Reactor](tool-access-control.md)
 - Supported file-writing tools: `write`, `edit`, `apply_diff`, `patch`, and similar operations
 - No duplicate detection logic - reuses existing infrastructure
 

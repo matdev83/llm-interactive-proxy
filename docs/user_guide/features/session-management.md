@@ -97,6 +97,21 @@ session:
 
 ## How It Works
 
+```mermaid
+graph TD
+    A[Request Received] --> B{Has x-session-id?}
+    B -- Yes --> C[Use Provided ID]
+    B -- No --> D[Compute Client Key]
+    D --> E[Compute Message Fingerprint]
+    E --> F{Exact Match in DB?}
+    F -- Yes --> G[Use Existing Session]
+    F -- No --> H{Fuzzy Match Enabled?}
+    H -- No --> I[Create New Session]
+    H -- Yes --> J{Fuzzy Match Found?}
+    J -- Yes --> G
+    J -- No --> I
+```
+
 ### 1. Automatic Session Detection
 
 When a client sends a request without an `x-session-id` header, the proxy analyzes the message history to determine if it's a continuation or a new session.

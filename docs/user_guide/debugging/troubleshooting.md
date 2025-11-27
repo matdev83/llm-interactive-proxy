@@ -145,7 +145,7 @@ This guide covers common issues and their solutions when using the LLM Interacti
    anthropic:claude-3-opus (200k context)
    ```
 
-4. **Enable context window enforcement**:
+4. **Enable [context window enforcement](../features/context-window-enforcement.md)**:
    ```yaml
    session:
      context_window_enforcement_enabled: true
@@ -216,7 +216,7 @@ This guide covers common issues and their solutions when using the LLM Interacti
 
 2. **Check backend documentation** for available models
 
-3. **Use model name rewrites** to map to available models:
+3. **Use [model name rewrites](../features/model-name-rewrites.md)** to map to available models:
    ```yaml
    model_rewrites:
      - pattern: "gpt-4"
@@ -466,7 +466,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ### LLM Assessment Not Working
 
-**Problem**: LLM Assessment System not detecting loops
+**Problem**: [LLM Assessment System](../features/llm-assessment.md) not detecting loops
 
 **Solutions**:
 
@@ -495,7 +495,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ### Tool Access Control Not Blocking
 
-**Problem**: Tool calls are not being blocked by access control
+**Problem**: Tool calls are not being blocked by [access control](../features/tool-access-control.md)
 
 **Solutions**:
 
@@ -527,7 +527,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ### Dangerous Command Protection Not Working
 
-**Problem**: Dangerous git commands are not being blocked
+**Problem**: [Dangerous git commands](../features/dangerous-command-protection.md) are not being blocked
 
 **Solutions**:
 

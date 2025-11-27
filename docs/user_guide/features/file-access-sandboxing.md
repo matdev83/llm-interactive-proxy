@@ -67,6 +67,20 @@ sandboxing:
 
 When sandboxing is enabled and a project root is detected:
 
+```mermaid
+graph TD
+    A[Tool Call Intercepted] --> B{Is File-Changing Tool?}
+    B -- No --> C[Allow Execution]
+    B -- Yes --> D{Project Root Detected?}
+    D -- No --> C
+    D -- Yes --> E[Extract Paths]
+    E --> F[Normalize Paths]
+    F --> G{Inside Project Root?}
+    G -- Yes --> C
+    G -- No --> H[Block Execution]
+    H --> I[Return Error Message]
+```
+
 1. **Path Validation**: All file operation paths are normalized and validated against the project root
 2. **Boundary Enforcement**: Operations outside the project directory are blocked
 3. **Clear Error Messages**: Returns descriptive error explaining the allowed directory

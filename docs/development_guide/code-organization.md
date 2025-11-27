@@ -98,10 +98,10 @@ src/core/
 
 **`services/`** - Business Services
 
-- LLM Assessment Service
-- Angel Verification Service
-- Session Management Service
-- Tool Call Reactor Service
+- [LLM Assessment Service](../user_guide/features/llm-assessment.md)
+- [Angel Verification Service](../user_guide/features/angel-verification.md)
+- [Session Management Service](../user_guide/features/session-management.md)
+- [Tool Call Reactor Service](../user_guide/features/tool-access-control.md)
 - Performance Tracking Service
 
 **`simulation/`** - Wire Capture & Simulation
@@ -133,24 +133,24 @@ Backend connector implementations for different LLM providers:
 ```
 src/connectors/
 ├── base.py                 # Base connector interface
-├── openai.py               # OpenAI connector
+├── openai.py               # [OpenAI](../user_guide/backends/openai.md) connector
 ├── openai_codex.py         # OpenAI Codex (OAuth) connector
 ├── openai_responses.py     # OpenAI Responses API connector
-├── anthropic.py            # Anthropic connector
+├── anthropic.py            # [Anthropic](../user_guide/backends/anthropic.md) connector
 ├── anthropic_oauth.py      # Anthropic OAuth connector
-├── gemini.py               # Gemini API key connector
+├── gemini.py               # [Gemini](../user_guide/backends/gemini.md) API key connector
 ├── gemini_oauth_base.py    # Base for Gemini OAuth connectors
 ├── gemini_oauth_free.py    # Gemini OAuth free tier
 ├── gemini_oauth_plan.py    # Gemini OAuth with subscription
 ├── gemini_cloud_project.py # Gemini GCP project connector
 ├── gemini_cli_acp.py       # Gemini CLI Agent Control Protocol
-├── openrouter.py           # OpenRouter connector
-├── zai.py                  # ZAI connector
+├── openrouter.py           # [OpenRouter](../user_guide/backends/openrouter.md) connector
+├── zai.py                  # [ZAI](../user_guide/backends/zai.md) connector
 ├── zai_coding_plan.py      # ZAI coding plan connector
-├── qwen_oauth.py           # Qwen OAuth connector
+├── qwen_oauth.py           # [Qwen](../user_guide/backends/qwen.md) OAuth connector
 ├── minimax.py              # Minimax connector
 ├── zenmux.py               # ZenMux connector
-├── hybrid.py               # Hybrid backend (two-phase)
+├── hybrid.py               # [Hybrid](../user_guide/features/hybrid-backend.md) backend (two-phase)
 ├── cline.py                # Cline connector
 ├── streaming_utils.py      # Streaming utilities
 ├── mixins/                 # Connector mixins
@@ -310,9 +310,9 @@ scripts/
 ### Safety & Security
 
 - **Authentication** (`src/core/security/`): API key validation
-- **Tool Access Control** (`src/core/services/`): Policy-based tool filtering
-- **Dangerous Command Protection** (`src/core/services/`): Blocks harmful commands
-- **File Sandboxing** (`src/core/services/`): Restricts file access
+- **Tool Access Control** (`src/core/services/`): [Policy-based tool filtering](../user_guide/features/tool-access-control.md)
+- **Dangerous Command Protection** (`src/core/services/`): [Blocks harmful commands](../user_guide/features/dangerous-command-protection.md)
+- **File Sandboxing** (`src/core/services/`): [Restricts file access](../user_guide/features/file-access-sandboxing.md)
 - **Loop Detection** (`src/loop_detection/`): Detects repetitive patterns
 
 ### Quality Assurance

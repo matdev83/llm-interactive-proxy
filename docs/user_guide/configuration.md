@@ -72,21 +72,21 @@ export ANTHROPIC_PORT=8001
 export FORCE_CONTEXT_WINDOW=8000
 
 # Feature Toggles
-export DANGEROUS_COMMAND_PREVENTION_ENABLED=true
-export EDIT_PRECISION_ENABLED=true
-export FIX_THINK_TAGS_ENABLED=true
+export DANGEROUS_COMMAND_PREVENTION_ENABLED=true  # [Dangerous Command Protection](features/dangerous-command-protection.md)
+export EDIT_PRECISION_ENABLED=true                # [Edit Precision](features/edit-precision.md)
+export FIX_THINK_TAGS_ENABLED=true                # [Think Tags Fix](features/think-tags-fix.md)
 export STRICT_COMMAND_DETECTION=true
 
-# LLM Assessment
+# [LLM Assessment](features/llm-assessment.md)
 export LLM_ASSESSMENT_ENABLED=true
 export LLM_ASSESSMENT_BACKEND=openai
 export LLM_ASSESSMENT_MODEL=gpt-4o-mini
 
-# Angel Verification
+# [Angel Verification](features/angel-verification.md)
 export ANGEL_MODEL="openai:gpt-4o-mini"
 export ANGEL_FREQUENCY=1
 
-# Edit Precision
+# [Edit Precision](features/edit-precision.md)
 export EDIT_PRECISION_TEMPERATURE=0.1
 export EDIT_PRECISION_MIN_TOP_P=0.3
 export EDIT_PRECISION_OVERRIDE_TOP_P=false
@@ -157,26 +157,26 @@ auth:
 
 # Session settings
 session:
-  # Dangerous command protection
+  # [Dangerous command protection](features/dangerous-command-protection.md)
   dangerous_command_prevention_enabled: true
   
   # Strict command detection
   strict_command_detection: false
   
-  # Think tags fix
+  # [Think tags fix](features/think-tags-fix.md)
   fix_think_tags_enabled: false
   fix_think_tags_streaming_buffer_size: 4096
   
-  # Angel verification
+  # [Angel verification](features/angel-verification.md)
   angel_model: null
   angel_frequency: 1
   
-  # Tool call reactor
+  # [Tool call reactor](features/tool-access-control.md)
   tool_call_reactor:
     enabled: true
     access_policies: []
 
-# Edit precision tuning
+# [Edit precision tuning](features/edit-precision.md)
 edit_precision:
   enabled: true
   temperature: 0.1
@@ -184,7 +184,7 @@ edit_precision:
   override_top_p: false
   exclude_agents_regex: null
 
-# LLM Assessment
+# [LLM Assessment](features/llm-assessment.md)
 llm_assessment:
   enabled: false
   backend: openai
@@ -197,10 +197,10 @@ llm_assessment:
     max: 15
     default: 3
 
-# Model aliases (rewrites)
+# [Model aliases (rewrites)](features/model-name-rewrites.md)
 model_aliases: []
 
-# Identity override
+# [Identity override](features/identity-override.md)
 identity:
   user_agent:
     mode: passthrough  # passthrough, override, or default

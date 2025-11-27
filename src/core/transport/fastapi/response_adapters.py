@@ -328,9 +328,9 @@ def to_fastapi_response(
     prepared_content = _prepare_json_content(content)
 
     if envelope.metadata and isinstance(prepared_content, dict):
-        reasoning_meta = envelope.metadata.get(
-            "reasoning"
-        ) or envelope.metadata.get("reasoning_content")
+        reasoning_meta = envelope.metadata.get("reasoning") or envelope.metadata.get(
+            "reasoning_content"
+        )
         if reasoning_meta:
             metadata_section = prepared_content.setdefault("metadata", {})
             if isinstance(metadata_section, dict):
@@ -389,7 +389,9 @@ def _normalize_response_envelope(domain_response: Any) -> ResponseEnvelope:
             headers=None,
             status_code=200,
             usage=domain_response.usage,
-            metadata={"model": domain_response.model} if domain_response.model else None,
+            metadata=(
+                {"model": domain_response.model} if domain_response.model else None
+            ),
         )
     elif isinstance(domain_response, dict):
         return ResponseEnvelope(content=domain_response, headers=None, status_code=200)
@@ -429,9 +431,7 @@ def _normalize_usage_dict(usage: Any) -> dict[str, int] | None:
         return None
 
 
-def _resolve_model_name(
-    envelope: ResponseEnvelope, payload: Any
-) -> str | None:
+def _resolve_model_name(envelope: ResponseEnvelope, payload: Any) -> str | None:
     """Extract model name from envelope metadata or payload."""
     if isinstance(payload, dict):
         model_name = payload.get("model") or payload.get("id")
@@ -458,7 +458,7 @@ def _resolve_prompt_tokens(
     metadata = getattr(envelope, "metadata", None)
     if isinstance(metadata, dict):
         outbound_tokens = metadata.get("outbound_tokens")
-        if isinstance(outbound_tokens, (int, float)):
+        if isinstance(outbound_tokens, int | float):
             try:
                 return int(outbound_tokens)
             except (TypeError, ValueError):
@@ -466,9 +466,7 @@ def _resolve_prompt_tokens(
     return None
 
 
-def _calculate_completion_tokens(
-    payload: Any, model_name: str | None
-) -> int | None:
+def _calculate_completion_tokens(payload: Any, model_name: str | None) -> int | None:
     """Calculate completion tokens from the response payload."""
     text_value: str | None = None
     if isinstance(payload, dict):
@@ -492,9 +490,7 @@ def _calculate_completion_tokens(
     return None
 
 
-def _should_replace_completion(
-    existing_tokens: int, recalculated_tokens: int
-) -> bool:
+def _should_replace_completion(existing_tokens: int, recalculated_tokens: int) -> bool:
     """Decide if recalculated completion tokens should replace existing values."""
     if existing_tokens == 0:
         return True

@@ -181,10 +181,10 @@ llm-interactive-proxy/
 # Disable authentication (local only)
 ./.venv/Scripts/python.exe -m src.core.cli --disable-auth
 
-# Enable wire capture
+# Enable wire capture (See [Wire Capture](../user_guide/debugging/wire-capture.md))
 ./.venv/Scripts/python.exe -m src.core.cli --capture-file var/wire_captures_json/capture.json
 
-# Enable CBOR wire capture
+# Enable CBOR wire capture (See [CBOR Capture](../user_guide/debugging/cbor-capture.md))
 ./.venv/Scripts/python.exe -m src.core.cli --cbor-capture-file var/wire_captures_cbor/capture.cbor
 ```
 
@@ -195,19 +195,19 @@ llm-interactive-proxy/
 Set environment variables for the backends you plan to use:
 
 ```bash
-# OpenAI
+# [OpenAI](../user_guide/backends/openai.md)
 export OPENAI_API_KEY="sk-..."
 
-# Anthropic
+# [Anthropic](../user_guide/backends/anthropic.md)
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-# Gemini
+# [Gemini](../user_guide/backends/gemini.md)
 export GEMINI_API_KEY="AIza..."
 
-# OpenRouter
+# [OpenRouter](../user_guide/backends/openrouter.md)
 export OPENROUTER_API_KEY="sk-or-..."
 
-# ZAI
+# [ZAI](../user_guide/backends/zai.md)
 export ZAI_API_KEY="..."
 
 # Minimax
@@ -222,16 +222,16 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 
 ```bash
 # Enable features
-export ENABLE_SANDBOXING=true
-export DANGEROUS_COMMAND_PREVENTION_ENABLED=true
-export FIX_THINK_TAGS_ENABLED=true
+export ENABLE_SANDBOXING=true             # See [File Access Sandboxing](../user_guide/features/file-access-sandboxing.md)
+export DANGEROUS_COMMAND_PREVENTION_ENABLED=true  # See [Dangerous Command Protection](../user_guide/features/dangerous-command-protection.md)
+export FIX_THINK_TAGS_ENABLED=true        # See [Think Tags Fix](../user_guide/features/think-tags-fix.md)
 
-# LLM Assessment
+# [LLM Assessment](../user_guide/features/llm-assessment.md)
 export LLM_ASSESSMENT_ENABLED=true
 export LLM_ASSESSMENT_BACKEND=openai
 export LLM_ASSESSMENT_MODEL=gpt-4o-mini
 
-# Angel Verification
+# [Angel Verification](../user_guide/features/angel-verification.md)
 export ANGEL_MODEL="openai:gpt-4o-mini"
 export ANGEL_FREQUENCY=1
 ```

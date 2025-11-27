@@ -157,6 +157,32 @@ session:
 
 ## How It Works
 
+```mermaid
+graph TD
+    subgraph Request Filtering
+        A[Client Request] --> B{Has Tools?}
+        B -- No --> C[Pass Through]
+        B -- Yes --> D[Policy Service]
+        D --> E[Match Policy by Model/Agent]
+        E --> F{Policy Found?}
+        F -- No --> C
+        F -- Yes --> G[Filter Definitions]
+        G --> H[Sanitized Request]
+        H --> I[LLM]
+    end
+
+    subgraph Response Enforcement
+        I --> J[LLM Response]
+        J --> K{Has Tool Call?}
+        K -- No --> L[Pass Through]
+        K -- Yes --> M[Reactor Service]
+        M --> N[Check Against Policy]
+        N --> O{Allowed?}
+        O -- Yes --> P[Execute Tool]
+        O -- No --> Q[Block & Return Error]
+    end
+```
+
 1. **Request Filtering**: When a request with tool definitions arrives, the proxy evaluates each tool against applicable policies and removes disallowed tools before sending to the LLM
 2. **Tool Choice Handling**: If `tool_choice` references a filtered tool, it's automatically adjusted to prevent errors
 3. **Response Blocking**: When the LLM attempts to call a tool in its response, the proxy evaluates the tool call and blocks it if disallowed
@@ -218,7 +244,7 @@ Metadata is also included in `request.extra_body["tool_access"]` and response me
 3. **Test Policies**: Test new policies in a development environment before production
 4. **Monitor Logs**: Review filtered tools and blocked calls regularly to refine policies
 5. **Document Policies**: Add comments in your configuration explaining each policy's purpose
-6. **Layer Security**: Combine tool access control with other safety features (dangerous-command prevention, loop detection)
+6. **Layer Security**: Combine tool access control with other safety features ([dangerous-command prevention](dangerous-command-protection.md), [loop detection](llm-assessment.md))
 
 ## Related Features
 

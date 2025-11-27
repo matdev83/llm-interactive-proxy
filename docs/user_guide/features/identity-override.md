@@ -263,4 +263,4 @@ python -m src.core.cli --config config/my_config.yaml --wire-capture-json
 - [Model Name Rewrites](model-name-rewrites.md) - Transform model names for provider compatibility
 - [Hybrid Backend](hybrid-backend.md) - Use different providers for different phases
 - [Tool Access Control](tool-access-control.md) - Control tool access per provider
-- [Wire Capture](../../debugging/wire-capture.md) - Inspect headers and requests sent to backends
+- [Wire Capture](../debugging/wire-capture.md) - Inspect headers and requests sent to backends

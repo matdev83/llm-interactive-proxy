@@ -35,6 +35,34 @@ The hybrid backend has been tested with several model combinations with varying 
 
 ## How It Works
 
+```mermaid
+sequenceDiagram
+    participant User
+    participant Hybrid as Hybrid Connector
+    participant Reasoning as Reasoning Model
+    participant Execution as Execution Model
+
+    User->>Hybrid: Request (Hybrid Model Spec)
+    Hybrid->>Hybrid: Parse Spec (Reasoning + Execution)
+    
+    opt Probability Check Pass
+        Hybrid->>Reasoning: Request (Reasoning Params)
+        Reasoning-->>Hybrid: Reasoning Stream
+        Hybrid->>Hybrid: Capture & Extract Reasoning
+    end
+    
+    Hybrid->>Hybrid: Augment Messages (Inject Reasoning)
+    Hybrid->>Execution: Request (Augmented Messages)
+    
+    alt Streaming
+        Execution-->>Hybrid: Execution Stream
+        Hybrid-->>User: Reasoning Chunk + Execution Stream
+    else Non-Streaming
+        Execution-->>Hybrid: Response
+        Hybrid-->>User: Response (with Reasoning Metadata)
+    end
+```
+
 The hybrid backend follows a two-phase approach:
 
 1. **Reasoning Phase**: Calls the reasoning model with maximum reasoning effort to capture high-quality chain-of-thought output. The proxy detects when reasoning is complete (via explicit tags like `</think>`, `</thinking>`, or finish_reason) and cancels the request to save costs.

@@ -111,14 +111,14 @@ Customize the proxy behavior with these common flags:
 - `--force-model MODEL_NAME` - Override all client-requested models (e.g., `--force-model gemini-2.5-pro`)
 - `--force-context-window TOKENS` - Override context window size for all models (e.g., `--force-context-window 8000`)
 - `--capture-file wire.log` - Record requests/responses for debugging (see [Wire Capture](debugging/wire-capture.md))
-- `--disable-dangerous-git-commands-protection` - Disable protection against dangerous git commands
+- `--disable-dangerous-git-commands-protection` - Disable protection against [dangerous git commands](features/dangerous-command-protection.md)
 - `--strict-command-detection` - Only process commands on the last non-blank line
-- `--enable-pytest-compression` - Enable pytest output compression
-- `--enable-pytest-context-saving` - Automatically add `-r fE` and `-q` flags to pytest commands
-- `--fix-think-tags` - Correct improperly formatted `<think>` tags in model responses
-- `--enable-edit-precision` / `--disable-edit-precision` - Control automated edit-precision tuning
-- `--hybrid-backend-repeat-messages` - Enable message repetition in hybrid backend execution phase
-- `--reasoning-injection-probability VALUE` - Set probability (0.0-1.0) of using reasoning model in hybrid backend
+- `--enable-pytest-compression` - Enable [pytest output compression](features/pytest-compression.md)
+- `--enable-pytest-context-saving` - Automatically add `-r fE` and `-q` flags to [pytest commands](features/pytest-context-saving.md)
+- `--fix-think-tags` - Correct improperly formatted [`<think>` tags](features/think-tags-fix.md) in model responses
+- `--enable-edit-precision` / `--disable-edit-precision` - Control automated [edit-precision tuning](features/edit-precision.md)
+- `--hybrid-backend-repeat-messages` - Enable message repetition in [hybrid backend](features/hybrid-backend.md) execution phase
+- `--reasoning-injection-probability VALUE` - Set probability (0.0-1.0) of using reasoning model in [hybrid backend](features/hybrid-backend.md)
 
 ## Using the Proxy
 

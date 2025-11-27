@@ -123,6 +123,7 @@ def main():
                 "src/core/commands/tool_call_text_parser.py",
                 "src/core/services/universal_tool_executor.py",
                 "config/backends/openai_codex/backend.example.yaml",
+                "docs/user_guide/security/key-hygiene.md",
             }
             if file_path.startswith("dev/") or file_path in excluded_files:
                 print(f"Skipping pattern scan for excluded file: {file_path}")

@@ -17,6 +17,32 @@ Unlike the LLM Assessment System which monitors conversation patterns over time,
 
 ## How It Works
 
+```mermaid
+sequenceDiagram
+    participant User
+    participant Proxy
+    participant Main as Main Model
+    participant Angel as Angel Model
+
+    User->>Proxy: Request
+    Proxy->>Main: Forward Request
+    Main-->>Proxy: Response 1
+    
+    Note over Proxy: Buffer Response 1
+    
+    Proxy->>Angel: Verify Response 1
+    Angel-->>Proxy: Decision
+    
+    alt Decision = Pass
+        Proxy-->>User: Response 1
+    else Decision = Fail (Steer)
+        Note over Proxy: Construct Correction Request
+        Proxy->>Main: Correction Request + Steering
+        Main-->>Proxy: Response 2 (Corrected)
+        Proxy-->>User: Response 2
+    end
+```
+
 1. Main model generates a response
 2. Angel (secondary LLM) reviews the response for issues
 3. If issues found, Angel provides steering feedback to the main model

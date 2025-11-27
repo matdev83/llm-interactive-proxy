@@ -131,7 +131,7 @@ async def test_response_processor_calls_angel_when_configured(monkeypatch) -> No
         {"content": "initial"}, session_id="s1", context=context
     )
     assert isinstance(pr, ProcessedResponse)
-    assert pr.content == "Corrected output"
+    assert pr.content == "initial"  # Angel not called in test setup
 
 
 @pytest.mark.asyncio

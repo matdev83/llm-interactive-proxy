@@ -95,7 +95,9 @@ class TestResponseAdapters:
         assert isinstance(fastapi_response, JSONResponse)
         assert fastapi_response.status_code == 201
         assert fastapi_response.headers.get("X-Custom-Header") == "test"
-        assert json.loads(fastapi_response.body) == {"message": "Hello, world!"}
+        body = json.loads(fastapi_response.body)
+        assert body["message"] == "Hello, world!"
+        assert "usage" in body  # Usage is added by the adapter
 
     def test_to_fastapi_response_json_not_gzipped(self):
         """Ensure JSON responses are returned without gzip encoding."""
@@ -112,7 +114,9 @@ class TestResponseAdapters:
         fastapi_response = to_fastapi_response(domain_response)
 
         assert isinstance(fastapi_response, JSONResponse)
-        assert json.loads(fastapi_response.body) == {"message": "Hello, gzip!"}
+        body = json.loads(fastapi_response.body)
+        assert body["message"] == "Hello, gzip!"
+        assert "usage" in body  # Usage is added by the adapter
         present_headers = {key.lower() for key in fastapi_response.headers}
         assert "content-encoding" not in present_headers
         assert (
@@ -204,7 +208,9 @@ class TestResponseAdapters:
         )
         fastapi_regular = domain_response_to_fastapi(regular_response)
         assert isinstance(fastapi_regular, JSONResponse)
-        assert json.loads(fastapi_regular.body) == {"message": "Regular response"}
+        body = json.loads(fastapi_regular.body)
+        assert body["message"] == "Regular response"
+        assert "usage" in body  # Usage is added by the adapter
 
         # Test with a content converter
         def upper_case_content(content):
@@ -215,7 +221,9 @@ class TestResponseAdapters:
         fastapi_converted = domain_response_to_fastapi(
             regular_response, upper_case_content
         )
-        assert json.loads(fastapi_converted.body) == {"message": "REGULAR RESPONSE"}
+        body = json.loads(fastapi_converted.body)
+        assert body["message"] == "REGULAR RESPONSE"
+        assert "usage" in body  # Usage is added by the adapter
 
 
 class TestExceptionAdapters:

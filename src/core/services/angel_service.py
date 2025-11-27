@@ -6,7 +6,9 @@ from typing import Any
 from src.core.domain.angel import AngelDecision
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.model_utils import parse_model_backend, parse_model_with_params
-from src.core.services.angel_prompt_loader import AngelPromptLoader
+from src.core.services.angel_prompt_loader import (
+    AngelPromptLoader,
+)
 
 # Global prompt loader instance
 _prompt_loader: AngelPromptLoader | None = None
@@ -19,6 +21,10 @@ def get_prompt_loader() -> AngelPromptLoader:
         _prompt_loader = AngelPromptLoader()
         _prompt_loader.load_prompts()
     return _prompt_loader
+
+
+# Backward compatibility: ANGEL_PROMPT constant
+ANGEL_PROMPT = get_prompt_loader().angel_prompt
 
 
 class AngelService:

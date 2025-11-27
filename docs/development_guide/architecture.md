@@ -85,34 +85,34 @@ The core proxy orchestrates all request processing through a pipeline of middlew
 
 #### Request Processing Pipeline
 
-1. **Authentication & Security**: Validates API keys, enforces rate limits, and tracks brute-force attempts
+1. **Authentication & Security**: Validates API keys, enforces rate limits, and tracks [brute-force attempts](../user_guide/security/brute-force-protection.md)
 2. **Command Detection**: Parses in-chat commands (e.g., `!/backend(...)`, `!/model(...)`)
 3. **Request Translation**: Converts requests to a normalized internal format
-4. **Model Resolution**: Resolves model names, applies rewrites, and handles overrides
-5. **Safety Checks**: Validates tool calls, detects dangerous commands, enforces sandboxing
+4. **Model Resolution**: Resolves model names, applies [rewrites](../user_guide/features/model-name-rewrites.md), and handles [overrides](../user_guide/features/identity-override.md)
+5. **Safety Checks**: Validates [tool calls](../user_guide/features/tool-access-control.md), detects [dangerous commands](../user_guide/features/dangerous-command-protection.md), enforces [sandboxing](../user_guide/features/file-access-sandboxing.md)
 6. **Backend Routing**: Selects appropriate backend connector based on configuration
-7. **Request Augmentation**: Adds reasoning context, applies parameter overrides
+7. **Request Augmentation**: Adds reasoning context, applies [parameter overrides](../user_guide/features/uri-model-parameters.md)
 8. **Backend Invocation**: Calls the selected backend connector
 
 #### Response Processing Pipeline
 
 1. **Response Translation**: Converts backend responses to client-expected format
-2. **Content Filtering**: Removes think tags, applies content transformations
+2. **Content Filtering**: Removes [think tags](../user_guide/features/think-tags-fix.md), applies content transformations
 3. **Tool Call Validation**: Validates and repairs tool calls
 4. **Loop Detection**: Monitors for repetitive patterns
-5. **Assessment**: Optionally evaluates conversation quality
-6. **Angel Verification**: Optionally verifies response quality
+5. **Assessment**: Optionally evaluates [conversation quality](../user_guide/features/llm-assessment.md)
+6. **Angel Verification**: Optionally [verifies response quality](../user_guide/features/angel-verification.md)
 7. **Response Formatting**: Formats response for client protocol
-8. **Wire Capture**: Optionally records request/response for debugging
+8. **Wire Capture**: Optionally [records request/response](../user_guide/debugging/wire-capture.md) for debugging
 
 ### 3. Backend Connector Layer
 
 Backend connectors implement provider-specific communication logic:
 
 - **Base Connector**: Abstract base class defining the connector interface
-- **Provider Connectors**: Concrete implementations for each provider (OpenAI, Anthropic, Gemini, etc.)
-- **OAuth Connectors**: Specialized connectors handling OAuth authentication flows
-- **Hybrid Connector**: Virtual connector orchestrating multiple models
+- **Provider Connectors**: Concrete implementations for each provider ([OpenAI](../user_guide/backends/openai.md), [Anthropic](../user_guide/backends/anthropic.md), [Gemini](../user_guide/backends/gemini.md), etc.)
+- **OAuth Connectors**: Specialized connectors handling [OAuth authentication flows](../user_guide/backends/qwen.md)
+- **Hybrid Connector**: Virtual connector orchestrating [multiple models](../user_guide/features/hybrid-backend.md)
 
 Each connector handles:
 
@@ -126,11 +126,11 @@ Each connector handles:
 
 The service layer provides cross-cutting functionality:
 
-- **LLM Assessment Service**: Monitors conversation quality and detects unproductive patterns
-- **Angel Verification Service**: Verifies individual responses for errors and issues
+- **LLM Assessment Service**: Monitors [conversation quality and detects unproductive patterns](../user_guide/features/llm-assessment.md)
+- **Angel Verification Service**: Verifies [individual responses for errors and issues](../user_guide/features/angel-verification.md)
 - **Loop Detection Service**: Identifies repetitive tool calls and cognitive loops
-- **Tool Call Reactor**: Manages tool call lifecycle, validation, and access control
-- **Session Management**: Tracks conversation state and metadata
+- **Tool Call Reactor**: Manages [tool call lifecycle, validation, and access control](../user_guide/features/tool-access-control.md)
+- **Session Management**: Tracks [conversation state and metadata](../user_guide/features/session-management.md)
 - **Performance Tracking**: Monitors latency, token usage, and costs
 
 ### 5. Domain Layer
@@ -188,68 +188,75 @@ Factories create complex objects with proper initialization:
 
 ### Request Flow
 
-```
-Client Request
-    |
-    v
-Front-End API (FastAPI endpoint)
-    |
-    v
-Authentication Middleware
-    |
-    v
-Command Detection
-    |
-    v
-Request Translation
-    |
-    v
-Model Resolution
-    |
-    v
-Safety Checks
-    |
-    v
-Backend Connector
-    |
-    v
-LLM Provider
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as Chat Controller
+    participant ReqProc as Request Processor
+    participant CmdProc as Command Processor
+    participant BackMgr as Backend Request Manager
+    participant Backend as Backend Service
+    participant Provider as LLM Provider
+
+    Client->>API: HTTP Request
+    API->>ReqProc: process_request()
+    
+    Note over ReqProc: Resolve Session & Agent
+    
+    ReqProc->>CmdProc: process_messages()
+    
+    alt Command Executed (No Backend)
+        CmdProc-->>ReqProc: Command Result
+        ReqProc-->>API: Formatted Response
+    else Proceed to Backend
+        ReqProc->>BackMgr: prepare_backend_request()
+        Note over ReqProc: Redaction & Edit Precision
+        Note over ReqProc: Tool Access Policy
+        
+        ReqProc->>BackMgr: process_backend_request()
+        BackMgr->>Backend: chat_completions()
+        Backend->>Provider: API Call
+    end
 ```
 
 ### Response Flow
 
-```
-LLM Provider Response
-    |
-    v
-Backend Connector
-    |
-    v
-Response Translation
-    |
-    v
-Content Filtering
-    |
-    v
-Tool Call Validation
-    |
-    v
-Loop Detection
-    |
-    v
-Assessment (optional)
-    |
-    v
-Angel Verification (optional)
-    |
-    v
-Response Formatting
-    |
-    v
-Wire Capture (optional)
-    |
-    v
-Client Response
+```mermaid
+sequenceDiagram
+    participant Provider as LLM Provider
+    participant Backend as Backend Service
+    participant BackMgr as Backend Request Manager
+    participant RespProc as Response Processor
+    participant Loop as Loop Detector
+    participant Angel as Angel Service
+    participant API as Chat Controller
+    participant Client
+
+    Provider-->>Backend: API Response
+    Backend-->>BackMgr: ResponseEnvelope
+    
+    BackMgr->>RespProc: process_response()
+    
+    rect rgb(240, 248, 255)
+        note right of RespProc: Processing Pipeline
+        RespProc->>Loop: Check for Loops
+        
+        opt Angel Enabled
+            RespProc->>Angel: Verify Response
+            alt Intervention Needed
+                Angel-->>RespProc: Corrected Response
+            end
+        end
+        
+        RespProc-->>BackMgr: Processed Response
+    end
+    
+    opt Empty Response
+        BackMgr->>BackMgr: Retry Logic
+    end
+    
+    BackMgr-->>API: Final Response
+    API-->>Client: HTTP Response
 ```
 
 ## Module Organization
