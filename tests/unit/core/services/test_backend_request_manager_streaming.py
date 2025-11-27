@@ -84,6 +84,54 @@ async def test_streaming_retry_replays_full_replacement_stream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_empty_stream_is_retried_before_forwarding() -> None:
+    """Empty streaming responses should trigger a retry instead of reaching the client."""
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    response_processor.process_streaming_response = lambda stream, _session_id: stream
+    manager = BackendRequestManager(
+        backend_processor, response_processor, AngelFactoryStub()
+    )
+
+    original_request = ChatRequest(
+        model="gemini",
+        messages=[ChatMessage(role="user", content="hi")],
+        stream=True,
+    )
+
+    async def empty_stream():
+        yield ProcessedResponse(content={"usage": {"prompt_tokens": 1}}, metadata={})
+        yield ProcessedResponse(content="", metadata={"is_done": True})
+
+    async def retry_stream():
+        yield ProcessedResponse(content="meaningful output", metadata={})
+        yield ProcessedResponse(content="", metadata={"is_done": True})
+
+    backend_processor.process_backend_request.side_effect = [
+        StreamingResponseEnvelope(content=retry_stream())
+    ]
+
+    envelope = await manager._process_streaming_response(
+        StreamingResponseEnvelope(content=empty_stream()),
+        original_request,
+        "session-empty",
+        _make_context(),
+    )
+
+    assert envelope.content is not None
+    chunks = [chunk async for chunk in envelope.content]
+
+    assert backend_processor.process_backend_request.await_count == 1
+    retry_args = backend_processor.process_backend_request.await_args_list[0].kwargs
+    retry_request = retry_args["request"]
+    assert isinstance(retry_request, ChatRequest)
+    assert retry_request.messages[-1].content == manager._STREAM_RECOVERY_PROMPT
+
+    assert any(chunk.content == "meaningful output" for chunk in chunks)
+    assert all(chunk.content != {"usage": {"prompt_tokens": 1}} for chunk in chunks)
+
+
+@pytest.mark.asyncio
 async def test_streaming_retry_skipped_when_retry_marker_present() -> None:
     """When retry marker is present, the reactor should not trigger again."""
     backend_processor = AsyncMock()

@@ -5,6 +5,7 @@ Tests for the Gemini OAuth Antigravity connector.
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import httpx
@@ -14,11 +15,6 @@ from src.connectors.gemini_oauth_antigravity import (
     ANTIGRAVITY_SANDBOX_ENDPOINT,
     ANTIGRAVITY_USER_AGENT,
     GeminiOAuthAntigravityConnector,
-)
-
-# The fetchAvailableModels endpoint is constructed from the base URL
-ANTIGRAVITY_FETCH_MODELS_ENDPOINT = (
-    f"{ANTIGRAVITY_SANDBOX_ENDPOINT}/v1internal:fetchAvailableModels"
 )
 
 
@@ -121,71 +117,23 @@ class TestGeminiOAuthAntigravityConnector:
     async def test_model_enumeration_uses_fetch_available_models_endpoint(
         self, connector, monkeypatch
     ):
-        """Enumerate models from the fetchAvailableModels endpoint."""
+        """Skip fetchAvailableModels on the sandbox and use fallback list."""
         connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
         connector._oauth_credentials = {"access_token": "token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
-
-        class DummyResponse:
-            def __init__(self, status_code: int, payload: dict[str, object]):
-                self.status_code = status_code
-                self._payload = payload
-                self.text = json.dumps(payload)
-
-            def json(self):
-                return self._payload
-
-        # Mock the fetchAvailableModels endpoint response
-        fetch_models_response = DummyResponse(
-            200,
-            {
-                "models": {
-                    "gemini-2.5-flash": {
-                        "displayName": "Gemini 2.5 Flash",
-                        "maxTokens": 1048576,
-                    },
-                    "claude-sonnet-4-5": {
-                        "displayName": "Claude Sonnet 4.5",
-                        "maxTokens": 200000,
-                    },
-                    "gemini-2.5-pro": {
-                        "displayName": "Gemini 2.5 Pro",
-                        "maxTokens": 1048576,
-                    },
-                },
-                "agentModelSorts": [
-                    {
-                        "displayName": "Recommended",
-                        "groups": [
-                            {
-                                "modelIds": [
-                                    "gemini-2.5-pro",
-                                    "claude-sonnet-4-5",
-                                ]
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
-
-        connector.client.get = AsyncMock(return_value=fetch_models_response)  # type: ignore[assignment]
+        connector.client.get = AsyncMock()  # type: ignore[assignment]
 
         await connector._ensure_models_loaded()
 
-        # Should contain all models from the "models" dictionary keys
-        assert "gemini-2.5-pro" in connector.available_models
-        assert "claude-sonnet-4-5" in connector.available_models
-        assert "gemini-2.5-flash" in connector.available_models
-        # Verify exactly 3 models loaded (only from models dict, not agentModelSorts)
-        assert len(connector.available_models) == 3
+        assert connector.available_models  # fallback list loaded
+        assert connector.client.get.await_count == 0
 
     @pytest.mark.asyncio
     async def test_model_enumeration_uses_correct_endpoint_url(
         self, connector, monkeypatch
     ):
-        """Verify that the fetchAvailableModels endpoint URL is used."""
-        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+        """Verify that non-sandbox base URLs still use fetchAvailableModels."""
+        connector.gemini_api_base_url = "https://custom-endpoint.example.com"
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
 
@@ -208,12 +156,15 @@ class TestGeminiOAuthAntigravityConnector:
 
         await connector._load_models_from_api()
 
-        assert captured_url == ANTIGRAVITY_FETCH_MODELS_ENDPOINT
+        assert (
+            captured_url
+            == "https://custom-endpoint.example.com/v1internal:fetchAvailableModels"
+        )
 
     @pytest.mark.asyncio
     async def test_model_enumeration_fallback_on_failure(self, connector, monkeypatch):
         """Fall back to default list when enumeration fails."""
-        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+        connector.gemini_api_base_url = "https://custom-endpoint.example.com"
         connector._oauth_credentials = {"access_token": "token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
         connector.client.get = AsyncMock(side_effect=httpx.RequestError("boom"))  # type: ignore[assignment]
@@ -226,39 +177,26 @@ class TestGeminiOAuthAntigravityConnector:
     async def test_health_check_uses_fetch_available_models_endpoint(
         self, connector, monkeypatch
     ):
-        """Health check should use fetchAvailableModels endpoint."""
+        """Health check should skip fetchAvailableModels on sandbox base URL."""
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
         connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
 
-        captured_url = None
-
-        async def capture_get(url, **kwargs):
-            nonlocal captured_url
-            captured_url = url
-
-            class DummyResponse:
-                status_code = 200
-                text = "{}"
-
-                def json(self):
-                    return {}
-
-            return DummyResponse()
-
-        connector.client.get = capture_get  # type: ignore[assignment]
+        connector.client.get = AsyncMock()  # type: ignore[assignment]
 
         result = await connector._perform_health_check()
 
         assert result is True
-        assert captured_url == ANTIGRAVITY_FETCH_MODELS_ENDPOINT
+        assert connector.client.get.await_count == 0
         assert connector._health_checked is True
+        assert connector._refresh_token_if_needed.await_count == 1
 
     @pytest.mark.asyncio
     async def test_health_check_fails_on_non_200_response(self, connector, monkeypatch):
         """Health check should return False on non-200 response."""
         connector._oauth_credentials = {"access_token": "test-token"}
         connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        connector.gemini_api_base_url = "https://custom-endpoint.example.com"
 
         class DummyResponse:
             status_code = 401
@@ -279,7 +217,7 @@ class TestGeminiOAuthAntigravityConnector:
     ):
         """list_models should use fetchAvailableModels and transform response."""
         connector._oauth_credentials = {"access_token": "test-token"}
-        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+        connector.gemini_api_base_url = "https://custom-endpoint.example.com"
 
         class DummyResponse:
             status_code = 200
@@ -304,7 +242,7 @@ class TestGeminiOAuthAntigravityConnector:
         connector.client.get = AsyncMock(return_value=DummyResponse())  # type: ignore[assignment]
 
         result = await connector.list_models(
-            gemini_api_base_url=ANTIGRAVITY_SANDBOX_ENDPOINT,
+            gemini_api_base_url="https://custom-endpoint.example.com",
             key_name="test",
             api_key="test-key",
         )
@@ -314,6 +252,109 @@ class TestGeminiOAuthAntigravityConnector:
         model_names = [m["name"] for m in result["models"]]
         assert "models/gemini-2.5-flash" in model_names
         assert "models/claude-sonnet-4-5" in model_names
+
+    @pytest.mark.asyncio
+    async def test_list_models_uses_fallback_on_sandbox(self, connector, monkeypatch):
+        """Sandbox list_models should use the cached fallback list without HTTP calls."""
+        connector._oauth_credentials = {"access_token": "test-token"}
+        connector.client.get = AsyncMock()  # type: ignore[assignment]
+
+        result = await connector.list_models(
+            gemini_api_base_url=ANTIGRAVITY_SANDBOX_ENDPOINT,
+            key_name="test",
+            api_key="test-key",
+        )
+
+        assert connector.client.get.await_count == 0
+        assert "models" in result
+        assert any(
+            model["name"] == "models/gemini-2.5-pro" for model in result["models"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_discover_project_id_prefers_paid_tier(self, connector, monkeypatch):
+        """Project discovery should select the highest tier and return its project id."""
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        class DummyResponse:
+            def __init__(self, payload: dict[str, Any], status_code: int = 200):
+                self._payload = payload
+                self.status_code = status_code
+                self.text = json.dumps(payload)
+
+            def json(self):
+                return self._payload
+
+        responses = [
+            DummyResponse(
+                {
+                    "allowedTiers": [
+                        {"id": "free-tier", "maxContextTokens": 1024},
+                        {"id": "paid-tier", "maxContextTokens": 2048},
+                    ]
+                }
+            ),
+            DummyResponse(
+                {
+                    "done": True,
+                    "response": {"cloudaicompanionProject": {"id": "project-paid"}},
+                }
+            ),
+        ]
+
+        def request_side_effect(*args, **kwargs):
+            return responses.pop(0)
+
+        session = Mock()
+        session.request = Mock(side_effect=request_side_effect)
+
+        monkeypatch.setattr(
+            "src.connectors.gemini_oauth_antigravity.asyncio.to_thread",
+            AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs)),
+        )
+        monkeypatch.setattr(
+            "src.connectors.gemini_oauth_antigravity.asyncio.sleep", AsyncMock()
+        )
+
+        project_id = await connector._discover_project_id(session)
+
+        assert project_id == "project-paid"
+        assert connector._project_id == "project-paid"
+        assert session.request.call_count == 2
+        onboard_payload = session.request.call_args_list[1].kwargs["json"]
+        assert onboard_payload["tierId"] == "paid-tier"
+
+    @pytest.mark.asyncio
+    async def test_discover_project_id_uses_existing_project(
+        self, connector, monkeypatch
+    ):
+        """If loadCodeAssist returns a project id, onboarding should be skipped."""
+        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+
+        class DummyResponse:
+            def __init__(self, payload: dict[str, Any], status_code: int = 200):
+                self._payload = payload
+                self.status_code = status_code
+                self.text = json.dumps(payload)
+
+            def json(self):
+                return self._payload
+
+        session = Mock()
+        session.request = Mock(
+            return_value=DummyResponse({"cloudaicompanionProject": "proj-from-load"})
+        )
+
+        monkeypatch.setattr(
+            "src.connectors.gemini_oauth_antigravity.asyncio.to_thread",
+            AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs)),
+        )
+
+        project_id = await connector._discover_project_id(session)
+
+        assert project_id == "proj-from-load"
+        assert connector._project_id == "proj-from-load"
+        assert session.request.call_count == 1
 
     @pytest.mark.asyncio
     @pytest.mark.slow
@@ -667,14 +708,14 @@ class TestModelValidation:
         mock_get = AsyncMock(return_value=DummyResponse())
         connector.client.get = mock_get  # type: ignore[assignment]
 
-        # First call should fetch models
+        # First call should populate fallback list without hitting the endpoint
         await connector._ensure_models_loaded()
-        assert mock_get.call_count == 1
-        assert len(connector.available_models) == 2
+        assert mock_get.call_count == 0
+        assert connector.available_models
 
         # Second call should use cache, not fetch again
         await connector._ensure_models_loaded()
-        assert mock_get.call_count == 1  # Still 1, not 2
+        assert mock_get.call_count == 0  # Still 0, not 1
 
     @pytest.mark.asyncio
     async def test_chat_completions_validates_model(self, mock_client, monkeypatch):

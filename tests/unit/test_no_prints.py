@@ -15,6 +15,11 @@ ALLOWED_FILES = {
     repo_root / "debug_parsing.py",
     repo_root / ".pre-commit-hooks" / "architectural-check.py",  # Added this line
     repo_root / "src" / "core" / "simulation" / "cli.py",  # CLI tool for simulation
+    repo_root
+    / "src"
+    / "core"
+    / "simulation"
+    / "output_utils.py",  # Console output utilities
 }
 
 

@@ -20,6 +20,12 @@ from src.core.simulation.client_simulator import (
     TimingDeviation,
     ValidationResult,
 )
+from src.core.simulation.output_utils import (
+    configure_console_encoding,
+    console_print,
+    safe_bytes_preview,
+    safe_str,
+)
 from src.core.simulation.simulation_runner import (
     SimulationResult,
     SimulationRunner,
@@ -39,5 +45,9 @@ __all__ = [
     "TimingController",
     "TimingDeviation",
     "ValidationResult",
+    "configure_console_encoding",
+    "console_print",
     "create_simulation_report",
+    "safe_bytes_preview",
+    "safe_str",
 ]

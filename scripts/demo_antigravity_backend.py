@@ -14,7 +14,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import httpx
-
 from src.connectors.gemini_oauth_antigravity import GeminiOAuthAntigravityConnector
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
@@ -141,7 +140,9 @@ async def main() -> int:
             error_str = str(e).lower()
             if "429" in error_str or "quota" in error_str or "exhausted" in error_str:
                 print("\n[INFO] This appears to be a quota/rate limit error.")
-                print("       The backend IS working, but quota is temporarily exhausted.")
+                print(
+                    "       The backend IS working, but quota is temporarily exhausted."
+                )
                 print("       Wait for quota reset and try again.")
             return 1
 

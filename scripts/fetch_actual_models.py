@@ -9,8 +9,7 @@ import sys
 from pathlib import Path
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(levelname)s | %(name)s | %(message)s"
+    level=logging.DEBUG, format="%(levelname)s | %(name)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -38,17 +37,15 @@ async def fetch_models():
 
     try:
         backend = GeminiOAuthAntigravityConnector(
-            client=client,
-            config=config,
-            translation_service=translation_service
+            client=client, config=config, translation_service=translation_service
         )
 
         await backend.initialize()
 
         # Try to load models from API
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("FETCHING AVAILABLE MODELS FROM ANTIGRAVITY BACKEND")
-        print("="*70)
+        print("=" * 70)
 
         await backend._ensure_models_loaded()
 
@@ -60,7 +57,7 @@ async def fetch_models():
             print(f"  - {model}")
 
         # Check for thinking model
-        print("\n" + "-"*70)
+        print("\n" + "-" * 70)
         thinking_models = [m for m in sorted(models) if "thinking" in m.lower()]
         print(f"\nThinking models available: {len(thinking_models)}")
         if thinking_models:
@@ -77,7 +74,7 @@ async def fetch_models():
         else:
             print("  NOT FOUND")
 
-        print("\n" + "="*70 + "\n")
+        print("\n" + "=" * 70 + "\n")
 
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=True)

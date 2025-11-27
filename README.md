@@ -1691,6 +1691,51 @@ The replay command:
 3. Validates proxy responses against captured expectations
 4. Reports mismatches in content or timing
 
+#### Capture Inspection Script
+
+For detailed debugging and issue detection, use the dedicated inspection script (`scripts/inspect_cbor_capture.py`):
+
+```bash
+# Basic inspection with summary
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor
+
+# Show first 20 entries with data preview
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --entries 20
+
+# Analyze request/response pairs and detect issues
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --analyze
+
+# Filter by traffic direction
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --direction backend_to_proxy --entries 10
+
+# Export to JSON for further processing
+python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --json > analysis.json
+```
+
+The `--analyze` flag is particularly powerful, providing:
+
+- **Request/Response Pairing**: Groups entries by request for easier understanding
+- **Issue Detection**: Automatically flags problems like:
+  - Empty responses (completion_tokens=0)
+  - Internal model name leaks
+  - Fallback mechanism activation
+  - Content loss between backend and client
+- **Content Analysis**: Shows character counts, tool call counts, and finish reasons
+
+Example analysis output:
+
+```
+--- REQUEST #1 ---
+Model: gemini-oauth-antigravity:gemini-2.5-pro
+Backend models: {'gemini-2.5-pro', 'code-assist-model'}
+Backend content: 0 chars
+Client received: (no data, only [DONE]) [14]
+ISSUES:
+  [!] Internal model name leak: code-assist-model
+  [!] Usage-only chunk (completion_tokens=0)
+  [!] Immediate stop without content
+```
+
 #### Using in Automated Tests
 
 **Pytest Fixtures:**

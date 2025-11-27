@@ -896,6 +896,37 @@ class BackendRequestManager(IBackendRequestManager):
                 exc_info=True,
             )
 
+        async def _gate_empty_stream(
+            stream: AsyncIterator[ProcessedResponse],
+        ) -> AsyncIterator[ProcessedResponse]:
+            buffered: list[ProcessedResponse] = []
+            seen_meaningful = False
+
+            async for chunk in stream:
+                meaningful = self._chunk_has_meaningful_output(chunk)
+                if not seen_meaningful:
+                    if meaningful:
+                        seen_meaningful = True
+                        if buffered:
+                            for buffered_chunk in buffered:
+                                yield buffered_chunk
+                        yield chunk
+                    else:
+                        buffered.append(chunk)
+                        continue
+                else:
+                    yield chunk
+
+            if not seen_meaningful:
+                raise EmptyResponseRetryError(
+                    recovery_prompt=self._STREAM_RECOVERY_PROMPT,
+                    session_id=session_id,
+                    retry_count=retry_depth + 1,
+                    original_request=original_request,
+                )
+
+        processed_stream = _gate_empty_stream(processed_stream)
+
         async def _stream_with_empty_recovery(
             stream: AsyncIterator[ProcessedResponse],
         ) -> AsyncIterator[ProcessedResponse]:
@@ -1077,6 +1108,10 @@ class BackendRequestManager(IBackendRequestManager):
                                     return msg_content
             return ""
 
+        # Handle case where chunk is a string
+        if isinstance(chunk, str):
+            return chunk
+
         # Handle case where chunk is a ProcessedResponse object
         if isinstance(chunk, ProcessedResponse):
             data = chunk.content
@@ -1109,6 +1144,71 @@ class BackendRequestManager(IBackendRequestManager):
                             if isinstance(msg_content, str):
                                 return msg_content
         return ""
+
+    @staticmethod
+    def _chunk_has_tool_calls(chunk: ProcessedResponse) -> bool:
+        """Determine whether a streaming chunk contains tool calls metadata."""
+        metadata = getattr(chunk, "metadata", {}) or {}
+        if metadata.get("tool_calls"):
+            return True
+
+        content = getattr(chunk, "content", None)
+        if isinstance(content, dict):
+            choices = content.get("choices") or []
+            if choices and isinstance(choices[0], dict):
+                choice = choices[0]
+                message = choice.get("message") or {}
+                if isinstance(message, dict) and message.get("tool_calls"):
+                    return True
+                delta = choice.get("delta") or {}
+                if isinstance(delta, dict) and delta.get("tool_calls"):
+                    return True
+            if content.get("tool_calls"):
+                return True
+        return False
+
+    def _chunk_has_meaningful_output(self, chunk: ProcessedResponse) -> bool:
+        """Check whether a streamed chunk carries user-visible output."""
+        metadata = getattr(chunk, "metadata", {}) or {}
+        content = getattr(chunk, "content", None)
+
+        if isinstance(metadata.get("error"), dict):
+            return True
+        if isinstance(content, dict) and content.get("error"):
+            return True
+
+        if metadata.get("tool_call_swallowed") or metadata.get(
+            "tool_call_reactor_retry_failed"
+        ):
+            return True
+
+        if isinstance(content, str):
+            if content.strip():
+                return True
+        elif isinstance(content, bytes | bytearray):
+            try:
+                decoded = content.decode("utf-8")
+            except Exception:
+                decoded = content.decode("utf-8", errors="ignore")
+            if decoded.strip():
+                return True
+
+        # A dict without "choices" is meaningful unless it's just usage/metadata
+        if isinstance(content, dict) and content and "choices" not in content:
+            # Usage-only chunks (usage, model, id, object, created) are not meaningful
+            return not set(content.keys()) <= {
+                "usage",
+                "model",
+                "id",
+                "object",
+                "created",
+            }
+
+        if self._chunk_has_tool_calls(chunk):
+            return True
+
+        text = self._extract_text_from_chunk(chunk)
+        return bool(text and text.strip())
 
     def _raise_empty_stream_error(self, session_id: str, reason: str) -> None:
         """Raise a backend error when no content is produced after retries."""

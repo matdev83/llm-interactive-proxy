@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry, CaptureSession
+from src.core.simulation.output_utils import safe_bytes_preview
 from src.core.simulation.timing_controller import TimingController
 
 logger = logging.getLogger(__name__)
@@ -221,12 +222,10 @@ class ClientSimulator:
                             sequence=expected.sequence,
                             expected_bytes=len(expected.data),
                             actual_bytes=len(chunk),
-                            expected_preview=expected.data[:100].decode(
-                                "utf-8", errors="replace"
+                            expected_preview=safe_bytes_preview(
+                                expected.data, max_length=100
                             ),
-                            actual_preview=chunk[:100].decode(
-                                "utf-8", errors="replace"
-                            ),
+                            actual_preview=safe_bytes_preview(chunk, max_length=100),
                             difference_type=(
                                 "length"
                                 if len(chunk) != len(expected.data)
@@ -263,8 +262,8 @@ class ClientSimulator:
                         sequence=expected.sequence,
                         expected_bytes=len(expected.data),
                         actual_bytes=0,
-                        expected_preview=expected.data[:100].decode(
-                            "utf-8", errors="replace"
+                        expected_preview=safe_bytes_preview(
+                            expected.data, max_length=100
                         ),
                         actual_preview="",
                         difference_type="missing",
@@ -316,10 +315,8 @@ class ClientSimulator:
                     sequence=expected.sequence,
                     expected_bytes=len(expected.data),
                     actual_bytes=len(actual_data),
-                    expected_preview=expected.data[:100].decode(
-                        "utf-8", errors="replace"
-                    ),
-                    actual_preview=actual_data[:100].decode("utf-8", errors="replace"),
+                    expected_preview=safe_bytes_preview(expected.data, max_length=100),
+                    actual_preview=safe_bytes_preview(actual_data, max_length=100),
                     difference_type=(
                         "length"
                         if len(actual_data) != len(expected.data)

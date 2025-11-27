@@ -48,8 +48,21 @@ class ConcurrentMockBackend(LLMBackend):
                 for idx in range(3):
                     await asyncio.sleep(0.01)
                     self.stream_history[marker] += 1
+                    # Use proper OpenAI streaming format so stream normalizer recognizes content
+                    chunk_data = {
+                        "id": f"chatcmpl-{marker}-{idx}",
+                        "object": "chat.completion.chunk",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": f"session:{marker},chunk:{idx}"},
+                            }
+                        ],
+                    }
+                    import json
+
                     yield ProcessedResponse(
-                        content=f'data: {{"session":"{marker}","chunk":{idx}}}\n\n'
+                        content=f"data: {json.dumps(chunk_data)}\n\n"
                     )
                 yield ProcessedResponse(content="data: [DONE]\n\n")
             finally:

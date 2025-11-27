@@ -6,6 +6,7 @@ token from Antigravity's VS Code style state database and targets the Cloud
 Code PA sandbox endpoint observed in Antigravity logs.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -16,8 +17,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from fastapi import HTTPException
 
 from src.connectors.gemini_oauth_free import GeminiOAuthFreeConnector
+from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
@@ -36,9 +39,8 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
     Connector for Gemini using OAuth credentials from the Antigravity app.
 
     This connector uses the Antigravity sandbox endpoint instead of the standard
-    Code Assist API endpoint. Model enumeration, validation, health checks, and
-    listing are all inherited from the base class, which uses the
-    fetchAvailableModels endpoint that works with both endpoints.
+    Code Assist API endpoint. The sandbox does not expose fetchAvailableModels,
+    so model discovery and health checks rely on cached/fallback lists instead.
     """
 
     backend_type: str = "gemini-oauth-antigravity"
@@ -55,6 +57,9 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
             config,
             translation_service,
             name=name or self.backend_type,
+        )
+        self.gemini_api_base_url = (
+            getattr(self, "gemini_api_base_url", None) or ANTIGRAVITY_SANDBOX_ENDPOINT
         )
 
     def _get_api_headers(self) -> dict[str, str]:
@@ -183,6 +188,241 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
             gemini_api_base_url=gemini_api_base_url,
             **kwargs,
         )
+
+    async def _load_models_from_api(self) -> None:
+        """
+        Skip model enumeration on the sandbox endpoint to avoid 404 noise.
+
+        The Antigravity sandbox does not expose fetchAvailableModels; use the
+        hardcoded fallback list unless a different base URL is explicitly set.
+        """
+        base_url = (self.gemini_api_base_url or "").rstrip("/")
+        sandbox_url = ANTIGRAVITY_SANDBOX_ENDPOINT.rstrip("/")
+        if not base_url:
+            base_url = sandbox_url
+
+        if base_url == sandbox_url:
+            logger.info(
+                "Skipping fetchAvailableModels for Antigravity sandbox; using fallback model list."
+            )
+            return
+
+        await super()._load_models_from_api()
+
+    async def list_models(
+        self, *, gemini_api_base_url: str, key_name: str, api_key: str
+    ) -> dict[str, Any]:
+        """
+        List models without hitting unavailable sandbox endpoints.
+
+        When targeting the Antigravity sandbox, rely on the locally cached model
+        list instead of calling fetchAvailableModels (which returns 404).
+        """
+        target_base = (gemini_api_base_url or "").rstrip("/")
+        sandbox_url = ANTIGRAVITY_SANDBOX_ENDPOINT.rstrip("/")
+        if not target_base:
+            target_base = sandbox_url
+
+        if not self._oauth_credentials or not self._oauth_credentials.get(
+            "access_token"
+        ):
+            raise HTTPException(
+                status_code=401, detail="No OAuth access token available"
+            )
+
+        if target_base == sandbox_url:
+            await self._ensure_models_loaded()
+            models = [
+                {"name": f"models/{model}", "displayName": model}
+                for model in self.available_models
+            ]
+            return {"models": models}
+
+        return await super().list_models(
+            gemini_api_base_url=gemini_api_base_url,
+            key_name=key_name,
+            api_key=api_key,
+        )
+
+    async def _perform_health_check(self) -> bool:
+        """
+        Perform a lightweight health check without hitting unavailable endpoints.
+
+        The sandbox endpoint does not expose fetchAvailableModels; we only verify
+        that credentials are usable when targeting that host.
+        """
+        base_url = (self.gemini_api_base_url or "").rstrip("/")
+        sandbox_url = ANTIGRAVITY_SANDBOX_ENDPOINT.rstrip("/")
+        if not base_url or base_url == sandbox_url:
+            healthy = await self._refresh_token_if_needed()
+            if healthy:
+                self._health_checked = True
+            return healthy
+
+        return await super()._perform_health_check()
+
+    async def _discover_project_id(self, auth_session: Any) -> str:
+        """
+        Discover the project id using the paid-tier onboarding flow.
+
+        The Antigravity token maps to a real account; prefer the highest tier
+        reported by loadCodeAssist instead of the free-tier defaults to avoid
+        artificial quota limits.
+        """
+        if self._project_id:
+            return str(self._project_id)
+
+        initial_project_id = (
+            self._oauth_credentials.get("project_id")
+            if self._oauth_credentials
+            else None
+        )
+        fallback_project_id = initial_project_id or "default"
+
+        client_metadata = {
+            "ideType": "IDE_UNSPECIFIED",
+            "platform": "PLATFORM_UNSPECIFIED",
+            "pluginType": "GEMINI",
+            "duetProject": initial_project_id,
+        }
+
+        try:
+            load_request = {
+                "cloudaicompanionProject": initial_project_id,
+                "metadata": client_metadata,
+            }
+
+            load_url = f"{self.gemini_api_base_url}/v1internal:loadCodeAssist"
+            load_response = await asyncio.to_thread(
+                auth_session.request,
+                method="POST",
+                url=load_url,
+                json=load_request,
+                headers={"Content-Type": "application/json"},
+                timeout=30.0,
+            )
+
+            if load_response.status_code != 200:
+                raise BackendError(f"LoadCodeAssist failed: {load_response.text}")
+
+            load_data = load_response.json()
+            project_candidate = load_data.get("cloudaicompanionProject")
+            if project_candidate:
+                self._project_id = project_candidate
+                return str(self._project_id)
+
+            allowed_tiers_raw = load_data.get("allowedTiers", [])
+            allowed_tiers = [
+                tier for tier in allowed_tiers_raw if isinstance(tier, dict)
+            ]
+            current_tier = load_data.get("currentTier")
+            if isinstance(current_tier, dict):
+                allowed_tiers.append(current_tier)
+
+            def _tier_id(tier: dict[str, Any]) -> str:
+                raw_id = tier.get("id") or tier.get("tierId")
+                return str(raw_id or "").lower()
+
+            def _context_tokens(tier: dict[str, Any]) -> int:
+                for key in (
+                    "maxContextTokens",
+                    "contextTokenLimit",
+                    "contextWindowTokens",
+                    "tokenLimit",
+                    "maxContextWindow",
+                ):
+                    value = tier.get(key)
+                    if isinstance(value, int | float):
+                        return int(value)
+                return 0
+
+            def _tier_score(tier: dict[str, Any]) -> tuple[int, int, int]:
+                tier_id = _tier_id(tier)
+                is_paid = int(
+                    tier_id
+                    in {
+                        "paid-tier",
+                        "google-one-tier",
+                        "googleone-tier",
+                        "googleone",
+                        "duet-ai-pro",
+                    }
+                )
+                context_tokens = _context_tokens(tier)
+                if is_paid and context_tokens == 0:
+                    context_tokens = 1_000_000
+                is_default = int(bool(tier.get("isDefault")))
+                return (is_paid, context_tokens, is_default)
+
+            tier_to_use = max(allowed_tiers, key=_tier_score) if allowed_tiers else None
+            selected_tier_id = (
+                tier_to_use.get("id") or tier_to_use.get("tierId")
+                if tier_to_use
+                else None
+            )
+            if not selected_tier_id:
+                selected_tier_id = "paid-tier"
+
+            logger.info(
+                "Selected Code Assist tier '%s' for Antigravity", selected_tier_id
+            )
+
+            onboard_request = {
+                "tierId": selected_tier_id,
+                "cloudaicompanionProject": initial_project_id,
+                "metadata": {
+                    **client_metadata,
+                    "duetProject": initial_project_id,
+                },
+            }
+
+            onboard_url = f"{self.gemini_api_base_url}/v1internal:onboardUser"
+            max_retries = 30
+            retry_count = 0
+
+            while retry_count < max_retries:
+                lro_response = await asyncio.to_thread(
+                    auth_session.request,
+                    method="POST",
+                    url=onboard_url,
+                    json=onboard_request,
+                    headers={"Content-Type": "application/json"},
+                    timeout=30.0,
+                )
+
+                if lro_response.status_code != 200:
+                    raise BackendError(f"OnboardUser failed: {lro_response.text}")
+
+                lro_data = lro_response.json()
+                if lro_data.get("done"):
+                    response_data = lro_data.get("response", {})
+                    cloudai_project = response_data.get("cloudaicompanionProject", {})
+                    discovered_project_id = cloudai_project.get(
+                        "id", initial_project_id or "default"
+                    )
+                    self._project_id = discovered_project_id
+                    logger.info(
+                        "Discovered Antigravity project ID: %s", self._project_id
+                    )
+                    return str(self._project_id)
+
+                retry_count += 1
+                await asyncio.sleep(2)
+
+            logger.warning(
+                "Onboarding timed out for Antigravity; falling back to project '%s'",
+                fallback_project_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Antigravity project discovery failed, using fallback project '%s': %s",
+                fallback_project_id,
+                exc,
+                exc_info=True,
+            )
+
+        self._project_id = fallback_project_id
+        return str(self._project_id)
 
     # -------------------------------------------------------------------------
     # Antigravity-specific credential loading methods
