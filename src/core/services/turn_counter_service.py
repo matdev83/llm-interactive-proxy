@@ -7,6 +7,8 @@ replicating the logic from gemini-cli's LoopDetectionService.
 Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionService.ts
 """
 
+import logging
+
 from src.core.common.logging_utils import get_logger
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.interfaces.assessment_service_interface import (

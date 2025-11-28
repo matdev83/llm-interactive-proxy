@@ -2077,7 +2077,9 @@ class Translation(BaseTranslator):
                             text_parts.append(str(text_value))
                 delta["content"] = cast(Any, "".join(text_parts))
             elif isinstance(content_value, dict):
-                delta["content"] = cast(Any, json.dumps(content_value))
+                # Use dict() to safely handle StopChunkWithUsage which is a dict
+                # subclass that raises an error on str()
+                delta["content"] = cast(Any, json.dumps(dict(content_value)))
             elif content_value is None:
                 delta.pop("content", None)
             else:

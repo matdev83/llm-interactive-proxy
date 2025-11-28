@@ -187,7 +187,15 @@ class ContentAccumulationProcessor(IStreamProcessor):
             elif isinstance(raw_chunk, str):
                 chunk_text = raw_chunk
             else:
-                chunk_text = json.dumps(raw_chunk)
+                # Check for StopChunkWithUsage - don't accumulate usage chunks as content
+                from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+                if isinstance(raw_chunk, StopChunkWithUsage):
+                    # Skip accumulating stop chunks with usage - they should be
+                    # passed through as-is for proper SSE serialization
+                    chunk_text = ""
+                else:
+                    chunk_text = json.dumps(raw_chunk)
             # OPTIMIZATION: Encode content ONCE and cache both string and bytes
             encoded_content = chunk_text.encode("utf-8")
             content_length = len(encoded_content)

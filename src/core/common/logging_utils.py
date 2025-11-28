@@ -43,14 +43,11 @@ def _is_running_under_pytest() -> bool:
         # and not just that pytest was imported by the application
 
         # Check for pytest-specific attributes that indicate a running session
-        try:
-            pass
-
+        with contextlib.suppress(Exception):
             # Check if pytest has been configured (indicates running session)
             # This check is sometimes flaky with Pylance, so we'll rely on other indicators.
             # if hasattr(pytest, "config") and pytest.config is not None:
             #     return True
-        except Exception:
             pass
 
         # Check for other pytest runtime indicators
@@ -167,6 +164,20 @@ class CompatibleBoundLogger:
             return bool(self._logger.is_enabled_for(level))
         # Default to True if we can't determine
         return True
+
+    def isEnabledFor(self, level: int) -> bool:  # noqa: N802
+        """Check if logger is enabled for the given level (stdlib logging API).
+
+        This is an alias for is_enabled_for to maintain compatibility with
+        standard library logging's camelCase method name.
+
+        Args:
+            level: The logging level to check
+
+        Returns:
+            True if the logger is enabled for the given level
+        """
+        return self.is_enabled_for(level)
 
     def __getattr__(self, name: str) -> Any:
         """Delegate all other attribute access to the underlying logger.

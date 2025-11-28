@@ -142,8 +142,12 @@ def _format_chunk_as_sse(chunk: Any) -> bytes:
         Formatted chunk as bytes
     """
     if isinstance(chunk, dict):
+        # Use dict(chunk) to safely convert StopChunkWithUsage to plain dict.
+        # StopChunkWithUsage is a dict subclass that raises an error on str(),
+        # but json.dumps() doesn't call __str__(), so we need to explicitly
+        # convert to plain dict to avoid accidental stringification elsewhere.
         # Format as SSE: data: {json}\n\n
-        sse_line = f"data: {json.dumps(chunk)}\n\n"
+        sse_line = f"data: {json.dumps(dict(chunk))}\n\n"
         return sse_line.encode("utf-8")
     elif isinstance(chunk, str):
         return chunk.encode()
@@ -826,7 +830,10 @@ def _create_other_response(
     content_str = content
     if isinstance(content, dict | list | tuple):
         try:
-            content_str = json.dumps(content)
+            # Use dict(content) if it's a dict to safely handle StopChunkWithUsage
+            # which is a dict subclass that raises an error on str()
+            safe_content = dict(content) if isinstance(content, dict) else content
+            content_str = json.dumps(safe_content)
         except (TypeError, ValueError):
             content_str = str(content)
 

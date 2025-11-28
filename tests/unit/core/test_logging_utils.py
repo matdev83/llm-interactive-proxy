@@ -132,7 +132,7 @@ class TestLogging:
         with patch("structlog.get_logger") as mock_get_logger:
             # Setup mock
             mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
-            mock_logger.is_enabled_for.return_value = True
+            mock_logger.isEnabledFor.return_value = True
             mock_get_logger.return_value = mock_logger
 
             # Call get_logger

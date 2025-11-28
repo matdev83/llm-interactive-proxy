@@ -137,7 +137,9 @@ class LoopDetectionProcessor(IStreamProcessor):
             except UnicodeDecodeError:
                 content_str = content_value.decode("latin-1", errors="ignore")
         elif isinstance(content_value, dict):
-            content_str = json.dumps(content_value)
+            # Use dict() to safely handle StopChunkWithUsage which is a dict
+            # subclass that raises an error on str()
+            content_str = json.dumps(dict(content_value))
         else:
             content_str = str(content_value or "")
         stripped_content = content_str.lstrip()

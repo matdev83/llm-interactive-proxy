@@ -110,10 +110,20 @@ class NonStreamingAdapter:
                         except UnicodeDecodeError:
                             final_content += chunk.content.decode("latin-1")
                     elif isinstance(chunk.content, dict):
-                        # For dict content, convert to string representation
+                        # For dict content, check for StopChunkWithUsage first
+                        # to avoid leaking usage data into accumulated content
                         import json
 
-                        final_content += json.dumps(chunk.content)
+                        from src.core.ports.streaming_contracts import (
+                            StopChunkWithUsage,
+                        )
+
+                        if isinstance(chunk.content, StopChunkWithUsage):
+                            # Don't accumulate stop chunks with usage - they should
+                            # be handled separately as final chunks, not content
+                            pass
+                        else:
+                            final_content += json.dumps(chunk.content)
                 if chunk.usage:
                     final_usage = chunk.usage
                 if chunk.metadata:

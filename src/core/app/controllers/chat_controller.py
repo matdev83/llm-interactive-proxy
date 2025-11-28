@@ -786,7 +786,9 @@ class ChatController:
                     else:
                         # Best-effort stringify for non-dict/list types
                         try:
-                            text = _json.dumps(content)
+                            # Use dict() for dict types to safely handle StopChunkWithUsage
+                            safe_content = dict(content) if isinstance(content, dict) else content
+                            text = _json.dumps(safe_content)
                         except Exception:
                             text = str(content)
 

@@ -892,6 +892,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 )
             )
 
+            # Extract details for retry delay parsing
+            details = {}
+            if isinstance(error_detail, dict):
+                details = error_detail
+            elif isinstance(error_detail, list) and len(error_detail) > 0:
+                # Handle list format seen in logs: [{'error': ...}]
+                first_item = error_detail[0]
+                if isinstance(first_item, dict):
+                    details = first_item
+
             if is_quota_error:
                 # Set the quota exceeded flag, but keep backend functional for other models
                 self._quota_exceeded = True
@@ -904,12 +914,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     message=f"Gemini CLI OAuth quota exhausted: {error_detail}",
                     code="quota_exceeded",
                     status_code=response.status_code,
+                    details=details,
                 )
 
             raise BackendError(
                 message=f"Code Assist API streaming error: {error_detail}",
                 code="code_assist_error",
                 status_code=response.status_code,
+                details=details,
             )
 
     def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:
