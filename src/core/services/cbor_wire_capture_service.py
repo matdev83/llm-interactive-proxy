@@ -125,7 +125,7 @@ class CborWireCaptureService(IWireCapture):
         """
         self._config = config
         self._capture_dir: Path | None = Path(capture_dir) if capture_dir else None
-        self._session_id = session_id or uuid4().hex
+        self._session_id = session_id or self._generate_session_id_from_log_file(config)
         self._enabled = False
 
         # Buffer for entries to write
@@ -148,6 +148,31 @@ class CborWireCaptureService(IWireCapture):
         # Initialize if capture_dir is configured
         if self._capture_dir:
             self._initialize()
+
+    def _generate_session_id_from_log_file(self, config: AppConfig) -> str:
+        """Generate session ID based on log file name for unified naming.
+        
+        This creates a meaningful session ID that matches the log file name,
+        making it easy to correlate CBOR captures with log files.
+        
+        Args:
+            config: Application configuration
+            
+        Returns:
+            Session ID derived from log file name, or UUID if no log file configured
+        """
+        try:
+            log_file = getattr(getattr(config, "logging", None), "log_file", None)
+            if log_file:
+                # Extract base name without extension
+                log_path = Path(log_file)
+                base_name = log_path.stem  # e.g., "proxy-1819" from "proxy-1819.log"
+                return base_name
+        except Exception:
+            pass
+        
+        # Fallback to UUID if log file not configured or error occurs
+        return uuid4().hex
 
     def _initialize(self) -> None:
         """Initialize the capture system."""

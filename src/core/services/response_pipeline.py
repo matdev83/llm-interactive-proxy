@@ -78,9 +78,10 @@ class UnifiedResponsePipeline:
             try:
                 reset_method()
             except Exception as exc:
-                logger.debug(
-                    "Failed to reset stream normalizer: %s", exc, exc_info=True
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to reset stream normalizer: %s", exc, exc_info=True
+                    )
 
         return self._normalizer.process_stream(
             response_iterator,
@@ -118,9 +119,10 @@ class UnifiedResponsePipeline:
             try:
                 reset_method()
             except Exception as exc:
-                logger.debug(
-                    "Failed to reset stream normalizer: %s", exc, exc_info=True
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to reset stream normalizer: %s", exc, exc_info=True
+                    )
 
         # Step 3: Process through unified pipeline
         processed_stream = self._normalizer.process_stream(

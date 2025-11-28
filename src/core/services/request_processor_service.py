@@ -74,9 +74,10 @@ class RequestProcessor(IRequestProcessor):
         self, context: RequestContext, request_data: Any
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request using decomposed services."""
-        logger.debug(
-            f"RequestProcessor.process_request called with session_id: {getattr(context, 'session_id', 'unknown')}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"RequestProcessor.process_request called with session_id: {getattr(context, 'session_id', 'unknown')}"
+            )
         if not isinstance(request_data, ChatRequest):
             raise TypeError("request_data must be of type ChatRequest")
 
@@ -97,10 +98,11 @@ class RequestProcessor(IRequestProcessor):
         if session_agent:
             request_data = request_data.model_copy(update={"agent": session_agent})
 
-        logger.debug(f"Resolved session_id: {session_id}")
-        logger.debug(
-            f"Request data type: {type(request_data)}, model: {getattr(request_data, 'model', 'unknown')}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Resolved session_id: {session_id}")
+            logger.debug(
+                f"Request data type: {type(request_data)}, model: {getattr(request_data, 'model', 'unknown')}"
+            )
 
         # Populate allowed tools in streaming registry for dynamic tool detection
         try:
@@ -128,9 +130,10 @@ class RequestProcessor(IRequestProcessor):
             registry = get_global_streaming_context_registry()
             buffer = registry.get_tool_call_buffer(session_id)
             buffer.allowed_tools = allowed_tools if allowed_tools else None
-            logger.debug(
-                f"Registered allowed tools for session {session_id}: {allowed_tools}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Registered allowed tools for session {session_id}: {allowed_tools}"
+                )
         except Exception as e:
             logger.warning(f"Failed to register allowed tools: {e}", exc_info=True)
 
@@ -148,12 +151,14 @@ class RequestProcessor(IRequestProcessor):
                     await project_dir_service.maybe_resolve_project_directory(
                         session, request_data
                     )
-                    logger.debug("Project directory auto-detection completed")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Project directory auto-detection completed")
             except Exception as e:
                 # Don't fail the request if project directory detection fails
-                logger.debug(
-                    f"Project directory auto-detection failed: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Project directory auto-detection failed: {e}", exc_info=True
+                    )
 
         # Process commands in the request
         command_result = await self._handle_command_processing(
@@ -161,9 +166,11 @@ class RequestProcessor(IRequestProcessor):
         )
 
         # Debug logging to understand command processing behavior
-        logger.debug(
-            f"Command processing result: command_executed={command_result.command_executed}, modified_messages={len(command_result.modified_messages) if hasattr(command_result.modified_messages, '__len__') else 0}, command_results={len(command_result.command_results) if hasattr(command_result.command_results, '__len__') else 0}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Command processing result: executed={command_result.command_executed}, "
+                f"modified_messages_count={len(command_result.modified_messages or [])}"
+            )
         logger.info(
             f"Command processing result: command_executed={command_result.command_executed}, "
             f"modified_messages={len(command_result.modified_messages) if hasattr(command_result.modified_messages, '__len__') else 0}, "
@@ -190,12 +197,14 @@ class RequestProcessor(IRequestProcessor):
                     command_result, session
                 )
         except (AttributeError, TypeError):
-            # Fall back to default path on any issue
-            logger.debug("Cline agent fast-path failed; continuing", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Cline agent fast-path failed; continuing", exc_info=True)
+            # Fallback to normal processing if attributes are missing
 
         # Check if we should take the command-only path
         if self._should_process_command_only(command_result):
-            logger.debug(f"Taking command result path for session {session_id}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Taking command result path for session {session_id}")
             logger.info(
                 "Command executed with no modified messages - returning command result without backend call"
             )
@@ -410,26 +419,29 @@ class RequestProcessor(IRequestProcessor):
                         raise
                     except Exception:
                         # Best-effort enforcement; don't fail on unexpected issues
-                        logger.debug(
-                            "Failed to enforce input token limit; continuing",
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to enforce input token limit; continuing",
+                                exc_info=True,
+                            )
             except InvalidRequestError:
                 # Bubble up to FastAPI exception handlers
                 raise
             except Exception:
                 # If anything in enforcement fails, continue without blocking
-                logger.debug(
-                    "Model limits enforcement encountered an error; proceeding",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Model limits enforcement encountered an error; proceeding",
+                        exc_info=True,
+                    )
 
         # Apply request redaction middleware (API keys and proxy commands)
         # just before calling the backend, so both original and command-modified
         # messages are covered.
-        logger.debug(
-            f"Redaction check: backend_request is not None = {backend_request is not None}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Redaction check: backend_request is not None = {backend_request is not None}"
+            )
         if backend_request is not None:
             try:
                 from src.core.common.logging_utils import (
@@ -675,9 +687,10 @@ class RequestProcessor(IRequestProcessor):
                                     pending_map.get(session_id, 0),
                                 )
                 except (AttributeError, TypeError, ValueError) as e:
-                    logger.debug(
-                        "Could not resolve edit_precision_pending: %s", e, exc_info=True
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Could not resolve edit_precision_pending: %s", e, exc_info=True
+                        )
 
                 # NEW: Check if hybrid reasoning should be disabled for this session
                 hybrid_reasoning_disabled = False
@@ -706,11 +719,12 @@ class RequestProcessor(IRequestProcessor):
                                 extra={"session_id": session_id},
                             )
                 except (AttributeError, TypeError, ValueError) as e:
-                    logger.debug(
-                        "Could not resolve hybrid reasoning disabled flag: %s",
-                        e,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Could not resolve edit_precision_hybrid_reasoning_disabled: %s",
+                            e,
+                            exc_info=True,
+                        )
 
                 if cfg_enabled:
                     edit_precision = EditPrecisionTuningMiddleware(
@@ -724,11 +738,11 @@ class RequestProcessor(IRequestProcessor):
                         if cfg_target_top_k is not None:
                             edit_precision._target_top_k = int(cfg_target_top_k)
                     except (AttributeError, TypeError, ValueError) as e:
-                        logger.debug(
-                            "Could not set target_top_k on edit_precision middleware: %s",
-                            e,
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Error setting _target_top_k for edit precision: {e}",
+                                exc_info=True,
+                            )
                     backend_request = await edit_precision.process(
                         backend_request,
                         {
@@ -745,16 +759,18 @@ class RequestProcessor(IRequestProcessor):
                     )
             except (AttributeError, TypeError, ValueError):
                 # Never block on precision tuning; proceed with original request
-                logger.debug(
-                    "Edit-precision middleware failed; proceeding without overrides",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Edit-precision middleware failed; proceeding without overrides",
+                        exc_info=True,
+                    )
 
         if backend_request is None:
             # Skip backend call and return command result directly
-            logger.debug(
-                f"Command executed without backend call, processing command result for session {session_id}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Command executed without backend call, processing command result for session {session_id}"
+                )
             logger.info(
                 f"Command executed without backend call, processing command result for session {session_id}"
             )
@@ -898,9 +914,10 @@ class RequestProcessor(IRequestProcessor):
                     session_id, list(backend_request.messages)
                 )
             except Exception as e:
-                logger.debug(
-                    f"Failed to update session fingerprint: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Failed to update session fingerprint: {e}", exc_info=True
+                    )
 
         return backend_response
 
@@ -922,12 +939,13 @@ class RequestProcessor(IRequestProcessor):
                 "edit_precision_hybrid_reasoning_active", updated_map
             )
         except Exception as exc:
-            logger.debug(
-                "Failed to clear active hybrid disable marker for session %s: %s",
-                session_id,
-                exc,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to clear active hybrid disable marker for session %s: %s",
+                    session_id,
+                    exc,
+                    exc_info=True,
+                )
 
     def _apply_hybrid_reasoning_override(
         self,
@@ -1237,9 +1255,10 @@ class RequestProcessor(IRequestProcessor):
         raw_path = match.group(1)
         artifact_path = self._convert_artifact_path(raw_path)
         if artifact_path is None or not artifact_path.exists():
-            logger.debug(
-                "Artifact path %s could not be resolved or does not exist", raw_path
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Artifact path %s could not be resolved or does not exist", raw_path
+                )
             return None
 
         try:

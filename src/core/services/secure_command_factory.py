@@ -73,12 +73,14 @@ class SecureCommandFactory:
             # Use a concrete base type for construction and cast on return
             command: SecureCommandBase
             if issubclass(command_class, StatefulCommandBase):
-                logger.debug(f"Creating stateful command: {command_name}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Creating stateful command: {command_name}")
                 command = command_class(
                     state_reader=self._state_reader, state_modifier=self._state_modifier
                 )
             elif issubclass(command_class, StatelessCommandBase):
-                logger.debug(f"Creating stateless command: {command_name}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Creating stateless command: {command_name}")
                 command = command_class()
             else:
                 # Generic SecureCommandBase

@@ -84,14 +84,16 @@ When handling errors, follow these guidelines:
 - var/: Runtime data directory
   - var/logs/: Log files (with PID in filename for concurrent execution safety)
   - var/wire_captures_json/: JSON wire capture files (when enabled via CLI)
-  - var/wire_captures_cbor/: CBOR wire capture files (when enabled via CLI)
+  - var/wire_captures_cbor/: CBOR wire capture files (when enabled via CLI, named to match log files)
 
 ## Debugging and Wire Captures
 
 ### Log Files and Wire Captures Location
 
 - All log files and wire capture files are stored in the `./var` subfolder in the project's root
-- Log files include PIDs in filenames for safe concurrent execution
+- Log files include PIDs in filenames for safe concurrent execution (e.g., `proxy-12345.log`)
+- CBOR wire capture files are automatically named to match their corresponding log files (e.g., `proxy-12345.cbor`)
+- This unified naming makes it easy to correlate log files with their wire captures
 - Wire captures are only created when explicitly enabled via CLI parameters
 
 ### Reading CBOR Wire Capture Files

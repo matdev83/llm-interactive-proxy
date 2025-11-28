@@ -88,9 +88,10 @@ class InMemoryRateLimiter(IRateLimiter):
                 remaining = 0
                 reset_at = cooldown_until
 
-        logger.debug(
-            f"Rate limit check: {key} - {used}/{limit} used, limited: {is_limited}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Rate limit check: {key} - {used}/{limit} used, limited: {is_limited}"
+            )
 
         return RateLimitInfo(
             is_limited=is_limited,
@@ -119,7 +120,8 @@ class InMemoryRateLimiter(IRateLimiter):
         # Update usage data
         self._usage[key] = timestamps
 
-        logger.debug(f"Recorded usage for {key}: cost={cost}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Recorded usage for {key}: cost={cost}")
 
     async def reset(self, key: str) -> None:
         """Reset rate limit counters for the given key.
@@ -129,7 +131,8 @@ class InMemoryRateLimiter(IRateLimiter):
         """
         if key in self._usage:
             self._usage[key] = []
-            logger.debug(f"Reset rate limit counters for {key}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Reset rate limit counters for {key}")
         if key in self._cooldowns:
             self._cooldowns.pop(key, None)
 
@@ -142,7 +145,8 @@ class InMemoryRateLimiter(IRateLimiter):
             time_window: The time window in seconds
         """
         self._limits[key] = (limit, time_window)
-        logger.debug(f"Set custom rate limit for {key}: {limit}/{time_window}s")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Set custom rate limit for {key}: {limit}/{time_window}s")
 
     async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
         """Force a temporary cooldown for the key."""
@@ -155,11 +159,12 @@ class InMemoryRateLimiter(IRateLimiter):
 
         if current_expiry is None or new_expiry > current_expiry:
             self._cooldowns[key] = new_expiry
-            logger.debug(
-                "Applied cooldown for %s until %s",
-                key,
-                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(new_expiry)),
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Applied cooldown for %s until %s",
+                    key,
+                    datetime.fromtimestamp(new_expiry).isoformat(),
+                )
 
     def _get_limits(self, key: str) -> tuple[int, int]:
         """Get the limits for a key (or default if not set).

@@ -78,9 +78,10 @@ class ResponseParser(IResponseParser):
                                 if tool_calls:
                                     metadata["tool_calls"] = tool_calls
                             except (AttributeError, TypeError) as e:
-                                logger.debug(
-                                    "Could not parse tool_calls: %s", e, exc_info=True
-                                )
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Could not parse tool_calls: %s", e, exc_info=True
+                                    )
                             if (
                                 content is not None
                                 and isinstance(content, str)
@@ -115,9 +116,10 @@ class ResponseParser(IResponseParser):
                             if tool_calls:
                                 metadata["tool_calls"] = tool_calls
                         except (AttributeError, TypeError) as e:
-                            logger.debug(
-                                "Could not parse tool_calls: %s", e, exc_info=True
-                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Could not parse tool_calls: %s", e, exc_info=True
+                                )
             usage = raw_response.get("usage")
 
             # If content is still empty and there are no choices, serialize the entire response

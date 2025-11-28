@@ -929,16 +929,19 @@ class BufferedWireCapture(IWireCapture):
         # Cancel and wait for the background task to complete
         if self._flush_task and not self._flush_task.done():
             self._flush_task.cancel()
-            import contextlib
+            
+            # Wait for the task to complete, suppressing CancelledError
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                # Expected when we cancel the task
+                pass
+            except Exception:
+                # Suppress other exceptions during shutdown
+                pass
 
-            # Wait for the task to complete with a timeout
-            with contextlib.suppress(
-                asyncio.CancelledError, asyncio.TimeoutError, RuntimeError
-            ):
-                await asyncio.wait_for(self._flush_task, timeout=2.0)
-
-            # Ensure task reference is cleared
-            self._flush_task = None
+        # Ensure task reference is cleared
+        self._flush_task = None
 
         # Final flush
         async with self._buffer_lock:

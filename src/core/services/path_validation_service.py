@@ -33,10 +33,11 @@ class PathValidationService(IPathValidator):
 
         # Detect operating system for platform-specific handling
         self._is_windows = platform.system() == "Windows"
-        self._logger.debug(
-            f"PathValidationService initialized (platform: {platform.system()}, "
-            f"cache_max_size: {cache_max_size})"
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug(
+                f"PathValidationService initialized (platform: {platform.system()}, "
+                f"cache_max_size: {cache_max_size})"
+            )
 
     def normalize_path(
         self,

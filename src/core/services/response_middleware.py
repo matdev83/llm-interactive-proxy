@@ -42,13 +42,14 @@ class ResponseLoggingMiddleware(IResponseMiddleware):
             except TypeError:
                 content_length = 0
 
-            logger.debug(
-                "Response processed for session %s (%s): content_len=%s, usage=%s",
-                session_id,
-                response_type,
-                content_length,
-                usage_info,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Response processed for session %s (%s): content_len=%s, usage=%s",
+                    session_id,
+                    response_type,
+                    content_length,
+                    usage_info,
+                )
 
         return response
 

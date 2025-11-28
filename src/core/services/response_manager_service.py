@@ -63,9 +63,10 @@ class ResponseManager(IResponseManager):
             )
 
         first_result = command_result.command_results[0]
-        logger.debug(
-            f"First command result: {first_result}, type: {type(first_result)}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"First command result: {first_result}, type: {type(first_result)}"
+            )
 
         if isinstance(first_result, ResponseEnvelope):
             return first_result
@@ -233,9 +234,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
     ) -> dict[str, Any]:
         """Format a command result for the specific agent type."""
         is_cline_agent = session.agent == "cline"
-        logger.debug(
-            f"is_cline_agent value in format_command_result_for_agent: {is_cline_agent}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"is_cline_agent value in format_command_result_for_agent: {is_cline_agent}"
+            )
 
         if is_cline_agent:
             # For Cline, we expect a CommandResult (either type) or CommandResultWrapper
@@ -256,9 +258,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                         "result": result_message,
                     }
                 )
-                logger.debug(
-                    f"Cline agent - creating '{command_name}' tool call for command: {command_name}, message: {command_result.message}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Cline agent - creating '{command_name}' tool call for command: {command_name}, message: {command_result.message}"
+                    )
                 return _AwaitableDict(
                     self._create_tool_calls_response(command_name, arguments)
                 )
@@ -276,9 +279,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             # 1. If this is a test expecting tool_calls with command name (test_process_command_only_request),
             #    use the command name directly
             # 2. Otherwise, return the message content
-            logger.debug(
-                f"Non-Cline agent - processing command result as message content: {command_result}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Non-Cline agent - processing command result as message content: {command_result}"
+                )
             message = ""
             command_name = "unknown_command"
 
@@ -305,7 +309,8 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             else:
                 message = str(command_result)
 
-            logger.debug(f"Non-Cline agent - final message content: {message}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Non-Cline agent - final message content: {message}")
 
             # For unit test that expects tool calls
             if command_name == "hello" and message == "Hello acknowledged":
@@ -358,9 +363,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             ToolCall,
         )
 
-        logger.debug(
-            f"Creating tool calls response for command: {command_name}, arguments: {arguments}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Creating tool calls response for command: {command_name}, arguments: {arguments}"
+            )
 
         # Create the function call
         function_call = FunctionCall(name=command_name, arguments=arguments)

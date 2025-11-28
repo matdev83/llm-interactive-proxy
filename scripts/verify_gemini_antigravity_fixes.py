@@ -249,9 +249,9 @@ async def main():
         len(received_tool_calls) > 0
         and received_tool_calls[0]["function"]["name"] == "search_web"
     ):
-        print("✅ PASS: Tool calls received correctly.")
+        print("PASS: Tool calls received correctly.")
     else:
-        print("❌ FAIL: Tool calls not received or incorrect.")
+        print("FAIL: Tool calls not received or incorrect.")
 
     # Point 4: No leaked data structures
     # We checked this in the loop, if we reached here with clean content
@@ -269,7 +269,7 @@ async def main():
 
     # Point from bug 2: Finish reason
     if finish_reason_received == "stop":
-        print("✅ PASS: Proper finish_reason 'stop' received.")
+        print("PASS: Proper finish_reason 'stop' received.")
     elif finish_reason_received == "tool_calls":
         # This might be acceptable if the tool call chunk was the last one before usage
         # But in our mock, we sent explicit STOP after tool calls.

@@ -529,23 +529,27 @@ class ProjectDirectoryResolutionService:
         self, session: Session, request: ChatRequest
     ) -> None:
         """Attempt to resolve the project directory for the very first prompt."""
-        logger.debug(
-            f"maybe_resolve_project_directory called: mode={self._resolution_mode}, "
-            f"session_id={session.id}, history_length={len(session.history)}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"maybe_resolve_project_directory called: mode={self._resolution_mode}, "
+                f"session_id={session.id}, history_length={len(session.history)}"
+            )
 
         if self._resolution_mode == "disabled":
-            logger.debug("Project directory resolution is disabled")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Project directory resolution is disabled")
             return
 
         if getattr(session.state, "project_dir_resolution_attempted", False):
-            logger.debug(
-                "Project directory resolution already attempted for this session"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Project directory resolution already attempted for this session"
+                )
             return
 
         if session.history:
-            logger.debug("Session has history, skipping project directory resolution")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Session has history, skipping project directory resolution")
             return
 
         existing_dir = getattr(session.state, "project_dir", None)
@@ -561,9 +565,10 @@ class ProjectDirectoryResolutionService:
             return
 
         prompt_text = self._extract_user_prompt(request)
-        logger.debug(
-            f"Extracted prompt text length: {len(prompt_text) if prompt_text else 0}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Extracted prompt text length: {len(prompt_text) if prompt_text else 0}"
+            )
 
         if not prompt_text:
             await self._persist_state(
@@ -578,11 +583,17 @@ class ProjectDirectoryResolutionService:
 
         # Deterministic resolution
         if self._resolution_mode in ("deterministic", "hybrid"):
-            logger.debug(
-                f"Attempting deterministic resolution on prompt: {prompt_text[:200]}..."
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Attempting deterministic resolution (mode: {self._resolution_mode})"
+                )
+            found_path = (
+                await self._deterministic_resolver.resolve_project_directory(
+                    prompt_text, session.id
+                )
             )
-            found_path = self._find_absolute_path_in_prompt(prompt_text)
-            logger.debug(f"Deterministic resolution result: {found_path}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Deterministic resolution result: {found_path}")
             if found_path:
                 await self._persist_state(
                     session,
