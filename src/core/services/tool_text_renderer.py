@@ -79,7 +79,8 @@ class MarkdownRenderer(ToolTextRenderer):
         except (json.JSONDecodeError, TypeError):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to decode tool arguments for Markdown renderer", exc_info=True
+                    "Failed to decode tool arguments for Markdown renderer",
+                    exc_info=True,
                 )
         return {}
 

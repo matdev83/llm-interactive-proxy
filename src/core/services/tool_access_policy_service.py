@@ -156,9 +156,8 @@ class ToolAccessPolicyService:
         self._policies.sort(key=lambda p: p.priority, reverse=True)
 
         logger.info(f"Loaded {len(self._policies)} tool access policies")
-        if self._policies:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Policy names: {[p.name for p in self._policies]}")
+        if self._policies and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Policy names: {[p.name for p in self._policies]}")
 
     def _load_policies(self, config: ToolCallReactorConfig) -> None:
         """Load policies from configuration."""

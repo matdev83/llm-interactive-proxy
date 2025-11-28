@@ -114,6 +114,18 @@ def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
         } and not _has_meaningful_payload(content):
             return True
 
+    # Check if content is a stop chunk with usage (final SSE chunk)
+    # This should be treated as is_done=True for proper serialization
+    if isinstance(content, dict):
+        choices = content.get("choices", [])
+        if choices and isinstance(choices, list):
+            first_choice = choices[0]
+            if isinstance(first_choice, dict):
+                fr = first_choice.get("finish_reason")
+                if fr in ("stop", "tool_calls", "length"):
+                    # Final chunk with finish_reason should signal done
+                    return True
+
     return False
 
 

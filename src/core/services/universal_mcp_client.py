@@ -89,7 +89,8 @@ class UniversalMCPClient:
             # This would involve sending a "tools/list" request to the MCP server
             # and parsing the response to get tool definitions
 
-            logger.debug(f"Discovering tools from MCP server: {server_name}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Discovering tools from MCP server: {server_name}")
 
             # Placeholder: In real implementation, this would query the server
             # For now, we'll simulate an empty tool list
@@ -106,9 +107,10 @@ class UniversalMCPClient:
                 self._discovered_tools[tool_name] = mcp_tool
                 self._tool_to_server_map[tool_name] = server_name
 
-                logger.debug(
-                    f"Discovered MCP tool: {tool_name} from server {server_name}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Discovered MCP tool: {tool_name} from server {server_name}"
+                    )
 
         except Exception as e:
             logger.error(f"Failed to discover tools from server {server_name}: {e}")
@@ -150,9 +152,10 @@ class UniversalMCPClient:
             # 3. Handling any errors or streaming responses
             # 4. Formatting the result appropriately
 
-            logger.debug(
-                f"Executing MCP tool '{tool_name}' on server '{server_name}' with arguments: {arguments}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Executing MCP tool '{tool_name}' on server '{server_name}' with arguments: {arguments}"
+                )
 
             # Placeholder implementation
             result = await self._send_tool_call(server_name, tool_name, arguments)
@@ -194,7 +197,8 @@ class UniversalMCPClient:
             # 4. Handling any errors
             # 5. Returning the resource content
 
-            logger.debug(f"Reading MCP resource: {uri}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Reading MCP resource: {uri}")
 
             # Placeholder implementation
             # In a real implementation, we would:

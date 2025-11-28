@@ -195,9 +195,10 @@ class ToolCallReactorService(IToolCallReactor):
         for handler in handlers:
             try:
                 if await handler.can_handle(context):
-                    logger.debug(
-                        f"Handler '{handler.name}' can handle tool call '{context.tool_name}'"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Handler '{handler.name}' can handle tool call '{context.tool_name}'"
+                        )
 
                     result = await handler.handle(context)
 
@@ -216,9 +217,10 @@ class ToolCallReactorService(IToolCallReactor):
                 # Continue with next handler on error
 
         # No handler swallowed the call
-        logger.debug(
-            f"No handler swallowed tool call '{context.tool_name}' in session {resolved_session_id}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"No handler swallowed tool call '{context.tool_name}' in session {resolved_session_id}"
+            )
         return None
 
     def get_registered_handlers(self) -> list[str]:

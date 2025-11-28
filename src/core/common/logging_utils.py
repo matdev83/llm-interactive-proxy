@@ -149,7 +149,7 @@ class CompatibleBoundLogger:
         """
         self._logger = logger
 
-    def isEnabledFor(self, level: int) -> bool:
+    def isEnabledFor(self, level: int) -> bool:  # noqa: N802
         """Check if logger is enabled for the given level (stdlib compatibility).
 
         Args:

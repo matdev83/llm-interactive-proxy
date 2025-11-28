@@ -137,7 +137,9 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             except Exception as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Error extracting tool calls from metadata: %s", e, exc_info=True
+                        "Error extracting tool calls from metadata: %s",
+                        e,
+                        exc_info=True,
                     )
 
         # Priority 3: Extract from 'content' attribute as a fallback
@@ -184,22 +186,23 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         # Log skipped tool calls
         skipped_count = len(tool_calls) - len(new_tool_calls_with_raw)
-        if skipped_count > 0:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Skipped {skipped_count} already-processed tool call(s) in session {session_id}"
-                )
+        if skipped_count > 0 and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Skipped {skipped_count} already-processed tool call(s) in session {session_id}"
+            )
 
         if not new_tool_calls_with_raw:
-            logger.debug(
-                f"All {len(tool_calls)} tool call(s) already processed in session {session_id}, skipping reactor execution"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"All {len(tool_calls)} tool call(s) already processed in session {session_id}, skipping reactor execution"
+                )
             self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
-        logger.debug(
-            f"Detected {len(new_tool_calls_with_raw)} new tool call(s) in session {session_id}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Detected {len(new_tool_calls_with_raw)} new tool call(s) in session {session_id}"
+            )
 
         # Get session context information
         backend_name = context.get("backend_name", "unknown")
@@ -235,27 +238,30 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             if isinstance(context, dict):
                 context["detected_tool_calls"] = list(tool_calls)
         except Exception:
-            logger.debug(
-                "Failed to annotate tool calls in metadata/context", exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to annotate tool calls in metadata/context", exc_info=True
+                )
 
         # Process each new tool call through the reactor
         for tool_call, raw_tool_call in new_tool_calls_with_raw:
             signature = build_tool_call_signature(tool_call)
             if self._lifecycle.is_processed(stream_key, signature):
-                logger.debug(
-                    "Skipping already-processed tool call (signature=%s) for stream %s",
-                    signature,
-                    stream_key,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Skipping already-processed tool call (signature=%s) for stream %s",
+                        signature,
+                        stream_key,
+                    )
                 continue
             function_payload = tool_call.get("function")
 
             if not isinstance(function_payload, dict):
-                logger.debug(
-                    "Skipping tool call with invalid function payload: %s",
-                    tool_call,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Skipping non-function tool call type: %s",
+                        type(function_payload).__name__,
+                    )
                 continue
 
             # Parse tool arguments if they are a JSON string
@@ -504,7 +510,8 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                     return result
                 return None
             except (TypeError, ValueError) as e:
-                logger.debug(f"Failed to convert Pydantic model to dict: {e}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Failed to convert Pydantic model to dict: {e}")
                 return None
 
         # If it's a dataclass, convert to dict
@@ -512,11 +519,15 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             try:
                 return asdict(tool_call)
             except (TypeError, ValueError) as e:
-                logger.debug(f"Failed to convert dataclass to dict: {e}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Failed to convert dataclass to dict: {e}")
                 return None
 
         # Otherwise, we can't normalize it
-        logger.debug("Cannot normalize tool call object: %s", tool_call, exc_info=True)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Cannot normalize tool call object: %s", tool_call, exc_info=True
+            )
         return None
 
     def _create_replacement_response(

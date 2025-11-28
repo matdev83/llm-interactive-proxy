@@ -20,8 +20,8 @@ def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
     connector.api_key = "token"
     connector._auth_credentials = {"tokens": {"access_token": "token"}}
 
-    def fake_validate_runtime_credentials(self: OpenAICodexConnector):
-        return True, []
+    async def fake_validate_runtime_credentials(self: OpenAICodexConnector):
+        return True
 
     async def fake_load_auth(self: OpenAICodexConnector) -> bool:
         return True
