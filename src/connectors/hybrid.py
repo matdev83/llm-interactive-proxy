@@ -283,10 +283,11 @@ class HybridConnector(LLMBackend):
                 "Example: qwen-oauth:qwen3-coder-plus"
             )
 
-        logger.debug(
-            f"Parsed hybrid model spec: reasoning={reasoning_backend}:{reasoning_model} (params={reasoning_params}), "
-            f"execution={execution_backend}:{execution_model} (params={execution_params})"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Parsed hybrid model spec: reasoning={reasoning_backend}:{reasoning_model} (params={reasoning_params}), "
+                f"execution={execution_backend}:{execution_model} (params={execution_params})"
+            )
 
         return HybridModelSpec(
             reasoning_backend=reasoning_backend,
@@ -342,7 +343,8 @@ class HybridConnector(LLMBackend):
 
         # Log the overrides
         for key, value in params.items():
-            logger.debug(f"Applying override {key}={value} to request")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Applying override {key}={value} to request")
 
         # Handle Pydantic models (includes CanonicalChatRequest)
         if isinstance(request_data, DomainModel):
@@ -655,13 +657,17 @@ class HybridConnector(LLMBackend):
         # Check if execution backend supports system messages
         if self._supports_system_messages(execution_backend):
             # Primary strategy: inject as system message
-            logger.debug(f"Using system message injection for {execution_backend}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Using system message injection for {execution_backend}")
             augmented_messages = self._inject_as_system_message(
                 messages, reasoning_output, execution_backend
             )
         else:
             # Fallback strategy: inject to user message
-            logger.debug(f"Using user message prefix injection for {execution_backend}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Using user message prefix injection for {execution_backend}"
+                )
             augmented_messages = self._inject_to_user_message(
                 messages, reasoning_output, execution_backend
             )
@@ -1313,23 +1319,12 @@ class HybridConnector(LLMBackend):
             if hasattr(response, "cancel_callback") and response.cancel_callback:
                 try:
                     await response.cancel_callback()
-                    logger.debug(
-                        "Reasoning stream cancelled successfully",
-                        extra={
-                            "phase": "reasoning",
-                            "reasoning_backend": reasoning_backend,
-                            "reasoning_model": reasoning_model,
-                        },
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Reasoning stream cancelled successfully")
                 except Exception as e:
-                    logger.debug(
-                        f"Stream cancellation failed (non-fatal): {e}",
-                        extra={
-                            "phase": "reasoning",
-                            "reasoning_backend": reasoning_backend,
-                            "reasoning_model": reasoning_model,
-                            "error": str(e),
-                        },
+                    logger.warning(
+                        "Error cancelling reasoning stream: %s",
+                        e,
                     )
 
             logger.info(
@@ -2148,15 +2143,16 @@ class HybridConnector(LLMBackend):
                 execution_backend=execution_backend,
             )
 
-            logger.debug(
-                f"Messages augmented: {len(processed_messages)} -> {len(augmented_messages)} messages",
-                extra={
-                    "session_id": session_id,
-                    "original_message_count": len(processed_messages),
-                    "augmented_message_count": len(augmented_messages),
-                    "reasoning_output_length": len(reasoning_output),
-                },
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Messages augmented: {len(processed_messages)} -> {len(augmented_messages)} messages",
+                    extra={
+                        "session_id": session_id,
+                        "original_message_count": len(processed_messages),
+                        "augmented_message_count": len(augmented_messages),
+                        "reasoning_output_length": len(reasoning_output),
+                    },
+                )
 
         except Exception as e:
             logger.error(
@@ -2212,14 +2208,15 @@ class HybridConnector(LLMBackend):
                     formatted_reasoning=client_reasoning,
                 )
             elif isinstance(response, ResponseEnvelope):
-                logger.debug(
-                    "Filtering reasoning tags from non-streaming response",
-                    extra={
-                        "session_id": session_id,
-                        "execution_backend": execution_backend,
-                        "execution_model": execution_model,
-                    },
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Filtering reasoning tags from non-streaming response",
+                        extra={
+                            "session_id": session_id,
+                            "execution_backend": execution_backend,
+                            "execution_model": execution_model,
+                        },
+                    )
                 filtered_content = self._filter_response_content(response.content)
                 response.content = self._prepend_reasoning_to_non_streaming_content(
                     filtered_content,

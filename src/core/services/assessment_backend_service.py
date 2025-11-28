@@ -61,10 +61,11 @@ class AssessmentBackendService(IAssessmentBackendService):
             # Create chat request for assessment
             chat_request = self._create_chat_request(request)
 
-            logger.debug(
-                f"Performing assessment for session {request.session_id} "
-                f"using {self.config.backend}/{self.config.model}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Performing assessment for session {request.session_id} "
+                    f"using {self.config.backend}/{self.config.model}"
+                )
 
             # Process request through backend
             response = await self.backend_service.chat_completions(chat_request)
@@ -78,10 +79,11 @@ class AssessmentBackendService(IAssessmentBackendService):
                 content = str(response)
             assessment_data = self._parse_json_response(content)
 
-            logger.debug(
-                f"Assessment completed for session {request.session_id}: "
-                f"confidence={assessment_data.get('confidence', 'unknown')}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Assessment completed for session {request.session_id}: "
+                    f"confidence={assessment_data.get('confidence', 'unknown')}"
+                )
 
             return assessment_data
 
@@ -149,9 +151,10 @@ class AssessmentBackendService(IAssessmentBackendService):
                 content = str(response)
             json.loads(content)
 
-            logger.debug(
-                f"Assessment backend health check passed for {self.config.backend}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Assessment backend health check passed for {self.config.backend}"
+                )
             return True
 
         except Exception as e:

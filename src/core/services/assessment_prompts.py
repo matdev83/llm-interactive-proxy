@@ -46,7 +46,8 @@ def initialize_prompts() -> None:
         loader.load_prompts()
         logger.info("Assessment prompts initialized successfully")
     else:
-        logger.debug("Assessment prompts already initialized")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Assessment prompts already initialized")
 
 
 def get_system_prompt() -> str:

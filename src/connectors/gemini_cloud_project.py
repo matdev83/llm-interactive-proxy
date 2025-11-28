@@ -452,9 +452,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             return
 
         if loop.is_closed():
-            logger.debug(
-                "Skipping credentials reload scheduling: event loop is closed. Stopping file watcher."
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping credentials reload scheduling: event loop is closed. Stopping file watcher."
+                )
             self._stop_file_watching()
             self._main_loop = None
             with self._reload_task_lock:
@@ -495,10 +496,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         try:
             loop.call_soon_threadsafe(schedule_task)
         except RuntimeError as exc:
-            logger.debug(
-                "Event loop unavailable for credentials reload scheduling: %s",
-                exc,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Event loop unavailable for credentials reload scheduling: %s",
+                    exc,
+                )
             self._stop_file_watching()
             self._main_loop = None
             with self._reload_task_lock:
@@ -760,7 +762,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             try:
                 current_modified = creds_path.stat().st_mtime
                 if current_modified == self._last_modified and self._oauth_credentials:
-                    logger.debug("OAuth credentials file not modified, using cached.")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "OAuth credentials file not modified, using cached."
+                        )
                     return True
                 self._last_modified = current_modified
             except OSError:
@@ -1635,7 +1640,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 "total_tokens": total_tokens,
             }
         except Exception as e:
-            logger.debug(f"Failed to extract Code Assist usage: {e}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Failed to extract Code Assist usage: {e}")
             return None
 
     def __del__(self):

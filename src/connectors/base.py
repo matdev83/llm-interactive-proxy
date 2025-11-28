@@ -76,6 +76,8 @@ class LLMBackend(abc.ABC):
         Args:
             retry_after_seconds: Number of seconds to wait before retrying
         """
+        if not hasattr(self, "_retry_after_until"):
+            self._retry_after_until = None
         self._retry_after_until = time.time() + retry_after_seconds
 
     def get_retry_after_remaining(self) -> float | None:
@@ -85,10 +87,11 @@ class LLMBackend(abc.ABC):
         Returns:
             Remaining seconds if retry-after is active, None otherwise
         """
-        if self._retry_after_until is None:
+        retry_until = getattr(self, "_retry_after_until", None)
+        if retry_until is None:
             return None
 
-        remaining = self._retry_after_until - time.time()
+        remaining = retry_until - time.time()
         if remaining <= 0:
             self._retry_after_until = None
             return None

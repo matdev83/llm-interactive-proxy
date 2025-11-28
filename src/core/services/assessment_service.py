@@ -79,9 +79,10 @@ class AssessmentService(IAssessmentService):
         try:
             # 1. Validate conversation history first
             if not self._validate_history(history):
-                logger.debug(
-                    f"Conversation history validation failed for session {session_id}, skipping assessment"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Conversation history validation failed for session {session_id}, skipping assessment"
+                    )
                 # Return a neutral result when validation fails
                 return AssessmentResult(
                     session_id=session_id,
@@ -93,10 +94,11 @@ class AssessmentService(IAssessmentService):
             # 2. Trim history to recent window (replicate trimRecentHistory)
             recent_history = self._trim_recent_history(history)
 
-            logger.debug(
-                f"Assessing conversation for session {session_id}: "
-                f"{len(history)} total messages, {len(recent_history)} recent messages"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Assessing conversation for session {session_id}: "
+                    f"{len(history)} total messages, {len(recent_history)} recent messages"
+                )
 
             # 2. Create assessment request
             request = self._create_assessment_request(recent_history, session_id)
@@ -108,10 +110,11 @@ class AssessmentService(IAssessmentService):
             result = self._parse_assessment_response(response, session_id, len(history))
 
             duration = time.time() - start_time
-            logger.debug(
-                f"Assessment completed for session {session_id}: "
-                f"confidence={result.confidence}, duration={duration:.2f}s"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Assessment completed for session {session_id}: "
+                    f"confidence={result.confidence}, duration={duration:.2f}s"
+                )
 
             return result
 
@@ -183,9 +186,10 @@ class AssessmentService(IAssessmentService):
         # Keep the most recent messages
         trimmed = history[-self.config.history_window :]
 
-        logger.debug(
-            f"Trimmed conversation history: {len(history)} -> {len(trimmed)} messages"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Trimmed conversation history: {len(history)} -> {len(trimmed)} messages"
+            )
 
         return trimmed
 
@@ -271,8 +275,9 @@ class AssessmentService(IAssessmentService):
                 response, session_id, turn_count
             )
 
-            logger.debug(
-                f"Parsed assessment response: reasoning='{reasoning[:100]}...', "
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Parsed assessment response: reasoning='{reasoning[:100]}...', "
                 f"confidence={confidence}, is_unproductive={result.is_unproductive}"
             )
 
@@ -292,23 +297,25 @@ class AssessmentService(IAssessmentService):
             True if history is valid for assessment
         """
         if not history:
-            logger.debug("Empty conversation history, skipping assessment")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Empty conversation history, skipping assessment")
             return False
 
         # Check for minimum number of messages for meaningful assessment
         if len(history) < 5:
-            logger.debug(
-                f"Conversation too short for assessment: {len(history)} messages"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Insufficient conversation history ({len(history)} messages), "
+                    f"skipping assessment"
+                )
             return False
 
         # Check for recent assistant messages (need assistant activity to assess)
         recent_assistant_messages = [
             msg for msg in history[-10:] if msg.role == "assistant"
         ]
-
         if len(recent_assistant_messages) < 2:
-            logger.debug("Insufficient recent assistant messages for assessment")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Insufficient recent assistant messages for assessment")
             return False
-
         return True

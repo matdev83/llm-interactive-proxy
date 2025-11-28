@@ -939,7 +939,8 @@ class AppConfig(DomainModel, IConfig):
         if p.suffix.lower() in {".yaml", ".yml"}:
             import yaml
 
-            logger.debug(f"Saving configuration to {p}: {data}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Saving configuration to {p}: {data}")
             with p.open("w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f, sort_keys=False)
         else:

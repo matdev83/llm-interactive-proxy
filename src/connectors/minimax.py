@@ -51,7 +51,7 @@ class MinimaxConnector(OpenAIConnector):
 
         # The Minimax API does not provide a model listing endpoint and returns 404.
         # Avoid calling the base implementation which would log spurious warnings.
-        if self.api_key:
+        if self.api_key and logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Skipping Minimax model discovery (endpoint not supported by provider)"
             )
@@ -61,9 +61,10 @@ class MinimaxConnector(OpenAIConnector):
         """Perform a lightweight health check by hitting the chat endpoint with minimal payload."""
 
         if not self.api_key:
-            logger.debug(
-                "Skipping Minimax health check because no API key is configured"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping Minimax health check because no API key is configured"
+                )
             return True
 
         try:
@@ -88,7 +89,8 @@ class MinimaxConnector(OpenAIConnector):
             logger.warning("Minimax health check failed: %s", exc, exc_info=True)
             return False
 
-        logger.debug("Minimax health check succeeded")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Minimax health check succeeded")
         return True
 
 

@@ -69,12 +69,13 @@ class ApplicationStateService(IApplicationState):
             try:
                 setattr(self._state_provider, key, value)
             except Exception:
-                logger.debug(
-                    "Failed to synchronize state '%s' to provider '%s'",
-                    key,
-                    type(self._state_provider).__name__,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to synchronize state '%s' to provider '%s'",
+                        key,
+                        type(self._state_provider).__name__,
+                        exc_info=True,
+                    )
 
     def set_state_provider(self, state_provider: Any) -> None:
         """Set the state provider.
@@ -177,11 +178,12 @@ class ApplicationStateService(IApplicationState):
         try:
             return cast(_T | None, getter(service_type))
         except Exception:
-            logger.debug(
-                "ApplicationStateService failed to resolve service '%s'",
-                getattr(service_type, "__name__", repr(service_type)),
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ApplicationStateService failed to resolve service '%s'",
+                    getattr(service_type, "__name__", repr(service_type)),
+                    exc_info=True,
+                )
             return None
 
     # --- Feature flags (scaffold) ---

@@ -153,9 +153,10 @@ class OpenAIConnector(LLMBackend):
 
         # Proceed to fetch models only when we have credentials; failures are non-fatal
         if not self.api_key:
-            logger.debug(
-                "Skipping OpenAI model listing during init; no API key configured"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping OpenAI model listing during init; no API key configured"
+                )
         else:
             try:
                 headers = self.get_headers()
@@ -170,10 +171,11 @@ class OpenAIConnector(LLMBackend):
                         if isinstance(model, Mapping) and "id" in model
                     ]
                 else:
-                    logger.debug(
-                        "Unexpected models payload type from OpenAI: %s",
-                        type(data).__name__,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Unexpected models payload type from OpenAI: %s",
+                            type(data).__name__,
+                        )
                     self.available_models = []
             except Exception as e:
                 logger.warning("Failed to fetch models: %s", e, exc_info=True)
@@ -277,10 +279,11 @@ class OpenAIConnector(LLMBackend):
                 try:
                     return json.loads(candidate)
                 except JSONDecodeError:
-                    logger.debug(
-                        "Failed to decode sanitized JSON payload; candidate snippet=%s",
-                        candidate[:200],
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to decode sanitized JSON payload; candidate snippet=%s",
+                            candidate[:200],
+                        )
             logger.warning(
                 "Unable to decode JSON payload from OpenAI response (status=%s, preview=%r)",
                 getattr(response, "status_code", "unknown"),
@@ -825,9 +828,10 @@ class OpenAIConnector(LLMBackend):
                                         ),
                                     )
                                 except Exception:
-                                    logger.debug(
-                                        "Streaming chunk translation returned error but raw chunk not serializable"
-                                    )
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            "Streaming chunk translation returned error but raw chunk not serializable"
+                                        )
                             yield domain_chunk
                     else:
                         async for chunk in response.aiter_text():

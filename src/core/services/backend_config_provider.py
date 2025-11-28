@@ -23,7 +23,8 @@ class BackendConfigProvider(IBackendConfigProvider):
         import logging
 
         logger = logging.getLogger(__name__)
-        logger.debug(f"get_backend_config called for name: {name}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"get_backend_config called for name: {name}")
 
         # Handle dash-to-underscore mapping for backend names
         attr_name = name.replace(
@@ -36,7 +37,8 @@ class BackendConfigProvider(IBackendConfigProvider):
         # Remove duplicates while preserving order
         possible_names = list(dict.fromkeys(possible_names))
 
-        logger.debug(f"Trying backend config lookup for names: {possible_names}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Trying backend config lookup for names: {possible_names}")
 
         # Collect all found configurations
         found_configs = []
@@ -45,16 +47,19 @@ class BackendConfigProvider(IBackendConfigProvider):
             # Try attribute access
             try:
                 cfg = getattr(self._app_config.backends, lookup_name, None)
-                logger.debug(f"getattr(backends, '{lookup_name}'): {cfg}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"getattr(backends, '{lookup_name}'): {cfg}")
                 if cfg is not None and isinstance(cfg, BackendConfig):
                     found_configs.append((lookup_name, cfg, "attribute"))
-                    logger.debug(
-                        f"Found config via attribute '{lookup_name}': api_key={cfg.api_key}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Found config via attribute '{lookup_name}': api_key={cfg.api_key}"
+                        )
                 elif cfg is not None:
-                    logger.debug(
-                        f"Found non-BackendConfig via attribute '{lookup_name}': {type(cfg)} = {cfg}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Found non-BackendConfig via attribute '{lookup_name}': {type(cfg)} = {cfg}"
+                        )
             except Exception as e:
                 logger.debug(f"Exception in getattr(backends, '{lookup_name}'): {e}")
 
