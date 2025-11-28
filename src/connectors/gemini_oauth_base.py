@@ -3996,7 +3996,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             if isinstance(message, str):
                 # Look for patterns like "retry after 3h36m52s" or "reset after 3h36m52s"
                 import re
-                match = re.search(r"(?:retry|reset) after (\d+h)?(\d+m)?(\d+s)?", message.lower())
+
+                match = re.search(
+                    r"(?:retry|reset) after (\d+h)?(\d+m)?(\d+s)?", message.lower()
+                )
                 if match:
                     hours = int(match.group(1)[:-1]) if match.group(1) else 0
                     minutes = int(match.group(2)[:-1]) if match.group(2) else 0
@@ -4015,9 +4018,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             continue
 
                         # Check for RetryInfo with retryDelay
-                        if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
+                        if (
+                            detail.get("@type")
+                            == "type.googleapis.com/google.rpc.RetryInfo"
+                        ):
                             retry_delay_str = detail.get("retryDelay", "")
-                            if isinstance(retry_delay_str, str) and retry_delay_str.endswith("s"):
+                            if isinstance(
+                                retry_delay_str, str
+                            ) and retry_delay_str.endswith("s"):
                                 try:
                                     return float(retry_delay_str[:-1])
                                 except (ValueError, TypeError):
@@ -4030,12 +4038,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             if isinstance(quota_reset_delay, str):
                                 # Parse format like "3h37m1.603158777s"
                                 import re
-                                match = re.match(r"(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?", quota_reset_delay)
+
+                                match = re.match(
+                                    r"(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?",
+                                    quota_reset_delay,
+                                )
                                 if match:
                                     hours = int(match.group(1)) if match.group(1) else 0
-                                    minutes = int(match.group(2)) if match.group(2) else 0
+                                    minutes = (
+                                        int(match.group(2)) if match.group(2) else 0
+                                    )
                                     seconds_str = match.group(3)
-                                    seconds_value = float(seconds_str) if seconds_str else 0.0
+                                    seconds_value = (
+                                        float(seconds_str) if seconds_str else 0.0
+                                    )
                                     quota_total_seconds = (
                                         hours * 3600 + minutes * 60 + seconds_value
                                     )

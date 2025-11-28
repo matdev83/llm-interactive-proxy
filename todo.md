@@ -1,0 +1,6 @@
+- [ ] Read the failing test to understand the expected behavior
+- [ ] Examine the logging_utils implementation
+- [ ] Identify the root cause of the assertion error
+- [ ] Fix the implementation to match test expectations
+- [ ] Run the specific test to verify the fix
+- [ ] Run all tests to ensure no regressions

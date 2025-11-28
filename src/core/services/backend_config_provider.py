@@ -62,7 +62,9 @@ class BackendConfigProvider(IBackendConfigProvider):
                         )
             except Exception as e:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Exception in getattr(backends, '{lookup_name}'): {e}")
+                    logger.debug(
+                        f"Exception in getattr(backends, '{lookup_name}'): {e}"
+                    )
 
             # Try dict-style access
             try:

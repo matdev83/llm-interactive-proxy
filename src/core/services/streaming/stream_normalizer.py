@@ -33,12 +33,13 @@ class StreamNormalizer(IStreamNormalizer):
                 try:
                     reset_method()
                 except Exception as exc:  # pragma: no cover - defensive logging
-                    logger.debug(
-                        "Failed to reset stream processor %s: %s",
-                        type(processor).__name__,
-                        exc,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to reset stream processor %s: %s",
+                            type(processor).__name__,
+                            exc,
+                            exc_info=True,
+                        )
 
     async def process_stream(
         self,
@@ -86,11 +87,12 @@ class StreamNormalizer(IStreamNormalizer):
                     try:
                         processor.cancel_callback = cancel_callback
                     except Exception:  # pragma: no cover - defensive guard
-                        logger.debug(
-                            "Failed to set cancel_callback on processor %s",
-                            type(processor).__name__,
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to set cancel_callback on processor %s",
+                                type(processor).__name__,
+                                exc_info=True,
+                            )
                 content = await processor.process(content)
 
                 # Skip if processor made it empty

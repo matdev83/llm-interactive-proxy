@@ -80,7 +80,9 @@ class ResponseParser(IResponseParser):
                             except (AttributeError, TypeError) as e:
                                 if logger.isEnabledFor(logging.DEBUG):
                                     logger.debug(
-                                        "Could not parse tool_calls: %s", e, exc_info=True
+                                        "Could not parse tool_calls: %s",
+                                        e,
+                                        exc_info=True,
                                     )
                             if (
                                 content is not None

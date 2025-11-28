@@ -929,7 +929,7 @@ class BufferedWireCapture(IWireCapture):
         # Cancel and wait for the background task to complete
         if self._flush_task and not self._flush_task.done():
             self._flush_task.cancel()
-            
+
             # Wait for the task to complete, suppressing CancelledError
             try:
                 await self._flush_task

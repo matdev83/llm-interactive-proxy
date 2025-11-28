@@ -256,7 +256,9 @@ class JsonRepairService:
             try:
                 self.validate_json(parsed_json, schema)
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Schema validation successful for session {session_id}")
+                    logger.debug(
+                        f"Schema validation successful for session {session_id}"
+                    )
 
                 # Return the properly formatted JSON string and the parsed object
                 formatted_content = json.dumps(parsed_json, ensure_ascii=False)

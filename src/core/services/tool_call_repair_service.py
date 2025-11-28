@@ -992,11 +992,12 @@ class ToolCallRepairService(IToolCallRepairService):
                     parsed = json.loads(content_str)
                     if isinstance(parsed, dict) and parsed:
                         # Successfully unwrapped - log for debugging
-                        logger.debug(
-                            "Unwrapped nested content structure: "
-                            "{'content': '<json>'} -> %s keys",
-                            len(parsed),
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Unwrapped nested content structure: "
+                                "{'content': '<json>'} -> %s keys",
+                                len(parsed),
+                            )
                         return parsed
                 except json.JSONDecodeError:
                     pass  # Not valid JSON, keep original

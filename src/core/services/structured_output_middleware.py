@@ -77,15 +77,17 @@ class StructuredOutputMiddleware(IResponseMiddleware):
         # Skip processing for streaming responses in this implementation
         # Streaming structured output validation would require more complex handling
         if is_streaming:
-            logger.debug(
-                f"Skipping structured output validation for streaming response in session {session_id}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Skipping structured output validation for streaming response in session {session_id}"
+                )
             return response
 
         # Extract content from the response
         content = self._extract_content(response)
         if not content:
-            logger.debug(f"No content to validate in session {session_id}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"No content to validate in session {session_id}")
             return response
 
         # Determine strictness from context
@@ -132,9 +134,10 @@ class StructuredOutputMiddleware(IResponseMiddleware):
                     metadata=metadata,
                 )
 
-            logger.debug(
-                f"Structured output processing completed for session {session_id}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Structured output processing completed for session {session_id}"
+                )
             return updated_response
 
         except (ValidationError, JSONParsingError) as e:

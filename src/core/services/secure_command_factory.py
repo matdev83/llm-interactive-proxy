@@ -84,7 +84,8 @@ class SecureCommandFactory:
                 command = command_class()
             else:
                 # Generic SecureCommandBase
-                logger.debug(f"Creating generic secure command: {command_name}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Creating generic secure command: {command_name}")
                 command = command_class(
                     state_reader=self._state_reader, state_modifier=self._state_modifier
                 )

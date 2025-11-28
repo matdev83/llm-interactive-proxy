@@ -26,15 +26,9 @@ def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
     async def fake_load_auth(self: OpenAICodexConnector) -> bool:
         return True
 
-    async def fake_super_chat_completions(
-        self: OpenAIConnector,
-        request_data,
-        processed_messages,
-        effective_model,
-        identity=None,
-        **kwargs,
-    ):
-        raise HTTPException(status_code=401, detail="invalid token")
+    mock_chat_completions = AsyncMock(
+        side_effect=HTTPException(status_code=401, detail="invalid token")
+    )
 
     monkeypatch.setattr(
         OpenAICodexConnector,
@@ -42,9 +36,7 @@ def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
         fake_validate_runtime_credentials,
     )
     monkeypatch.setattr(OpenAICodexConnector, "_load_auth", fake_load_auth)
-    monkeypatch.setattr(
-        OpenAIConnector, "chat_completions", fake_super_chat_completions
-    )
+    monkeypatch.setattr(OpenAIConnector, "chat_completions", mock_chat_completions)
 
     async def invoke_chat_completion() -> None:
         with pytest.raises(HTTPException):

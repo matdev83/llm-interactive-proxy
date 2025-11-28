@@ -77,9 +77,10 @@ class MarkdownRenderer(ToolTextRenderer):
             if isinstance(args, dict):
                 return args
         except (json.JSONDecodeError, TypeError):
-            logger.debug(
-                "Failed to decode tool arguments for Markdown renderer", exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to decode tool arguments for Markdown renderer", exc_info=True
+                )
         return {}
 
     def render(self, tool_call: ToolCall) -> str | None:
@@ -311,5 +312,6 @@ def render_tool_call(tool_call: ToolCall) -> str | None:
         try:
             return fallback_renderer.render(tool_call)
         except Exception:  # pragma: no cover - defensive
-            logger.debug("Fallback renderer failed", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Fallback renderer failed", exc_info=True)
     return None

@@ -95,7 +95,9 @@ class IntelligentSessionResolver(ISessionResolver):
         explicit_id = await self._try_explicit_session_id(context)
         if explicit_id:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Using explicit session ID from header/cookie: {explicit_id}")
+                logger.debug(
+                    f"Using explicit session ID from header/cookie: {explicit_id}"
+                )
             return explicit_id
 
         # If intelligent resolver is disabled, fall back to generating new ID

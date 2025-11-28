@@ -779,7 +779,6 @@ class BackendService(IBackendService):
 
                 return value
 
-
             def _assign_param(target: dict[str, Any], name: str, value: Any) -> None:
                 coerced = _coerce_parameter(name, value)
                 if coerced is not None:
@@ -1027,7 +1026,8 @@ class BackendService(IBackendService):
         except (AttributeError, KeyError) as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Could not get failover strategy from app state: {e}", exc_info=True
+                    f"Could not get failover strategy from app state: {e}",
+                    exc_info=True,
                 )
             use_strategy = False
 
@@ -1367,7 +1367,9 @@ class BackendService(IBackendService):
                         )
                 except Exception:
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("Failed to calculate outbound tokens", exc_info=True)
+                        logger.debug(
+                            "Failed to calculate outbound tokens", exc_info=True
+                        )
                     outbound_tokens = 0
 
                 try:
@@ -1418,7 +1420,9 @@ class BackendService(IBackendService):
                             )
                         except Exception:
                             if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug("Rate limiter is not available", exc_info=True)
+                                logger.debug(
+                                    "Rate limiter is not available", exc_info=True
+                                )
                         if delay_seconds:
                             try:
                                 await asyncio.sleep(delay_seconds)
@@ -1881,7 +1885,6 @@ class BackendService(IBackendService):
                         new_turn_count,
                         new_file_write_count,
                     )
-
 
                 if (
                     new_turn_count >= planning_config.max_turns

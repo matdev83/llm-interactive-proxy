@@ -493,7 +493,9 @@ def _resolve_prompt_tokens(
                 return int(outbound_tokens)
             except (TypeError, ValueError):
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Failed to coerce outbound_tokens: %s", outbound_tokens)
+                    logger.debug(
+                        "Failed to coerce outbound_tokens: %s", outbound_tokens
+                    )
     return None
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
@@ -342,12 +343,8 @@ def create_rate_limiter(config: Any) -> IRateLimiter:
         config_dict = {}
 
     # Get rate limiter configuration with defaults
-    default_limit = (
-        config.default_rate_limit if hasattr(config, "default_rate_limit") else 60
-    )
-    default_time_window = (
-        config.default_rate_window if hasattr(config, "default_rate_window") else 60
-    )
+    default_limit = config_dict.get("default_rate_limit", 60)
+    default_time_window = config_dict.get("default_rate_window", 60)
 
     # Create base limiter
     base_limiter = InMemoryRateLimiter(

@@ -157,7 +157,8 @@ class ToolAccessPolicyService:
 
         logger.info(f"Loaded {len(self._policies)} tool access policies")
         if self._policies:
-            logger.debug(f"Policy names: {[p.name for p in self._policies]}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Policy names: {[p.name for p in self._policies]}")
 
     def _load_policies(self, config: ToolCallReactorConfig) -> None:
         """Load policies from configuration."""
@@ -327,11 +328,13 @@ class ToolAccessPolicyService:
                 f"Filtered {len(filtered_names)} tool definitions for model "
                 f"{model_name} by policy '{policy.name}': {filtered_names}"
             )
-            logger.debug(
-                f"Remaining tools: {[self._extract_tool_name(t) for t in filtered_tools]}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Remaining tools: {[self._extract_tool_name(t) for t in filtered_tools]}"
+                )
 
-        logger.debug(f"Policy evaluation time: {elapsed_ms:.3f}ms")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Policy evaluation time: {elapsed_ms:.3f}ms")
 
         return filtered_tools, metadata
 
@@ -377,9 +380,10 @@ class ToolAccessPolicyService:
         metadata["evaluation_time_ms"] = elapsed_ms
         self._record_evaluation_time(elapsed_ms)
 
-        logger.debug(
-            f"Policy evaluation for '{tool_name}': {metadata['reason']} in {elapsed_ms:.3f}ms"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Policy evaluation for '{tool_name}': {metadata['reason']} in {elapsed_ms:.3f}ms"
+            )
 
         return is_allowed, metadata
 

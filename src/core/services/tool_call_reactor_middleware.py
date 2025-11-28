@@ -135,9 +135,10 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                             tool_calls.append(normalized)
                             raw_tool_calls.append(raw_call)
             except Exception as e:
-                logger.debug(
-                    "Error extracting tool calls from metadata: %s", e, exc_info=True
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error extracting tool calls from metadata: %s", e, exc_info=True
+                    )
 
         # Priority 3: Extract from 'content' attribute as a fallback
         if not tool_calls:
@@ -184,9 +185,10 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
         # Log skipped tool calls
         skipped_count = len(tool_calls) - len(new_tool_calls_with_raw)
         if skipped_count > 0:
-            logger.debug(
-                f"Skipped {skipped_count} already-processed tool call(s) in session {session_id}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Skipped {skipped_count} already-processed tool call(s) in session {session_id}"
+                )
 
         if not new_tool_calls_with_raw:
             logger.debug(

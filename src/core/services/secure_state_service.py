@@ -147,7 +147,8 @@ class SecureStateService(ISecureStateAccess, ISecureStateModification):
             "data": data or {},
         }
         self._access_log.append(log_entry)
-        logger.debug(f"State access: {operation} ({access_type})")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"State access: {operation} ({access_type})")
 
     def get_access_log(self) -> list[dict[str, Any]]:
         """Get the access log for auditing."""

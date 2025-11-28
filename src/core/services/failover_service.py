@@ -105,7 +105,10 @@ class FailoverService:
 
         if is_log_level_enabled(logger, logging.DEBUG):
             logger.debug(
-                "Getting failover attempts", model=model, policy=policy, elements=elements
+                "Getting failover attempts",
+                model=model,
+                policy=policy,
+                elements=elements,
             )
 
         attempts = []

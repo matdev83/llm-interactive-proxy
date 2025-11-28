@@ -256,9 +256,10 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             # Check if we're starting to see think tags
             if self._THINK_OPENING_PATTERN.search(new_buffer):
                 self._stream_states[session_id] = "in_think"
-                self._logger.debug(
-                    f"Started think tag detection for session {session_id}"
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        f"Started think tag detection for session {session_id}"
+                    )
                 # Check if we have complete tags in this first chunk
                 if self._THINK_CLOSING_PATTERN.search(new_buffer):
                     # Complete tags in single chunk
@@ -470,11 +471,12 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
                     *formatted_response["choices"][1:],
                 ]
 
-                self._logger.debug(
-                    "Formatted OpenAI-style response with reasoning field: %d chars reasoning, %d chars content",
-                    len(reasoning_content),
-                    len(response_content),
-                )
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Formatted OpenAI-style response with reasoning field: %d chars reasoning, %d chars content",
+                        len(reasoning_content),
+                        len(response_content),
+                    )
 
                 return formatted_response
 
@@ -492,11 +494,12 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
                 "reasoning_format"
             ] = "extracted_from_think_tags"
 
-            self._logger.debug(
-                "Formatted dict response with reasoning metadata: %d chars reasoning, %d chars content",
-                len(reasoning_content),
-                len(response_content),
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Formatted dict response with reasoning metadata: %d chars reasoning, %d chars content",
+                    len(reasoning_content),
+                    len(response_content),
+                )
 
             return formatted_response
 
@@ -519,11 +522,12 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         processed_response.metadata["fixed_content_length"] = len(response_content)
         processed_response.metadata["reasoning_length"] = len(reasoning_content)
 
-        self._logger.debug(
-            "Formatted ProcessedResponse with reasoning metadata: %d chars reasoning, %d chars content",
-            len(reasoning_content),
-            len(response_content),
-        )
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug(
+                "Formatted ProcessedResponse with reasoning metadata: %d chars reasoning, %d chars content",
+                len(reasoning_content),
+                len(response_content),
+            )
 
         return processed_response
 
@@ -638,7 +642,8 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         # Also clean up reasoning extracted data
         self._reasoning_extracted.pop(session_id, None)
 
-        self._logger.debug(f"Reset think tags fix state for session {session_id}")
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug(f"Reset think tags fix state for session {session_id}")
 
     def get_session_reasoning(self, session_id: str) -> dict[str, Any] | None:
         """Public method to get extracted reasoning for a session.

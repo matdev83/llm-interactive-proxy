@@ -549,7 +549,9 @@ class ProjectDirectoryResolutionService:
 
         if session.history:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Session has history, skipping project directory resolution")
+                logger.debug(
+                    "Session has history, skipping project directory resolution"
+                )
             return
 
         existing_dir = getattr(session.state, "project_dir", None)
@@ -587,11 +589,7 @@ class ProjectDirectoryResolutionService:
                 logger.debug(
                     f"Attempting deterministic resolution (mode: {self._resolution_mode})"
                 )
-            found_path = (
-                await self._deterministic_resolver.resolve_project_directory(
-                    prompt_text, session.id
-                )
-            )
+            found_path = self._find_absolute_path_in_prompt(prompt_text)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Deterministic resolution result: {found_path}")
             if found_path:

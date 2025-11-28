@@ -151,13 +151,13 @@ class CborWireCaptureService(IWireCapture):
 
     def _generate_session_id_from_log_file(self, config: AppConfig) -> str:
         """Generate session ID based on log file name for unified naming.
-        
+
         This creates a meaningful session ID that matches the log file name,
         making it easy to correlate CBOR captures with log files.
-        
+
         Args:
             config: Application configuration
-            
+
         Returns:
             Session ID derived from log file name, or UUID if no log file configured
         """
@@ -170,7 +170,7 @@ class CborWireCaptureService(IWireCapture):
                 return base_name
         except Exception:
             pass
-        
+
         # Fallback to UUID if log file not configured or error occurs
         return uuid4().hex
 

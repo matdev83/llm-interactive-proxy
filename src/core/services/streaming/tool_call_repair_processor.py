@@ -179,10 +179,11 @@ class ToolCallRepairProcessor(IStreamProcessor):
         new_content_str = "".join(repaired_content_parts)
 
         if detected_tool_calls:
-            logger.debug(
-                "ToolCallRepairProcessor captured tool call(s): %s",
-                detected_tool_calls,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ToolCallRepairProcessor captured tool call(s): %s",
+                    detected_tool_calls,
+                )
             # Mark that a tool call has been detected in this stream
             buffer_state.tool_call_detected = True
 

@@ -689,7 +689,9 @@ class RequestProcessor(IRequestProcessor):
                 except (AttributeError, TypeError, ValueError) as e:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            "Could not resolve edit_precision_pending: %s", e, exc_info=True
+                            "Could not resolve edit_precision_pending: %s",
+                            e,
+                            exc_info=True,
                         )
 
                 # NEW: Check if hybrid reasoning should be disabled for this session

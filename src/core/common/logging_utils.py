@@ -136,14 +136,14 @@ BEARER_TOKEN_PATTERN = re.compile(r"Bearer\s+([a-zA-Z0-9._~+/-]+=*)")
 
 class CompatibleBoundLogger:
     """Wrapper around structlog logger that adds stdlib logging API compatibility.
-    
+
     This wrapper adds the `isEnabledFor` method to structlog's BoundLogger,
     providing compatibility with code that uses the standard library logging API.
     """
 
     def __init__(self, logger: Any):
         """Initialize the compatible logger wrapper.
-        
+
         Args:
             logger: The underlying structlog logger
         """
@@ -151,28 +151,28 @@ class CompatibleBoundLogger:
 
     def isEnabledFor(self, level: int) -> bool:
         """Check if logger is enabled for the given level (stdlib compatibility).
-        
+
         Args:
             level: The logging level to check
-            
+
         Returns:
             True if the logger is enabled for the given level
         """
         # Try structlog's is_enabled_for method first
-        if hasattr(self._logger, 'is_enabled_for'):
+        if hasattr(self._logger, "is_enabled_for"):
             return bool(self._logger.is_enabled_for(level))
         # Fall back to stdlib isEnabledFor if available
-        if hasattr(self._logger, 'isEnabledFor'):
+        if hasattr(self._logger, "isEnabledFor"):
             return bool(self._logger.isEnabledFor(level))
         # Default to True if we can't determine
         return True
 
     def __getattr__(self, name: str) -> Any:
         """Delegate all other attribute access to the underlying logger.
-        
+
         Args:
             name: The attribute name
-            
+
         Returns:
             The attribute from the underlying logger
         """

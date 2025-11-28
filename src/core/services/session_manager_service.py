@@ -53,12 +53,14 @@ class SessionManager(ISessionManager):
     ) -> Session:
         """Update session agent and return updated session."""
         if agent is not None and agent != session.agent:
-            logger.debug(f"Setting session agent from request_data: {agent}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Setting session agent from request_data: {agent}")
             session.agent = agent
             await self._session_service.update_session(session)
             # Re-fetch to ensure latest state
             session = await self._session_service.get_session(session.id)
-            logger.debug(f"Session object ID after re-fetch: {id(session)}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Session object ID after re-fetch: {id(session)}")
         return session
 
     async def record_command_in_session(
@@ -163,12 +165,13 @@ class SessionManager(ISessionManager):
         )
         await self._session_repository.update_fingerprint_bundle(session_id, fp_bundle)
 
-        logger.debug(
-            "Updated fingerprint bundle for session %s: primary=%s message_count=%s "
-            "rolling=%s topic_hash=%s",
-            session_id,
-            fp_bundle.primary.fingerprint,
-            fp_bundle.message_count,
-            len(fp_bundle.rolling_fingerprints),
-            fp_bundle.topic_hash,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Updated fingerprint bundle for session %s: primary=%s message_count=%s "
+                "rolling=%s topic_hash=%s",
+                session_id,
+                fp_bundle.primary.fingerprint,
+                fp_bundle.message_count,
+                len(fp_bundle.rolling_fingerprints),
+                fp_bundle.topic_hash,
+            )

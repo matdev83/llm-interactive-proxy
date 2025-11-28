@@ -151,11 +151,12 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
             signature = build_tool_call_signature(tool_call)
             if not self._lifecycle.register_detection(resolved_session_id, signature):
-                logger.debug(
-                    "Skipping duplicate in-flight tool call (signature=%s) for stream %s",
-                    signature,
-                    resolved_session_id,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Skipping duplicate in-flight tool call (signature=%s) for stream %s",
+                        signature,
+                        resolved_session_id,
+                    )
                 continue
 
             # Track the tool call
@@ -224,10 +225,11 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                     return []
             else:
                 # Unsupported content type (e.g., streaming iterators)
-                logger.debug(
-                    "Unsupported response content type for tool call extraction: %s",
-                    type(content).__name__,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Unsupported response content type for tool call extraction: %s",
+                        type(content).__name__,
+                    )
                 return []
 
         # Check for OpenAI format
@@ -274,10 +276,11 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         """Ensure the session tracker cache does not grow without bound."""
         while len(self._session_trackers) > self._max_cached_sessions:
             evicted_session_id, _ = self._session_trackers.popitem(last=False)
-            logger.debug(
-                "Evicted tool call tracker for session %s due to cache limit",
-                evicted_session_id,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicted tool call tracker for session %s due to cache limit",
+                    evicted_session_id,
+                )
 
     def _build_tracker_config(
         self, config: LoopDetectionConfiguration

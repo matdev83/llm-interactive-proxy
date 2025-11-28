@@ -188,7 +188,9 @@ def calculate_outbound_tokens(
         token_count = count_tokens(prompt_text, model=model)
 
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Calculated outbound tokens for {model}: {token_count} tokens")
+            logger.debug(
+                f"Calculated outbound tokens for {model}: {token_count} tokens"
+            )
 
         return token_count
 
