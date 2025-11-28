@@ -7,10 +7,11 @@ functionality from gemini-cli's LoopDetectionService.
 Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionService.ts
 """
 
+import logging
 import time
 from typing import Any
 
-from src.core.common.logging_utils import get_logger
+from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.domain.assessment import AssessmentRequest, AssessmentResult
 from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.assessment_config import AssessmentConfig
@@ -79,7 +80,7 @@ class AssessmentService(IAssessmentService):
         try:
             # 1. Validate conversation history first
             if not self._validate_history(history):
-                if logger.isEnabledFor(logging.DEBUG):
+                if is_log_level_enabled(logger, logging.DEBUG):
                     logger.debug(
                         f"Conversation history validation failed for session {session_id}, skipping assessment"
                     )
@@ -94,7 +95,7 @@ class AssessmentService(IAssessmentService):
             # 2. Trim history to recent window (replicate trimRecentHistory)
             recent_history = self._trim_recent_history(history)
 
-            if logger.isEnabledFor(logging.DEBUG):
+            if is_log_level_enabled(logger, logging.DEBUG):
                 logger.debug(
                     f"Assessing conversation for session {session_id}: "
                     f"{len(history)} total messages, {len(recent_history)} recent messages"
@@ -110,7 +111,7 @@ class AssessmentService(IAssessmentService):
             result = self._parse_assessment_response(response, session_id, len(history))
 
             duration = time.time() - start_time
-            if logger.isEnabledFor(logging.DEBUG):
+            if is_log_level_enabled(logger, logging.DEBUG):
                 logger.debug(
                     f"Assessment completed for session {session_id}: "
                     f"confidence={result.confidence}, duration={duration:.2f}s"
@@ -186,7 +187,7 @@ class AssessmentService(IAssessmentService):
         # Keep the most recent messages
         trimmed = history[-self.config.history_window :]
 
-        if logger.isEnabledFor(logging.DEBUG):
+        if is_log_level_enabled(logger, logging.DEBUG):
             logger.debug(
                 f"Trimmed conversation history: {len(history)} -> {len(trimmed)} messages"
             )
@@ -275,11 +276,11 @@ class AssessmentService(IAssessmentService):
                 response, session_id, turn_count
             )
 
-            if logger.isEnabledFor(logging.DEBUG):
+            if is_log_level_enabled(logger, logging.DEBUG):
                 logger.debug(
                     f"Parsed assessment response: reasoning='{reasoning[:100]}...', "
-                f"confidence={confidence}, is_unproductive={result.is_unproductive}"
-            )
+                    f"confidence={confidence}, is_unproductive={result.is_unproductive}"
+                )
 
             return result
 
@@ -297,13 +298,13 @@ class AssessmentService(IAssessmentService):
             True if history is valid for assessment
         """
         if not history:
-            if logger.isEnabledFor(logging.DEBUG):
+            if is_log_level_enabled(logger, logging.DEBUG):
                 logger.debug("Empty conversation history, skipping assessment")
             return False
 
         # Check for minimum number of messages for meaningful assessment
         if len(history) < 5:
-            if logger.isEnabledFor(logging.DEBUG):
+            if is_log_level_enabled(logger, logging.DEBUG):
                 logger.debug(
                     f"Insufficient conversation history ({len(history)} messages), "
                     f"skipping assessment"
@@ -315,7 +316,7 @@ class AssessmentService(IAssessmentService):
             msg for msg in history[-10:] if msg.role == "assistant"
         ]
         if len(recent_assistant_messages) < 2:
-            if logger.isEnabledFor(logging.DEBUG):
+            if is_log_level_enabled(logger, logging.DEBUG):
                 logger.debug("Insufficient recent assistant messages for assessment")
             return False
         return True

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -87,7 +87,7 @@ class LLMBackend(abc.ABC):
         Returns:
             Remaining seconds if retry-after is active, None otherwise
         """
-        retry_until = getattr(self, "_retry_after_until", None)
+        retry_until = cast(float | None, getattr(self, "_retry_after_until", None))
         if retry_until is None:
             return None
 
@@ -106,3 +106,24 @@ class LLMBackend(abc.ABC):
             True if rate limited, False otherwise
         """
         return self.get_retry_after_remaining() is not None
+
+    def is_backend_functional(self) -> bool:
+        """
+        Check if this backend is currently functional.
+        Default implementation returns True. Subclasses can override.
+        """
+        return True
+
+    async def _validate_runtime_credentials(self) -> bool:
+        """
+        Attempt to validate runtime credentials and recover if possible.
+        Default implementation returns False (no recovery attempt). Subclasses can override.
+        """
+        return False
+
+    def get_validation_errors(self) -> list[str]:
+        """
+        Get a list of validation errors if the backend is not functional.
+        Default implementation returns an empty list. Subclasses can override.
+        """
+        return []

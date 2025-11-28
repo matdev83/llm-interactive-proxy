@@ -37,6 +37,7 @@ class StreamingResponseEnvelope(InternalDTO):
     media_type: str = "text/event-stream"
     headers: dict[str, str] | None = None
     cancel_callback: Callable[[], Awaitable[None]] | None = None
+    metadata: dict[str, Any] | None = None
 
     @property
     def body_iterator(self) -> AsyncIterator[bytes]:

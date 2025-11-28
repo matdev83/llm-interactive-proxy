@@ -155,11 +155,12 @@ class InMemorySessionRepository(ISessionRepository):
 
                     age = (now - last_active).total_seconds()
                 else:
-                    logger.debug(
-                        "Session %s has non-datetime last_active_at (%s); falling back to access timestamp",
-                        session_id,
-                        type(last_active).__name__,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Session %s has non-datetime last_active_at (%s); falling back to access timestamp",
+                            session_id,
+                            type(last_active).__name__,
+                        )
                     last_access_timestamp = self._last_accessed.get(
                         session_id, now_timestamp
                     )

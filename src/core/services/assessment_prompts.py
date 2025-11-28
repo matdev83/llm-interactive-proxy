@@ -7,9 +7,10 @@ avoiding hardcoded prompts in Python code.
 Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionService.ts (lines 61-75)
 """
 
+import logging
 from typing import Any
 
-from src.core.common.logging_utils import get_logger
+from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.services.assessment_prompt_loader import AssessmentPromptLoader
 
 logger = get_logger(__name__)
@@ -46,7 +47,7 @@ def initialize_prompts() -> None:
         loader.load_prompts()
         logger.info("Assessment prompts initialized successfully")
     else:
-        if logger.isEnabledFor(logging.DEBUG):
+        if is_log_level_enabled(logger, logging.DEBUG):
             logger.debug("Assessment prompts already initialized")
 
 

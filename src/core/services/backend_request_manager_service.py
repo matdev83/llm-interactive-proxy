@@ -60,11 +60,12 @@ class BackendRequestManager(IBackendRequestManager):
         if not command_result.command_executed:
             return request_data
 
-        logger.debug(
-            "Command executed; modified_messages_count=%s, command_results_count=%s",
-            len(command_result.modified_messages or []),
-            len(command_result.command_results or []),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Command executed; modified_messages_count=%s, command_results_count=%s",
+                len(command_result.modified_messages or []),
+                len(command_result.command_results or []),
+            )
 
         final_messages: list[ChatMessage] = list(request_data.messages)
         messages_were_modified = False
@@ -123,10 +124,11 @@ class BackendRequestManager(IBackendRequestManager):
                     extra_messages.extend(extracted)
 
             if extra_messages:
-                logger.debug(
-                    "Appending %s command result messages to backend request",
-                    len(extra_messages),
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Appending %s command result messages to backend request",
+                        len(extra_messages),
+                    )
                 final_messages.extend(extra_messages)
                 messages_were_modified = True
 
@@ -252,10 +254,11 @@ class BackendRequestManager(IBackendRequestManager):
                         schema_name = processing_context.get("schema_name", "unnamed")
                         request_id = processing_context.get("request_id", session_id)
 
-                        logger.debug(
-                            f"Applying structured output middleware - session_id={session_id}, "
-                            f"request_id={request_id}, schema_name={schema_name}"
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Applying structured output middleware - session_id={session_id}, "
+                                f"request_id={request_id}, schema_name={schema_name}"
+                            )
 
                         # Import here to avoid circular imports
                         from src.core.di.services import get_service_provider
@@ -281,10 +284,11 @@ class BackendRequestManager(IBackendRequestManager):
                                     is_streaming=False,
                                 )
                             )
-                            logger.debug(
-                                f"Structured output middleware completed - session_id={session_id}, "
-                                f"request_id={request_id}"
-                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    f"Structured output middleware completed - session_id={session_id}, "
+                                    f"request_id={request_id}"
+                                )
                         except Exception as e:
                             logger.error(
                                 f"Structured output middleware failed - session_id={session_id}, "
@@ -611,10 +615,12 @@ class BackendRequestManager(IBackendRequestManager):
 
                 if metadata.get("tool_call_swallowed") and not swallowed_detected:
                     if reactor_retry_active:
-                        logger.debug(
-                            "Tool call swallow detected during retry for session %s; forwarding chunk without additional retry",
-                            session_id,
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Tool call swallow detected during retry for session %s; forwarding chunk without additional retry",
+                                session_id,
+                                chunk,
+                            )
                         swallowed_detected = True
                         if isinstance(chunk, ProcessedResponse):
                             yield chunk
@@ -717,10 +723,11 @@ class BackendRequestManager(IBackendRequestManager):
                         should_buffer_for_angel = True
                 except Exception:
                     # If we can't create the service, we can't use Angel
-                    logger.debug(
-                        "Failed to initialize Angel service for check",
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to initialize Angel service for check",
+                            exc_info=True,
+                        )
 
             if not should_buffer_for_angel:
                 async for chunk in monitored_stream():
@@ -850,10 +857,11 @@ class BackendRequestManager(IBackendRequestManager):
                     },
                 )
             except Exception:
-                logger.debug(
-                    "Angel streaming verification failed; forwarding original chunks",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Angel streaming verification failed; forwarding original chunks",
+                        exc_info=True,
+                    )
                 for buffered in buffered_chunks:
                     yield buffered
 
@@ -1050,10 +1058,11 @@ class BackendRequestManager(IBackendRequestManager):
                 detector.reset()
                 return detector
         except Exception:
-            logger.debug(
-                "Falling back to standalone loop detector for streaming responses",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Falling back to standalone loop detector for streaming responses",
+                    exc_info=True,
+                )
         fallback = HybridLoopDetector()
         fallback.reset()
         return fallback

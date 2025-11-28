@@ -136,11 +136,12 @@ class BackendService(IBackendService):
             if isinstance(candidate, int) and candidate > 0:
                 return candidate
         except Exception as exc:
-            logger.debug(
-                "Falling back to default per-session backend limit: %s",
-                exc,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Falling back to default per-session backend limit: %s",
+                    exc,
+                    exc_info=True,
+                )
         return default_limit
 
     @staticmethod
@@ -155,11 +156,12 @@ class BackendService(IBackendService):
             evicted_key, evicted_backend = self._per_session_backends.popitem(
                 last=False
             )
-            logger.debug(
-                "Evicting per-session backend %s due to cache limit %d",
-                evicted_key,
-                limit,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Evicting per-session backend %s due to cache limit %d",
+                    evicted_key,
+                    limit,
+                )
             await self._shutdown_backend(evicted_backend)
 
     async def _shutdown_backend(self, backend: LLMBackend) -> None:
@@ -468,9 +470,10 @@ class BackendService(IBackendService):
                 if extra_session:
                     return str(extra_session)
         except Exception:
-            logger.debug(
-                "Failed to read session_id from request.extra_body", exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to read session_id from request.extra_body", exc_info=True
+                )
 
         context_request_id = getattr(context, "request_id", None) if context else None
         if context_request_id:
@@ -621,9 +624,10 @@ class BackendService(IBackendService):
                                 "generation_config"
                             )
             except Exception:
-                logger.debug(
-                    "Planning-phase overrides application failed", exc_info=True
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Planning-phase overrides application failed", exc_info=True
+                    )
 
             if updates:
                 request = request.model_copy(update=updates)
@@ -707,7 +711,8 @@ class BackendService(IBackendService):
 
         except Exception:
             # Log but continue if reasoning config application fails
-            logger.debug("Failed to apply reasoning config", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to apply reasoning config", exc_info=True)
 
         return request
 
@@ -766,17 +771,14 @@ class BackendService(IBackendService):
                     if name == "reasoning_effort":
                         return str(value)
                 except (TypeError, ValueError) as exc:
-                    logger.debug(
-                        "Failed to coerce URI parameter %s=%r for backend %s: %s",
-                        name,
-                        value,
-                        backend_type,
-                        exc,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Failed to coerce raw value {value!r} to type for {name}: {exc}"
+                        )
                     return None
 
                 return value
+
 
             def _assign_param(target: dict[str, Any], name: str, value: Any) -> None:
                 coerced = _coerce_parameter(name, value)
@@ -849,10 +851,11 @@ class BackendService(IBackendService):
                                     config_params, param_name, extra_cfg[param_name]
                                 )
             except Exception as config_error:
-                logger.debug(
-                    f"Failed to extract config parameters for {backend_type}: {config_error}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Failed to extract config parameters for {backend_type}: {config_error}",
+                        exc_info=True,
+                    )
 
             # 2. Header parameters (from request extra_body or headers)
             header_params: dict[str, Any] = {}
@@ -883,10 +886,11 @@ class BackendService(IBackendService):
                     if value is not None:
                         _assign_param(header_params, param_name, value)
             except Exception as header_error:
-                logger.debug(
-                    f"Failed to extract header parameters for {backend_type}: {header_error}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Failed to extract header parameters for {backend_type}: {header_error}",
+                        exc_info=True,
+                    )
 
             # 3. Session parameters (from session reasoning config)
             session_params: dict[str, Any] = {}
@@ -906,10 +910,11 @@ class BackendService(IBackendService):
                                 session_params, reasoning_config, param_name
                             )
                 except Exception as session_error:
-                    logger.debug(
-                        f"Failed to extract session parameters for {backend_type}: {session_error}",
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Failed to extract session parameters for {backend_type}: {session_error}",
+                            exc_info=True,
+                        )
 
             # Apply one-shot overrides from edit-precision middleware as session-level overrides
             try:
@@ -924,11 +929,12 @@ class BackendService(IBackendService):
                     if getattr(request, "top_k", None) is not None:
                         session_params["top_k"] = request.top_k
             except Exception as edit_precision_error:
-                logger.debug(
-                    "Failed to apply edit-precision overrides to session parameters: %s",
-                    edit_precision_error,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to apply edit-precision overrides to session parameters: %s",
+                        edit_precision_error,
+                        exc_info=True,
+                    )
 
             # Resolve parameters using ParameterResolutionService
             try:
@@ -985,7 +991,7 @@ class BackendService(IBackendService):
 
                     # Emit debug logs showing effective parameter values and sources
                     debug_info = resolved.get_debug_info()
-                    if debug_info:
+                    if debug_info and logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             f"Applied URI parameters to request for {backend_type}: {debug_info}"
                         )
@@ -1019,16 +1025,18 @@ class BackendService(IBackendService):
         try:
             use_strategy = self._app_state.get_use_failover_strategy()
         except (AttributeError, KeyError) as e:
-            logger.debug(
-                f"Could not get failover strategy from app state: {e}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Could not get failover strategy from app state: {e}", exc_info=True
+                )
             use_strategy = False
 
         if use_strategy and self._failover_strategy is not None:
             try:
                 return self._failover_strategy.get_failover_plan(model, backend_type)
             except (BackendError, RateLimitExceededError) as e:
-                logger.debug(f"Failover strategy failed: {e}", exc_info=True)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Failover strategy failed: {e}", exc_info=True)
                 # Fall back to coordinator attempts on error
 
         attempts = self._failover_coordinator.get_failover_attempts(model, backend_type)
@@ -1097,11 +1105,12 @@ class BackendService(IBackendService):
                         context.session_id
                     )
                 except Exception:
-                    logger.debug(
-                        "Failed to load session '%s' for backend call",
-                        context.session_id,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to load session '%s' for backend call",
+                            context.session_id,
+                            exc_info=True,
+                        )
                     session = None
 
             request_session_id = (
@@ -1119,11 +1128,11 @@ class BackendService(IBackendService):
                         request_session_id
                     )
                 except Exception:
-                    logger.debug(
-                        "Failed to load session '%s' from request body",
-                        request_session_id,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Could not load session {request_session_id} for backend from backend-only service"
+                        )
+                    # If session cannot be loaded, proceed without it
                     session = None
 
             # Initialize backend only after passing rate limiting checks
@@ -1173,11 +1182,12 @@ class BackendService(IBackendService):
                                 backend_type,
                             )
                     except Exception as e:
-                        logger.debug(
-                            "Backend %s recovery attempt failed: %s",
-                            backend_type,
-                            e,
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Backend %s recovery attempt failed: %s",
+                                backend_type,
+                                e,
+                            )
 
                 # Re-check functional status after recovery attempt
                 if not recovered and not backend.is_backend_functional():
@@ -1257,10 +1267,11 @@ class BackendService(IBackendService):
                     )
                 except Exception:
                     # Log but continue if session access fails
-                    logger.debug(
-                        "Failed to apply reasoning config from session",
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to apply reasoning config from session",
+                            exc_info=True,
+                        )
 
             domain_request = self._backend_config_service.apply_backend_config(
                 domain_request, backend_type, cast(AppConfig, self._config)
@@ -1273,10 +1284,11 @@ class BackendService(IBackendService):
                         domain_request, uri_params, backend_type, session
                     )
                 except Exception:
-                    logger.debug(
-                        "Failed to apply URI parameters",
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to apply URI parameters",
+                            exc_info=True,
+                        )
 
             try:
                 app_config_typed: AppConfig = cast(AppConfig, self._config)
@@ -1315,12 +1327,13 @@ class BackendService(IBackendService):
                             request_payload=domain_request,
                         )
                 except Exception:
-                    logger.debug(
-                        "Wire capture (request) failed for backend %s with model %s",
-                        backend_type,
-                        effective_model,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Wire capture (request) failed for backend %s with model %s",
+                            backend_type,
+                            effective_model,
+                            exc_info=True,
+                        )
                 backend_call_kwargs: dict[str, Any] = {}
                 if session_id_for_backend:
                     backend_call_kwargs["session_id"] = session_id_for_backend
@@ -1348,11 +1361,13 @@ class BackendService(IBackendService):
                     outbound_tokens = calculate_outbound_tokens(
                         domain_request, model=effective_model
                     )
-                    logger.debug(
-                        f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens}"
+                        )
                 except Exception:
-                    logger.debug("Failed to calculate outbound tokens", exc_info=True)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Failed to calculate outbound tokens", exc_info=True)
                     outbound_tokens = 0
 
                 try:
@@ -1402,20 +1417,18 @@ class BackendService(IBackendService):
                                 rate_key, cooldown_seconds
                             )
                         except Exception:
-                            logger.debug(
-                                "Failed to apply cooldown for %s",
-                                rate_key,
-                                exc_info=True,
-                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug("Rate limiter is not available", exc_info=True)
                         if delay_seconds:
                             try:
                                 await asyncio.sleep(delay_seconds)
                             except Exception:
-                                logger.debug(
-                                    "Retry delay sleep failed for backend %s",
-                                    backend_type,
-                                    exc_info=True,
-                                )
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Retry delay sleep failed for backend %s",
+                                        backend_type,
+                                        exc_info=True,
+                                    )
                         result = await backend.chat_completions(
                             request_data=domain_request,
                             processed_messages=request.messages,
@@ -1488,12 +1501,13 @@ class BackendService(IBackendService):
                                 response_content=result.content,
                             )
                 except Exception:
-                    logger.debug(
-                        "Wire capture (response) failed for backend %s with model %s",
-                        backend_type,
-                        effective_model,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Wire capture (response) failed for backend %s with model %s",
+                            backend_type,
+                            effective_model,
+                            exc_info=True,
+                        )
 
                 # IMPORTANT: Always wrap streaming responses with session_id for proper
                 # tool call buffering, even when wire capture is disabled
@@ -1860,10 +1874,14 @@ class BackendService(IBackendService):
                 session.update_state(new_state)
                 await self._session_service.update_session(session)
 
-                logger.debug(
-                    f"Updated planning phase counters: turns={new_turn_count}/{planning_config.max_turns}, "
-                    f"file_writes={new_file_write_count}/{planning_config.max_file_writes}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Updated session %s with planning_phase_turn_count=%d, planning_phase_file_write_count=%d",
+                        session_id,
+                        new_turn_count,
+                        new_file_write_count,
+                    )
+
 
                 if (
                     new_turn_count >= planning_config.max_turns
@@ -2154,7 +2172,8 @@ class BackendService(IBackendService):
                 if value == api_key_value:
                     return name
         except Exception:
-            logger.debug("_detect_key_name failed", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("_detect_key_name failed", exc_info=True)
         return backend_type
 
     async def _execute_complex_failover(

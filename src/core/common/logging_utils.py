@@ -134,16 +134,79 @@ ZAI_KEY_PATTERN = re.compile(r"\b[0-9a-f]{32}\.[A-Za-z0-9]{16,}\b")
 BEARER_TOKEN_PATTERN = re.compile(r"Bearer\s+([a-zA-Z0-9._~+/-]+=*)")
 
 
-def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
-    """Get a structured logger.
+class CompatibleBoundLogger:
+    """Wrapper around structlog logger that adds stdlib logging API compatibility.
+    
+    This wrapper adds the `isEnabledFor` method to structlog's BoundLogger,
+    providing compatibility with code that uses the standard library logging API.
+    """
+
+    def __init__(self, logger: Any):
+        """Initialize the compatible logger wrapper.
+        
+        Args:
+            logger: The underlying structlog logger
+        """
+        self._logger = logger
+
+    def isEnabledFor(self, level: int) -> bool:
+        """Check if logger is enabled for the given level (stdlib compatibility).
+        
+        Args:
+            level: The logging level to check
+            
+        Returns:
+            True if the logger is enabled for the given level
+        """
+        # Try structlog's is_enabled_for method first
+        if hasattr(self._logger, 'is_enabled_for'):
+            return bool(self._logger.is_enabled_for(level))
+        # Fall back to stdlib isEnabledFor if available
+        if hasattr(self._logger, 'isEnabledFor'):
+            return bool(self._logger.isEnabledFor(level))
+        # Default to True if we can't determine
+        return True
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate all other attribute access to the underlying logger.
+        
+        Args:
+            name: The attribute name
+            
+        Returns:
+            The attribute from the underlying logger
+        """
+        return getattr(self._logger, name)
+
+
+def get_logger(name: str | None = None) -> CompatibleBoundLogger:
+    """Get a structured logger with stdlib compatibility.
 
     Args:
         name: Optional logger name
 
     Returns:
-        A structured logger
+        A structured logger with isEnabledFor compatibility
     """
-    return structlog.get_logger(name)  # type: ignore
+    return CompatibleBoundLogger(structlog.get_logger(name))
+
+
+def is_log_level_enabled(logger: Any, level: int) -> bool:
+    """
+    Determine whether the given logger is enabled for the specified level.
+
+    Supports both stdlib loggers (isEnabledFor) and structlog loggers
+    (is_enabled_for) to avoid attribute errors during import-time checks.
+    """
+    check_stdlib = getattr(logger, "isEnabledFor", None)
+    if callable(check_stdlib):
+        return bool(check_stdlib(level))
+
+    check_structlog = getattr(logger, "is_enabled_for", None)
+    if callable(check_structlog):
+        return bool(check_structlog(level))
+
+    return False
 
 
 def redact(value: str, mask: str = "***") -> str:
@@ -705,7 +768,7 @@ def log_async_call(
 class LogContext:
     """Context manager for adding context to logs."""
 
-    def __init__(self, logger: structlog.stdlib.BoundLogger, **context: Any):
+    def __init__(self, logger: CompatibleBoundLogger, **context: Any):
         """Initialize the context manager.
 
         Args:
@@ -714,9 +777,9 @@ class LogContext:
         """
         self.logger = logger
         self.context = context
-        self.bound_logger: structlog.stdlib.BoundLogger | None = None
+        self.bound_logger: Any = None
 
-    def __enter__(self) -> structlog.stdlib.BoundLogger:
+    def __enter__(self) -> Any:
         """Enter the context.
 
         Returns:
@@ -730,7 +793,7 @@ class LogContext:
         # args contains (exc_type, exc_val, exc_tb) but they are not needed in this implementation
         self.bound_logger = None
 
-    def get_logger(self) -> structlog.stdlib.BoundLogger:
+    def get_logger(self) -> Any:
         """Get the bound logger.
 
         Returns:

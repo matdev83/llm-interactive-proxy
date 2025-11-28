@@ -61,7 +61,8 @@ class BackendConfigProvider(IBackendConfigProvider):
                             f"Found non-BackendConfig via attribute '{lookup_name}': {type(cfg)} = {cfg}"
                         )
             except Exception as e:
-                logger.debug(f"Exception in getattr(backends, '{lookup_name}'): {e}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Exception in getattr(backends, '{lookup_name}'): {e}")
 
             # Try dict-style access
             try:
@@ -70,9 +71,10 @@ class BackendConfigProvider(IBackendConfigProvider):
                     if isinstance(cfg, dict):
                         cfg = BackendConfig(**cfg)
                     found_configs.append((lookup_name, cfg, "dict"))
-                    logger.debug(
-                        f"Found config via dict '{lookup_name}': api_key={cfg.api_key}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Found config via dict '{lookup_name}': api_key={cfg.api_key}"
+                        )
             except Exception:
                 pass
 
@@ -83,34 +85,39 @@ class BackendConfigProvider(IBackendConfigProvider):
                     cfg = backends_dict.get(lookup_name)
                     if cfg is not None and isinstance(cfg, BackendConfig):
                         found_configs.append((lookup_name, cfg, "__dict__"))
-                        logger.debug(
-                            f"Found config via __dict__ '{lookup_name}': api_key={cfg.api_key}"
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Found config via __dict__ '{lookup_name}': api_key={cfg.api_key}"
+                            )
             except Exception:
                 pass
 
         # If we found multiple configs, prefer the one with a non-empty API key
         if found_configs:
-            logger.debug(
-                f"Found {len(found_configs)} configurations: {[(n, c.api_key, m) for n, c, m in found_configs]}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Found {len(found_configs)} configurations: {[(n, c.api_key, m) for n, c, m in found_configs]}"
+                )
 
             # First, try to find one with a non-empty API key
             for lookup_name, cfg, method in found_configs:
                 if cfg.api_key:  # Non-empty api_key list
-                    logger.debug(
-                        f"Using config from '{lookup_name}' ({method}) with non-empty api_key: {cfg.api_key}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Using config from '{lookup_name}' ({method}) with non-empty api_key: {cfg.api_key}"
+                        )
                     return BackendConfig(**cfg.model_dump())
 
             # If no config has an API key, return the first one
             lookup_name, cfg, method = found_configs[0]
-            logger.debug(
-                f"Using first config from '{lookup_name}' ({method}) with empty api_key"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Using first config from '{lookup_name}' ({method}) with empty api_key"
+                )
             return BackendConfig(**cfg.model_dump())
 
-        logger.debug(f"No backend config found for any of: {possible_names}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"No backend config found for any of: {possible_names}")
         return None
 
     def iter_backend_names(self) -> Iterable[str]:

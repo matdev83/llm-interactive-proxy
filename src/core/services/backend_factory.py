@@ -125,11 +125,12 @@ class BackendFactory(IBackendFactory):
                             env_spec["default_api_base_url"],
                         )
 
-        logger.debug(
-            f"Backend factory for {backend_type}: current_api_key={current_api_key}, default_backend_env={default_backend_env}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Backend factory for {backend_type}: current_api_key={current_api_key}, default_backend_env={default_backend_env}"
+            )
 
-        if current_api_key:
+        if current_api_key and logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 f"Using provided API key for {backend_type}: {current_api_key[:20] if current_api_key else 'None'}..."
             )

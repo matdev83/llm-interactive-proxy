@@ -214,6 +214,7 @@ class ModelRetryState:
     cooldown_until: float = 0.0
     last_probe_attempt: float = 0.0
     probe_success_count: int = 0
+    retry_after_until: float = 0.0
 
 
 class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
@@ -3971,6 +3972,80 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         status = getattr(error, "status_code", None)
         return status == 429 or (isinstance(code, str) and code in {"empty_response"})
 
+    @staticmethod
+    def _extract_retry_delay_from_error(error: BackendError) -> float | None:
+        """Extract retry delay in seconds from a Gemini error response.
+
+        Gemini returns retry delay in the error details under:
+        - error.details[].retryDelay (e.g., "13021.603158777s")
+        - error.details[].metadata.quotaResetDelay (e.g., "3h37m1.603158777s")
+
+        Args:
+            error: The BackendError to extract retry delay from
+
+        Returns:
+            Retry delay in seconds, or None if not found
+        """
+        try:
+            details = getattr(error, "details", None)
+            if not isinstance(details, dict):
+                return None
+
+            # Try to parse error message for retry delay
+            message = details.get("message", "")
+            if isinstance(message, str):
+                # Look for patterns like "retry after 3h36m52s" or "reset after 3h36m52s"
+                import re
+                match = re.search(r"(?:retry|reset) after (\d+h)?(\d+m)?(\d+s)?", message.lower())
+                if match:
+                    hours = int(match.group(1)[:-1]) if match.group(1) else 0
+                    minutes = int(match.group(2)[:-1]) if match.group(2) else 0
+                    seconds = int(match.group(3)[:-1]) if match.group(3) else 0
+                    total_seconds: float = float(hours * 3600 + minutes * 60 + seconds)
+                    if total_seconds > 0:
+                        return float(total_seconds)
+
+            # Try to extract from error details array
+            error_details = details.get("error", {})
+            if isinstance(error_details, dict):
+                error_details_list = error_details.get("details", [])
+                if isinstance(error_details_list, list):
+                    for detail in error_details_list:
+                        if not isinstance(detail, dict):
+                            continue
+
+                        # Check for RetryInfo with retryDelay
+                        if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
+                            retry_delay_str = detail.get("retryDelay", "")
+                            if isinstance(retry_delay_str, str) and retry_delay_str.endswith("s"):
+                                try:
+                                    return float(retry_delay_str[:-1])
+                                except (ValueError, TypeError):
+                                    pass
+
+                        # Check for metadata with quotaResetDelay
+                        metadata = detail.get("metadata", {})
+                        if isinstance(metadata, dict):
+                            quota_reset_delay = metadata.get("quotaResetDelay", "")
+                            if isinstance(quota_reset_delay, str):
+                                # Parse format like "3h37m1.603158777s"
+                                import re
+                                match = re.match(r"(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?", quota_reset_delay)
+                                if match:
+                                    hours = int(match.group(1)) if match.group(1) else 0
+                                    minutes = int(match.group(2)) if match.group(2) else 0
+                                    seconds_str = match.group(3)
+                                    seconds_value = float(seconds_str) if seconds_str else 0.0
+                                    total_seconds = float(hours * 3600 + minutes * 60 + seconds_value)
+                                    if total_seconds > 0:
+                                        return total_seconds
+
+        except Exception:
+            # Silently fail - retry delay extraction is best-effort
+            pass
+
+        return None
+
     async def _probe_model_recovery(
         self, model: str, bypass_interval_check: bool = False
     ) -> bool:
@@ -3997,6 +4072,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             and now - state.last_probe_attempt
             < self._degradation_config.recovery_probe_interval
         ):
+            return False
+
+        # Check if model is still under retry-after
+        if state.retry_after_until > now:
+            remaining = state.retry_after_until - now
+            logger.debug(
+                f"Skipping recovery probe for model {model}, retry-after still active for {remaining:.1f}s"
+            )
             return False
 
         state.last_probe_attempt = now
@@ -4236,6 +4319,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     if not self._is_rate_limit_like_error(e):
                         self._graceful_metrics.record_duration(time.time() - start_time)
                         raise
+
+                    # Extract and store retry-after from error details
+                    retry_delay = self._extract_retry_delay_from_error(e)
+                    if retry_delay and retry_delay > 0:
+                        state = self._model_retry_states.setdefault(
+                            model, ModelRetryState()
+                        )
+                        state.retry_after_until = time.time() + retry_delay
+                        logger.info(
+                            f"Model {model} rate limited, retry-after set for {retry_delay:.1f}s"
+                        )
 
                     if logger.isEnabledFor(logging.INFO):
                         if getattr(e, "code", None) == "empty_response":
