@@ -288,7 +288,7 @@ class TranslationService:
             for key, value in delta_dict.items():
                 if key not in delta_data:
                     delta_data[key] = value
-            
+
             delta = StreamingChatCompletionChoiceDelta(**delta_data)
             choice = StreamingChatCompletionChoice(
                 index=choice_dict.get("index", 0),
@@ -327,7 +327,13 @@ class TranslationService:
             return chunk
 
         # Formats that return CanonicalStreamChunk
-        canonical_formats = {"gemini", "openai", "raw_text", "openai-responses", "responses"}
+        canonical_formats = {
+            "gemini",
+            "openai",
+            "raw_text",
+            "openai-responses",
+            "responses",
+        }
 
         # Only translate when there's a format mismatch
         result: dict[str, Any] | Any

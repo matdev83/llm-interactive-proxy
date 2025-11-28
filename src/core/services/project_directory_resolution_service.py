@@ -463,7 +463,9 @@ class ProjectDirectoryResolutionService:
 
             # If only one path, use it directly
             if len(paths) == 1:
-                if best_result is None or (best_individual and best_individual[0] > best_result[0]):
+                if best_result is None or (
+                    best_individual and best_individual[0] > best_result[0]
+                ):
                     best_result = best_individual
                 continue
 
@@ -474,12 +476,14 @@ class ProjectDirectoryResolutionService:
                 # Validate the common path is a valid project directory
                 if self._is_valid_project_directory_candidate(common_path, path_type):
                     common_score = self._score_path_candidate(common_path, path_type)
-                    
+
                     # Only use the common path if it's deeper/better than the best individual
                     # This ensures we prefer C:\Users\Test\ProjectA over C:\Users\Test
                     if best_individual:
                         # Compare: prefer the deeper, more specific path
-                        if common_depth >= len(self._get_path_parts(best_individual[1], path_type)):
+                        if common_depth >= len(
+                            self._get_path_parts(best_individual[1], path_type)
+                        ):
                             # Common path is at least as deep, use it
                             candidate = (common_score, common_path)
                         else:
@@ -487,7 +491,7 @@ class ProjectDirectoryResolutionService:
                             candidate = best_individual
                     else:
                         candidate = (common_score, common_path)
-                    
+
                     if best_result is None or candidate[0] > best_result[0]:
                         best_result = candidate
                 elif best_individual:
@@ -512,7 +516,6 @@ class ProjectDirectoryResolutionService:
             return list(pure_path.parts)
         except Exception:
             return []
-
 
     def _extract_directory_from_path(self, path: str) -> str:
         """Extract directory portion from a path that may include a filename."""

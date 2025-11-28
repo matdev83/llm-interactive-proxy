@@ -1040,7 +1040,9 @@ class Translation(BaseTranslator):
         )
 
     @staticmethod
-    def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str, Any]:
+    def gemini_to_domain_stream_chunk(
+        chunk: Any,
+    ) -> CanonicalStreamChunk | dict[str, Any]:
         """
         Translate a Gemini streaming chunk to a canonical CanonicalStreamChunk object.
 
@@ -1458,7 +1460,9 @@ class Translation(BaseTranslator):
         )
 
     @staticmethod
-    def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str, Any]:
+    def openai_to_domain_stream_chunk(
+        chunk: Any,
+    ) -> CanonicalStreamChunk | dict[str, Any]:
         """
         Translate an OpenAI streaming chunk to a canonical CanonicalStreamChunk object.
 
@@ -1597,7 +1601,7 @@ class Translation(BaseTranslator):
                     delta_dict = choice_dict.get("delta", {})
                     if not isinstance(delta_dict, dict):
                         delta_dict = {}
-                    
+
                     delta_obj = StreamingChatCompletionChoiceDelta(**delta_dict)
                     choice_obj = StreamingChatCompletionChoice(
                         index=choice_dict.get("index", 0),
@@ -1605,7 +1609,7 @@ class Translation(BaseTranslator):
                         finish_reason=choice_dict.get("finish_reason"),
                     )
                     canonical_choices.append(choice_obj)
-            
+
             return CanonicalStreamChunk(
                 id=chunk.get("id"),
                 object=chunk.get("object", "chat.completion.chunk"),
@@ -1617,7 +1621,9 @@ class Translation(BaseTranslator):
             )
         except Exception as e:
             # If conversion fails, return error dict
-            logger.warning("Failed to convert OpenAI chunk to CanonicalStreamChunk: %s", e)
+            logger.warning(
+                "Failed to convert OpenAI chunk to CanonicalStreamChunk: %s", e
+            )
             return {"error": f"Failed to convert chunk: {e}"}
 
     @staticmethod
