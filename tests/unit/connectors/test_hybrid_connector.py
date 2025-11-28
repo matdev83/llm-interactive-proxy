@@ -47,81 +47,53 @@ class TestHybridModelSpecificationParsing:
         """Test valid format: hybrid:[backend:model,backend:model]."""
         model_spec = "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]"
 
-        (
-            reasoning_backend,
-            reasoning_model,
-            reasoning_params,
-            execution_backend,
-            execution_model,
-            execution_params,
-        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
+        spec = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
-        assert reasoning_backend == "openai"
-        assert reasoning_model == "gpt-4"
-        assert reasoning_params == {}
-        assert execution_backend == "openai"
-        assert execution_model == "gpt-3.5-turbo"
-        assert execution_params == {}
+        assert spec.reasoning_backend == "openai"
+        assert spec.reasoning_model == "gpt-4"
+        assert spec.reasoning_params == {}
+        assert spec.execution_backend == "openai"
+        assert spec.execution_model == "gpt-3.5-turbo"
+        assert spec.execution_params == {}
 
     def test_valid_format_without_hybrid_prefix(self, hybrid_connector):
         """Test valid format without 'hybrid:' prefix."""
         model_spec = "[openai:gpt-4,anthropic:claude-3]"
 
-        (
-            reasoning_backend,
-            reasoning_model,
-            reasoning_params,
-            execution_backend,
-            execution_model,
-            execution_params,
-        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
+        spec = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
-        assert reasoning_backend == "openai"
-        assert reasoning_model == "gpt-4"
-        assert reasoning_params == {}
-        assert execution_backend == "anthropic"
-        assert execution_model == "claude-3"
-        assert execution_params == {}
+        assert spec.reasoning_backend == "openai"
+        assert spec.reasoning_model == "gpt-4"
+        assert spec.reasoning_params == {}
+        assert spec.execution_backend == "anthropic"
+        assert spec.execution_model == "claude-3"
+        assert spec.execution_params == {}
 
     def test_valid_example_minimax_qwen(self, hybrid_connector):
         """Test valid example: hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]."""
         model_spec = "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]"
 
-        (
-            reasoning_backend,
-            reasoning_model,
-            reasoning_params,
-            execution_backend,
-            execution_model,
-            execution_params,
-        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
+        spec = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
-        assert reasoning_backend == "minimax"
-        assert reasoning_model == "MiniMax-M2"
-        assert reasoning_params == {}
-        assert execution_backend == "qwen-oauth"
-        assert execution_model == "qwen3-coder-plus"
-        assert execution_params == {}
+        assert spec.reasoning_backend == "minimax"
+        assert spec.reasoning_model == "MiniMax-M2"
+        assert spec.reasoning_params == {}
+        assert spec.execution_backend == "qwen-oauth"
+        assert spec.execution_model == "qwen3-coder-plus"
+        assert spec.execution_params == {}
 
     def test_valid_format_with_whitespace(self, hybrid_connector):
         """Test valid format with whitespace around components."""
         model_spec = "hybrid:[ openai : gpt-4 , anthropic : claude-3 ]"
 
-        (
-            reasoning_backend,
-            reasoning_model,
-            reasoning_params,
-            execution_backend,
-            execution_model,
-            execution_params,
-        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
+        spec = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
-        assert reasoning_backend == "openai"
-        assert reasoning_model == "gpt-4"
-        assert reasoning_params == {}
-        assert execution_backend == "anthropic"
-        assert execution_model == "claude-3"
-        assert execution_params == {}
+        assert spec.reasoning_backend == "openai"
+        assert spec.reasoning_model == "gpt-4"
+        assert spec.reasoning_params == {}
+        assert spec.execution_backend == "anthropic"
+        assert spec.execution_model == "claude-3"
+        assert spec.execution_params == {}
 
     def test_invalid_format_missing_brackets(self, hybrid_connector):
         """Test invalid format: missing brackets."""
@@ -261,21 +233,14 @@ class TestHybridModelSpecificationParsing:
             "hybrid:[openai:gpt-4-turbo-preview,anthropic:claude-3-opus-20240229]"
         )
 
-        (
-            reasoning_backend,
-            reasoning_model,
-            reasoning_params,
-            execution_backend,
-            execution_model,
-            execution_params,
-        ) = hybrid_connector._parse_hybrid_model_spec(model_spec)
+        spec = hybrid_connector._parse_hybrid_model_spec(model_spec)
 
-        assert reasoning_backend == "openai"
-        assert reasoning_model == "gpt-4-turbo-preview"
-        assert reasoning_params == {}
-        assert execution_backend == "anthropic"
-        assert execution_model == "claude-3-opus-20240229"
-        assert execution_params == {}
+        assert spec.reasoning_backend == "openai"
+        assert spec.reasoning_model == "gpt-4-turbo-preview"
+        assert spec.reasoning_params == {}
+        assert spec.execution_backend == "anthropic"
+        assert spec.execution_model == "claude-3-opus-20240229"
+        assert spec.execution_params == {}
 
     def test_error_message_includes_format_example(self, hybrid_connector):
         """Test that error messages include format examples."""

@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from src.connectors.hybrid import HybridConnector
+from src.connectors.hybrid import HybridConnector, HybridModelSpec
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope
 
@@ -60,13 +60,13 @@ async def test_hybrid_connector_uses_reasoning_when_probability_is_high(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 
@@ -118,13 +118,13 @@ async def test_hybrid_connector_skips_reasoning_when_probability_is_low(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 
@@ -176,13 +176,13 @@ async def test_hybrid_connector_skips_reasoning_with_zero_probability(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 
@@ -232,13 +232,13 @@ async def test_hybrid_connector_skips_reasoning_when_backoff_active(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 
@@ -291,13 +291,13 @@ async def test_hybrid_connector_triggers_backoff_after_slow_reasoning(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 
@@ -352,13 +352,13 @@ async def test_hybrid_connector_uses_reasoning_with_one_probability(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 
@@ -406,13 +406,13 @@ async def test_hybrid_connector_updates_probability_at_runtime(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 
@@ -487,13 +487,13 @@ async def test_hybrid_connector_forces_reasoning_on_first_message(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 
@@ -540,13 +540,13 @@ async def test_hybrid_connector_uses_probability_after_first_message(
         return_value=ResponseEnvelope(content={})
     )
     hybrid_connector._parse_hybrid_model_spec = MagicMock(
-        return_value=(
-            "reasoning_backend",
-            "reasoning_model",
-            {},
-            "exec_backend",
-            "exec_model",
-            {},
+        return_value=HybridModelSpec(
+            reasoning_backend="reasoning_backend",
+            reasoning_model="reasoning_model",
+            reasoning_params={},
+            execution_backend="exec_backend",
+            execution_model="exec_model",
+            execution_params={},
         )
     )
 

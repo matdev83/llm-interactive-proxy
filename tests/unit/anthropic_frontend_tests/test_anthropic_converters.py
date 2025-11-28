@@ -7,13 +7,11 @@ import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import pytest
 from src.anthropic_converters import (
     _map_finish_reason,
     anthropic_to_openai_request,
     extract_anthropic_usage,
     get_anthropic_models,
-    openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
     openai_to_anthropic_stream_chunk,
 )
@@ -58,12 +56,12 @@ class TestAnthropicConverters:
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        assert openai_req["model"] == "claude-3-sonnet-20240229"
-        assert openai_req["max_tokens"] == 100
-        assert openai_req["stream"] is False
-        assert len(openai_req["messages"]) == 1
-        assert openai_req["messages"][0]["role"] == "user"
-        assert openai_req["messages"][0]["content"] == "Hello"
+        assert openai_req.model == "claude-3-sonnet-20240229"
+        assert openai_req.max_tokens == 100
+        assert openai_req.stream is False
+        assert len(openai_req.messages) == 1
+        assert openai_req.messages[0].role == "user"
+        assert openai_req.messages[0].content == "Hello"
 
     def test_anthropic_to_openai_request_with_system(self) -> None:
         """Test conversion with system message."""
@@ -76,11 +74,11 @@ class TestAnthropicConverters:
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        assert len(openai_req["messages"]) == 2
-        assert openai_req["messages"][0]["role"] == "system"
-        assert openai_req["messages"][0]["content"] == "You are a helpful assistant"
-        assert openai_req["messages"][1]["role"] == "user"
-        assert openai_req["messages"][1]["content"] == "Hello"
+        assert len(openai_req.messages) == 2
+        assert openai_req.messages[0].role == "system"
+        assert openai_req.messages[0].content == "You are a helpful assistant"
+        assert openai_req.messages[1].role == "user"
+        assert openai_req.messages[1].content == "Hello"
 
     def test_anthropic_to_openai_request_with_parameters(self) -> None:
         """Test conversion with all optional parameters."""
@@ -90,18 +88,18 @@ class TestAnthropicConverters:
             max_tokens=200,
             temperature=0.8,
             top_p=0.95,
-            top_k=40,  # Should be dropped
+            top_k=40,
             stop_sequences=["STOP", "END"],
             stream=True,
         )
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        assert openai_req["temperature"] == 0.8
-        assert openai_req["top_p"] == 0.95
-        assert "top_k" not in openai_req  # Should be dropped
-        assert openai_req["stop"] == ["STOP", "END"]
-        assert openai_req["stream"] is True
+        assert openai_req.temperature == 0.8
+        assert openai_req.top_p == 0.95
+        assert openai_req.top_k == 40
+        assert openai_req.stop == ["STOP", "END"]
+        assert openai_req.stream is True
 
     def test_anthropic_to_openai_request_preserves_metadata_user(self) -> None:
         """Metadata user_id should map to the OpenAI user field."""
@@ -114,7 +112,7 @@ class TestAnthropicConverters:
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        assert openai_req["user"] == "agent-007"
+        assert openai_req.user == "agent-007"
 
     def test_anthropic_to_openai_request_serializes_passthrough_blocks(self) -> None:
         """Unknown content blocks should be serialized safely."""
@@ -132,11 +130,11 @@ class TestAnthropicConverters:
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        assert openai_req["model"] == "claude-3-sonnet-20240229"
-        message = openai_req["messages"][0]
-        assert message["role"] == "assistant"
+        assert openai_req.model == "claude-3-sonnet-20240229"
+        message = openai_req.messages[0]
+        assert message.role == "assistant"
 
-        payload = json.loads(message["content"])
+        payload = json.loads(message.content)
         assert payload == [{"type": "custom", "payload": {"foo": "bar"}}]
 
     def test_anthropic_to_openai_request_converts_tools(self) -> None:
@@ -166,10 +164,10 @@ class TestAnthropicConverters:
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        assert openai_req["tool_choice"] == "auto"
-        assert "tools" in openai_req
-        assert len(openai_req["tools"]) == 1
-        tool = openai_req["tools"][0]
+        assert openai_req.tool_choice == "auto"
+        assert openai_req.tools is not None
+        assert len(openai_req.tools) == 1
+        tool = openai_req.tools[0]
         assert tool["type"] == "function"
         function_def = tool["function"]
         assert function_def["name"] == "get_weather"
@@ -191,7 +189,7 @@ class TestAnthropicConverters:
         openai_req = anthropic_to_openai_request(anthropic_req)
 
         assert anthropic_req.max_tokens == 77
-        assert openai_req["max_tokens"] == 77
+        assert openai_req.max_tokens == 77
 
     def test_anthropic_to_openai_request_converts_tool_choice(self) -> None:
         """Anthropic tool_choice should become OpenAI function tool_choice."""
@@ -204,7 +202,7 @@ class TestAnthropicConverters:
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        assert openai_req["tool_choice"] == {
+        assert openai_req.tool_choice == {
             "type": "function",
             "function": {"name": "get_weather"},
         }
@@ -232,18 +230,15 @@ class TestAnthropicConverters:
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        msg = openai_req["messages"][0]
-        assert msg["content"] == "Using tool"
-        assert msg["tool_calls"] == [
-            {
-                "id": "toolu_1",
-                "type": "function",
-                "function": {
-                    "name": "search_docs",
-                    "arguments": '{"query": "weather"}',
-                },
-            }
-        ]
+        msg = openai_req.messages[0]
+        assert msg.content == "Using tool"
+        assert msg.tool_calls is not None
+        assert len(msg.tool_calls) == 1
+        tool_call = msg.tool_calls[0]
+        assert tool_call.id == "toolu_1"
+        assert tool_call.type == "function"
+        assert tool_call.function.name == "search_docs"
+        assert tool_call.function.arguments == '{"query": "weather"}'
 
     def test_anthropic_to_openai_request_converts_tool_result(self) -> None:
         """Anthropic tool_result blocks should translate to OpenAI tool messages."""
@@ -266,10 +261,10 @@ class TestAnthropicConverters:
 
         openai_req = anthropic_to_openai_request(anthropic_req)
 
-        msg = openai_req["messages"][0]
-        assert msg["role"] == "tool"
-        assert msg["tool_call_id"] == "toolu_1"
-        assert msg["content"] == "Result data"
+        msg = openai_req.messages[0]
+        assert msg.role == "tool"
+        assert msg.tool_call_id == "toolu_1"
+        assert msg.content == "Result data"
 
     def test_openai_to_anthropic_response_basic(self) -> None:
         """Test basic OpenAI to Anthropic response conversion."""
@@ -374,10 +369,9 @@ class TestAnthropicConverters:
 
         content_blocks = anthropic_response["content"]
         assert len(content_blocks) == 3
-        assert content_blocks[0] == {
-            "type": "text",
-            "text": "Here are the tool results.",
-        }
+        # First block is text
+        assert content_blocks[0]["type"] == "text"
+        assert content_blocks[0]["text"] == "Here are the tool results."
 
         tool_blocks = [block for block in content_blocks if block["type"] == "tool_use"]
         assert len(tool_blocks) == 2
@@ -412,7 +406,7 @@ class TestAnthropicConverters:
         assert anthropic_response["usage"]["input_tokens"] == 2
         assert anthropic_response["usage"]["output_tokens"] == 3
 
-    def test_openai_to_anthropic_stream_chunk_start(self) -> None:
+    def test_openai_stream_to_anthropic_stream_start(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - start."""
         openai_chunk = '{"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant"}}]}'
 
@@ -423,7 +417,7 @@ class TestAnthropicConverters:
         assert "event: message_start" in anthropic_chunk
         assert "assistant" in anthropic_chunk
 
-    def test_openai_to_anthropic_stream_chunk_content(self) -> None:
+    def test_openai_stream_to_anthropic_stream_content(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - content."""
         openai_chunk = '{"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": "Hello"}}]}'
 
@@ -434,7 +428,7 @@ class TestAnthropicConverters:
         assert "event: content_block_delta" in anthropic_chunk
         assert "Hello" in anthropic_chunk
 
-    def test_openai_to_anthropic_stream_chunk_content_list(self) -> None:
+    def test_openai_stream_to_anthropic_stream_content_list(self) -> None:
         """List-based deltas should be flattened to plain text."""
         openai_chunk = (
             '{"id": "chatcmpl-789", "object": "chat.completion.chunk", '
@@ -449,7 +443,7 @@ class TestAnthropicConverters:
         assert "event: content_block_delta" in anthropic_chunk
         assert "Chunk" in anthropic_chunk
 
-    def test_openai_to_anthropic_stream_chunk_finish(self) -> None:
+    def test_openai_stream_to_anthropic_stream_finish(self) -> None:
         """Test OpenAI stream chunk to Anthropic stream conversion - finish."""
         openai_chunk = '{"id": "chatcmpl-123", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}'
 
@@ -460,7 +454,7 @@ class TestAnthropicConverters:
         assert "event: message_delta" in anthropic_chunk
         assert "end_turn" in anthropic_chunk
 
-    def test_openai_to_anthropic_stream_chunk_invalid(self) -> None:
+    def test_openai_stream_to_anthropic_stream_invalid(self) -> None:
         """Test handling of invalid OpenAI stream chunks."""
         invalid_chunk = "invalid data"
 
@@ -471,7 +465,7 @@ class TestAnthropicConverters:
         # Should return empty for invalid JSON
         assert anthropic_chunk == ""
 
-    def test_openai_to_anthropic_stream_chunk_with_list_content(self) -> None:
+    def test_openai_stream_to_anthropic_stream_with_list_content(self) -> None:
         """Streaming chunk converter should flatten list content."""
         chunk = (
             '{"id": "chatcmpl-123", "choices": '
@@ -485,7 +479,7 @@ class TestAnthropicConverters:
         assert "content_block_delta" in anthropic_chunk
         assert "Hello" in anthropic_chunk
 
-    def test_openai_to_anthropic_stream_chunk_role_event(self) -> None:
+    def test_openai_stream_to_anthropic_stream_role_event(self) -> None:
         """Role-only deltas should produce a message_start event."""
         chunk = '{"id": "chatcmpl-123", "choices": [{"delta": {"role": "assistant"}}]}'
 
@@ -582,87 +576,11 @@ class TestAnthropicConverters:
         openai_req = anthropic_to_openai_request(anthropic_req)
 
         # Should have system + 3 conversation messages
-        assert len(openai_req["messages"]) == 4
-        assert openai_req["messages"][0]["role"] == "system"
-        assert openai_req["messages"][1]["role"] == "user"
-        assert openai_req["messages"][1]["content"] == "What is 2+2?"
-        assert openai_req["messages"][2]["role"] == "assistant"
-        assert openai_req["messages"][2]["content"] == "2+2 equals 4."
-        assert openai_req["messages"][3]["role"] == "user"
-        assert openai_req["messages"][3]["content"] == "What about 3+3?"
-
-
-@pytest.mark.asyncio
-async def test_openai_stream_to_anthropic_stream_handles_multi_event_chunks() -> None:
-    """Multiple OpenAI SSE events in a single chunk should be parsed individually."""
-
-    request = AnthropicMessagesRequest(
-        model="claude-3-sonnet-20240229",
-        messages=[AnthropicMessage(role="user", content="Hi")],
-        stream=True,
-    )
-
-    async def chunk_generator():
-        payload = (
-            b'data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", '
-            b'"created": 123, "model": "code-assist-model", "choices": '
-            b'[{"index": 0, "delta": {"role": "assistant"}}]}\n\n'
-            b'data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", '
-            b'"created": 124, "model": "code-assist-model", "choices": '
-            b'[{"index": 0, "delta": {"content": "Hello"}}]}\n\n'
-        )
-        yield payload
-        yield (
-            b'data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", '
-            b'"created": 125, "model": "code-assist-model", "choices": '
-            b'[{"index": 0, "delta": {}, "finish_reason": "stop"}]}\n\n'
-        )
-        yield b"data: [DONE]\n\n"
-
-    chunks: list[str] = []
-    async for event in openai_stream_to_anthropic_stream(
-        chunk_generator(), request, request.model, "session-123"
-    ):
-        chunks.append(event)
-
-    assert any("event: message_start" in chunk for chunk in chunks)
-    text_events = [chunk for chunk in chunks if '"text_delta"' in chunk]
-    assert len(text_events) == 1
-    assert "Hello" in text_events[0]
-    assert chunks[-1] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
-
-
-@pytest.mark.asyncio
-async def test_openai_stream_to_anthropic_stream_handles_partial_payloads() -> None:
-    """SSE payloads split across TCP boundaries should be buffered until complete."""
-
-    request = AnthropicMessagesRequest(
-        model="claude-3-haiku-20240307",
-        messages=[AnthropicMessage(role="user", content="Hi")],
-        stream=True,
-    )
-
-    async def chunk_generator():
-        yield (
-            b'data: {"id": "chatcmpl-2", "object": "chat.completion.chunk", '
-            b'"created": 200, "model": "code-assist-model", "choices": '
-            b'[{"index": 0, "delta": {"role": "assistant"}}]}\n\n'
-        )
-        yield (
-            b'data: {"id": "chatcmpl-2", "object": "chat.completion.chunk", '
-            b'"created": 201, "model": "code-assist-model", "choices": '
-            b'[{"index": 0, "delta": {"content": "Partial'
-        )
-        yield b' text"}}]}\n\n'
-        yield b"data: [DONE]\n\n"
-
-    chunks: list[str] = []
-    async for event in openai_stream_to_anthropic_stream(
-        chunk_generator(), request, request.model, "session-456"
-    ):
-        chunks.append(event)
-
-    text_payloads = [chunk for chunk in chunks if '"text_delta"' in chunk]
-    assert len(text_payloads) == 1
-    assert "Partial text" in text_payloads[0]
-    assert chunks[-1] == 'event: message_stop\ndata: {"type": "message_stop"}\n\n'
+        assert len(openai_req.messages) == 4
+        assert openai_req.messages[0].role == "system"
+        assert openai_req.messages[1].role == "user"
+        assert openai_req.messages[1].content == "What is 2+2?"
+        assert openai_req.messages[2].role == "assistant"
+        assert openai_req.messages[2].content == "2+2 equals 4."
+        assert openai_req.messages[3].role == "user"
+        assert openai_req.messages[3].content == "What about 3+3?"

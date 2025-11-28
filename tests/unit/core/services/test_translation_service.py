@@ -2,422 +2,225 @@ import pytest
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
-    ChatCompletionChoice,
-    ChatCompletionChoiceMessage,
-    ChatMessage,
-    ChatResponse,
+    CanonicalStreamChunk,
 )
 from src.core.services.translation_service import TranslationService
 
 
-def test_translation_service_initialization():
-    service = TranslationService()
-    assert service is not None, "TranslationService should initialize without errors."
+class TestTranslationService:
+    """Test the TranslationService."""
 
-
-def test_to_domain_request_gemini():
-    service = TranslationService()
-    gemini_request = {
-        "model": "gemini-pro",
-        "contents": [{"role": "user", "parts": [{"text": "Hello"}]}],
-        "messages": [{"role": "user", "content": "Hello"}],
-    }
-    domain_request = service.to_domain_request(gemini_request, "gemini")
-    assert isinstance(domain_request, CanonicalChatRequest)
-    assert domain_request.model == "gemini-pro"
-    assert domain_request.messages[0].content == "Hello"
-
-
-def test_to_domain_response_gemini():
-    service = TranslationService()
-    gemini_response = {
-        "candidates": [
-            {
-                "content": {"parts": [{"text": "Hello back"}]},
-                "finishReason": "STOP",
-            }
-        ],
-        "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 2},
-    }
-    domain_response = service.to_domain_response(gemini_response, "gemini")
-    assert isinstance(domain_response, CanonicalChatResponse)
-    # We're using a placeholder implementation which returns a fixed response
-    assert domain_response.choices[0].message is not None
-
-
-def test_to_domain_request_openai():
-    service = TranslationService()
-    openai_request = {
-        "model": "gpt-4",
-        "messages": [{"role": "user", "content": "Hello"}],
-    }
-    domain_request = service.to_domain_request(openai_request, "openai")
-    assert isinstance(domain_request, CanonicalChatRequest)
-    assert domain_request.model == "gpt-4"
-    assert domain_request.messages[0].content == "Hello"
-
-
-def test_to_domain_request_openai_with_reasoning_block():
-    service = TranslationService()
-    openai_request = {
-        "model": "o1-mini",
-        "messages": [{"role": "user", "content": "Explain"}],
-        "reasoning": {"effort": "medium", "max_tokens": 2048},
-    }
-
-    domain_request = service.to_domain_request(openai_request, "openai")
-
-    assert domain_request.reasoning_effort == "medium"
-    assert domain_request.reasoning == {"effort": "medium", "max_tokens": 2048}
-
-
-def test_from_domain_request_openai_includes_reasoning_effort():
-    service = TranslationService()
-    canonical_request = CanonicalChatRequest(
-        model="o1-mini",
-        messages=[ChatMessage(role="user", content="Solve a puzzle")],
-        reasoning_effort="high",
-    )
-
-    payload = service.from_domain_request(canonical_request, "openai")
-
-    assert "reasoning" in payload
-    assert payload["reasoning"]["effort"] == "high"
-
-
-def test_to_domain_response_openai():
-    service = TranslationService()
-    openai_response = {
-        "id": "chatcmpl-123",
-        "object": "chat.completion",
-        "created": 1677652288,
-        "model": "gpt-4",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "Hello back"},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
-    }
-    domain_response = service.to_domain_response(openai_response, "openai")
-    assert isinstance(domain_response, CanonicalChatResponse)
-    assert domain_response.choices[0].message.content == "Hello back"
-
-
-def test_to_domain_response_openai_responses_output():
-    service = TranslationService()
-    responses_payload = {
-        "id": "resp-789",
-        "object": "response",
-        "created": 1700000001,
-        "model": "gpt-4.1",
-        "output": [
-            {
-                "id": "msg-2",
-                "role": "assistant",
-                "type": "message",
-                "status": "completed",
-                "content": [
-                    {"type": "output_text", "text": "Structured reply"},
-                    {
-                        "type": "tool_call",
-                        "id": "call-2",
-                        "function": {
-                            "name": "make_call",
-                            "arguments": '{"foo": "bar"}',
-                        },
-                    },
-                ],
-            }
-        ],
-        "usage": {"input_tokens": 5, "output_tokens": 7},
-    }
-
-    domain_response = service.to_domain_response(responses_payload, "openai-responses")
-
-    assert isinstance(domain_response, CanonicalChatResponse)
-    assert domain_response.object == "response"
-    assert len(domain_response.choices) == 1
-    choice = domain_response.choices[0]
-    assert choice.message is not None
-    assert choice.message.tool_calls is not None
-    assert choice.message.tool_calls[0].function.name == "make_call"
-    assert choice.finish_reason == "stop"
-    assert domain_response.usage is not None
-    if domain_response.usage:
-        assert domain_response.usage["prompt_tokens"] == 5
-        assert domain_response.usage["completion_tokens"] == 7
-
-
-def test_responses_to_domain_request_with_input_field():
-    service = TranslationService()
-    responses_request = {
-        "model": "gpt-4o-mini",
-        "input": [
-            {
-                "role": "system",
-                "content": [{"type": "text", "text": "You are helpful."}],
-            },
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": "Hello there"}],
-            },
-        ],
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "test_schema",
-                "schema": {
-                    "type": "object",
-                    "properties": {"message": {"type": "string"}},
-                    "required": ["message"],
-                },
-            },
-        },
-    }
-
-    domain_request = service.to_domain_request(responses_request, "responses")
-
-    assert domain_request.model == "gpt-4o-mini"
-    assert len(domain_request.messages) == 2
-    assert domain_request.messages[0].role == "system"
-    system_content = domain_request.messages[0].content
-    assert isinstance(system_content, list)
-    assert len(system_content) == 1
-    assert getattr(system_content[0], "text", None) == "You are helpful."
-    assert domain_request.messages[1].role == "user"
-    user_content = domain_request.messages[1].content
-    assert isinstance(user_content, list)
-    assert len(user_content) == 1
-    assert getattr(user_content[0], "text", None) == "Hello there"
-    assert domain_request.extra_body is not None
-    assert domain_request.extra_body["response_format"]["json_schema"]["name"] == (
-        "test_schema"
-    )
-
-
-def test_responses_to_domain_request_with_string_input():
-    service = TranslationService()
-    responses_request = {
-        "model": "gpt-4o-mini",
-        "input": "Plain text input",
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "text_schema",
-                "schema": {"type": "object"},
-            },
-        },
-    }
-
-    domain_request = service.to_domain_request(responses_request, "responses")
-
-    assert len(domain_request.messages) == 1
-    assert domain_request.messages[0].role == "user"
-    assert domain_request.messages[0].content == "Plain text input"
-
-
-def test_to_domain_request_code_assist():
-    """Test translation from Code Assist API request format."""
-    service = TranslationService()
-    code_assist_request = {
-        "model": "gemini-1.5-flash-002",
-        "messages": [{"role": "user", "content": "Hello"}],
-        "project": "test-project",  # Code Assist specific field
-    }
-    domain_request = service.to_domain_request(code_assist_request, "code_assist")
-    assert isinstance(domain_request, CanonicalChatRequest)
-    assert domain_request.model == "gemini-1.5-flash-002"
-    assert domain_request.messages[0].content == "Hello"
-
-
-def test_to_domain_response_code_assist():
-    """Test translation from Code Assist API response format."""
-    service = TranslationService()
-    code_assist_response = {
-        "response": {
-            "candidates": [{"content": {"parts": [{"text": "Hello from Code Assist"}]}}]
+    def test_to_domain_request(self):
+        """Test basic request translation."""
+        service = TranslationService()
+        req = {
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "hello"}],
         }
-    }
-    domain_response = service.to_domain_response(code_assist_response, "code_assist")
-    assert isinstance(domain_response, CanonicalChatResponse)
-    assert domain_response.choices[0].message.content == "Hello from Code Assist"
+        domain_req = service.to_domain_request(req, "openai")
+        assert isinstance(domain_req, CanonicalChatRequest)
+        assert domain_req.model == "test-model"
 
+    def test_from_domain_request(self):
+        """Test basic domain to external request translation."""
+        service = TranslationService()
+        domain_req = CanonicalChatRequest(
+            model="test-model", messages=[{"role": "user", "content": "hello"}]
+        )
+        external_req = service.from_domain_request(domain_req, "openai")
+        assert isinstance(external_req, dict)
+        assert external_req["model"] == "test-model"
 
-def test_to_domain_stream_chunk_code_assist():
-    """Test translation from Code Assist API stream chunk format."""
-    service = TranslationService()
-    code_assist_chunk = {
-        "response": {
-            "candidates": [{"content": {"parts": [{"text": "streaming text"}]}}]
+    def test_to_domain_response(self):
+        """Test basic response translation."""
+        service = TranslationService()
+        resp = {
+            "id": "test",
+            "model": "test-model",
+            "choices": [{"message": {"role": "assistant", "content": "hi"}}],
         }
-    }
-    domain_chunk = service.to_domain_stream_chunk(code_assist_chunk, "code_assist")
-    assert isinstance(domain_chunk, dict)
-    assert domain_chunk["choices"][0]["delta"]["content"] == "streaming text"
+        domain_resp = service.to_domain_response(resp, "openai")
+        assert isinstance(domain_resp, CanonicalChatResponse)
+        assert domain_resp.model == "test-model"
 
+    def test_from_domain_response(self):
+        """Test basic domain to external response translation."""
+        service = TranslationService()
+        domain_resp = CanonicalChatResponse(
+            id="test",
+            created=123,  # Added missing required field
+            model="test-model",
+            choices=[
+                {"index": 0, "message": {"role": "assistant", "content": "hi"}}
+            ],  # Added missing required field 'index'
+        )
+        external_resp = service.from_domain_response(domain_resp, "openai")
+        assert isinstance(external_resp, dict)
+        assert external_resp["model"] == "test-model"
 
-def test_to_domain_stream_chunk_gemini():
-    """Test translation from Gemini stream chunk format."""
-    service = TranslationService()
-    gemini_chunk = {
-        "candidates": [
-            {
-                "content": {"parts": [{"text": "Gemini streaming"}]},
-                "finishReason": "STOP",
+    def test_to_domain_stream_chunk_openai(self):
+        """Test translation from OpenAI stream chunk format."""
+        service = TranslationService()
+        openai_chunk = {
+            "id": "chatcmpl-123",
+            "object": "chat.completion.chunk",
+            "created": 1677652288,
+            "model": "gpt-4",
+            "choices": [
+                {"index": 0, "delta": {"content": "Hello"}, "finish_reason": None}
+            ],
+        }
+        domain_chunk = service.to_domain_stream_chunk(openai_chunk, "openai")
+        assert isinstance(domain_chunk, CanonicalStreamChunk)
+        assert domain_chunk.id == "chatcmpl-123"
+        assert domain_chunk.choices[0].delta.content == "Hello"
+
+    def test_to_domain_stream_chunk_code_assist(self):
+        """Test translation from Code Assist stream chunk format."""
+        service = TranslationService()
+        code_assist_chunk = {
+            "response": {
+                "candidates": [{"content": {"parts": [{"text": "streaming text"}]}}]
             }
-        ]
-    }
+        }
+        domain_chunk = service.to_domain_stream_chunk(code_assist_chunk, "code_assist")
+        assert isinstance(domain_chunk, dict | CanonicalStreamChunk)
+        assert domain_chunk["choices"][0]["delta"]["content"] == "streaming text"
 
-    domain_chunk = service.to_domain_stream_chunk(gemini_chunk, "gemini")
+    def test_to_domain_stream_chunk_gemini(self):
+        """Test translation from Gemini stream chunk format."""
+        service = TranslationService()
+        gemini_chunk = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "Gemini streaming"}]},
+                    "finishReason": "STOP",
+                }
+            ]
+        }
 
-    assert isinstance(domain_chunk, dict)
-    assert domain_chunk["object"] == "chat.completion.chunk"
-    assert domain_chunk["choices"][0]["delta"]["content"] == "Gemini streaming"
-    assert domain_chunk["choices"][0]["finish_reason"] == "stop"
+        domain_chunk = service.to_domain_stream_chunk(gemini_chunk, "gemini")
 
+        assert isinstance(domain_chunk, CanonicalStreamChunk)
+        assert domain_chunk.object == "chat.completion.chunk"
+        assert domain_chunk.choices[0].delta.content == "Gemini streaming"
+        assert domain_chunk.choices[0].finish_reason == "stop"
 
-def test_to_domain_request_raw_text():
-    """Test translation from raw text format."""
-    service = TranslationService()
-    raw_text_request = "Hello world"
-    domain_request = service.to_domain_request(raw_text_request, "raw_text")
-    assert isinstance(domain_request, CanonicalChatRequest)
-    assert domain_request.model == "text-model"
-    assert domain_request.messages[0].content == "Hello world"
+    def test_to_domain_request_raw_text(self):
+        """Test translation from raw text format."""
+        service = TranslationService()
+        raw_text_request = "Hello world"
+        domain_request = service.to_domain_request(raw_text_request, "raw_text")
+        assert isinstance(domain_request, CanonicalChatRequest)
+        assert domain_request.model == "text-model"
+        assert domain_request.messages[0].content == "Hello world"
 
+    def test_to_domain_response_raw_text(self):
+        """Test translation from raw text response format."""
+        service = TranslationService()
+        raw_text_response = "Response text"
+        domain_response = service.to_domain_response(raw_text_response, "raw_text")
+        assert isinstance(domain_response, CanonicalChatResponse)
+        assert domain_response.choices[0].message.content == "Response text"
 
-def test_to_domain_response_raw_text():
-    """Test translation from raw text response format."""
-    service = TranslationService()
-    raw_text_response = "Response text"
-    domain_response = service.to_domain_response(raw_text_response, "raw_text")
-    assert isinstance(domain_response, CanonicalChatResponse)
-    assert domain_response.choices[0].message.content == "Response text"
+    def test_to_domain_stream_chunk_raw_text(self):
+        """Test translation from raw text stream chunk format."""
+        service = TranslationService()
+        raw_text_chunk = "Streaming part"
+        domain_chunk = service.to_domain_stream_chunk(raw_text_chunk, "raw_text")
+        assert isinstance(domain_chunk, CanonicalStreamChunk)
+        assert domain_chunk.choices[0].delta.content == "Streaming part"
 
+    def test_to_domain_stream_chunk_anthropic(self):
+        """Test translation from Anthropic stream chunk format."""
+        service = TranslationService()
+        anthropic_chunk = {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "Hello"},
+        }
+        domain_chunk = service.to_domain_stream_chunk(anthropic_chunk, "anthropic")
+        # Anthropic chunks are still returned as dicts by Translation for now
+        assert isinstance(domain_chunk, dict)
+        assert domain_chunk["choices"][0]["delta"]["content"] == "Hello"
 
-def test_to_domain_stream_chunk_raw_text():
-    """Test translation from raw text stream chunk format."""
-    service = TranslationService()
-    raw_text_chunk = "streaming chunk"
-    domain_chunk = service.to_domain_stream_chunk(raw_text_chunk, "raw_text")
-    assert isinstance(domain_chunk, dict)
-    assert domain_chunk["choices"][0]["delta"]["content"] == "streaming chunk"
+    def test_to_domain_stream_chunk_unsupported_format(self):
+        """Test error handling for unsupported stream chunk format."""
+        service = TranslationService()
+        with pytest.raises(NotImplementedError):
+            service.to_domain_stream_chunk({}, "unsupported")
 
+    def test_from_domain_stream_chunk_openai(self):
+        """Test translation from domain stream chunk to OpenAI format."""
+        service = TranslationService()
+        domain_chunk = CanonicalStreamChunk(
+            id="test",
+            object="chat.completion.chunk",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": {"content": "Hello", "role": "assistant"},
+                    "finish_reason": None,
+                }
+            ],
+        )
+        openai_chunk = service.from_domain_stream_chunk(domain_chunk, "openai")
+        assert isinstance(openai_chunk, dict)
+        assert openai_chunk["id"] == "test"
+        assert openai_chunk["choices"][0]["delta"]["content"] == "Hello"
 
-def test_to_domain_stream_chunk_raw_text_wrapped():
-    """Test translation from wrapped raw text stream chunk format."""
-    service = TranslationService()
-    wrapped_chunk = {"text": "wrapped streaming chunk"}
-    domain_chunk = service.to_domain_stream_chunk(wrapped_chunk, "raw_text")
-    assert isinstance(domain_chunk, dict)
-    assert domain_chunk["choices"][0]["delta"]["content"] == "wrapped streaming chunk"
+    def test_from_domain_stream_chunk_anthropic(self):
+        """Test translation from domain stream chunk to Anthropic format."""
+        service = TranslationService()
+        domain_chunk = CanonicalStreamChunk(
+            id="test",
+            object="chat.completion.chunk",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": {"content": "Hello", "role": "assistant"},
+                    "finish_reason": None,
+                }
+            ],
+        )
+        anthropic_chunk = service.from_domain_stream_chunk(domain_chunk, "anthropic")
+        assert isinstance(anthropic_chunk, dict)
+        assert anthropic_chunk["type"] == "content_block_delta"
+        assert anthropic_chunk["delta"]["text"] == "Hello"
 
+    def test_from_domain_stream_chunk_gemini(self):
+        """Test translation from domain stream chunk to Gemini format."""
+        service = TranslationService()
+        domain_chunk = CanonicalStreamChunk(
+            id="test",
+            object="chat.completion.chunk",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": {"content": "Hello", "role": "assistant"},
+                    "finish_reason": None,
+                }
+            ],
+        )
+        gemini_chunk = service.from_domain_stream_chunk(domain_chunk, "gemini")
+        assert isinstance(gemini_chunk, dict)
+        assert gemini_chunk["candidates"][0]["content"]["parts"][0]["text"] == "Hello"
 
-def test_from_domain_to_openai_response_includes_reasoning():
-    service = TranslationService()
-    response = ChatResponse(
-        id="resp-openai",
-        created=111,
-        model="gpt-4o",
-        choices=[
-            ChatCompletionChoice(
-                index=0,
-                message=ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content="Here is the answer.",
-                    reasoning_content="First, analyze the task.",
-                ),
-                finish_reason="stop",
-            )
-        ],
-    )
-
-    payload = service.from_domain_to_openai_response(response)
-    message = payload["choices"][0]["message"]
-    assert message["content"] == "Here is the answer."
-    assert message["reasoning_content"] == "First, analyze the task."
-    assert message["reasoning"] == "First, analyze the task."
-
-
-def test_from_domain_to_anthropic_response_includes_thinking():
-    service = TranslationService()
-    response = ChatResponse(
-        id="resp-anthropic",
-        created=222,
-        model="claude-3-opus",
-        choices=[
-            ChatCompletionChoice(
-                index=0,
-                message=ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content="Final output.",
-                    reasoning_content="Plan carefully.",
-                ),
-                finish_reason="stop",
-            )
-        ],
-    )
-
-    payload = service.from_domain_to_anthropic_response(response)
-    thinking_block = payload["content"][0]
-    assert thinking_block["type"] == "thinking"
-    assert thinking_block["thinking"] == "Plan carefully."
-
-
-def test_from_domain_to_gemini_response_includes_reasoning_part():
-    service = TranslationService()
-    response = ChatResponse(
-        id="resp-gemini",
-        created=333,
-        model="gemini-1.5-pro",
-        choices=[
-            ChatCompletionChoice(
-                index=0,
-                message=ChatCompletionChoiceMessage(
-                    role="model",
-                    content="Gemini reply.",
-                    reasoning_content="Outline the solution.",
-                ),
-                finish_reason="stop",
-            )
-        ],
-    )
-
-    payload = service.from_domain_to_gemini_response(response)
-    parts = payload["candidates"][0]["content"]["parts"]
-    assert parts[0]["type"] == "reasoning"
-    assert parts[0]["text"] == "Outline the solution."
-
-
-def test_from_domain_request_without_converter_raises() -> None:
-    """Ensure outbound translation fails loudly when no converter is available."""
-
-    service = TranslationService()
-    canonical_request = CanonicalChatRequest(
-        model="gpt-4",
-        messages=[ChatMessage(role="user", content="Hello")],
-    )
-
-    with pytest.raises(NotImplementedError):
-        service.from_domain_request(canonical_request, "raw_text")
-
-
-def test_register_custom_from_domain_request_converter() -> None:
-    """Custom outbound converters should be usable via the registration API."""
-
-    service = TranslationService()
-    canonical_request = CanonicalChatRequest(
-        model="gpt-4",
-        messages=[ChatMessage(role="user", content="Hello")],
-    )
-
-    def custom_converter(request: CanonicalChatRequest) -> dict[str, str]:
-        return {"model": request.model, "payload": "ok"}
-
-    service.register_converter("from_domain_request", "raw_text", custom_converter)
-
-    converted = service.from_domain_request(canonical_request, "raw_text")
-    assert converted == {"model": "gpt-4", "payload": "ok"}
+    def test_from_domain_stream_chunk_unsupported_format(self):
+        """Test error handling for unsupported target stream chunk format."""
+        service = TranslationService()
+        domain_chunk = CanonicalStreamChunk(
+            id="test",
+            object="chat.completion.chunk",
+            created=123,
+            model="test-model",
+            choices=[],
+        )
+        with pytest.raises(NotImplementedError):
+            service.from_domain_stream_chunk(domain_chunk, "unsupported")

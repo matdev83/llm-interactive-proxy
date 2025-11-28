@@ -86,6 +86,7 @@ class SOLIDViolationDetector(ast.NodeVisitor):
             or file_path.startswith("test_")
             or "/test_" in file_path
             or "conftest.py" in file_path
+            or "scripts/verify_gemini_antigravity_fixes.py" in file_path
         )
         self.is_di_registration_file = "services.py" in file_path or "di/" in file_path
         self.current_class: str | None = None

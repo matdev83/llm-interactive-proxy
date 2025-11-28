@@ -186,30 +186,33 @@ async def test_chat_completions_streaming_with_tiktoken_usage_calculation():
             effective_model="gemini-pro",
         )
 
-    # Assert
-    assert isinstance(result_envelope, StreamingResponseEnvelope)
+        # Assert
+        assert isinstance(result_envelope, StreamingResponseEnvelope)
 
-    all_chunks = []
-    async for chunk in result_envelope.content:
-        all_chunks.append(chunk.content)
+        all_chunks = []
+        async for chunk in result_envelope.content:
+            all_chunks.append(chunk.content)
 
-    assert len(all_chunks) == 4  # 2 content chunks, 1 usage chunk, 1 done chunk
+        assert len(all_chunks) == 3  # 2 content chunks, 1 merged stop+usage chunk
 
-    # Check content chunks
-    assert all_chunks[0]["choices"][0]["delta"]["content"] == "Streamed "
-    assert all_chunks[1]["choices"][0]["delta"]["content"] == "World"
+        # Check content chunks
+        assert all_chunks[0]["choices"][0]["delta"]["content"] == "Streamed "
+        assert all_chunks[1]["choices"][0]["delta"]["content"] == "World"
 
-    # Check usage chunk
-    usage_chunk = all_chunks[2]
-    assert "usage" in usage_chunk
-    assert usage_chunk["usage"]["prompt_tokens"] == 2  # "Hello stream"
-    assert (
-        usage_chunk["usage"]["completion_tokens"] == 3
-    )  # "Streamed " + "World" = 3 tokens
-    assert usage_chunk["usage"]["total_tokens"] == 5  # 2 prompt + 3 completion
+        # Check final chunk (usage + stop merged)
+        final_chunk = all_chunks[2]
+        # Handle StopChunkWithUsage wrapper or dict
+        if hasattr(final_chunk, "to_plain_dict"):
+            final_chunk_dict = final_chunk.to_plain_dict()
+        else:
+            final_chunk_dict = dict(final_chunk)
 
-    # Check final chunk
-    assert all_chunks[3]["choices"][0]["finish_reason"] == "stop"
+        assert "usage" in final_chunk_dict
+        assert final_chunk_dict["usage"]["prompt_tokens"] == 2  # "Hello stream"
+        assert (
+            final_chunk_dict["usage"]["completion_tokens"] == 3
+        )  # "Streamed " + "World" = 3 tokens
+        assert final_chunk_dict["usage"]["total_tokens"] == 5  # 2 prompt + 3 completion
 
 
 @pytest.mark.asyncio

@@ -211,7 +211,7 @@ async def test_chat_completions_streaming_with_tiktoken_usage_calculation():
 
     def mock_iter_content(*args, **kwargs):
         # Simulate character-by-character streaming as the real API does
-        data = b'data: {"choices": [{"delta": {"content": "Streamed "}}]}\ndata: {"choices": [{"delta": {"content": "World"}}]}\ndata: [DONE]\n'
+        data = b'data: {"choices": [{"delta": {"content": "Streamed "}}], "finish_reason": "stop"}\ndata: {"choices": [{"delta": {"content": "World"}}], "finish_reason": "stop"}\ndata: [DONE]\n'
         for byte in data:
             yield bytes([byte])
 
@@ -254,23 +254,34 @@ async def test_chat_completions_streaming_with_tiktoken_usage_calculation():
     async for chunk in result_envelope.content:
         all_chunks.append(chunk.content)
 
-    assert len(all_chunks) == 4  # 2 content chunks, 1 usage chunk, 1 done chunk
+    # Updated to expect 3 chunks (merged usage/stop) instead of 4
+    # [Chunk 1 (content), Chunk 2 (content), Chunk 3 (stop + usage)]
+    assert len(all_chunks) == 3
 
     # Check content chunks
     assert all_chunks[0]["choices"][0]["delta"]["content"] == "Streamed "
     assert all_chunks[1]["choices"][0]["delta"]["content"] == "World"
 
-    # Check usage chunk
-    usage_chunk = all_chunks[2]
-    assert "usage" in usage_chunk
-    assert usage_chunk["usage"]["prompt_tokens"] == 2  # "Hello stream"
-    assert (
-        usage_chunk["usage"]["completion_tokens"] == 3
-    )  # "Streamed " + "World" = 3 tokens
-    assert usage_chunk["usage"]["total_tokens"] == 5  # 2 prompt + 3 completion
+    # Check final chunk (usage + stop merged)
+    final_chunk = all_chunks[2]
 
-    # Check final chunk
-    assert all_chunks[3]["choices"][0]["finish_reason"] == "stop"
+    # Handle StopChunkWithUsage wrapper or dict
+    if hasattr(final_chunk, "to_plain_dict"):
+        final_chunk_dict = final_chunk.to_plain_dict()
+    else:
+        final_chunk_dict = dict(final_chunk)
+
+    assert "usage" in final_chunk_dict
+    assert final_chunk_dict["usage"]["prompt_tokens"] == 2  # "Hello stream"
+    assert (
+        final_chunk_dict["usage"]["completion_tokens"] == 3
+    )  # "Streamed " + "World" = 3 tokens
+    assert final_chunk_dict["usage"]["total_tokens"] == 5  # 2 prompt + 3 completion
+
+    # Check final chunk finish reason
+    # Depending on implementation it might be a generic stop or preserved
+    # In the test case, mock_iter_content yields [DONE] which creates a generic stop chunk
+    assert final_chunk_dict.get("choices", [{}])[0].get("finish_reason") == "stop"
 
 
 @pytest.mark.asyncio

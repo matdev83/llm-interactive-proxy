@@ -10,7 +10,10 @@ from pydantic import ValidationError
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
+    CanonicalStreamChunk,
     ChatResponse,
+    StreamingChatCompletionChoice,
+    StreamingChatCompletionChoiceDelta,
 )
 from src.core.domain.translation import Translation
 
@@ -263,6 +266,47 @@ class TranslationService:
         """Translates a CanonicalChatRequest to an Anthropic request."""
         return Translation.from_domain_to_anthropic_request(request)
 
+    def _dict_to_canonical_stream_chunk(
+        self, chunk_dict: dict[str, Any]
+    ) -> CanonicalStreamChunk:
+        """Convert a chunk dict to CanonicalStreamChunk.
+
+        This handles the conversion of the raw dict returned by Translation methods
+        to the properly typed CanonicalStreamChunk.
+        """
+        choices = []
+        for choice_dict in chunk_dict.get("choices", []):
+            delta_dict = choice_dict.get("delta", {})
+            # Create delta with standard fields
+            delta_data = {
+                "role": delta_dict.get("role"),
+                "content": delta_dict.get("content"),
+                "tool_calls": delta_dict.get("tool_calls"),
+                "refusal": delta_dict.get("refusal"),
+            }
+            # Preserve extra fields like _tool_call_text
+            for key, value in delta_dict.items():
+                if key not in delta_data:
+                    delta_data[key] = value
+            
+            delta = StreamingChatCompletionChoiceDelta(**delta_data)
+            choice = StreamingChatCompletionChoice(
+                index=choice_dict.get("index", 0),
+                delta=delta,
+                finish_reason=choice_dict.get("finish_reason"),
+            )
+            choices.append(choice)
+
+        return CanonicalStreamChunk(
+            id=chunk_dict.get("id"),
+            object=chunk_dict.get("object", "chat.completion.chunk"),
+            created=chunk_dict.get("created"),
+            model=chunk_dict.get("model"),
+            choices=choices,
+            usage=chunk_dict.get("usage"),
+            system_fingerprint=chunk_dict.get("system_fingerprint"),
+        )
+
     def to_domain_stream_chunk(
         self, chunk: Any, source_format: str, target_format: str = "domain"
     ) -> Any:
@@ -282,23 +326,32 @@ class TranslationService:
         if source_format == target_format:
             return chunk
 
+        # Formats that return CanonicalStreamChunk
+        canonical_formats = {"gemini", "openai", "raw_text", "openai-responses", "responses"}
+
         # Only translate when there's a format mismatch
+        result: dict[str, Any] | Any
         if source_format == "gemini":
-            return Translation.gemini_to_domain_stream_chunk(chunk)
+            result = Translation.gemini_to_domain_stream_chunk(chunk)
         elif source_format == "openai":
-            return Translation.openai_to_domain_stream_chunk(chunk)
+            result = Translation.openai_to_domain_stream_chunk(chunk)
         elif source_format == "openai-responses" or source_format == "responses":
-            return Translation.responses_to_domain_stream_chunk(chunk)
+            result = Translation.responses_to_domain_stream_chunk(chunk)
         elif source_format == "anthropic":
             return Translation.anthropic_to_domain_stream_chunk(chunk)
         elif source_format == "code_assist":
             return Translation.code_assist_to_domain_stream_chunk(chunk)
         elif source_format == "raw_text":
-            return Translation.raw_text_to_domain_stream_chunk(chunk)
-        # Add more specific stream chunk converters here as needed
-        raise NotImplementedError(
-            f"Stream chunk converter for format '{source_format}' not implemented."
-        )
+            result = Translation.raw_text_to_domain_stream_chunk(chunk)
+        else:
+            raise NotImplementedError(
+                f"Stream chunk converter for format '{source_format}' not implemented."
+            )
+
+        # Convert dict to CanonicalStreamChunk for supported formats
+        if source_format in canonical_formats and isinstance(result, dict):
+            return self._dict_to_canonical_stream_chunk(result)
+        return result
 
     def from_domain_stream_chunk(
         self, chunk: Any, target_format: str, source_format: str = "domain"
@@ -432,10 +485,34 @@ class TranslationService:
             "choices": [normalized_choice],
         }
 
+    def _extract_content_from_domain_chunk(self, chunk: Any) -> str:
+        """Extract text content from a domain stream chunk.
+
+        Handles both CanonicalStreamChunk (with choices[0].delta.content)
+        and simpler objects with a direct content attribute.
+        """
+        # Try to get content from choices[0].delta.content (CanonicalStreamChunk)
+        choices = getattr(chunk, "choices", None)
+        if choices and isinstance(choices, list) and len(choices) > 0:
+            choice = choices[0]
+            if isinstance(choice, dict):
+                delta = choice.get("delta", {})
+                if isinstance(delta, dict) and "content" in delta:
+                    return delta.get("content", "") or ""
+            elif hasattr(choice, "delta"):
+                delta = getattr(choice, "delta", None)
+                if delta:
+                    if isinstance(delta, dict):
+                        return delta.get("content", "") or ""
+                    elif hasattr(delta, "content"):
+                        return getattr(delta, "content", "") or ""
+
+        # Fallback: direct content attribute
+        return getattr(chunk, "content", "") or ""
+
     def from_domain_to_anthropic_stream_chunk(self, chunk: Any) -> dict[str, Any]:
         """Translates a domain stream chunk to an Anthropic stream format."""
-        # Basic implementation assuming chunk contains content
-        content = getattr(chunk, "content", "") or ""
+        content = self._extract_content_from_domain_chunk(chunk)
 
         return {
             "type": "content_block_delta",
@@ -445,16 +522,25 @@ class TranslationService:
 
     def from_domain_to_gemini_stream_chunk(self, chunk: Any) -> dict[str, Any]:
         """Translates a domain stream chunk to a Gemini stream format."""
-        # Basic implementation assuming chunk contains content
-        content = getattr(chunk, "content", "") or ""
+        content = self._extract_content_from_domain_chunk(chunk)
+
+        # Determine finish reason
+        finish_reason = None
+        choices = getattr(chunk, "choices", None)
+        if choices and isinstance(choices, list) and len(choices) > 0:
+            choice = choices[0]
+            if isinstance(choice, dict):
+                fr = choice.get("finish_reason")
+            else:
+                fr = getattr(choice, "finish_reason", None)
+            if fr:
+                finish_reason = "STOP" if fr == "stop" else str(fr).upper()
 
         return {
             "candidates": [
                 {
                     "content": {"parts": [{"text": content}], "role": "model"},
-                    "finishReason": (
-                        "STOP" if getattr(chunk, "is_last", False) else None
-                    ),
+                    "finishReason": finish_reason,
                 }
             ]
         }

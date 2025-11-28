@@ -55,8 +55,8 @@ async def test_venv_scripts_should_not_be_project_root():
     )
     assert session.state.project_dir_resolution_attempted is True
 
-    print(f"\n✅ PROOF: Detected project dir = {session.state.project_dir}")
-    print("✅ PROOF: NOT .venv\\Scripts - the fix works!")
+    print(f"\n[OK] PROOF: Detected project dir = {session.state.project_dir}")
+    print("[OK] PROOF: NOT .venv\\Scripts - the fix works!")
 
 
 @pytest.mark.asyncio
@@ -85,4 +85,4 @@ async def test_unix_common_directory_detection():
     await service.maybe_resolve_project_directory(session, request)
 
     assert session.state.project_dir == "/home/user/myproject"
-    print(f"\n✅ PROOF: Unix paths work too = {session.state.project_dir}")
+    print(f"\n[OK] PROOF: Unix paths work too = {session.state.project_dir}")

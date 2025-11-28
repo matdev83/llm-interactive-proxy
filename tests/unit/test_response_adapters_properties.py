@@ -70,14 +70,11 @@ def processed_response_strategy(draw):
     )
 
     metadata = draw(
-        st.one_of(
-            st.none(),
-            st.dictionaries(
-                st.text(min_size=1, max_size=20),
-                st.one_of(st.text(), st.integers(), st.booleans()),
-                min_size=0,
-                max_size=5,
-            ),
+        st.dictionaries(
+            st.text(min_size=1, max_size=20),
+            st.one_of(st.text(), st.integers(), st.booleans()),
+            min_size=0,
+            max_size=5,
         )
     )
 

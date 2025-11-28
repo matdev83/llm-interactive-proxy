@@ -128,8 +128,8 @@ async def test_stream_generator_handles_google_auth_error():
 
 @pytest.mark.asyncio
 @pytest.mark.asyncio
-async def test_stream_generator_yields_usage_before_stop():
-    """Test that usage is yielded BEFORE the final stop chunk."""
+async def test_stream_generator_yields_usage_merged_with_stop():
+    """Test that usage is merged into the final stop chunk."""
     # Mock dependencies
     client = AsyncMock()
     config = MagicMock()
@@ -177,23 +177,20 @@ async def test_stream_generator_yields_usage_before_stop():
             chunks.append(chunk)
 
     # Verify we got chunks
-    assert len(chunks) >= 2
+    # With merge logic, we should get 1 chunk that has content+stop+usage
+    assert len(chunks) == 1
 
-    # Find indices of usage and stop chunks
-    usage_index = -1
-    stop_index = -1
+    chunk = chunks[0]
+    assert isinstance(chunk.content, dict)
 
-    for i, chunk in enumerate(chunks):
-        if isinstance(chunk.content, dict):
-            if "usage" in chunk.content:
-                usage_index = i
+    # Check usage presence
+    assert "usage" in chunk.content
+    # prompt_tokens is calculated as 0 because we mock the input
+    # completion_tokens is calculated via tiktoken from "Hello world" (2 tokens)
+    assert chunk.content["usage"]["prompt_tokens"] >= 0
+    assert chunk.content["usage"]["completion_tokens"] == 2
+    assert chunk.content["usage"]["total_tokens"] >= 2
 
-            choices = chunk.content.get("choices", [])
-            if choices and choices[0].get("finish_reason") == "stop":
-                stop_index = i
-
-    assert usage_index != -1, "Usage chunk not found"
-    assert stop_index != -1, "Stop chunk not found"
-    assert (
-        usage_index < stop_index
-    ), f"Usage chunk (index {usage_index}) must come before stop chunk (index {stop_index})"
+    # Check stop reason
+    choices = chunk.content.get("choices", [])
+    assert choices and choices[0].get("finish_reason") == "stop"

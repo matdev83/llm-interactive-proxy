@@ -396,7 +396,7 @@ class ProjectDirectoryResolutionService:
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
         """
         Find the best project directory from all absolute paths in the prompt.
-        When multiple paths are found, attempts to find their longest common directory.
+        When multiple paths are found, prefers the deepest, most specific valid path.
         """
         candidates: list[tuple[str, _PathType]] = []
         patterns = [
@@ -450,31 +450,69 @@ class ProjectDirectoryResolutionService:
                 candidates_by_type[path_type] = []
             candidates_by_type[path_type].append(directory)
 
-        # Step 3: For each type, try to find longest common directory
+        # Step 3: For each type, evaluate paths and find the best one
         best_result: tuple[int, str] | None = None  # (score, path)
 
         for path_type, paths in candidates_by_type.items():
-            if len(paths) > 1:
-                # Try to find longest common directory
-                common_result = self._longest_common_directory(paths, path_type)
-                if common_result:
-                    common_path, common_depth = common_result
-                    # Validate the common path is a valid project directory
-                    if self._is_valid_project_directory_candidate(
-                        common_path, path_type
-                    ):
-                        # Give common paths high priority score based on depth + bonus
-                        score = common_depth + 100  # Bonus for being a common directory
-                        if best_result is None or score > best_result[0]:
-                            best_result = (score, common_path)
-
-            # Also consider individual candidates from this type
+            # First, score all individual paths to find the best candidate
+            best_individual: tuple[int, str] | None = None
             for path in paths:
                 score = self._score_path_candidate(path, path_type)
-                if best_result is None or score > best_result[0]:
-                    best_result = (score, path)
+                if best_individual is None or score > best_individual[0]:
+                    best_individual = (score, path)
+
+            # If only one path, use it directly
+            if len(paths) == 1:
+                if best_result is None or (best_individual and best_individual[0] > best_result[0]):
+                    best_result = best_individual
+                continue
+
+            # For multiple paths, find their common directory
+            common_result = self._longest_common_directory(paths, path_type)
+            if common_result:
+                common_path, common_depth = common_result
+                # Validate the common path is a valid project directory
+                if self._is_valid_project_directory_candidate(common_path, path_type):
+                    common_score = self._score_path_candidate(common_path, path_type)
+                    
+                    # Only use the common path if it's deeper/better than the best individual
+                    # This ensures we prefer C:\Users\Test\ProjectA over C:\Users\Test
+                    if best_individual:
+                        # Compare: prefer the deeper, more specific path
+                        if common_depth >= len(self._get_path_parts(best_individual[1], path_type)):
+                            # Common path is at least as deep, use it
+                            candidate = (common_score, common_path)
+                        else:
+                            # Individual path is deeper, use it
+                            candidate = best_individual
+                    else:
+                        candidate = (common_score, common_path)
+                    
+                    if best_result is None or candidate[0] > best_result[0]:
+                        best_result = candidate
+                elif best_individual:
+                    # Common path is invalid, use best individual
+                    if best_result is None or best_individual[0] > best_result[0]:
+                        best_result = best_individual
+            elif best_individual:
+                # No common path found, use best individual
+                if best_result is None or best_individual[0] > best_result[0]:
+                    best_result = best_individual
 
         return best_result[1] if best_result else None
+
+    def _get_path_parts(self, path: str, path_type: _PathType) -> list[str]:
+        """Get the parts of a path for depth comparison."""
+        try:
+            pure_path = (
+                PureWindowsPath(path)
+                if path_type in ("windows", "unc")
+                else PurePosixPath(path)
+            )
+            return list(pure_path.parts)
+        except Exception:
+            return []
+
 
     def _extract_directory_from_path(self, path: str) -> str:
         """Extract directory portion from a path that may include a filename."""

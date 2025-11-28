@@ -14,11 +14,14 @@ from src.core.domain.base_translator import BaseTranslator
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
+    CanonicalStreamChunk,
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatMessage,
     ChatResponse,
     FunctionCall,
+    StreamingChatCompletionChoice,
+    StreamingChatCompletionChoiceDelta,
     ToolCall,
 )
 from src.core.services.tool_text_renderer import render_tool_call
@@ -1037,15 +1040,15 @@ class Translation(BaseTranslator):
         )
 
     @staticmethod
-    def gemini_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+    def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str, Any]:
         """
-        Translate a Gemini streaming chunk to a canonical dictionary format.
+        Translate a Gemini streaming chunk to a canonical CanonicalStreamChunk object.
 
         Args:
             chunk: The Gemini streaming chunk.
 
         Returns:
-            A dictionary representing the canonical chunk format.
+            A CanonicalStreamChunk object or dict with error information.
         """
         import time
         import uuid
@@ -1105,29 +1108,30 @@ class Translation(BaseTranslator):
                         candidate["finishReason"]
                     )
 
-        delta: dict[str, Any] = {"role": "assistant"}
+        delta_dict: dict[str, Any] = {"role": "assistant"}
         if content_pieces:
-            delta["content"] = "".join(content_pieces)
+            delta_dict["content"] = "".join(content_pieces)
         if reasoning_pieces:
-            delta["reasoning_content"] = "\n".join(
+            delta_dict["reasoning_content"] = "\n".join(
                 segment for segment in reasoning_pieces if segment
             ).strip()
         if tool_calls:
-            delta["tool_calls"] = tool_calls
+            delta_dict["tool_calls"] = tool_calls
 
-        return {
-            "id": response_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": delta,
-                    "finish_reason": finish_reason,
-                }
-            ],
-        }
+        delta = StreamingChatCompletionChoiceDelta(**delta_dict)
+        choice = StreamingChatCompletionChoice(
+            index=0,
+            delta=delta,
+            finish_reason=finish_reason,
+        )
+
+        return CanonicalStreamChunk(
+            id=response_id,
+            object="chat.completion.chunk",
+            created=created,
+            model=model,
+            choices=[choice],
+        )
 
     @staticmethod
     def openai_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -1454,15 +1458,15 @@ class Translation(BaseTranslator):
         )
 
     @staticmethod
-    def openai_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+    def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str, Any]:
         """
-        Translate an OpenAI streaming chunk to a canonical dictionary format.
+        Translate an OpenAI streaming chunk to a canonical CanonicalStreamChunk object.
 
         Args:
             chunk: The OpenAI streaming chunk.
 
         Returns:
-            A dictionary representing the canonical chunk format.
+            A CanonicalStreamChunk object or dict with error information.
         """
         import json
         import time
@@ -1478,42 +1482,54 @@ class Translation(BaseTranslator):
             stripped_chunk = chunk.strip()
 
             if not stripped_chunk:
-                return {
-                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": "unknown",
-                    "choices": [
-                        {"index": 0, "delta": {}, "finish_reason": None},
-                    ],
-                }
+                delta = StreamingChatCompletionChoiceDelta()
+                choice = StreamingChatCompletionChoice(
+                    index=0,
+                    delta=delta,
+                    finish_reason=None,
+                )
+                return CanonicalStreamChunk(
+                    id=f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    object="chat.completion.chunk",
+                    created=int(time.time()),
+                    model="unknown",
+                    choices=[choice],
+                )
 
             if stripped_chunk.startswith(":"):
                 # Comment/heartbeat lines (e.g., ": ping") should be ignored by emitting
                 # an empty delta so downstream processors keep the stream alive.
-                return {
-                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": "unknown",
-                    "choices": [
-                        {"index": 0, "delta": {}, "finish_reason": None},
-                    ],
-                }
+                delta = StreamingChatCompletionChoiceDelta()
+                choice = StreamingChatCompletionChoice(
+                    index=0,
+                    delta=delta,
+                    finish_reason=None,
+                )
+                return CanonicalStreamChunk(
+                    id=f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    object="chat.completion.chunk",
+                    created=int(time.time()),
+                    model="unknown",
+                    choices=[choice],
+                )
 
             if stripped_chunk.startswith("data:"):
                 stripped_chunk = stripped_chunk[5:].strip()
 
             if stripped_chunk == "[DONE]":
-                return {
-                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": "unknown",
-                    "choices": [
-                        {"index": 0, "delta": {}, "finish_reason": "stop"},
-                    ],
-                }
+                delta = StreamingChatCompletionChoiceDelta()
+                choice = StreamingChatCompletionChoice(
+                    index=0,
+                    delta=delta,
+                    finish_reason="stop",
+                )
+                return CanonicalStreamChunk(
+                    id=f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                    object="chat.completion.chunk",
+                    created=int(time.time()),
+                    model="unknown",
+                    choices=[choice],
+                )
 
             try:
                 chunk = json.loads(stripped_chunk)
@@ -1573,9 +1589,36 @@ class Translation(BaseTranslator):
                     delta["reasoning_content"] = normalized_reasoning
                     delta.setdefault("reasoning", normalized_reasoning)
 
-        # For simplicity, we'll return the chunk as a dictionary.
-        # In a more complex scenario, you might map this to a Pydantic model.
-        return dict(chunk)
+        # Convert the dict chunk to CanonicalStreamChunk
+        try:
+            canonical_choices = []
+            for choice_dict in chunk.get("choices", []):
+                if isinstance(choice_dict, dict):
+                    delta_dict = choice_dict.get("delta", {})
+                    if not isinstance(delta_dict, dict):
+                        delta_dict = {}
+                    
+                    delta_obj = StreamingChatCompletionChoiceDelta(**delta_dict)
+                    choice_obj = StreamingChatCompletionChoice(
+                        index=choice_dict.get("index", 0),
+                        delta=delta_obj,
+                        finish_reason=choice_dict.get("finish_reason"),
+                    )
+                    canonical_choices.append(choice_obj)
+            
+            return CanonicalStreamChunk(
+                id=chunk.get("id"),
+                object=chunk.get("object", "chat.completion.chunk"),
+                created=chunk.get("created"),
+                model=chunk.get("model"),
+                choices=canonical_choices,
+                usage=chunk.get("usage"),
+                system_fingerprint=chunk.get("system_fingerprint"),
+            )
+        except Exception as e:
+            # If conversion fails, return error dict
+            logger.warning("Failed to convert OpenAI chunk to CanonicalStreamChunk: %s", e)
+            return {"error": f"Failed to convert chunk: {e}"}
 
     @staticmethod
     def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:

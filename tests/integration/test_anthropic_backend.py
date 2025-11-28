@@ -1,6 +1,6 @@
 """Integration tests for Anthropic backend functionality."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -56,20 +56,16 @@ def client(app):
 def test_end_to_end_chat_completion(client):
     """Test end-to-end chat completion with Anthropic backend."""
 
-    # Mock the backend factory to return our test backend
+    # Mock the backend service call_completion to return our test response
+    # We patch call_completion instead of create_backend because backends might be cached
     with patch(
-        "src.core.services.backend_factory.BackendFactory.create_backend"
-    ) as mock_create_backend:
-        # Create a mock backend
-        mock_backend = MagicMock()
-        mock_backend.chat_completions = AsyncMock(
-            return_value=ResponseEnvelope(
-                content=MOCK_ANTHROPIC_RESPONSE,
-                headers={"content-type": "application/json"},
-                status_code=200,
-            )
+        "src.core.services.backend_service.BackendService.call_completion"
+    ) as mock_call_completion:
+        mock_call_completion.return_value = ResponseEnvelope(
+            content=MOCK_ANTHROPIC_RESPONSE,
+            headers={"content-type": "application/json"},
+            status_code=200,
         )
-        mock_create_backend.return_value = mock_backend
 
         # Create request data
         request_data = {
@@ -112,20 +108,16 @@ SCENARIOS = [
 def test_scenarios_chat_completion(client, client_type, model):
     """Test different scenarios with chat completion."""
 
-    # Mock the backend factory to return our test backend
+    # Mock the backend service call_completion to return our test response
+    # We patch call_completion instead of create_backend because backends might be cached
     with patch(
-        "src.core.services.backend_factory.BackendFactory.create_backend"
-    ) as mock_create_backend:
-        # Create a mock backend
-        mock_backend = MagicMock()
-        mock_backend.chat_completions = AsyncMock(
-            return_value=ResponseEnvelope(
-                content=MOCK_ANTHROPIC_RESPONSE,
-                headers={"content-type": "application/json"},
-                status_code=200,
-            )
+        "src.core.services.backend_service.BackendService.call_completion"
+    ) as mock_call_completion:
+        mock_call_completion.return_value = ResponseEnvelope(
+            content=MOCK_ANTHROPIC_RESPONSE,
+            headers={"content-type": "application/json"},
+            status_code=200,
         )
-        mock_create_backend.return_value = mock_backend
 
         # Create request data
         request_data = {

@@ -636,22 +636,15 @@ class TestHybridBackendURIParameters:
         model_spec = "hybrid:[openai:gpt-4?temperature=0.8&top_p=0.9,anthropic:claude-3?temperature=0.3&top_k=40]"
 
         # Test parsing
-        (
-            reasoning_backend_type,
-            reasoning_model,
-            reasoning_params,
-            execution_backend_type,
-            execution_model,
-            execution_params,
-        ) = hybrid_backend._parse_hybrid_model_spec(model_spec)
+        spec = hybrid_backend._parse_hybrid_model_spec(model_spec)
 
-        assert reasoning_backend_type == "openai"
-        assert reasoning_model == "gpt-4"
-        assert reasoning_params == {"temperature": "0.8", "top_p": "0.9"}
+        assert spec.reasoning_backend == "openai"
+        assert spec.reasoning_model == "gpt-4"
+        assert spec.reasoning_params == {"temperature": "0.8", "top_p": "0.9"}
 
-        assert execution_backend_type == "anthropic"
-        assert execution_model == "claude-3"
-        assert execution_params == {"temperature": "0.3", "top_k": "40"}
+        assert spec.execution_backend == "anthropic"
+        assert spec.execution_model == "claude-3"
+        assert spec.execution_params == {"temperature": "0.3", "top_k": "40"}
 
     @pytest.mark.asyncio
     async def test_hybrid_backend_with_reasoning_effort_warning(
@@ -671,17 +664,10 @@ class TestHybridBackendURIParameters:
         model_spec = "hybrid:[openai:gpt-4?reasoning_effort=high,anthropic:claude-3]"
 
         # Parse the spec
-        (
-            reasoning_backend_type,
-            reasoning_model,
-            reasoning_params,
-            execution_backend_type,
-            execution_model,
-            execution_params,
-        ) = hybrid_backend._parse_hybrid_model_spec(model_spec)
+        spec = hybrid_backend._parse_hybrid_model_spec(model_spec)
 
         # Verify reasoning_effort was parsed
-        assert reasoning_params == {"reasoning_effort": "high"}
+        assert spec.reasoning_params == {"reasoning_effort": "high"}
 
         # Note: The warning for reasoning_effort in hybrid mode should be logged
         # when the parameters are actually applied, not during parsing.
@@ -703,22 +689,15 @@ class TestHybridBackendURIParameters:
         # Parse hybrid model spec with parameters only on execution model
         model_spec = "hybrid:[openai:gpt-4,anthropic:claude-3?temperature=0.3]"
 
-        (
-            reasoning_backend_type,
-            reasoning_model,
-            reasoning_params,
-            execution_backend_type,
-            execution_model,
-            execution_params,
-        ) = hybrid_backend._parse_hybrid_model_spec(model_spec)
+        spec = hybrid_backend._parse_hybrid_model_spec(model_spec)
 
-        assert reasoning_backend_type == "openai"
-        assert reasoning_model == "gpt-4"
-        assert reasoning_params == {}
+        assert spec.reasoning_backend == "openai"
+        assert spec.reasoning_model == "gpt-4"
+        assert spec.reasoning_params == {}
 
-        assert execution_backend_type == "anthropic"
-        assert execution_model == "claude-3"
-        assert execution_params == {"temperature": "0.3"}
+        assert spec.execution_backend == "anthropic"
+        assert spec.execution_model == "claude-3"
+        assert spec.execution_params == {"temperature": "0.3"}
 
 
 class TestDebugLogging:

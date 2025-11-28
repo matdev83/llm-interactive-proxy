@@ -143,6 +143,12 @@ def _format_chunk_as_sse(chunk: Any) -> bytes:
 
 def _normalize_content(content: Any) -> Any:
     """Normalize content into JSON-serializable structures when possible."""
+    # Preserve StopChunkWithUsage - it's a dict subclass that must not be converted
+    # to a plain dict, otherwise its stringification protection is lost
+    from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+    if isinstance(content, StopChunkWithUsage):
+        return content
     if hasattr(content, "model_dump"):
         try:
             return content.model_dump()

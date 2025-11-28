@@ -367,3 +367,47 @@ class CanonicalChatResponse(ChatResponse):
     """
     A canonical chat response model that is used internally throughout the application.
     """
+
+
+class StreamingChatCompletionChoiceDelta(DomainModel):
+    """Represents the delta content within a streaming chat completion choice."""
+
+    model_config = ConfigDict(extra="allow")
+
+    role: str | None = None
+    content: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    refusal: str | None = None
+
+    def __getitem__(self, key: str) -> Any:
+        """Support dict-style access for extra fields."""
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key) from None
+
+    def __contains__(self, key: str) -> bool:
+        """Support 'in' operator for checking field existence."""
+        return hasattr(self, key)
+
+
+class StreamingChatCompletionChoice(DomainModel):
+    """Represents a single choice in a streaming chat completion response."""
+
+    index: int
+    delta: StreamingChatCompletionChoiceDelta
+    finish_reason: str | None = None
+
+
+class CanonicalStreamChunk(ValueObject):
+    """
+    A canonical streaming chunk model that is used internally throughout the application.
+    """
+
+    id: str | None = None
+    object: str = "chat.completion.chunk"
+    created: int | None = None
+    model: str | None = None
+    choices: list[StreamingChatCompletionChoice]
+    usage: dict[str, Any] | None = None
+    system_fingerprint: str | None = None

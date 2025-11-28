@@ -3,6 +3,7 @@ import unittest
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
+    CanonicalStreamChunk,
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatMessage,
@@ -307,9 +308,9 @@ class TestTranslationResponses(unittest.TestCase):
 
         result = Translation.openai_to_domain_stream_chunk(openai_chunk)
 
-        self.assertIsInstance(result, dict)
-        self.assertEqual(result["id"], "chatcmpl-123")
-        self.assertEqual(result["choices"][0]["delta"]["content"], "Hello")
+        self.assertIsInstance(result, CanonicalStreamChunk)
+        self.assertEqual(result.id, "chatcmpl-123")
+        self.assertEqual(result.choices[0].delta.content, "Hello")
 
     def test_openai_to_domain_stream_chunk_reasoning(self):
         openai_chunk = {
@@ -333,8 +334,8 @@ class TestTranslationResponses(unittest.TestCase):
         }
 
         result = Translation.openai_to_domain_stream_chunk(openai_chunk)
-        delta = result["choices"][0]["delta"]
-        self.assertEqual(delta["reasoning_content"], "Streaming thought.")
+        delta = result.choices[0].delta
+        self.assertEqual(delta.reasoning_content, "Streaming thought.")
 
     def test_gemini_to_domain_stream_chunk_success(self):
         gemini_chunk = {
@@ -348,10 +349,10 @@ class TestTranslationResponses(unittest.TestCase):
 
         result = Translation.gemini_to_domain_stream_chunk(gemini_chunk)
 
-        self.assertIsInstance(result, dict)
-        self.assertTrue(result["id"].startswith("chatcmpl-"))
-        self.assertEqual(result["choices"][0]["delta"]["content"], " from Gemini.")
-        self.assertEqual(result["choices"][0]["finish_reason"], "stop")
+        self.assertIsInstance(result, CanonicalStreamChunk)
+        self.assertTrue(result.id.startswith("chatcmpl-"))
+        self.assertEqual(result.choices[0].delta.content, " from Gemini.")
+        self.assertEqual(result.choices[0].finish_reason, "stop")
 
     def test_gemini_to_domain_stream_chunk_tool_call(self):
         gemini_chunk = {
@@ -373,11 +374,12 @@ class TestTranslationResponses(unittest.TestCase):
 
         result = Translation.gemini_to_domain_stream_chunk(gemini_chunk)
 
-        self.assertIsInstance(result, dict)
-        delta = result["choices"][0]["delta"]
-        self.assertIn("tool_calls", delta)
-        self.assertEqual(len(delta["tool_calls"]), 1)
-        self.assertEqual(delta["tool_calls"][0]["function"]["name"], "call_tool")
+        self.assertIsInstance(result, CanonicalStreamChunk)
+        delta = result.choices[0].delta
+        self.assertIsNotNone(delta.tool_calls)
+        self.assertEqual(len(delta.tool_calls), 1)
+        # tool_calls is list[dict] in StreamChunkChoiceDelta for now, until fully typed
+        self.assertEqual(delta.tool_calls[0]["function"]["name"], "call_tool")
 
     def test_gemini_to_domain_stream_chunk_reasoning(self):
         gemini_chunk = {
@@ -394,8 +396,8 @@ class TestTranslationResponses(unittest.TestCase):
         }
 
         result = Translation.gemini_to_domain_stream_chunk(gemini_chunk)
-        delta = result["choices"][0]["delta"]
-        self.assertEqual(delta["reasoning_content"], "chain of thought")
+        delta = result.choices[0].delta
+        self.assertEqual(delta.reasoning_content, "chain of thought")
 
     def test_anthropic_to_domain_stream_chunk_success(self):
         anthropic_chunk = {
@@ -406,6 +408,8 @@ class TestTranslationResponses(unittest.TestCase):
 
         result = Translation.anthropic_to_domain_stream_chunk(anthropic_chunk)
 
+        # Anthropic streaming is still returning dict as per current implementation in translation.py
+        # If we update it later, we will need to update this test.
         self.assertIsInstance(result, dict)
         self.assertTrue(result["id"].startswith("chatcmpl-"))
         self.assertEqual(result["choices"][0]["delta"]["content"], "Hello")

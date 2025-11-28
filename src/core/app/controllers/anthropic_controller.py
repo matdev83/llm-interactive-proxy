@@ -101,48 +101,8 @@ class AnthropicController:
                 f"Handling Anthropic messages request: model={anthropic_request.model}"
             )
 
-            openai_request_data: dict[str, Any] = anthropic_to_openai_request(
-                anthropic_request
-            )
-
-            # Convert the dict to a ChatRequest object
-            from src.core.domain.chat import ChatMessage, ChatRequest
-
-            messages: list[ChatMessage] = []
-            for msg in openai_request_data.get("messages", []):
-                content_value = msg.get("content", "")
-                message_kwargs: dict[str, Any] = {
-                    "role": msg.get("role", "user"),
-                    "content": content_value,
-                }
-
-                name_value = msg.get("name")
-                if name_value is not None:
-                    message_kwargs["name"] = name_value
-
-                tool_calls_value = msg.get("tool_calls")
-                if tool_calls_value:
-                    message_kwargs["tool_calls"] = tool_calls_value
-
-                tool_call_id_value = msg.get("tool_call_id")
-                if tool_call_id_value:
-                    message_kwargs["tool_call_id"] = tool_call_id_value
-
-                messages.append(ChatMessage(**message_kwargs))
-
-            chat_request = ChatRequest(
-                messages=messages,
-                model=openai_request_data.get("model", ""),
-                stream=openai_request_data.get("stream", False),
-                temperature=openai_request_data.get("temperature"),
-                max_tokens=openai_request_data.get("max_tokens"),
-                top_p=openai_request_data.get("top_p"),
-                frequency_penalty=openai_request_data.get("frequency_penalty"),
-                presence_penalty=openai_request_data.get("presence_penalty"),
-                stop=openai_request_data.get("stop"),
-                tools=openai_request_data.get("tools"),
-                tool_choice=openai_request_data.get("tool_choice"),
-            )
+            # Convert Anthropic request to canonical OpenAI request
+            chat_request = anthropic_to_openai_request(anthropic_request)
 
             # Convert FastAPI Request to RequestContext and process via core processor
             ctx = fastapi_to_domain_request_context(request, attach_original=True)

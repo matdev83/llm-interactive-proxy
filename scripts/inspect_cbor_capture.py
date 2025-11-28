@@ -205,12 +205,26 @@ def filter_entries_by_backend(
     ]
 
 
+def hexdump(data: bytes, length: int = 16) -> list[str]:
+    """Generate a canonical hex dump of the data."""
+    result = []
+    for i in range(0, len(data), length):
+        chunk = data[i : i + length]
+        hex_line = " ".join(f"{b:02x}" for b in chunk)
+        ascii_line = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        result.append(f"{i:04x}  {hex_line:<{length*3}}  |{ascii_line}|")
+    return result
+
+
 def print_entries(
     entries: list[dict[str, Any]],
     max_entries: int = 20,
     max_data_length: int = 200,
     direction_filter: int | None = None,
     backend_filter: str | None = None,
+    verbose: bool = False,
+    search_term: str | None = None,
+    show_hex: bool = False,
 ) -> None:
     """Print individual entries."""
     print()
@@ -226,6 +240,19 @@ def print_entries(
         if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
             continue
 
+        data = e.get("data", b"")
+        
+        # Search filter
+        if search_term:
+            term = search_term.lower()
+            # Search in data (decoded)
+            data_str = safe_decode(data, len(data)).lower()
+            # Search in metadata
+            meta_str = str(e.get("meta", {})).lower()
+            
+            if term not in data_str and term not in meta_str:
+                continue
+
         if count >= max_entries:
             remaining = sum(
                 1
@@ -238,7 +265,6 @@ def print_entries(
 
         count += 1
         direction = DIRECTION_SYMBOLS.get(e["dir"], f"?{e['dir']}")
-        data = e.get("data", b"")
         seq = e.get("seq", "?")
         ts = e.get("ts", 0)
         ts_str = format_timestamp(ts)
@@ -247,13 +273,35 @@ def print_entries(
 
         print(f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}{backend_str}")
 
+        # Verbose metadata
+        if verbose:
+            meta = e.get("meta", {}).copy()
+            if "be" in meta:
+                del meta["be"]  # Already shown in header
+            if meta:
+                print("    Metadata:")
+                for k, v in meta.items():
+                    if isinstance(v, dict):
+                        print(f"      {k}:")
+                        for hk, hv in v.items():
+                            print(f"        {hk}: {hv}")
+                    else:
+                        print(f"      {k}: {v}")
+
         if data:
-            preview = safe_decode(data, max_data_length)
-            # Indent the preview
-            for line in preview.split("\n")[:5]:
-                print(f"    {line}")
-            if len(data) > max_data_length:
-                print(f"    ... ({len(data) - max_data_length} more bytes)")
+            if show_hex:
+                print("    Hex Dump:")
+                for line in hexdump(data[:max_data_length]):
+                    print(f"      {line}")
+                if len(data) > max_data_length:
+                    print(f"      ... ({len(data) - max_data_length} more bytes)")
+            else:
+                preview = safe_decode(data, max_data_length)
+                # Indent the preview
+                for line in preview.split("\n")[:5]:
+                    print(f"    {line}")
+                if len(data) > max_data_length:
+                    print(f"    ... ({len(data) - max_data_length} more bytes)")
 
 
 def analyze_request_response_pairs(
@@ -298,22 +346,43 @@ def analyze_request_response_pairs(
 
             # Collect related entries
             j = i + 1
-            backend_chunks = []
+            backend_entries = []
             client_chunks = []
             while j < len(entries) and entries[j]["dir"] != 0:
                 if entries[j]["dir"] == 3:  # BACKEND_TO_PROXY
-                    backend_chunks.append(entries[j]["data"])
+                    backend_entries.append(entries[j])
                 elif entries[j]["dir"] == 1:  # PROXY_TO_CLIENT
                     client_chunks.append(entries[j]["data"])
                 j += 1
 
             # Analyze backend responses
             backend_content_len = 0
+            backend_tool_calls = 0
+            backend_tool_names = set()
             backend_models = set()
             issues = []
+            
+            # Timing
+            if backend_entries:
+                ttft = backend_entries[0]["ts"] - e["ts"]
+                duration = backend_entries[-1]["ts"] - e["ts"]
+                print(f"Timing: TTFT={ttft:.3f}s, Duration={duration:.3f}s")
 
-            for chunk in backend_chunks:
+            for entry in backend_entries:
+                chunk = entry["data"]
                 parsed = parse_sse_chunk(chunk)
+                
+                # Check for non-SSE error
+                if not parsed and chunk.strip().startswith(b"{"):
+                    try:
+                        error_json = json.loads(chunk)
+                        if "error" in error_json:
+                            issues.append(f"Backend Error: {error_json['error'].get('message', 'Unknown error')}")
+                            # Treat as parsed for model extraction if available
+                            parsed = error_json
+                    except json.JSONDecodeError:
+                        pass
+
                 if parsed:
                     model = parsed.get("model", "")
                     if model:
@@ -329,8 +398,17 @@ def analyze_request_response_pairs(
                     for choice in choices:
                         delta = choice.get("delta", {})
                         content = delta.get("content", "")
-                        backend_content_len += len(content)
-                        if choice.get("finish_reason") == "stop" and not content:
+                        if content:
+                            backend_content_len += len(content)
+                        
+                        tool_calls = delta.get("tool_calls")
+                        if tool_calls:
+                            backend_tool_calls += len(tool_calls)
+                            for tc in tool_calls:
+                                if "function" in tc and "name" in tc["function"]:
+                                    backend_tool_names.add(tc["function"]["name"])
+
+                        if choice.get("finish_reason") == "stop" and backend_content_len == 0 and backend_tool_calls == 0:
                             issues.append("Immediate stop without content")
 
                     # Check for fallback
@@ -342,7 +420,11 @@ def analyze_request_response_pairs(
                     # Only flag as leak if they reach the client
 
             print(f"Backend models: {backend_models or 'N/A'}")
-            print(f"Backend content: {backend_content_len} chars")
+            backend_info = f"{backend_content_len} chars"
+            if backend_tool_calls:
+                tool_names_str = f" ({', '.join(sorted(backend_tool_names))})" if backend_tool_names else ""
+                backend_info += f", {backend_tool_calls} tool_calls{tool_names_str}"
+            print(f"Backend content: {backend_info}")
 
             # Analyze client responses
             client_content_len = 0
@@ -512,6 +594,23 @@ def main() -> int:
         default=200,
         help="Maximum bytes of data to show per entry (default: 200)",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed metadata",
+    )
+    parser.add_argument(
+        "--search",
+        "-s",
+        metavar="TERM",
+        help="Filter entries containing the search term (case-insensitive)",
+    )
+    parser.add_argument(
+        "--hex",
+        action="store_true",
+        help="Show hex dump of data instead of text preview",
+    )
 
     args = parser.parse_args()
 
@@ -574,14 +673,20 @@ def main() -> int:
         }
         direction_filter = direction_map[args.direction]
 
-    # Print entries if requested
-    if args.entries > 0:
+    # Print entries if requested or if search is active
+    if args.entries > 0 or args.search:
+        # If search is active but entries not specified, default to showing all matches
+        max_entries = args.entries if args.entries > 0 else len(entries)
+        
         print_entries(
             entries,
-            max_entries=args.entries,
+            max_entries=max_entries,
             max_data_length=args.max_data,
             direction_filter=direction_filter,
             backend_filter=backend_filter,
+            verbose=args.verbose,
+            search_term=args.search,
+            show_hex=args.hex,
         )
 
     # Analyze if requested

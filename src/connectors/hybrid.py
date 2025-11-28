@@ -59,6 +59,18 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class HybridModelSpec:
+    """Specification for a hybrid model configuration."""
+
+    reasoning_backend: str
+    reasoning_model: str
+    reasoning_params: dict[str, Any]
+    execution_backend: str
+    execution_model: str
+    execution_params: dict[str, Any]
+
+
+@dataclass
 class ReasoningPhaseResult:
     """Container for reasoning phase outcome."""
 
@@ -138,9 +150,7 @@ class HybridConnector(LLMBackend):
 
         logger.info("Hybrid backend initialized successfully")
 
-    def _parse_hybrid_model_spec(
-        self, model_spec: str
-    ) -> tuple[str, str, dict[str, Any], str, str, dict[str, Any]]:
+    def _parse_hybrid_model_spec(self, model_spec: str) -> HybridModelSpec:
         """Parse hybrid model specification with optional URI parameters.
 
         Args:
@@ -148,8 +158,7 @@ class HybridConnector(LLMBackend):
                        Example: "hybrid:[minimax:MiniMax-M2?temperature=0.8,qwen-oauth:qwen3-coder-plus?temperature=0.3]"
 
         Returns:
-            Tuple of (reasoning_backend, reasoning_model, reasoning_params,
-                     execution_backend, execution_model, execution_params)
+            HybridModelSpec containing backend, model, and params for both phases.
 
         Raises:
             ValueError: If format is invalid or incomplete with descriptive messages and examples
@@ -279,13 +288,13 @@ class HybridConnector(LLMBackend):
             f"execution={execution_backend}:{execution_model} (params={execution_params})"
         )
 
-        return (
-            reasoning_backend,
-            reasoning_model,
-            reasoning_params,
-            execution_backend,
-            execution_model,
-            execution_params,
+        return HybridModelSpec(
+            reasoning_backend=reasoning_backend,
+            reasoning_model=reasoning_model,
+            reasoning_params=reasoning_params,
+            execution_backend=execution_backend,
+            execution_model=execution_model,
+            execution_params=execution_params,
         )
 
     def _apply_reasoning_params(
@@ -1854,14 +1863,13 @@ class HybridConnector(LLMBackend):
 
         try:
             # Parse hybrid model specification with URI parameters
-            (
-                reasoning_backend,
-                reasoning_model,
-                reasoning_params,
-                execution_backend,
-                execution_model,
-                execution_params,
-            ) = self._parse_hybrid_model_spec(effective_model)
+            spec = self._parse_hybrid_model_spec(effective_model)
+            reasoning_backend = spec.reasoning_backend
+            reasoning_model = spec.reasoning_model
+            reasoning_params = spec.reasoning_params
+            execution_backend = spec.execution_backend
+            execution_model = spec.execution_model
+            execution_params = spec.execution_params
 
             # Validate reasoning backend compatibility
             if reasoning_backend in {

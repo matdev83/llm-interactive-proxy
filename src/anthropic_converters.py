@@ -11,17 +11,13 @@ logger = logging.getLogger(__name__)
 
 from src.anthropic_models import AnthropicMessage, AnthropicMessagesRequest
 from src.core.domain.anthropic_tools import convert_anthropic_tool_to_openai
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 
 def anthropic_to_openai_request(
     anthropic_request: AnthropicMessagesRequest,
-) -> dict[str, Any]:
-    """Convert Anthropic `MessagesRequest` into the *dict* shape expected by the
-    OpenAI Chat Completions endpoint.
-
-    The unit-test suite indexes into the result with ``["model"]`` so we must
-    return a plain dictionary - not a ``ChatCompletionRequest`` object.
-    """
+) -> CanonicalChatRequest:
+    """Convert Anthropic `MessagesRequest` into a CanonicalChatRequest."""
 
     logger.debug("Converting Anthropic to OpenAI request: %r", anthropic_request)
 
@@ -115,16 +111,40 @@ def anthropic_to_openai_request(
 
         messages.append(openai_msg)
 
-    result: dict[str, Any] = {
-        "model": anthropic_request.model,
-        "messages": messages,
-        "max_tokens": anthropic_request.max_tokens,
-        "temperature": anthropic_request.temperature,
-        "top_p": anthropic_request.top_p,
-        # Anthropic uses ``top_k`` - unsupported by OpenAI; drop silently
-        "stop": anthropic_request.stop_sequences,
-        "stream": anthropic_request.stream or False,
-    }
+    # Convert dict messages to ChatMessage objects
+    chat_messages = [
+        ChatMessage(
+            role=m["role"],
+            content=m.get("content"),
+            tool_calls=m.get("tool_calls"),
+            tool_call_id=m.get("tool_call_id"),
+            name=m.get("name"),
+        )
+        for m in messages
+    ]
+
+    # Build tools list if present
+    tools = None
+    if anthropic_request.tools:
+        converted_tools = [
+            tool_def
+            for tool_def in (
+                _convert_anthropic_tool_definition(tool)
+                for tool in anthropic_request.tools
+                if tool is not None
+            )
+            if tool_def
+        ]
+        if converted_tools:
+            tools = converted_tools
+
+    # Handle tool_choice
+    tool_choice = None
+    if anthropic_request.tool_choice is not None:
+        tool_choice = _convert_anthropic_tool_choice(anthropic_request.tool_choice)
+
+    # Handle user from metadata
+    user = None
     if anthropic_request.metadata:
         try:
             metadata_dict = (
@@ -137,23 +157,21 @@ def anthropic_to_openai_request(
             metadata_dict = {}
         user_id = metadata_dict.get("user_id") or metadata_dict.get("user")
         if user_id is not None:
-            result["user"] = str(user_id)
-    if anthropic_request.tools:
-        converted_tools = [
-            tool_def
-            for tool_def in (
-                _convert_anthropic_tool_definition(tool)
-                for tool in anthropic_request.tools
-                if tool is not None
-            )
-            if tool_def
-        ]
-        if converted_tools:
-            result["tools"] = converted_tools
-    if anthropic_request.tool_choice is not None:
-        result["tool_choice"] = _convert_anthropic_tool_choice(
-            anthropic_request.tool_choice
-        )
+            user = str(user_id)
+
+    result = CanonicalChatRequest(
+        model=anthropic_request.model,
+        messages=chat_messages,
+        max_tokens=anthropic_request.max_tokens,
+        temperature=anthropic_request.temperature,
+        top_p=anthropic_request.top_p,
+        top_k=anthropic_request.top_k,
+        stop=anthropic_request.stop_sequences,
+        stream=anthropic_request.stream or False,
+        tools=tools,
+        tool_choice=tool_choice,
+        user=user,
+    )
     logger.debug("Converted Anthropic to OpenAI request: %r", result)
     return result
 

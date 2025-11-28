@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
+    CanonicalStreamChunk,
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatMessage,
@@ -163,18 +164,18 @@ class TestResponsesApiTranslation:
             sse_chunk, "openai-responses"
         )
 
-        assert isinstance(domain_chunk, dict)
-        assert domain_chunk["choices"][0]["delta"]["content"] == "partial"
+        assert isinstance(domain_chunk, CanonicalStreamChunk)
+        assert domain_chunk.choices[0].delta.content == "partial"
 
         # The connector may label the format simply as "responses"
         direct_domain_chunk = self.service.to_domain_stream_chunk(
             sse_chunk, "responses"
         )
-        assert isinstance(direct_domain_chunk, dict)
-        assert direct_domain_chunk["choices"][0]["delta"]["content"] == "partial"
+        assert isinstance(direct_domain_chunk, CanonicalStreamChunk)
+        assert direct_domain_chunk.choices[0].delta.content == "partial"
 
     def test_to_domain_stream_chunk_responses_message_item(self):
-        """Message completion events should flatten content."""
+        """Message output items should be mapped to content deltas."""
 
         chunk = (
             "event: response.output_item.done\n"
@@ -186,9 +187,9 @@ class TestResponsesApiTranslation:
 
         domain_chunk = self.service.to_domain_stream_chunk(chunk, "responses")
 
-        delta = domain_chunk["choices"][0]["delta"]
-        assert delta["content"] == "Hello world"
-        assert delta["role"] == "assistant"
+        delta = domain_chunk.choices[0].delta
+        assert delta.content == "Hello world"
+        assert delta.role == "assistant"
 
     def test_to_domain_stream_chunk_responses_function_call(self):
         """Function call output items should be mapped to tool_calls."""
@@ -202,7 +203,8 @@ class TestResponsesApiTranslation:
 
         domain_chunk = self.service.to_domain_stream_chunk(chunk, "responses")
 
-        tool_calls = domain_chunk["choices"][0]["delta"]["tool_calls"]
+        tool_calls = domain_chunk.choices[0].delta.tool_calls
+        # tool_calls is a list of dicts for now
         assert tool_calls[0]["function"]["name"] == "do_work"
         assert tool_calls[0]["function"]["arguments"] == '{"value": 1}'
 
@@ -225,7 +227,7 @@ class TestResponsesApiTranslation:
             f"data: {json.dumps(delta_payload)}\n\n"
         )
         delta_domain = self.service.to_domain_stream_chunk(delta_chunk, "responses")
-        tool_delta = delta_domain["choices"][0]["delta"]["tool_calls"][0]
+        tool_delta = delta_domain.choices[0].delta.tool_calls[0]
         assert tool_delta["index"] == 0
         assert tool_delta["id"] == "fc_1"
 
@@ -247,9 +249,9 @@ class TestResponsesApiTranslation:
                 f"data: {json.dumps(done_payload)}\n\n"
             )
             done_domain = self.service.to_domain_stream_chunk(done_chunk, "responses")
-            done_tool = done_domain["choices"][0]["delta"]["tool_calls"][0]
+            done_tool = done_domain.choices[0].delta.tool_calls[0]
             assert done_tool["index"] == 0
-            assert done_domain["choices"][0]["finish_reason"] == "tool_calls"
+            assert done_domain.choices[0].finish_reason == "tool_calls"
 
             final_payload = {
                 "id": response_id,
@@ -267,14 +269,18 @@ class TestResponsesApiTranslation:
                 f"data: {json.dumps(final_payload)}\n\n"
             )
             final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
-            final_tool = final_domain["choices"][0]["delta"]["tool_calls"][0]
+            final_tool = final_domain.choices[0].delta.tool_calls[0]
             assert final_tool["index"] == 0
-            assert final_domain["choices"][0]["finish_reason"] == "tool_calls"
-            final_tool_text = final_domain["choices"][0]["delta"]["_tool_call_text"]
+            assert final_domain.choices[0].finish_reason == "tool_calls"
+
+            # Access extra field via dict access
+            final_tool_text = final_domain.choices[0].delta["_tool_call_text"]
             assert final_tool_text.startswith("<execute_command>")
             assert final_tool_text.endswith("</execute_command>")
             assert '<command>bash -lc "ls"</command>' in final_tool_text
-        assert "content" not in final_domain["choices"][0]["delta"]
+
+        # Content should be None
+        assert final_domain.choices[0].delta.content is None
 
         completed_payload = {
             "type": "response.completed",
@@ -286,7 +292,7 @@ class TestResponsesApiTranslation:
         completed_domain = self.service.to_domain_stream_chunk(
             completed_chunk, "responses"
         )
-        assert completed_domain["choices"][0]["finish_reason"] == "stop"
+        assert completed_domain.choices[0].finish_reason == "stop"
         assert response_id not in Translation._codex_tool_call_index_base
         assert response_id not in Translation._codex_tool_call_item_index
 
@@ -314,10 +320,11 @@ class TestResponsesApiTranslation:
         with OverrideRenderer("none"):
             final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
 
-        delta = final_domain["choices"][0]["delta"]
-        assert "content" not in delta
+        delta = final_domain.choices[0].delta
+        assert delta.content is None
+        # Verify extra field is not present
         assert "_tool_call_text" not in delta
-        tool_calls = delta["tool_calls"]
+        tool_calls = delta.tool_calls
         assert tool_calls[0]["function"]["name"] == "shell"
 
     def test_to_domain_stream_chunk_responses_completed_event(self):
@@ -331,8 +338,8 @@ class TestResponsesApiTranslation:
         )
 
         domain_chunk = self.service.to_domain_stream_chunk(chunk, "responses")
-        assert domain_chunk["choices"][0]["finish_reason"] == "stop"
-        assert domain_chunk["usage"]["total_tokens"] == 15
+        assert domain_chunk.choices[0].finish_reason == "stop"
+        assert domain_chunk.usage["total_tokens"] == 15
 
     def test_to_domain_stream_chunk_responses_done_marker(self):
         """Test translating the [DONE] marker from Responses API streaming."""
@@ -343,9 +350,9 @@ class TestResponsesApiTranslation:
             done_chunk, "openai-responses"
         )
 
-        assert isinstance(domain_chunk, dict)
-        assert domain_chunk["choices"][0]["finish_reason"] == "stop"
-        assert domain_chunk["choices"][0]["delta"] == {}
+        assert isinstance(domain_chunk, CanonicalStreamChunk)
+        assert domain_chunk.choices[0].finish_reason == "stop"
+        assert domain_chunk.choices[0].delta.content is None
 
     def test_to_domain_stream_chunk_responses_normalizes_content(self):
         """Responses stream chunks with content lists should flatten to strings."""
@@ -363,9 +370,9 @@ class TestResponsesApiTranslation:
             sse_chunk, "openai-responses"
         )
 
-        delta = domain_chunk["choices"][0]["delta"]
-        assert delta["content"] == "Hello world"
-        tool_calls = delta.get("tool_calls")
+        delta = domain_chunk.choices[0].delta
+        assert delta.content == "Hello world"
+        tool_calls = delta.tool_calls
         assert isinstance(tool_calls, list) and tool_calls
         assert tool_calls[0]["function"]["arguments"] == '{"value": 1}'
 
