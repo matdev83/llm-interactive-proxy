@@ -256,7 +256,10 @@ class StructuredWireCapture(IWireCapture):
                 try:
                     await self._append_json(chunk_entry)
                 except Exception as e:
-                    logger.debug("Error capturing stream chunk: %s", e, exc_info=True)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Error capturing stream chunk: %s", e, exc_info=True
+                        )
 
                 yield chunk
 
@@ -330,9 +333,12 @@ class StructuredWireCapture(IWireCapture):
                 try:
                     await self._append_json(chunk_entry)
                 except Exception as e:
-                    logger.debug(
-                        "Error capturing outbound stream chunk: %s", e, exc_info=True
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Error capturing outbound stream chunk: %s",
+                            e,
+                            exc_info=True,
+                        )
                 yield chunk
 
             end_entry = self._create_json_entry(
@@ -468,7 +474,8 @@ class StructuredWireCapture(IWireCapture):
                     if isinstance(content, dict) and content.get("role") == "system":
                         return str(content.get("parts", [{}])[0].get("text", ""))
         except Exception as e:
-            logger.debug("Failed to extract system prompt: %s", e, exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to extract system prompt: %s", e, exc_info=True)
 
         return None
 
@@ -482,9 +489,12 @@ class StructuredWireCapture(IWireCapture):
             # Convert entry to JSON string
             json_str = json.dumps(entry, ensure_ascii=False) + "\n"
         except (TypeError, ValueError) as e:
-            logger.debug(
-                "JSON serialization failed for structured capture: %s", e, exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "JSON serialization failed for structured capture: %s",
+                    e,
+                    exc_info=True,
+                )
             try:
                 json_str = (
                     json.dumps({"fallback_entry": str(entry)}, ensure_ascii=False)
@@ -620,11 +630,12 @@ def _safe_json_dump(obj: Any) -> str:
                 return json.dumps(obj.model_dump(), ensure_ascii=False)  # type: ignore[attr-defined]
             return json.dumps(obj.__dict__, ensure_ascii=False)
         except Exception as e:
-            logger.debug(
-                "Falling back to str() during structured JSON dump: %s",
-                e,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Falling back to str() during structured JSON dump: %s",
+                    e,
+                    exc_info=True,
+                )
             return str(obj)
 
 

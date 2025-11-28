@@ -142,9 +142,10 @@ class TranslationService:
             return _Canonical.model_validate(request.model_dump())
 
         if source_format == "responses":
-            logger.debug(
-                f"Converting Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Converting Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
+                )
 
             has_response_format = False
             if isinstance(request, dict):
@@ -173,9 +174,10 @@ class TranslationService:
 
             try:
                 domain_request = Translation.responses_to_domain_request(request)
-                logger.debug(
-                    f"Successfully converted Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Successfully converted Responses API request to domain format - model={getattr(request, 'model', 'unknown')}"
+                    )
                 return domain_request
             except ValidationError:
                 raise

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import structlog
 from src.core.common.logging_utils import (
+    CompatibleBoundLogger,
     EnvironmentTaggingFilter,
     LogContext,
     get_logger,
@@ -131,6 +132,7 @@ class TestLogging:
         with patch("structlog.get_logger") as mock_get_logger:
             # Setup mock
             mock_logger = MagicMock(spec=structlog.stdlib.BoundLogger)
+            mock_logger.is_enabled_for.return_value = True
             mock_get_logger.return_value = mock_logger
 
             # Call get_logger
@@ -138,7 +140,11 @@ class TestLogging:
 
             # Verify
             mock_get_logger.assert_called_once_with("test_logger")
-            assert logger == mock_logger
+            # The get_logger function wraps the result in CompatibleBoundLogger
+            assert isinstance(logger, CompatibleBoundLogger)
+            assert logger._logger == mock_logger
+            assert logger.isEnabledFor(logging.INFO) == True
+            assert logger.isEnabledFor(logging.DEBUG) == True
 
     def test_log_call(self) -> None:
         """Test log_call decorator."""
@@ -234,6 +240,7 @@ class TestLogging:
         filter_instance = EnvironmentTaggingFilter()
         filter_instance.filter(record)
 
+        assert hasattr(record, "env_tag")
         assert record.env_tag == "test"
 
     def test_log_context(self) -> None:

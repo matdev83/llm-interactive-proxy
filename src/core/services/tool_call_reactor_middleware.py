@@ -14,6 +14,7 @@ from typing import Any
 
 from json_repair import repair_json
 
+from src.core.common.logging_utils import get_logger
 from src.core.domain.responses import ProcessedResponse
 from src.core.interfaces.response_processor_interface import IResponseMiddleware
 from src.core.interfaces.tool_call_reactor_interface import (
@@ -29,7 +30,7 @@ from src.tool_call_loop.lifecycle_registry import (
     build_tool_call_signature,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Marker key used to track if a tool call has been processed
 _TOOL_CALL_PROCESSING_MARKER = "_already_processed"
@@ -135,7 +136,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                             tool_calls.append(normalized)
                             raw_tool_calls.append(raw_call)
             except Exception as e:
-                if logger.isEnabledFor(logging.DEBUG):
+                if logger.is_enabled_for(logging.DEBUG):
                     logger.debug(
                         "Error extracting tool calls from metadata: %s",
                         e,
@@ -186,7 +187,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
 
         # Log skipped tool calls
         skipped_count = len(tool_calls) - len(new_tool_calls_with_raw)
-        if skipped_count > 0 and logger.isEnabledFor(logging.DEBUG):
+        if skipped_count > 0 and logger.is_enabled_for(logging.DEBUG):
             logger.debug(
                 f"Skipped {skipped_count} already-processed tool call(s) in session {session_id}"
             )
@@ -199,7 +200,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
-        if logger.isEnabledFor(logging.DEBUG):
+        if logger.is_enabled_for(logging.DEBUG):
             logger.debug(
                 f"Detected {len(new_tool_calls_with_raw)} new tool call(s) in session {session_id}"
             )
@@ -238,7 +239,7 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             if isinstance(context, dict):
                 context["detected_tool_calls"] = list(tool_calls)
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
+            if logger.is_enabled_for(logging.DEBUG):
                 logger.debug(
                     "Failed to annotate tool calls in metadata/context", exc_info=True
                 )
@@ -519,12 +520,12 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
             try:
                 return asdict(tool_call)
             except (TypeError, ValueError) as e:
-                if logger.isEnabledFor(logging.DEBUG):
+                if logger.is_enabled_for(logging.DEBUG):
                     logger.debug(f"Failed to convert dataclass to dict: {e}")
                 return None
 
         # Otherwise, we can't normalize it
-        if logger.isEnabledFor(logging.DEBUG):
+        if logger.is_enabled_for(logging.DEBUG):
             logger.debug(
                 "Cannot normalize tool call object: %s", tool_call, exc_info=True
             )

@@ -261,14 +261,16 @@ class UsageTrackingService(IUsageTrackingService):
         try:
             candidate = float(value)
         except (TypeError, ValueError):
-            logger.debug(
-                "Ignoring invalid billing cost value: %s", value, exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Ignoring invalid billing cost value: %s", value, exc_info=True
+                )
             return None
         if math.isnan(candidate) or math.isinf(candidate):
-            logger.debug(
-                "Ignoring non-finite billing cost value: %s", value, exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Ignoring non-finite billing cost value: %s", value, exc_info=True
+                )
             return None
         return candidate
 

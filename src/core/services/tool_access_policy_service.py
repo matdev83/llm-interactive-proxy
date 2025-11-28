@@ -9,9 +9,10 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.core.common.logging_utils import get_logger
 from src.core.config.app_config import ToolCallReactorConfig
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -156,7 +157,7 @@ class ToolAccessPolicyService:
         self._policies.sort(key=lambda p: p.priority, reverse=True)
 
         logger.info(f"Loaded {len(self._policies)} tool access policies")
-        if self._policies and logger.isEnabledFor(logging.DEBUG):
+        if self._policies and logger.is_enabled_for(logging.DEBUG):
             logger.debug(f"Policy names: {[p.name for p in self._policies]}")
 
     def _load_policies(self, config: ToolCallReactorConfig) -> None:
@@ -327,12 +328,12 @@ class ToolAccessPolicyService:
                 f"Filtered {len(filtered_names)} tool definitions for model "
                 f"{model_name} by policy '{policy.name}': {filtered_names}"
             )
-            if logger.isEnabledFor(logging.DEBUG):
+            if logger.is_enabled_for(logging.DEBUG):
                 logger.debug(
                     f"Remaining tools: {[self._extract_tool_name(t) for t in filtered_tools]}"
                 )
 
-        if logger.isEnabledFor(logging.DEBUG):
+        if logger.is_enabled_for(logging.DEBUG):
             logger.debug(f"Policy evaluation time: {elapsed_ms:.3f}ms")
 
         return filtered_tools, metadata
@@ -379,7 +380,7 @@ class ToolAccessPolicyService:
         metadata["evaluation_time_ms"] = elapsed_ms
         self._record_evaluation_time(elapsed_ms)
 
-        if logger.isEnabledFor(logging.DEBUG):
+        if logger.is_enabled_for(logging.DEBUG):
             logger.debug(
                 f"Policy evaluation for '{tool_name}': {metadata['reason']} in {elapsed_ms:.3f}ms"
             )

@@ -56,11 +56,12 @@ class TurnCounterService(ITurnCounterService):
         # State already updated its timestamp during increment_turn; avoid duplicate work.
         self.repository.update_session_state(state)
 
-        logger.debug(
-            "turn_incremented",
-            session_id=session_id,
-            turn_count=turn_count,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "turn_incremented",
+                session_id=session_id,
+                turn_count=turn_count,
+            )
         return turn_count
 
     def get_turn_count(self, session_id: str) -> int:
@@ -103,14 +104,16 @@ class TurnCounterService(ITurnCounterService):
 
         # Check if disabled for this session
         if state.disabled_for_session or self.config.is_session_disabled(session_id):
-            logger.debug(f"Assessment disabled for session {session_id}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Assessment disabled for session {session_id}")
             return False
 
         # Check if we've reached the turn threshold
         if state.turn_count < self.config.turn_threshold:
-            logger.debug(
-                f"Session {session_id} turn count {state.turn_count} below threshold {self.config.turn_threshold}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Session {session_id} turn count {state.turn_count} below threshold {self.config.turn_threshold}"
+                )
             return False
 
         # Check if enough turns have passed since last assessment
@@ -118,12 +121,14 @@ class TurnCounterService(ITurnCounterService):
         if state.last_check_turn > 0:
             turns_since_last_check = state.turn_count - state.last_check_turn
             if turns_since_last_check < state.current_check_interval:
-                logger.debug(
-                    f"Session {session_id} turns since last check {turns_since_last_check} below interval {state.current_check_interval}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Session {session_id} turns since last check {turns_since_last_check} below interval {state.current_check_interval}"
+                    )
                 return False
 
-        logger.debug(f"Assessment should be triggered for session {session_id}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Assessment should be triggered for session {session_id}")
         return True
 
     def mark_assessment_performed(self, session_id: str):
@@ -142,9 +147,10 @@ class TurnCounterService(ITurnCounterService):
         state.mark_assessment_performed()
         self.repository.update_session_state(state)
 
-        logger.debug(
-            f"Assessment marked as performed for session {session_id} at turn {state.turn_count}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Assessment marked as performed for session {session_id}. New check interval: {state.current_check_interval}"
+            )
 
     def adjust_check_interval(self, session_id: str, confidence: float):
         """
@@ -174,10 +180,11 @@ class TurnCounterService(ITurnCounterService):
 
         self.repository.update_session_state(state)
 
-        logger.debug(
-            f"Adjusted check interval for session {session_id}: "
-            f"{old_interval} -> {state.current_check_interval} (confidence: {confidence})"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Adjusted check interval for session {session_id}: "
+                f"{old_interval} -> {state.current_check_interval} (confidence: {confidence})"
+            )
 
     def disable_for_session(self, session_id: str):
         """

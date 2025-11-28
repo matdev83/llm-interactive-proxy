@@ -137,7 +137,8 @@ class UniversalToolExecutor:
             handler: Async function that takes arguments dict and returns result dict
         """
         self._custom_tool_handlers[tool_name] = handler
-        logger.debug(f"Registered custom handler for tool: {tool_name}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Registered custom handler for tool: {tool_name}")
 
     def get_available_tools(self) -> list[str]:
         """Get list of all available tools.
@@ -344,12 +345,13 @@ class UniversalToolExecutor:
             translated_key = common_mappings.get(key, key)
             translated[translated_key] = value
 
-        logger.debug(
-            "Translated MCP tool parameters for '%s': %s -> %s",
-            tool_name,
-            arguments,
-            translated,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated MCP tool parameters for '%s': %s -> %s",
+                tool_name,
+                arguments,
+                translated,
+            )
 
         return translated
 
@@ -760,12 +762,13 @@ class UniversalToolExecutor:
                 )
 
             # Execute command with timeout
-            logger.debug(
-                "Executing shell command: %s (timeout: %ds, cwd: %s)",
-                command,
-                timeout,
-                resolved_working_dir,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Executing shell command: %s (timeout: %ds, cwd: %s)",
+                    command,
+                    timeout,
+                    working_dir,
+                )
 
             # Run command in executor to avoid blocking
             loop = asyncio.get_event_loop()
@@ -797,11 +800,12 @@ class UniversalToolExecutor:
 
             exit_code = result.returncode
 
-            logger.debug(
-                "Command completed with exit code %d (output length: %d bytes)",
-                exit_code,
-                len(output),
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Command completed with exit code %d (output length: %d bytes)",
+                    exit_code,
+                    len(output),
+                )
 
             return self._format_result(
                 output=output,
