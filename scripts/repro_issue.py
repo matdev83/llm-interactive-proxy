@@ -28,16 +28,16 @@ def test_resolution():
     C:\Users\Mateusz\Projects\Java\Project1\source\package1
     """
 
-    print(f"Analyzing prompt: {}")
+    print(f"Analyzing prompt: {prompt}")
     result = service._find_absolute_path_in_prompt(prompt)
-    print(f"Result: {}")
+    print(f"Result: {result}")
     
     expected = r"C:\Users\Mateusz\Projects\Java\Project1"
     
     if result and (result == expected or result.rstrip('\\') == expected):
         print("SUCCESS: Detected correct common root.")
     else:
-        print(f"FAILURE: Expected {}, got {}")
+        print(f"FAILURE: Expected {expected}, got {result}")
 
 if __name__ == "__main__":
     test_resolution()

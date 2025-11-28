@@ -42,6 +42,65 @@ def test_code_assist_stream_chunk_maps_function_call_and_forces_finish_reason() 
     assert mapped["choices"][0]["finish_reason"] == "tool_calls"
 
 
+def test_code_assist_stream_chunk_passes_through_openai_format_with_empty_choices() -> (
+    None
+):
+    """Test that OpenAI-format chunks with empty choices (like usage-only chunks) are preserved.
+
+    This is a regression test for a bug where usage-only chunks were incorrectly
+    processed as native Code Assist format because the condition checked truthiness
+    of choices (empty list is falsy) instead of key existence.
+    """
+    # Simulate an OpenAI-format usage-only chunk (empty choices, but has usage data)
+    usage_chunk = {
+        "id": "chatcmpl-test-123",
+        "object": "chat.completion.chunk",
+        "created": 1699000000,
+        "model": "gemini-2.5-pro-latest",
+        "choices": [],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        },
+    }
+
+    mapped = Translation.code_assist_to_domain_stream_chunk(usage_chunk)
+
+    # Must preserve the original structure - NOT create a new chunk with "code-assist-model"
+    assert mapped["id"] == "chatcmpl-test-123"
+    assert mapped["model"] == "gemini-2.5-pro-latest"
+    assert mapped["choices"] == []  # Empty choices preserved
+    assert mapped["usage"]["prompt_tokens"] == 100
+    assert mapped["usage"]["completion_tokens"] == 50
+    assert mapped["usage"]["total_tokens"] == 150
+
+
+def test_code_assist_stream_chunk_passes_through_openai_format_with_content() -> None:
+    """Test that OpenAI-format chunks with content are passed through correctly."""
+    # Simulate an OpenAI-format content chunk
+    content_chunk = {
+        "id": "chatcmpl-test-456",
+        "object": "chat.completion.chunk",
+        "created": 1699000000,
+        "model": "gemini-2.5-pro-latest",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": "Hello, world!"},
+                "finish_reason": None,
+            }
+        ],
+    }
+
+    mapped = Translation.code_assist_to_domain_stream_chunk(content_chunk)
+
+    # Must preserve the original structure
+    assert mapped["id"] == "chatcmpl-test-456"
+    assert mapped["model"] == "gemini-2.5-pro-latest"
+    assert mapped["choices"][0]["delta"]["content"] == "Hello, world!"
+
+
 def test_assistant_tool_calls_only_mapped_to_function_call_parts() -> None:
     # Assistant with tool_calls and no textual content should be accepted
     tc = ToolCall(

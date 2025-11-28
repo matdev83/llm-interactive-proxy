@@ -30,6 +30,95 @@ from src.core.common.exceptions import (
 logger = logging.getLogger(__name__)
 
 
+class UsageChunkLeakError(LLMProxyError):
+    """Raised when code attempts to stringify a usage chunk dict directly.
+
+    This error indicates a bug where the streaming pipeline is treating
+    a usage-bearing stop chunk as plain content instead of preserving
+    its OpenAI-format structure for proper SSE serialization.
+    """
+
+    def __init__(self, chunk_id: str | None = None) -> None:
+        msg = (
+            "Attempted to stringify a StopChunkWithUsage directly. "
+            "This chunk should be serialized via to_bytes() with proper OpenAI format, "
+            "not converted to a plain string. "
+            f"Chunk ID: {chunk_id or 'unknown'}"
+        )
+        super().__init__(message=msg, code=500)
+
+
+class StopChunkWithUsage(dict):
+    """A dict subclass that prevents accidental stringification.
+
+    This class wraps the final stop chunk dict (containing usage data) and
+    raises an error if anyone attempts to:
+    - Convert it to string via str()
+    - Serialize it via json.dumps() when treated as a string
+    - Interpolate it in an f-string or % formatting
+
+    The only valid way to serialize this is through StreamingContent.to_bytes()
+    which handles it as an OpenAI-format chunk.
+
+    Usage:
+        stop_chunk = StopChunkWithUsage({
+            "id": "chatcmpl-xxx",
+            "choices": [...],
+            "usage": {...}
+        })
+        # This will raise UsageChunkLeakError:
+        str(stop_chunk)
+        f"Content: {stop_chunk}"
+
+        # This is the correct way (handled by to_bytes()):
+        json.dumps(dict(stop_chunk))  # Explicitly convert to plain dict first
+    """
+
+    _stringify_allowed: bool = False
+
+    def __str__(self) -> str:
+        """Raise error on string conversion unless explicitly allowed."""
+        if self._stringify_allowed:
+            return super().__repr__()
+        raise UsageChunkLeakError(chunk_id=self.get("id"))
+
+    def __repr__(self) -> str:
+        """Safe repr for debugging - shows it's a protected chunk."""
+        return f"<StopChunkWithUsage id={self.get('id')} usage={self.get('usage')}>"
+
+    def allow_stringify(self) -> StopChunkWithUsage:
+        """Temporarily allow stringification (for legitimate serialization).
+
+        Returns self to allow chaining like: json.dumps(chunk.allow_stringify())
+        But prefer using dict(chunk) for explicit conversion.
+        """
+        self._stringify_allowed = True
+        return self
+
+    def to_plain_dict(self) -> dict[str, Any]:
+        """Convert to a plain dict for safe serialization.
+
+        This is the safe way to get the data when you need to serialize it.
+        """
+        return dict(self)
+
+    @classmethod
+    def wrap(cls, chunk: dict[str, Any]) -> StopChunkWithUsage:
+        """Wrap a dict as a StopChunkWithUsage if it has usage data.
+
+        Args:
+            chunk: A dict that may contain usage data
+
+        Returns:
+            StopChunkWithUsage if chunk has usage, otherwise returns original dict
+        """
+        if isinstance(chunk, cls):
+            return chunk
+        if isinstance(chunk, dict) and chunk.get("usage") and chunk.get("choices"):
+            return cls(chunk)
+        return chunk  # type: ignore[return-value]
+
+
 @dataclass
 class StreamingContent:
     """Unified representation of a streaming chunk.
@@ -172,6 +261,11 @@ class StreamingContent:
         if self.content.get("error"):
             return False
 
+        # Usage-containing chunks should not be treated as empty - they carry
+        # important billing/token count information that must be transmitted
+        if self.content.get("usage") or self.usage:
+            return False
+
         tool_calls_meta = self.metadata.get("tool_calls")
         if isinstance(tool_calls_meta, list) and tool_calls_meta:
             return False
@@ -276,9 +370,8 @@ class StreamingContent:
                                     choices[0]["delta"] = inner_delta
                                     content_copy["choices"] = choices
                             return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
-                    return (
-                        f"data: {json.dumps(self.content)}\n\ndata: [DONE]\n\n".encode()
-                    )
+                    # Use dict() to safely convert StopChunkWithUsage to plain dict
+                    return f"data: {json.dumps(dict(self.content))}\n\ndata: [DONE]\n\n".encode()
                 # Otherwise, fall through to normal content handling below
             else:
                 # No meaningful content or content is just "[DONE]", emit [DONE]
@@ -328,7 +421,7 @@ class StreamingContent:
             elif isinstance(self.content, dict):
                 # Check if this is already an OpenAI-formatted chunk
                 # If so, use it directly instead of wrapping it again
-                if "choices" in self.content:
+                if "choices" in self.content or "usage" in self.content:
                     # Inject tool_calls from metadata into the delta if present
                     tool_calls_to_inject = self.metadata.get("tool_calls")
                     if isinstance(tool_calls_to_inject, list) and tool_calls_to_inject:
@@ -352,14 +445,22 @@ class StreamingContent:
                                     content_copy["choices"] = choices
                             result = f"data: {json.dumps(content_copy)}\n\n"
                         else:
-                            result = f"data: {json.dumps(self.content)}\n\n"
+                            # Use dict() to safely convert StopChunkWithUsage to plain dict
+                            result = f"data: {json.dumps(dict(self.content))}\n\n"
                     else:
-                        result = f"data: {json.dumps(self.content)}\n\n"
+                        # Use dict() to safely convert StopChunkWithUsage to plain dict
+                        result = f"data: {json.dumps(dict(self.content))}\n\n"
                     # Append [DONE] if this is the final chunk
                     if self.is_done:
                         result += "data: [DONE]\n\n"
                     return result.encode()
+                # If we reach here with a StopChunkWithUsage, something is wrong.
+                # The chunk should have been handled above (it has choices+usage).
+                if isinstance(self.content, StopChunkWithUsage):
+                    raise UsageChunkLeakError(chunk_id=self.content.get("id"))
                 delta["content"] = json.dumps(self.content)
+            elif isinstance(self.content, str):
+                delta["content"] = self.content
             else:
                 delta["content"] = str(self.content)
         else:
@@ -631,9 +732,16 @@ class StreamingContent:
                 else:
                     usage = raw_data.get("usage")
 
-                # Preserve usage-only payloads as content so downstream processors
-                # do not discard them as empty chunks.
-                if usage and not content:
+                # For chunks with usage data, preserve the original OpenAI-format
+                # structure in content so downstream can recognize it and properly
+                # serialize the usage field in the SSE output.
+                if (
+                    usage
+                    and not content
+                    and isinstance(raw_data, dict)
+                    and "choices" in raw_data
+                ):
+                    # OpenAI-format chunk with usage - preserve structure
                     content = raw_data
 
         elif isinstance(raw_data, str):

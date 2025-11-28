@@ -201,3 +201,116 @@ async def test_accumulated_reasoning_metadata_is_preserved(
         result.metadata.get("accumulated_reasoning")
         == "Thinking about step 1.Considering next move."
     )
+
+
+@pytest.mark.asyncio
+async def test_openai_format_chunks_pass_through_unchanged(
+    content_accumulation_processor,
+) -> None:
+    """OpenAI-format chunks with choices should pass through unchanged for SSE output.
+
+    This is a regression test for a bug where OpenAI-format chunks were being
+    JSON-stringified and accumulated, breaking the streaming output.
+    """
+    # Simulate an OpenAI-format content chunk
+    content_chunk = {
+        "id": "chatcmpl-test-123",
+        "object": "chat.completion.chunk",
+        "created": 1699000000,
+        "model": "gemini-2.5-pro",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": "Hello, world!"},
+                "finish_reason": None,
+            }
+        ],
+    }
+
+    chunk = StreamingContent(
+        content=content_chunk,
+        metadata={"stream_id": "openai-format-stream"},
+    )
+
+    result = await content_accumulation_processor.process(chunk)
+
+    # The original dict should be preserved for SSE output
+    assert isinstance(result.content, dict)
+    assert result.content["id"] == "chatcmpl-test-123"
+    assert result.content["choices"][0]["delta"]["content"] == "Hello, world!"
+
+
+@pytest.mark.asyncio
+async def test_openai_format_usage_chunks_pass_through(
+    content_accumulation_processor,
+) -> None:
+    """Usage-only chunks with empty choices should pass through unchanged.
+
+    These chunks should NOT contribute to accumulated content.
+    """
+    usage_chunk = {
+        "id": "chatcmpl-usage-456",
+        "object": "chat.completion.chunk",
+        "created": 1699000000,
+        "model": "gemini-2.5-pro",
+        "choices": [],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        },
+    }
+
+    chunk = StreamingContent(
+        content=usage_chunk,
+        metadata={"stream_id": "usage-stream"},
+    )
+
+    result = await content_accumulation_processor.process(chunk)
+
+    # Usage chunk should pass through unchanged
+    assert isinstance(result.content, dict)
+    assert result.content["choices"] == []
+    assert result.content["usage"]["total_tokens"] == 150
+
+
+@pytest.mark.asyncio
+async def test_openai_format_chunks_accumulate_content_in_metadata(
+    content_accumulation_processor,
+) -> None:
+    """OpenAI-format chunks should accumulate text content for metadata.
+
+    When is_done=True, accumulated_content should contain the extracted text.
+    """
+    chunk1 = StreamingContent(
+        content={
+            "id": "chatcmpl-1",
+            "choices": [{"delta": {"content": "Hello, "}}],
+        },
+        metadata={"stream_id": "accum-stream"},
+    )
+    chunk2 = StreamingContent(
+        content={
+            "id": "chatcmpl-2",
+            "choices": [{"delta": {"content": "world!"}}],
+        },
+        metadata={"stream_id": "accum-stream"},
+    )
+    final_chunk = StreamingContent(
+        content={
+            "id": "chatcmpl-final",
+            "choices": [{"delta": {}, "finish_reason": "stop"}],
+        },
+        metadata={"stream_id": "accum-stream"},
+        is_done=True,
+    )
+
+    await content_accumulation_processor.process(chunk1)
+    await content_accumulation_processor.process(chunk2)
+    result = await content_accumulation_processor.process(final_chunk)
+
+    # Accumulated content should be in metadata
+    assert result.metadata.get("accumulated_content") == "Hello, world!"
+    # Original dict should still be preserved
+    assert isinstance(result.content, dict)
+    assert result.content["id"] == "chatcmpl-final"

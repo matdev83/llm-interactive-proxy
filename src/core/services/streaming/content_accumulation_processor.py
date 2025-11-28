@@ -61,20 +61,67 @@ class ContentAccumulationProcessor(IStreamProcessor):
         stream_id = get_stream_id(content)
         state = self._get_state(stream_id)
 
-        # Preserve usage-only chunks instead of treating them as empty text.
-        if isinstance(content.content, dict) and (
-            isinstance(content.content.get("usage"), dict) or content.usage
-        ):
+        # Handle OpenAI-format dict chunks specially - pass through for SSE output
+        # while accumulating the extracted text content for metadata
+        if isinstance(content.content, dict) and "choices" in content.content:
+            chunk_dict = content.content
+            choices = chunk_dict.get("choices", [])
+            usage_info = chunk_dict.get("usage") or content.usage
+
+            # Extract actual text content from choices[].delta.content for accumulation
+            extracted_content = ""
+            if choices and isinstance(choices, list):
+                for choice in choices:
+                    if isinstance(choice, dict):
+                        delta = choice.get("delta", {})
+                        if isinstance(delta, dict):
+                            delta_content = delta.get("content")
+                            if isinstance(delta_content, str):
+                                extracted_content += delta_content
+
+            # Accumulate extracted content (but don't modify the chunk for output)
+            if extracted_content:
+                encoded_content = extracted_content.encode("utf-8")
+                content_length = len(encoded_content)
+                state.chunks.append(extracted_content)
+                state.encoded_chunks.append(encoded_content)
+                state.chunk_lengths.append(content_length)
+                state.byte_length += content_length
+
+            # Merge metadata
+            if content.metadata:
+                merged_metadata = dict(state.metadata_snapshot)
+                merged_metadata.update(content.metadata)
+                state.metadata_snapshot = merged_metadata
+
+            # Build output metadata
+            output_metadata = dict(content.metadata or {})
+
+            # For final chunk, add accumulated content to metadata
+            if content.is_done or content.is_cancellation:
+                final_content = "".join(state.chunks)
+                output_metadata["accumulated_content"] = final_content
+                if state.reasoning_chunks:
+                    output_metadata["accumulated_reasoning"] = "".join(
+                        state.reasoning_chunks
+                    )
+                # Clear state
+                state.chunks.clear()
+                state.encoded_chunks.clear()
+                state.chunk_lengths.clear()
+                state.byte_length = 0
+                state.reasoning_chunks.clear()
+                state.completed = True
+                self._registry.clear_content_state(stream_id)
+
+            # Pass through the original OpenAI-format chunk unchanged for SSE output
+            # This ensures the client receives proper SSE chunks with choices/delta structure
             return StreamingContent(
-                content=content.content,
+                content=content.content,  # Keep original dict for SSE serialization
                 is_done=content.is_done,
                 is_cancellation=content.is_cancellation,
-                metadata=dict(content.metadata or {}),
-                usage=(
-                    content.content.get("usage")
-                    if isinstance(content.content, dict)
-                    else content.usage
-                ),
+                metadata=output_metadata,
+                usage=usage_info if isinstance(usage_info, dict) else None,
                 raw_data=content.raw_data,
             )
 

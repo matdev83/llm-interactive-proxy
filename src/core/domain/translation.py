@@ -3183,7 +3183,9 @@ class Translation(BaseTranslator):
         # Detect OpenAI-format chunks (returned by Antigravity sandbox and some
         # Code Assist endpoints). Pass them through using the OpenAI translator
         # which preserves the original structure.
-        if chunk.get("choices") and chunk.get("id"):
+        # NOTE: Check for KEY existence, not value truthiness, because usage-only
+        # chunks have "choices": [] (empty list) which is falsy but still valid OpenAI format.
+        if "choices" in chunk and "id" in chunk:
             return Translation.openai_to_domain_stream_chunk(chunk)
 
         response_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"

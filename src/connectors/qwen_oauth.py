@@ -989,7 +989,10 @@ class QwenOAuthConnector(OpenAIConnector):
             recent_hashes: deque[str] = deque(maxlen=10)
 
             # Accumulate content for usage calculation
-            accumulated_content = []
+            accumulated_content: list[str] = []
+
+            # Buffer for the final stop chunk - we'll merge usage into it
+            final_stop_chunk: ProcessedResponse | None = None
 
             async for chunk in original_iterator:
                 # Extract content for hashing
@@ -1035,10 +1038,20 @@ class QwenOAuthConnector(OpenAIConnector):
                         if delta_content:
                             accumulated_content.append(delta_content)
 
-                # Yield the chunk as-is (usage will be added to final chunk)
+                        # Check if this is a stop chunk - buffer it for usage merge
+                        finish_reason = choices[0].get("finish_reason")
+                        if finish_reason in ("stop", "stop_sequence", "length"):
+                            # Buffer stop chunk, yield after adding usage
+                            final_stop_chunk = chunk
+                            continue
+
+                # Yield the chunk as-is
                 yield chunk
 
-            # After all chunks, calculate and yield a final chunk with usage
+            # Calculate usage and merge into final stop chunk
+            # Per OpenRouter API spec, usage should be in the final chunk
+            # with finish_reason="stop", NOT as a separate usage-only chunk
+            usage: dict[str, int] | None = None
             if accumulated_content:
                 try:
                     from src.core.utils.token_count import (
@@ -1067,21 +1080,41 @@ class QwenOAuthConnector(OpenAIConnector):
                         f"Calculated streaming token usage for {model_name}: {usage}"
                     )
 
-                    # Yield a final chunk with usage information
-                    # This follows the OpenAI streaming format where usage is in a separate chunk
-                    usage_chunk = {
-                        "id": "usage-calculation",
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": model_name,
-                        "choices": [],
-                        "usage": usage,
-                    }
-
-                    yield ProcessedResponse(content=usage_chunk, usage=usage)
-
                 except Exception as e:
                     logger.warning(f"Failed to calculate streaming token usage: {e}")
+
+            # Yield the final stop chunk with usage merged in
+            # Import the protective wrapper to detect accidental stringification
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+            if final_stop_chunk:
+                final_content = final_stop_chunk.content
+                if isinstance(final_content, dict) and usage:
+                    final_content = dict(final_content)  # Copy to avoid mutation
+                    final_content["usage"] = usage
+                    # Wrap with StopChunkWithUsage to detect accidental
+                    # stringification. If any code tries to str() this dict,
+                    # it will raise UsageChunkLeakError with a stack trace.
+                    final_content = StopChunkWithUsage(final_content)
+                yield ProcessedResponse(
+                    content=final_content,
+                    metadata=getattr(final_stop_chunk, "metadata", None),
+                    usage=usage,
+                )
+            elif usage:
+                # No stop chunk was buffered but we have usage - create a proper stop chunk
+                final_chunk = {
+                    "id": f"chatcmpl-qwen-{int(time.time())}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model_name,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": usage,
+                }
+                # Wrap with protective class
+                yield ProcessedResponse(
+                    content=StopChunkWithUsage(final_chunk), usage=usage
+                )
 
         # Return a new handle with the deduplicated iterator
         from src.core.domain.responses import StreamingResponseHandle

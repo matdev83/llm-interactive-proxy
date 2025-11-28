@@ -20,6 +20,7 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.gemini_oauth_free import GeminiOAuthFreeConnector
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.services.backend_registry import backend_registry
@@ -482,9 +483,11 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
             seen.add(path_key)
             unique_candidates.append(path)
 
-        logger.debug(
-            f"Candidate Antigravity DB paths: {[str(p) for p in unique_candidates]}"
-        )
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                f"Candidate Antigravity DB paths: {[str(p) for p in unique_candidates]}",
+            )
         return unique_candidates
 
     def _load_auth_status_from_db(self, db_path: Path) -> dict[str, Any] | None:
@@ -504,7 +507,11 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
 
             connection_string = f"{uri_path}?mode=ro"
 
-            logger.debug(f"Attempting to read Antigravity DB at: {connection_string}")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    f"Attempting to read Antigravity DB at: {connection_string}",
+                )
 
             with sqlite3.connect(connection_string, uri=True) as conn:
                 cursor = conn.cursor()

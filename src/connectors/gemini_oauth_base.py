@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -274,11 +275,16 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
 
                     now = time.time()
                     if now - self.connector._last_credentials_event_log_ts >= 30:
-                        # Log at DEBUG level to reduce noise - SQLite DBs update frequently
-                        logger.debug("Credentials file modified: %s", event.src_path)
+                        # Log at TRACE level to reduce noise - SQLite DBs update frequently
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Credentials file modified: %s",
+                            event.src_path,
+                        )
                         self.connector._last_credentials_event_log_ts = now
                     else:
-                        logger.debug(
+                        logger.log(
+                            TRACE_LEVEL,
                             "Credentials file modified (suppressed log window): %s",
                             event.src_path,
                         )
@@ -2732,15 +2738,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 response = None
                 generated_text = ""
                 error_json_buffer: str | None = None
-                done_reasons_to_skip = {"stop", "length", "cancelled"}
 
                 def _should_skip_chunk(chunk: dict[str, Any]) -> bool:
-                    """Filter out empty deltas so clients don't receive blank messages."""
+                    """Filter out empty deltas so clients don't receive blank messages.
+
+                    NOTE: Usage-only chunks (with empty choices but usage data) should
+                    NOT be skipped - they contain important token count information.
+                    NOTE: Stop chunks (finish_reason=stop) should NOT be skipped -
+                    they are needed to merge usage data per OpenRouter API spec.
+                    """
                     if not chunk:
                         return True
                     choices = chunk.get("choices") or []
+
+                    # Preserve usage-only chunks even if choices is empty
                     if not choices:
-                        return True
+                        # Don't skip if chunk has usage data; skip otherwise
+                        return not chunk.get("usage")
+
                     choice = choices[0] or {}
                     delta = choice.get("delta") or {}
                     finish_reason = choice.get("finish_reason")
@@ -2764,9 +2779,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         return False
 
                     # Preserve explicit terminal states even without content
-                    if finish_reason in {"error", "tool_calls"}:
+                    # Stop chunks are needed for usage data merging
+                    if finish_reason in {
+                        "error",
+                        "tool_calls",
+                        "stop",
+                        "stop_sequence",
+                    }:
                         return False
-                    if finish_reason in done_reasons_to_skip:
+                    # Skip length/cancelled without content
+                    if finish_reason in {"length", "cancelled"}:
                         return True
                     return True
 
@@ -3175,6 +3197,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                 return
 
                             try:
+                                if logger.isEnabledFor(TRACE_LEVEL):
+                                    logger.log(
+                                        TRACE_LEVEL,
+                                        "[STREAMING] Received chunk from backend: choices_count=%s, has_usage=%s, has_id=%s",
+                                        len(data.get("choices", [])),
+                                        "usage" in data,
+                                        "id" in data,
+                                    )
                                 domain_chunk = (
                                     self.translation_service.to_domain_stream_chunk(
                                         chunk=data, source_format="code_assist"
@@ -3184,6 +3214,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     # Ensure we use the effective model name, not what the backend returns
                                     # This prevents leaking internal model names like 'code-assist-model'
                                     domain_chunk["model"] = effective_model
+                                    if logger.isEnabledFor(TRACE_LEVEL):
+                                        logger.log(
+                                            TRACE_LEVEL,
+                                            "[STREAMING] After translation: id=%s, model=%s, choices_count=%s",
+                                            (
+                                                domain_chunk.get("id", "none")[:20]
+                                                if domain_chunk.get("id")
+                                                else "none"
+                                            ),
+                                            domain_chunk.get("model", "none"),
+                                            len(domain_chunk.get("choices", [])),
+                                        )
                             except Exception as e:
                                 logger.error(
                                     "Failed to process streaming chunk: %s", str(e)
@@ -3505,7 +3547,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                         )
                         raise
 
-                    # Calculate and yield usage
+                    # Calculate usage and merge into final stop chunk
+                    # Per OpenRouter API spec, usage should be in the final chunk
+                    # with finish_reason="stop", NOT as a separate usage-only chunk
+                    usage: dict[str, Any] | None = None
                     try:
                         completion_tokens = len(encoding.encode(generated_text))
                         usage = {
@@ -3513,35 +3558,49 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             "completion_tokens": completion_tokens,
                             "total_tokens": (prompt_tokens or 0) + completion_tokens,
                         }
-                        usage_chunk = {
-                            "id": f"chatcmpl-gemini-usage-{int(time.time())}",
-                            "object": "chat.completion.chunk",
-                            "created": int(time.time()),
-                            "model": effective_model,
-                            "choices": [],
-                            "usage": usage,
-                        }
-                        logger.debug(f"[STREAMING] Yielding usage chunk: {usage_chunk}")
-                        yield ProcessedResponse(content=usage_chunk)
+                        logger.debug(f"[STREAMING] Calculated usage: {usage}")
                     except Exception as e:
                         logger.warning(
                             f"Could not calculate completion tokens for streaming: {e}"
                         )
 
-                    # Yield the buffered stop chunk if we have one
+                    # Yield the final stop chunk with usage merged in
+                    # Import the protective wrapper to detect accidental stringification
+                    from src.core.ports.streaming_contracts import StopChunkWithUsage
+
                     if final_stop_chunk:
-                        logger.debug("[STREAMING] Yielding buffered stop chunk")
-                        yield final_stop_chunk
+                        logger.debug("[STREAMING] Yielding final stop chunk with usage")
+                        # Merge usage into the final stop chunk content
+                        final_content = final_stop_chunk.content
+                        if isinstance(final_content, dict) and usage:
+                            final_content = dict(
+                                final_content
+                            )  # Copy to avoid mutation
+                            final_content["usage"] = usage
+                            # Wrap with StopChunkWithUsage to detect accidental
+                            # stringification. If any code tries to str() this dict,
+                            # it will raise UsageChunkLeakError with a stack trace.
+                            final_content = StopChunkWithUsage(final_content)
+                        yield ProcessedResponse(
+                            content=final_content,
+                            metadata=final_stop_chunk.metadata,
+                            usage=usage,
+                        )
                     else:
                         logger.debug(
-                            "[STREAMING] No stop chunk buffered, yielding generic stop"
+                            "[STREAMING] No stop chunk buffered, yielding generic stop with usage"
                         )
                         # Fallback: create a generic stop chunk if none was captured
                         # (e.g. if stream ended without explicit stop reason)
                         final_chunk = self.translation_service.to_domain_stream_chunk(
                             chunk=None, source_format="code_assist"
                         )
-                        yield ProcessedResponse(content=final_chunk)
+                        # Merge usage into the generic stop chunk
+                        if isinstance(final_chunk, dict) and usage:
+                            final_chunk["usage"] = usage
+                            # Wrap with protective class
+                            final_chunk = StopChunkWithUsage(final_chunk)
+                        yield ProcessedResponse(content=final_chunk, usage=usage)
 
                 except BackendError as e:
                     logger.error(f"Error in streaming generator: {e}", exc_info=True)
