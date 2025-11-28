@@ -59,7 +59,8 @@ class CommandSettingsService(ICommandSettingsService):
             return
 
         self._command_prefix = value
-        logger.debug(f"Command prefix set to '{value}'")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Command prefix set to '{value}'")
 
     @property
     def api_key_redaction_enabled(self) -> bool:
@@ -74,7 +75,8 @@ class CommandSettingsService(ICommandSettingsService):
             value: Whether to enable API key redaction
         """
         self._api_key_redaction_enabled = value
-        logger.debug(f"API key redaction {'enabled' if value else 'disabled'}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"API key redaction {'enabled' if value else 'disabled'}")
 
     @property
     def disable_interactive_commands(self) -> bool:
@@ -107,7 +109,8 @@ class CommandSettingsService(ICommandSettingsService):
         self._command_prefix = self._default_command_prefix
         self._api_key_redaction_enabled = self._default_api_key_redaction
         self._disable_interactive_commands = self._default_disable_interactive_commands
-        logger.debug("Command settings reset to defaults")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Command settings reset to defaults")
 
 
 # Legacy singleton access removed. Use DI to resolve CommandSettingsService.

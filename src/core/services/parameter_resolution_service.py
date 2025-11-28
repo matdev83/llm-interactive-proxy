@@ -290,4 +290,5 @@ class ParameterResolutionService:
                     f"  {param_name}: {effective_value} (source: {source})"
                 )
 
-        logger.debug("\n".join(log_lines))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("\n".join(log_lines))

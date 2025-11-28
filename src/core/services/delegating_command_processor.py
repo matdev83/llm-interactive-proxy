@@ -46,12 +46,14 @@ class DelegatingCommandProcessor(ICommandProcessor):
             for message in messages
             if message.role == "assistant"
         ):
-            logger.debug("Delegating to ToolCallCommandProcessor")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Delegating to ToolCallCommandProcessor")
             return await self._tool_call_command_processor.process_messages(
                 messages, session_id, context
             )
 
-        logger.debug("Delegating to CommandProcessor (text-based)")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Delegating to CommandProcessor (text-based)")
         return await self._text_command_processor.process_messages(
             messages, session_id, context
         )

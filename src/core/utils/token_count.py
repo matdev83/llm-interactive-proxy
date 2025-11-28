@@ -35,7 +35,8 @@ def count_tokens(text: str, model: str | None = None) -> int:
 
         return len(_tiktoken_encoding.encode(text))
     except Exception as e:
-        logger.debug("Token counting fallback engaged: %s", e)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Token counting fallback engaged: %s", e)
         return max(1, len(text) // 4)
 
 

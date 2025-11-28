@@ -224,7 +224,8 @@ class JsonRepairService:
             # First, try to parse the content as-is
             try:
                 parsed_json = json.loads(content)
-                logger.debug(f"Successfully parsed JSON for session {session_id}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Successfully parsed JSON for session {session_id}")
             except json.JSONDecodeError as e:
                 logger.info(
                     f"Initial JSON parsing failed for session {session_id}, attempting repair: {e}"
@@ -254,7 +255,8 @@ class JsonRepairService:
             # Validate against the schema
             try:
                 self.validate_json(parsed_json, schema)
-                logger.debug(f"Schema validation successful for session {session_id}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Schema validation successful for session {session_id}")
 
                 # Return the properly formatted JSON string and the parsed object
                 formatted_content = json.dumps(parsed_json, ensure_ascii=False)
@@ -373,7 +375,8 @@ class JsonRepairService:
                     },
                 ) from e
 
-            logger.debug("Schema validation successful")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Schema validation successful")
             return True
 
         except ValidationError:

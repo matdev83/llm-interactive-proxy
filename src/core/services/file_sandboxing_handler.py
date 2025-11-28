@@ -113,7 +113,8 @@ class FileSandboxingHandler(IToolCallHandler):
         # Check if tool is excluded
         for pattern in self._excluded_patterns:
             if pattern.search(tool_name):
-                logger.debug(f"Tool '{tool_name}' is excluded from sandboxing")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Tool '{tool_name}' is excluded from sandboxing")
                 return False
 
         # Check if tool matches file-changing patterns
@@ -142,9 +143,10 @@ class FileSandboxingHandler(IToolCallHandler):
             project_dir = session.state.project_dir
 
             if not project_dir:
-                logger.debug(
-                    f"No project directory set for session {context.session_id}, allowing tool call '{context.tool_name}'"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"No project directory set for session {context.session_id}, allowing tool call '{context.tool_name}'"
+                    )
                 return ToolCallReactionResult(
                     should_swallow=False,
                     metadata={"decision": "skipped_no_project_dir"},
@@ -258,9 +260,10 @@ class FileSandboxingHandler(IToolCallHandler):
                     f"Allowing tool call '{context.tool_name}' despite path validation errors (non-strict mode): {invalid_path_errors}"
                 )
 
-            logger.debug(
-                f"Tool call '{context.tool_name}' validated successfully: all paths within project root '{project_root}'"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Tool call '{context.tool_name}' validated successfully: all paths within project root '{project_root}'"
+                )
             self._allowed_count += 1
             return ToolCallReactionResult(
                 should_swallow=False, metadata={"decision": "allowed"}

@@ -94,7 +94,8 @@ class IntelligentSessionResolver(ISessionResolver):
         # 1. Try explicit session ID from headers/cookies (highest priority)
         explicit_id = await self._try_explicit_session_id(context)
         if explicit_id:
-            logger.debug(f"Using explicit session ID from header/cookie: {explicit_id}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Using explicit session ID from header/cookie: {explicit_id}")
             return explicit_id
 
         # If intelligent resolver is disabled, fall back to generating new ID
@@ -120,13 +121,13 @@ class IntelligentSessionResolver(ISessionResolver):
         fp_bundle = self._fingerprint_service.compute_fingerprint_bundle(messages)
         conversation_fp = fp_bundle.primary.fingerprint
 
-        logger.debug(
-            "Computed fingerprint bundle primary=%s message_count=%s rolling=%s topic_hash=%s",
-            conversation_fp,
-            fp_bundle.message_count,
-            len(fp_bundle.rolling_fingerprints),
-            fp_bundle.topic_hash,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Computed fingerprint bundle primary=%s message_count=%s rolling=%s topic_hash=%s",
+                conversation_fp,
+                fp_bundle.message_count,
+                len(fp_bundle.rolling_fingerprints),
+            )
 
         # 6. Try exact fingerprint match
         existing_session = (
@@ -191,9 +192,10 @@ class IntelligentSessionResolver(ISessionResolver):
         ):
             query_param_value = context.original_request.query_params.get("session_id")
             if isinstance(query_param_value, str) and query_param_value:
-                logger.debug(
-                    f"Found session ID in query parameters: {query_param_value}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Found session ID in query parameters: {query_param_value}"
+                    )
                 return query_param_value
 
         return None
@@ -275,17 +277,19 @@ class IntelligentSessionResolver(ISessionResolver):
             )
 
             if stored_bundle and self._has_rolling_overlap(bundle, stored_bundle):
-                logger.debug(
-                    "Fuzzy match: session %s matched via rolling fingerprint overlap",
-                    session.id,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Fuzzy match: session %s matched via rolling fingerprint overlap",
+                        session.id,
+                    )
                 return str(session.id)
 
             if stored_bundle and self._has_user_hash_alignment(bundle, stored_bundle):
-                logger.debug(
-                    "Fuzzy match: session %s matched via last user hash continuity",
-                    session.id,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Fuzzy match: session %s matched via last user hash continuity",
+                        session.id,
+                    )
                 return str(session.id)
 
             if (
@@ -293,10 +297,11 @@ class IntelligentSessionResolver(ISessionResolver):
                 and self._has_topic_similarity(bundle, stored_bundle)
                 and await self._is_recent_session(session.id)
             ):
-                logger.debug(
-                    "Fuzzy match: session %s matched via topic similarity",
-                    session.id,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Fuzzy match: session %s matched via topic similarity",
+                        session.id,
+                    )
                 return str(session.id)
 
             # Legacy fallback using stored primary fingerprint
@@ -304,10 +309,11 @@ class IntelligentSessionResolver(ISessionResolver):
                 session.id
             )
             if session_fp and session_fp in bundle.rolling_fingerprints:
-                logger.debug(
-                    "Fuzzy match: session %s matched via legacy rolling fingerprint",
-                    session.id,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Fuzzy match: session %s matched via legacy rolling fingerprint",
+                        session.id,
+                    )
                 return str(session.id)
 
         return None

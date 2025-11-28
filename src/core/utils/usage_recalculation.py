@@ -146,7 +146,8 @@ def extract_content_text(content: dict[str, Any]) -> str:
 
         return ""
     except (ValueError, TypeError, AttributeError, KeyError):
-        logger.debug("Failed to extract content text", exc_info=True)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Failed to extract content text", exc_info=True)
         return ""
 
 
@@ -178,14 +179,16 @@ def calculate_outbound_tokens(
             # Dict format
             messages = request_data.get("messages", [])
         else:
-            logger.debug(f"Unknown request format: {type(request_data)}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Unknown request format: {type(request_data)}")
             return 0
 
         # Extract and count tokens from messages
         prompt_text = extract_prompt_text(messages)
         token_count = count_tokens(prompt_text, model=model)
 
-        logger.debug(f"Calculated outbound tokens for {model}: {token_count} tokens")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Calculated outbound tokens for {model}: {token_count} tokens")
 
         return token_count
 

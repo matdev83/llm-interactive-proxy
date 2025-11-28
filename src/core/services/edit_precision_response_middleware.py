@@ -145,10 +145,11 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 if active_disable_map.get(key):
                     # We already flagged this response; still update stream tracking
                     self._update_stream_tracking(key, context, out)
-                    self._logger.debug(
-                        "Edit-precision: session %s already has hybrid reasoning disable flag",
-                        key,
-                    )
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Edit-precision: session %s already has hybrid reasoning disable flag",
+                            key,
+                        )
                     return out
 
                 response_type = ""
@@ -223,9 +224,10 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                         key,
                     )
                 except Exception as e:
-                    self._logger.debug(
-                        "Error logging edit-precision trigger: %s", e, exc_info=True
-                    )
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Error logging edit-precision trigger: %s", e, exc_info=True
+                        )
         return out
 
     def _update_stream_tracking(

@@ -4036,9 +4036,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                                     minutes = int(match.group(2)) if match.group(2) else 0
                                     seconds_str = match.group(3)
                                     seconds_value = float(seconds_str) if seconds_str else 0.0
-                                    total_seconds = float(hours * 3600 + minutes * 60 + seconds_value)
-                                    if total_seconds > 0:
-                                        return total_seconds
+                                    quota_total_seconds = (
+                                        hours * 3600 + minutes * 60 + seconds_value
+                                    )
+                                    if quota_total_seconds > 0:
+                                        return quota_total_seconds
 
         except Exception:
             # Silently fail - retry delay extraction is best-effort

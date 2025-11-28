@@ -153,9 +153,10 @@ def _normalize_content(content: Any) -> Any:
         try:
             return content.model_dump()
         except (TypeError, ValueError, AttributeError):
-            logger.debug(
-                "Failed to model_dump content; falling back to dict", exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to model_dump content; falling back to dict", exc_info=True
+                )
             return dict(content)
     if is_dataclass(content) and not isinstance(content, type):
         return asdict(content)
@@ -455,7 +456,8 @@ def _normalize_usage_dict(usage: Any) -> dict[str, int] | None:
             "total_tokens": int(usage.get("total_tokens", 0) or 0),
         }
     except Exception:
-        logger.debug("Failed to normalize usage payload: %s", usage, exc_info=True)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Failed to normalize usage payload: %s", usage, exc_info=True)
         return None
 
 
@@ -490,7 +492,8 @@ def _resolve_prompt_tokens(
             try:
                 return int(outbound_tokens)
             except (TypeError, ValueError):
-                logger.debug("Failed to coerce outbound_tokens: %s", outbound_tokens)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Failed to coerce outbound_tokens: %s", outbound_tokens)
     return None
 
 
@@ -514,7 +517,8 @@ def _calculate_completion_tokens(payload: Any, model_name: str | None) -> int | 
         try:
             return count_tokens(text_value, model=model_name)
         except Exception:
-            logger.debug("Failed to calculate completion tokens", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to calculate completion tokens", exc_info=True)
     return None
 
 
@@ -630,13 +634,15 @@ def _sanitize_json_content(obj: Any) -> Any:
             if asyncio.iscoroutine(o):
                 return str(o)
         except TypeError:
-            logger.debug("Sanitize: Could not check for coroutine: %s", o)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Sanitize: Could not check for coroutine: %s", o)
         if async_mock is not None:
             try:
                 if isinstance(o, async_mock):
                     return str(o)
             except TypeError:
-                logger.debug("Sanitize: Could not check for async_mock: %s", o)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Sanitize: Could not check for async_mock: %s", o)
         try:
             json.dumps(o)
             return o

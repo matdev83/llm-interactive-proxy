@@ -140,9 +140,10 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                 extra_body.get("_edit_precision_meta", {}),
             )
         except Exception as e:
-            self._logger.debug(
-                "Error logging edit-precision overrides: %s", e, exc_info=True
-            )
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Error logging edit-precision overrides: %s", e, exc_info=True
+                )
 
         return request.model_copy(
             update={

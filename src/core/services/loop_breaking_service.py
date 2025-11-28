@@ -134,9 +134,10 @@ class LoopBreakingService:
             Steering message to guide the LLM
         """
         if self.assessment_service is None:
-            logger.debug(
-                f"Assessment service not available - using fallback steering - session_id={session_id}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Assessment service not available - using fallback steering - session_id={session_id}"
+                )
             return (
                 "I notice you're repeating the same content multiple times. "
                 "Please stop and provide a different, more helpful response."
@@ -175,10 +176,11 @@ class LoopBreakingService:
                 )
                 return template.format(reasoning=reasoning)
             else:
-                logger.debug(
-                    f"Assessment confidence below threshold - using fallback - session_id={session_id}, "
-                    f"confidence={assessment_result.confidence}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Assessment confidence below threshold - using fallback - session_id={session_id}, "
+                        f"confidence={assessment_result.confidence}"
+                    )
                 return (
                     "I notice you're getting stuck in a repetitive pattern. "
                     "Please take a step back and provide a different response."

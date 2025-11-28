@@ -5,16 +5,15 @@ This module provides a service for handling backend failover, which is responsib
 for determining the appropriate failover route for a given backend type.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.common.logging_utils import get_logger
+from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.domain.model_utils import parse_model_backend
+from src.core.interfaces.model_bases import InternalDTO
 
 logger = get_logger(__name__)
-
-
-from src.core.interfaces.model_bases import InternalDTO
 
 
 @dataclass
@@ -58,7 +57,8 @@ class FailoverService:
                 failover_route=failover_route,
             )
         else:
-            logger.debug("No failover route found", backend_type=backend_type)
+            if is_log_level_enabled(logger, logging.DEBUG):
+                logger.debug("No failover route found", backend_type=backend_type)
         return failover_route
 
     def get_failover_attempts(
@@ -96,15 +96,17 @@ class FailoverService:
             if fallback_route:
                 route_config = fallback_route
             else:
-                logger.debug("No failover route found for model", model=model)
+                if is_log_level_enabled(logger, logging.DEBUG):
+                    logger.debug("No failover route found for model", model=model)
                 return []
 
         policy = route_config.get("policy", "k")
         elements = route_config.get("elements", [])
 
-        logger.debug(
-            "Getting failover attempts", model=model, policy=policy, elements=elements
-        )
+        if is_log_level_enabled(logger, logging.DEBUG):
+            logger.debug(
+                "Getting failover attempts", model=model, policy=policy, elements=elements
+            )
 
         attempts = []
         for element in elements:
@@ -151,7 +153,8 @@ class FailoverService:
             del self.failover_routes[backend_type]
             logger.info("Removed failover route", backend_type=backend_type)
             return True
-        logger.debug("No failover route to remove", backend_type=backend_type)
+        if is_log_level_enabled(logger, logging.DEBUG):
+            logger.debug("No failover route to remove", backend_type=backend_type)
         return False
 
     def get_all_failover_routes(self) -> dict[str, Any]:

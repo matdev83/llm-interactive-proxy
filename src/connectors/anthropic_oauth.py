@@ -200,17 +200,21 @@ class AnthropicOAuthBackend(AnthropicBackend):
 
         return True, errors
 
-    def _validate_runtime_credentials(self) -> tuple[bool, list[str]]:
+    async def _validate_runtime_credentials(self) -> bool:
         """Validate credentials at runtime with throttling."""
         # Simple throttling: only validate once per 30 seconds
         current_time = time.time()
         if current_time - self._last_validation_time < 30:
-            return True, []
+            return True
 
-        # Validate file existence and structure
-        ok, errors = self._validate_credentials_file_exists()
+        errors: list[str] = []
+
+        ok, file_errors = self._validate_credentials_file_exists()
         if not ok:
-            return False, errors
+            self._credential_validation_errors = file_errors
+            return False
+
+        errors.extend(file_errors)
 
         if self._oauth_credentials is not None:
             ok, struct_errors = self._validate_credentials_structure(
@@ -218,13 +222,16 @@ class AnthropicOAuthBackend(AnthropicBackend):
             )
             if not ok:
                 errors.extend(struct_errors)
-                return False, errors
+                self._credential_validation_errors = errors
+                return False
         else:
             errors.append("OAuth credentials not loaded in memory")
-            return False, errors
+            self._credential_validation_errors = errors
+            return False
 
+        self._credential_validation_errors = []
         self._last_validation_time = current_time
-        return True, errors
+        return True
 
     # -----------------------------
     # File watching methods (stale token handling pattern)
@@ -502,7 +509,8 @@ class AnthropicOAuthBackend(AnthropicBackend):
         **kwargs: Any,
     ):
         # Runtime validation with throttling
-        ok, errors = self._validate_runtime_credentials()
+        ok = await self._validate_runtime_credentials()
+        errors = self.get_validation_errors()
         if not ok:
             self._degrade(errors)
             raise HTTPException(

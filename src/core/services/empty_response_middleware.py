@@ -83,7 +83,8 @@ class EmptyResponseMiddleware(IResponseMiddleware):
             if prompt_path and prompt_path.exists():
                 with open(prompt_path, encoding="utf-8") as f:
                     self._recovery_prompt = f.read().strip()
-                logger.debug("Loaded recovery prompt from %s", prompt_path)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Loaded recovery prompt from %s", prompt_path)
             else:
                 # Fallback prompt if file doesn't exist
                 self._recovery_prompt = (
