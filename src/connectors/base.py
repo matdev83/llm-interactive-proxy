@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import time
 from typing import TYPE_CHECKING, Any
 
 from src.core.config.app_config import AppConfig
@@ -25,6 +26,7 @@ class LLMBackend(abc.ABC):
     ) -> None:  # Modified
         self._response_processor = response_processor
         self.config = config  # Stored config
+        self._retry_after_until: float | None = None
 
     @abc.abstractmethod
     async def chat_completions(
@@ -66,3 +68,38 @@ class LLMBackend(abc.ABC):
             A list of model identifiers supported by this backend.
         """
         return []
+
+    def set_retry_after(self, retry_after_seconds: float) -> None:
+        """
+        Set the retry-after timestamp for this backend instance.
+
+        Args:
+            retry_after_seconds: Number of seconds to wait before retrying
+        """
+        self._retry_after_until = time.time() + retry_after_seconds
+
+    def get_retry_after_remaining(self) -> float | None:
+        """
+        Get the remaining seconds until retry-after expires.
+
+        Returns:
+            Remaining seconds if retry-after is active, None otherwise
+        """
+        if self._retry_after_until is None:
+            return None
+
+        remaining = self._retry_after_until - time.time()
+        if remaining <= 0:
+            self._retry_after_until = None
+            return None
+
+        return remaining
+
+    def is_rate_limited(self) -> bool:
+        """
+        Check if this backend is currently rate limited.
+
+        Returns:
+            True if rate limited, False otherwise
+        """
+        return self.get_retry_after_remaining() is not None

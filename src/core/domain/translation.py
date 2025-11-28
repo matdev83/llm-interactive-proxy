@@ -3235,7 +3235,11 @@ class Translation(BaseTranslator):
         # NOTE: Check for KEY existence, not value truthiness, because usage-only
         # chunks have "choices": [] (empty list) which is falsy but still valid OpenAI format.
         if "choices" in chunk and "id" in chunk:
-            return Translation.openai_to_domain_stream_chunk(chunk)
+            result = Translation.openai_to_domain_stream_chunk(chunk)
+            # Convert CanonicalStreamChunk back to dict for backward compatibility
+            if isinstance(result, CanonicalStreamChunk):
+                return result.model_dump(exclude_none=True)
+            return result
 
         response_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
         created = int(time.time())
@@ -3359,7 +3363,9 @@ class Translation(BaseTranslator):
             return Translation.openai_to_domain_response(response)
 
     @staticmethod
-    def raw_text_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
+    def raw_text_to_domain_stream_chunk(
+        chunk: Any,
+    ) -> dict[str, Any] | CanonicalStreamChunk:
         """
         Translate a raw text stream chunk to a canonical dictionary format.
 

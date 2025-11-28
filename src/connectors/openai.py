@@ -744,6 +744,28 @@ class OpenAIConnector(LLMBackend):
                 await response.aclose()
 
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
+            def _extract_chunk_id(chunk: Any) -> str | None:
+                """Best-effort extraction of the response id from stream chunks."""
+                if isinstance(chunk, dict):
+                    chunk_id = chunk.get("id")
+                    if isinstance(chunk_id, str) and chunk_id:
+                        return chunk_id
+
+                chunk_id = getattr(chunk, "id", None)
+                if isinstance(chunk_id, str) and chunk_id:
+                    return chunk_id
+
+                if hasattr(chunk, "model_dump"):
+                    try:
+                        chunk_dict = chunk.model_dump()
+                    except Exception:
+                        return None
+                    chunk_id = chunk_dict.get("id")
+                    if isinstance(chunk_id, str) and chunk_id:
+                        return chunk_id
+
+                return None
+
             async def text_generator() -> AsyncGenerator[dict[Any, Any] | Any, None]:
                 async def iter_sse_messages() -> AsyncGenerator[str, None]:
                     buffer = ""
@@ -838,13 +860,9 @@ class OpenAIConnector(LLMBackend):
             pending_error: Exception | None = None
             try:
                 async for chunk in text_generator():
-                    if (
-                        supports_protocol_cancel
-                        and isinstance(chunk, dict)
-                        and not response_id_future.done()
-                    ):
-                        chunk_id = chunk.get("id")
-                        if isinstance(chunk_id, str) and chunk_id:
+                    if supports_protocol_cancel and not response_id_future.done():
+                        chunk_id = _extract_chunk_id(chunk)
+                        if chunk_id:
                             response_id_future.set_result(chunk_id)
                     yield ProcessedResponse(content=chunk)
             except ServiceUnavailableError as exc:

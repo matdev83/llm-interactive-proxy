@@ -1138,6 +1138,23 @@ class BackendService(IBackendService):
                     details={"error": str(e)},
                 ) from e
 
+            # Check if backend is rate limited by retry-after
+            retry_after_remaining = backend.get_retry_after_remaining()
+            if retry_after_remaining is not None:
+                logger.warning(
+                    "Backend %s is rate limited, retry after %.1f seconds",
+                    backend_type,
+                    retry_after_remaining,
+                )
+                raise RateLimitExceededError(
+                    message=f"Backend {backend_type} is rate limited",
+                    details={
+                        "backend": backend_type,
+                        "retry_after_seconds": retry_after_remaining,
+                    },
+                    reset_at=time.time() + retry_after_remaining,
+                )
+
             # Check if backend is functional, with recovery attempt
             if (
                 hasattr(backend, "is_backend_functional")
@@ -1365,6 +1382,16 @@ class BackendService(IBackendService):
                         cooldown_seconds = (
                             math.ceil(delay_seconds) if delay_seconds else 15
                         )
+
+                        # Store retry-after in backend instance to prevent future spam
+                        if delay_seconds and delay_seconds > 0:
+                            backend.set_retry_after(delay_seconds)
+                            logger.info(
+                                "Backend %s rate limited, set retry-after for %.1f seconds",
+                                backend_type,
+                                delay_seconds,
+                            )
+
                         try:
                             await self._rate_limiter.apply_cooldown(
                                 rate_key, cooldown_seconds
@@ -1511,6 +1538,20 @@ class BackendService(IBackendService):
                 Exception
             ) as call_exc:  # Catch all exceptions for comprehensive logging
                 call_exc = self._normalize_provider_exception(call_exc, backend_type)
+
+                # Store retry-after in backend instance if this is a rate limit error
+                if isinstance(call_exc, RateLimitExceededError):
+                    reset_at = getattr(call_exc, "reset_at", None)
+                    if reset_at is not None:
+                        retry_after_seconds = reset_at - time.time()
+                        if retry_after_seconds > 0:
+                            backend.set_retry_after(retry_after_seconds)
+                            logger.info(
+                                "Backend %s rate limited, cached retry-after for %.1f seconds",
+                                backend_type,
+                                retry_after_seconds,
+                            )
+
                 # If the exception is already a BackendError or RateLimitExceededError,
                 # treat it specially; otherwise wrap or re-raise depending on allow_failover.
                 if isinstance(call_exc, BackendError | RateLimitExceededError):
