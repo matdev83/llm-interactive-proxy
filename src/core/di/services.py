@@ -743,16 +743,15 @@ def register_core_services(
             cast(type, IResponseParser)
         )
 
-        # Get loop detector for non-streaming responses
-        from src.core.interfaces.loop_detector_interface import ILoopDetector
-
-        loop_detector = provider.get_service(cast(type, ILoopDetector))
+        # Get loop detector factory
+        def loop_detector_factory() -> ILoopDetector:
+            return _loop_detector_factory(provider)
 
         # ResponseProcessor now uses unified pipeline - no separate middleware manager needed
         return ResponseProcessor(
             response_parser=response_parser,
             app_state=app_state,
-            loop_detector=loop_detector,
+            loop_detector_factory=loop_detector_factory,
             stream_normalizer=stream_normalizer,
         )
 

@@ -55,7 +55,7 @@ class ResponseProcessor(IResponseProcessor):
         self,
         response_parser: IResponseParser,
         app_state: Any | None = None,
-        loop_detector: ILoopDetector | None = None,
+        loop_detector_factory: Any | None = None,
         stream_normalizer: IStreamNormalizer | None = None,
         tool_call_repair_processor: IStreamProcessor | None = None,
         loop_detection_processor: IStreamProcessor | None = None,
@@ -65,7 +65,7 @@ class ResponseProcessor(IResponseProcessor):
     ) -> None:
         self._app_state = app_state
         self._background_tasks: list[asyncio.Task[Any]] = []
-        self._loop_detector = loop_detector
+        self._loop_detector_factory = loop_detector_factory
         self._response_parser = response_parser
         self._middleware_list = middleware_list or []
 
@@ -348,8 +348,25 @@ class ResponseProcessor(IResponseProcessor):
         """
         # Reset loop detector state at the beginning of each streaming session
         # to prevent contamination across different requests
-        if self._loop_detector is not None:
-            self._loop_detector.reset()
+        # Instantiate a fresh loop detector for this stream to ensure session isolation
+        loop_detector: ILoopDetector | None = None
+        if self._loop_detector_factory:
+            try:
+                loop_detector = self._loop_detector_factory()
+            except Exception:
+                logger.warning("Failed to create loop detector from factory", exc_info=True)
+        
+        if loop_detector is None:
+            # Fallback to default implementation if no factory provided
+            from src.loop_detection.token_window_loop_detector import (
+                TokenWindowLoopDetector,
+            )
+
+            loop_detector = TokenWindowLoopDetector()
+
+        # Reset loop detector state at the beginning of each streaming session
+        if loop_detector is not None:
+            loop_detector.reset()
 
         # For the basic streaming tests without a mock normalizer, we need to handle
         # the raw chunks directly

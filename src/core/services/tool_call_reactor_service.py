@@ -157,12 +157,17 @@ class ToolCallReactorService(IToolCallReactor):
             or None if no handler swallows it.
         """
         raw_session_id = context.session_id
-        alias_key = raw_session_id if raw_session_id else "__empty__"
-        if alias_key not in self._session_aliases:
-            self._session_aliases[alias_key] = (
-                str(raw_session_id) if raw_session_id else uuid4().hex
-            )
-        resolved_session_id = self._session_aliases[alias_key]
+        
+        if raw_session_id:
+            # If session ID is provided, use it directly (or alias it if needed)
+            alias_key = raw_session_id
+            if alias_key not in self._session_aliases:
+                self._session_aliases[alias_key] = str(raw_session_id)
+            resolved_session_id = self._session_aliases[alias_key]
+        else:
+            # If no session ID, generate a unique one for this specific call context
+            # This prevents history mixing between unrelated session-less calls
+            resolved_session_id = uuid4().hex
 
         # Record the tool call in history if tracker is available
         if self._history_tracker:

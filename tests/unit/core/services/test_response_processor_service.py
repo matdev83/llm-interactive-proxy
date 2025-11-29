@@ -80,7 +80,7 @@ def response_processor(
     mock_middleware = MagicMock()
     return ResponseProcessor(
         response_parser=mock_response_parser,
-        loop_detector=mock_loop_detector,
+        loop_detector_factory=MagicMock(return_value=mock_loop_detector),
         stream_normalizer=mock_stream_normalizer,
         middleware_list=[mock_middleware],
     )
@@ -103,7 +103,7 @@ class TestResponseProcessor:
         ) as mock_normalizer:
             ResponseProcessor(
                 response_parser=mock_response_parser,
-                loop_detector=mock_loop_detector,
+                loop_detector_factory=MagicMock(return_value=mock_loop_detector),
                 stream_normalizer=None,
                 tool_call_repair_processor=tool_call_processor,
                 middleware_list=[MagicMock()],
@@ -127,7 +127,7 @@ class TestResponseProcessor:
         with pytest.raises(RuntimeError):
             ResponseProcessor(
                 response_parser=mock_response_parser,
-                loop_detector=mock_loop_detector,
+                loop_detector_factory=MagicMock(return_value=mock_loop_detector),
                 stream_normalizer=None,
                 middleware_list=[MagicMock()],
             )
@@ -161,7 +161,7 @@ class TestResponseProcessor:
 
         processor = ResponseProcessor(
             response_parser=mock_response_parser,
-            loop_detector=mock_loop_detector,
+            loop_detector_factory=MagicMock(return_value=mock_loop_detector),
             stream_normalizer=mock_normalizer,
         )
 
@@ -202,7 +202,7 @@ class TestResponseProcessor:
 
         processor = ResponseProcessor(
             response_parser=mock_response_parser,
-            loop_detector=mock_loop_detector,
+            loop_detector_factory=MagicMock(return_value=mock_loop_detector),
             stream_normalizer=mock_normalizer,
         )
 
@@ -253,7 +253,7 @@ class TestResponseProcessor:
 
         processor = ResponseProcessor(
             response_parser=mock_response_parser,
-            loop_detector=mock_loop_detector,
+            loop_detector_factory=MagicMock(return_value=mock_loop_detector),
             stream_normalizer=mock_normalizer,
         )
 
@@ -425,7 +425,7 @@ class TestResponseProcessor:
 
         processor = ResponseProcessor(
             response_parser=mock_response_parser,
-            loop_detector=mock_loop_detector,
+            loop_detector_factory=MagicMock(return_value=mock_loop_detector),
             stream_normalizer=mock_normalizer,
         )
 

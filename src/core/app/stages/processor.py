@@ -56,8 +56,7 @@ class ProcessorStage(InitializationStage):
         # Register backend processor
         self._register_backend_processor(services)
 
-        # Register response processor
-        self._register_response_processor(services)
+
 
         # Register request processor
         self._register_request_processor(services)
@@ -154,79 +153,7 @@ class ProcessorStage(InitializationStage):
         except ImportError as e:  # type: ignore[misc]
             logger.warning(f"Could not register backend processor: {e}")
 
-    def _register_response_processor(self, services: ServiceCollection) -> None:
-        """Register response processor with middleware, loop detector, and streaming pipeline."""
-        try:
-            from src.core.interfaces.application_state_interface import (
-                IApplicationState,
-            )
-            from src.core.interfaces.loop_detector_interface import ILoopDetector
-            from src.core.interfaces.response_processor_interface import (
-                IResponseProcessor,
-            )
-            from src.core.interfaces.streaming_response_processor_interface import (
-                IStreamNormalizer,
-            )
-            from src.core.services.response_processor_service import ResponseProcessor
 
-            def response_processor_factory(
-                provider: IServiceProvider,
-            ) -> ResponseProcessor:
-                """Factory function for creating ResponseProcessor with middleware and streaming pipeline."""
-                app_state: IApplicationState = provider.get_required_service(
-                    cast(type, IApplicationState)
-                )
-                loop_detector: ILoopDetector | None = provider.get_service(
-                    cast(type, ILoopDetector)
-                )
-
-                middleware: list[IResponseMiddleware] = []
-                if loop_detector:
-                    try:
-                        from src.core.services.response_middleware import (
-                            LoopDetectionMiddleware,
-                        )
-
-                        # Instantiate LoopDetectionMiddleware with the resolved ILoopDetector
-                        middleware.append(
-                            LoopDetectionMiddleware(loop_detector, priority=10)
-                        )
-                        logger.debug("Added loop detection middleware")
-                    except ImportError:
-                        logger.warning("Loop detection middleware not available")
-
-                # Always resolve stream normalizer since it's needed for unified pipeline
-                stream_normalizer: IStreamNormalizer = provider.get_required_service(
-                    cast(type, IStreamNormalizer)
-                )
-                logger.debug("Resolved StreamNormalizer for ResponseProcessor")
-
-                response_parser: IResponseParser = provider.get_required_service(
-                    cast(type, IResponseParser)
-                )
-
-                # ResponseProcessor uses unified pipeline - no separate middleware manager
-                return ResponseProcessor(  # noqa: DI-bypass
-                    app_state=app_state,
-                    response_parser=response_parser,
-                    stream_normalizer=stream_normalizer,
-                )
-
-            services.add_singleton(
-                ResponseProcessor, implementation_factory=response_processor_factory
-            )
-            services.add_singleton_factory(
-                cast(type, IResponseProcessor),
-                implementation_factory=lambda provider: provider.get_required_service(
-                    ResponseProcessor
-                ),
-            )
-
-            logger.debug(
-                "Registered response processor with middleware and optional streaming pipeline"
-            )
-        except ImportError as e:
-            logger.warning(f"Could not register response processor: {e}")
 
     def _register_request_processor(self, services: ServiceCollection) -> None:
         """Register request processor as the main orchestrator."""

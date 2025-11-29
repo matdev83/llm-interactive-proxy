@@ -293,7 +293,8 @@ class ReasoningStreamProcessor:
                     break
 
         except Exception as e:
-            logger.error(f"Error capturing reasoning stream: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error capturing reasoning stream: {e}", exc_info=True)
             detection_metadata["method"] = "error"
             detection_metadata["error"] = str(e)
 
@@ -340,7 +341,8 @@ class ReasoningStreamProcessor:
             return None
 
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            logger.debug(f"Failed to parse chunk: {e}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Failed to parse chunk: {e}")
             return None
 
     def _extract_content_from_chunk(self, chunk: Mapping[str, Any] | None) -> str:

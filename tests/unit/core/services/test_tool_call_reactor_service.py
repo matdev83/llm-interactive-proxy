@@ -79,7 +79,7 @@ async def test_tool_call_reactor_aliases_empty_session_ids() -> None:
     assert alias_session_id != ""
 
     await service.process_tool_call(context_without_session)
-    assert tracker.records[1][0] == alias_session_id
+    assert tracker.records[1][0] != alias_session_id
 
     explicit_context = ToolCallContext(
         session_id="explicit-session",
