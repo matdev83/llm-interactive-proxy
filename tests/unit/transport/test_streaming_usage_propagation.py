@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -46,3 +48,59 @@ async def test_usage_chunk_is_emitted_to_client_stream() -> None:
     assert '"total_tokens": 15' in body
     # Sanity check that the stream still terminates
     assert "[DONE]" in body
+
+
+@pytest.mark.asyncio
+async def test_streaming_usage_recalculated_from_accumulated_content() -> None:
+    """Ensure usage is recalculated for streaming when content is transformed."""
+
+    async def stream():
+        yield ProcessedResponse(
+            content={
+                "choices": [{"delta": {"content": "Short reply"}}],
+                "model": "gpt-4o",
+            },
+            metadata={"stream_id": "stream-1"},
+        )
+        yield ProcessedResponse(
+            content={
+                "choices": [{"delta": {}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 500,
+                    "total_tokens": 620,
+                },
+            },
+            metadata={
+                "stream_id": "stream-1",
+                "accumulated_content": "Short reply",
+                "model": "gpt-4o",
+            },
+        )
+
+    envelope = StreamingResponseEnvelope(
+        content=stream(),
+        metadata={"allow_usage_recalculation": True, "outbound_tokens": 120},
+    )
+
+    response = to_fastapi_streaming_response(envelope)
+    body = await _collect_streaming_body(response)
+
+    data_lines = [
+        line[len("data: ") :]
+        for line in body.splitlines()
+        if line.startswith("data: ")
+        and line.strip() not in {"data: [DONE]", 'data: ["DONE"]'}
+    ]
+    payloads = [
+        json.loads(line)
+        for line in data_lines
+        if line.strip() not in {"[DONE]", '["DONE"]'}
+    ]
+    final_payload = payloads[-1]
+
+    assert "usage" in final_payload
+    usage = final_payload["usage"]
+    assert usage["prompt_tokens"] == 120  # preserved from backend usage
+    assert usage["completion_tokens"] < 500  # recalculated from accumulated content
+    assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"]

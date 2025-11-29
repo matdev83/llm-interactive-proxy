@@ -102,13 +102,15 @@ class ResponsesController:
             # Perform comprehensive JSON schema validation
             try:
                 self._validate_json_schema(json_schema.get_schema())
-                logger.debug(
-                    f"JSON schema validation passed - request_id={request_id}, schema_name={schema_name}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"JSON schema validation passed - request_id={request_id}, schema_name={schema_name}"
+                    )
             except Exception as e:
-                logger.error(
-                    f"JSON schema validation failed - request_id={request_id}, schema_name={schema_name}, error={e}"
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"JSON schema validation failed - request_id={request_id}, schema_name={schema_name}, error={e}"
+                    )
                 raise HTTPException(
                     status_code=400,
                     detail={
@@ -120,17 +122,23 @@ class ResponsesController:
                     },
                 )
 
-        logger.info(
-            f"Responses API request received - request_id={request_id}, model={model}, "
-            f"has_schema={has_schema}, schema_name={schema_name}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Responses API request received - request_id={request_id}, model={model}, "
+                f"has_schema={has_schema}, schema_name={schema_name}"
+            )
 
         try:
             # Convert ResponsesRequest to internal ChatRequest format using TranslationService
             translation_service = self._translation_service
 
             # Log schema validation attempt if schema is present
-            if has_schema and response_format and response_format.json_schema:
+            if (
+                has_schema
+                and response_format
+                and response_format.json_schema
+                and logger.isEnabledFor(logging.DEBUG)
+            ):
                 logger.debug(
                     f"Schema validation requested - request_id={request_id}, schema_name={schema_name}, "
                     f"strict={getattr(response_format.json_schema, 'strict', True)}"
@@ -143,10 +151,11 @@ class ResponsesController:
             except ValidationError as exc:
                 raise self._map_validation_error(exc) from exc
 
-            logger.debug(
-                f"Request translation successful - request_id={request_id}, "
-                f"domain_model={domain_request.model}, processor_type={type(self._processor).__name__}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Request translation successful - request_id={request_id}, "
+                    f"domain_model={domain_request.model}, processor_type={type(self._processor).__name__}"
+                )
             if self._processor is None:
                 raise HTTPException(status_code=500, detail="Processor is None")
 
@@ -198,14 +207,16 @@ class ResponsesController:
                         }
                     )
 
-                    logger.debug(
-                        f"Schema context added to processing pipeline - request_id={request_id}, "
-                        f"schema_name={schema_name}, strict={getattr(json_schema, 'strict', True)}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Schema context added to processing pipeline - request_id={request_id}, "
+                            f"schema_name={schema_name}, strict={getattr(json_schema, 'strict', True)}"
+                        )
             # Process the request using the request processor
-            logger.debug(
-                f"Processing request through pipeline - request_id={request_id}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Processing request through pipeline - request_id={request_id}"
+                )
             response = await self._processor.process_request(ctx, domain_request)
 
             # Convert domain response to FastAPI response
@@ -213,13 +224,17 @@ class ResponsesController:
             if asyncio.iscoroutine(response):
                 response = await response
 
-            logger.debug(
-                f"Request processing completed - request_id={request_id}, response_type={type(response).__name__}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Request processing completed - request_id={request_id}, response_type={type(response).__name__}"
+                )
 
             # Check if this is a streaming response
             if isinstance(response, StreamingResponseEnvelope):
-                logger.debug(f"Returning streaming response - request_id={request_id}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Returning streaming response - request_id={request_id}"
+                    )
 
                 stream_generator = self._stream_response_envelope(
                     request=request,
@@ -246,18 +261,20 @@ class ResponsesController:
                 try:
                     from src.core.domain.chat import ChatResponse
 
-                    logger.debug(
-                        f"Converting response to Responses API format - request_id={request_id}, content_type={type(content).__name__}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Converting response to Responses API format - request_id={request_id}, content_type={type(content).__name__}"
+                        )
 
                     # If it's already a ChatResponse, use TranslationService to convert
                     if isinstance(content, ChatResponse):
                         converted_response = translation_service.from_domain_response(
                             content, target_format="responses"
                         )
-                        logger.debug(
-                            f"Response converted via TranslationService - request_id={request_id}"
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Response converted via TranslationService - request_id={request_id}"
+                            )
                         return converted_response
 
                     # If it's a dict that looks like a ChatResponse, convert it first
@@ -269,14 +286,16 @@ class ResponsesController:
                                     chat_response, target_format="responses"
                                 )
                             )
-                            logger.debug(
-                                f"Response converted from dict via TranslationService - request_id={request_id}"
-                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    f"Response converted from dict via TranslationService - request_id={request_id}"
+                                )
                             return converted_response
                         except Exception as e:
-                            logger.warning(
-                                f"Failed to convert dict to ChatResponse - request_id={request_id}, error={e}"
-                            )
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    f"Failed to convert dict to ChatResponse - request_id={request_id}, error={e}"
+                                )
                             # If conversion fails, fall back to manual conversion
 
                     # Fallback: manual conversion for other formats
@@ -316,13 +335,15 @@ class ResponsesController:
                         try:
                             if text.strip():
                                 parsed = _json.loads(text)
-                                logger.debug(
-                                    f"Successfully parsed structured output - request_id={request_id}"
-                                )
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        f"Successfully parsed structured output - request_id={request_id}"
+                                    )
                         except (_json.JSONDecodeError, ValueError) as e:
-                            logger.debug(
-                                f"Content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
-                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    f"Content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
+                                )
                             # If parsing fails, leave parsed as None
 
                         usage = content.get("usage") or {}
@@ -369,13 +390,15 @@ class ResponsesController:
                     try:
                         if text.strip():
                             parsed = _json.loads(text)
-                            logger.debug(
-                                f"Successfully parsed fallback structured output - request_id={request_id}"
-                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    f"Successfully parsed fallback structured output - request_id={request_id}"
+                                )
                     except (_json.JSONDecodeError, ValueError) as e:
-                        logger.debug(
-                            f"Fallback content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Fallback content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
+                            )
                         # If parsing fails, leave parsed as None
 
                     return {
@@ -401,9 +424,10 @@ class ResponsesController:
                         },
                     }
                 except Exception as e:
-                    logger.warning(
-                        f"Error in response conversion, returning original content - request_id={request_id}, error={e}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Error in response conversion, returning original content - request_id={request_id}, error={e}"
+                        )
                     return content
 
             final_response = domain_response_to_fastapi(
@@ -413,29 +437,33 @@ class ResponsesController:
                 context=ctx,
             )
 
-            logger.info(
-                f"Responses API request completed successfully - request_id={request_id}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Responses API request completed successfully - request_id={request_id}"
+                )
             return final_response
 
         except LLMProxyError as e:
-            logger.error(
-                f"LLM Proxy error in Responses API - request_id={request_id}, error={e}"
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"LLM Proxy error in Responses API - request_id={request_id}, error={e}"
+                )
             # Map domain exceptions to HTTP exceptions
             raise map_domain_exception_to_http_exception(e)
         except HTTPException as e:
-            logger.error(
-                f"HTTP error in Responses API - request_id={request_id}, status={e.status_code}, detail={e.detail}"
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"HTTP error in Responses API - request_id={request_id}, status={e.status_code}, detail={e.detail}"
+                )
             # Re-raise HTTP exceptions
             raise
         except Exception as e:
             # Log and convert other exceptions to HTTP exceptions
-            logger.error(
-                f"Unexpected error handling Responses API request - request_id={request_id}, error={e}",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Unexpected error handling Responses API request - request_id={request_id}, error={e}",
+                    exc_info=True,
+                )
             raise HTTPException(
                 status_code=500,
                 detail={
@@ -514,19 +542,21 @@ class ResponsesController:
 
                 try:
                     await cancel_cb()
-                    logger.info(
-                        "Dispatched backend cancellation - request_id=%s, reason=%s",
-                        request_id,
-                        reason,
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Dispatched backend cancellation - request_id=%s, reason=%s",
+                            request_id,
+                            reason,
+                        )
                 except Exception as exc:
-                    logger.warning(
-                        "Failed to propagate cancellation upstream - request_id=%s, reason=%s, error=%s",
-                        request_id,
-                        reason,
-                        exc,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to propagate cancellation upstream - request_id=%s, reason=%s, error=%s",
+                            request_id,
+                            reason,
+                            exc,
+                            exc_info=True,
+                        )
 
             async def is_disconnected() -> bool:
                 checker = getattr(request, "is_disconnected", None)
@@ -539,11 +569,12 @@ class ResponsesController:
                         return bool(await result)
                     return bool(result)
                 except Exception:
-                    logger.debug(
-                        "Failed checking client disconnect status - request_id=%s",
-                        request_id,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed checking client disconnect status - request_id=%s",
+                            request_id,
+                            exc_info=True,
+                        )
                     return False
 
             async def _empty_chunk_iterator() -> AsyncIterator[Any]:
@@ -666,10 +697,11 @@ class ResponsesController:
                                 normalized_calls.append(call_data)
 
                             delta["tool_calls"] = normalized_calls
-                            logger.debug(
-                                "ResponsesController normalized streaming tool_calls: %s",
-                                normalized_calls,
-                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "ResponsesController normalized streaming tool_calls: %s",
+                                    normalized_calls,
+                                )
 
                         if not delta:
                             delta["content"] = ""
@@ -694,12 +726,13 @@ class ResponsesController:
                         yield f"data: {json.dumps(streaming_chunk)}\n\n"
 
                     except Exception as exc:
-                        logger.warning(
-                            "Error processing streaming chunk - request_id=%s, error=%s",
-                            request_id,
-                            exc,
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Error processing streaming chunk - request_id=%s, error=%s",
+                                request_id,
+                                exc,
+                                exc_info=True,
+                            )
                         continue
 
                 if not stream_terminated:
@@ -840,7 +873,8 @@ class ResponsesController:
         known_types = primitive_types | {"object", "array"}
         unknown_types = [t for t in schema_types if t not in known_types]
         for unknown in unknown_types:
-            logger.warning(f"Unusual schema type detected: {unknown}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Unusual schema type detected: {unknown}")
 
         # Validate additional properties if present
         if "additionalProperties" in schema:

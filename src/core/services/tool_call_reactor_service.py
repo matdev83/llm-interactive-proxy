@@ -364,21 +364,23 @@ class ToolCallReactorService(IToolCallReactor):
         try:
             deep_copied = copy.deepcopy(arguments)
         except RecursionError:
-            logger.warning(
-                "Tool call arguments exceeded maximum recursion depth; storing"
-                " placeholder instead of raising."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Tool call arguments exceeded maximum recursion depth; storing"
+                    " placeholder instead of raising."
+                )
             return {
                 cls._SNAPSHOT_WARNING_KEY: cls._SNAPSHOT_WARNING_VALUE,
                 cls._SNAPSHOT_REASON_KEY: cls._SNAPSHOT_REASON_DEPTH,
             }
         except Exception as exc:  # pragma: no cover - defensive fallback
-            logger.warning(
-                "Failed to snapshot tool call arguments (%s); storing fallback"
-                " placeholder instead of raising.",
-                type(exc).__name__,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to snapshot tool call arguments (%s); storing fallback"
+                    " placeholder instead of raising.",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
             return {
                 cls._SNAPSHOT_WARNING_KEY: cls._SNAPSHOT_WARNING_VALUE,
                 cls._SNAPSHOT_REASON_KEY: cls._SNAPSHOT_REASON_ERROR,

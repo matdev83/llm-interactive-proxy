@@ -56,12 +56,13 @@ class WireCapture(IWireCapture):
                 )
             except OSError as e:
                 # Best-effort; if we cannot create the directory, leave disabled
-                logger.warning(
-                    "Failed to create wire capture directory for %s: %s",
-                    self._file_path,
-                    e,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to create wire capture directory for %s: %s",
+                        self._file_path,
+                        e,
+                        exc_info=True,
+                    )
                 self._file_path = None
 
     def enabled(self) -> bool:
@@ -216,7 +217,10 @@ class WireCapture(IWireCapture):
                     await self._append(text)
                 except OSError as e:
                     # Log I/O failures but do not impact the stream to client
-                    logger.warning("Wire capture append failed: %s", e, exc_info=True)
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Wire capture append failed: %s", e, exc_info=True
+                        )
                 yield chunk
             await self._append("\n")
 
@@ -250,9 +254,10 @@ class WireCapture(IWireCapture):
                 try:
                     await self._append(text)
                 except OSError as e:
-                    logger.warning(
-                        "Wire capture outbound append failed: %s", e, exc_info=True
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Wire capture outbound append failed: %s", e, exc_info=True
+                        )
                 yield chunk
             await self._append("\n")
 
@@ -302,13 +307,15 @@ class WireCapture(IWireCapture):
                         await self._perform_rotation_async()
                 except OSError as e:
                     # Log rotation errors but do not propagate
-                    logger.warning(
-                        "Error during wire capture rotation: %s", e, exc_info=True
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Error during wire capture rotation: %s", e, exc_info=True
+                        )
             try:
                 await asyncio.to_thread(self._write_to_file, self._file_path, text)
             except OSError as e:
-                logger.warning("Wire capture write failed: %s", e, exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Wire capture write failed: %s", e, exc_info=True)
                 return
             # Enforce total cap best-effort
             await self._enforce_total_cap_async(incoming_size)
@@ -359,7 +366,8 @@ class WireCapture(IWireCapture):
             self._size_cache_valid = False
         except OSError as e:
             # Ignore rotation failures
-            logger.warning("Error during wire capture rotation: %s", e)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error during wire capture rotation: %s", e)
 
     async def _enforce_total_cap_async(self, incoming_size: int = 0) -> None:
         """Optimized version that uses cached size to avoid expensive file scanning."""
@@ -406,7 +414,8 @@ class WireCapture(IWireCapture):
             self._cached_total_size = total
             self._size_cache_valid = True
         except OSError as e:
-            logger.warning("Error recalculating wire capture total size: %s", e)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error recalculating wire capture total size: %s", e)
             self._cached_total_size = 0
             self._size_cache_valid = False
 
@@ -452,7 +461,8 @@ class WireCapture(IWireCapture):
                     self._cached_total_size = 0
                     self._size_cache_valid = True
         except OSError as e:
-            logger.warning("Error enforcing total cap on wire capture logs: %s", e)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error enforcing total cap on wire capture logs: %s", e)
             # Invalidate cache on error
             self._size_cache_valid = False
 
@@ -476,5 +486,8 @@ def _safe_json_dump(obj: Any) -> str:
                 return json.dumps(obj.model_dump(), ensure_ascii=False, indent=2)  # type: ignore[attr-defined]
             return json.dumps(obj.__dict__, ensure_ascii=False, indent=2)
         except (TypeError, ValueError, AttributeError) as e:
-            logger.debug("Falling back to str() during JSON dump: %s", e, exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Falling back to str() during JSON dump: %s", e, exc_info=True
+                )
             return str(obj)

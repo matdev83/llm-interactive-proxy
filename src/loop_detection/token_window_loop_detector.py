@@ -90,12 +90,13 @@ class TokenWindowLoopDetector(ILoopDetector):
         self._is_enabled = True
         self._loop_events: list[LoopDetectionEvent] = []
 
-        logger.debug(
-            "TokenWindowLoopDetector initialized: chunk_size=%d, threshold=%d, max_history=%d",
-            self.content_chunk_size,
-            self.content_loop_threshold,
-            self.max_history_length,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "TokenWindowLoopDetector initialized: chunk_size=%d, threshold=%d, max_history=%d",
+                self.content_chunk_size,
+                self.content_loop_threshold,
+                self.max_history_length,
+            )
 
     def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
         """
@@ -402,7 +403,8 @@ class TokenWindowLoopDetector(ILoopDetector):
         self.loop_detected = False
         self.in_code_block = False
         self._loop_events.clear()
-        logger.debug("Loop detector state reset")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Loop detector state reset")
 
     def get_stats(self) -> LoopDetectorStats:
         """Get detector statistics."""

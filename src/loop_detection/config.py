@@ -15,6 +15,8 @@ from typing import Any
 
 from src.core.interfaces.model_bases import InternalDTO
 
+logger = logging.getLogger(__name__)
+
 
 def _coerce_to_bool(value: Any) -> bool:
     """Convert a loosely-typed configuration value into a boolean."""
@@ -25,10 +27,11 @@ def _coerce_to_bool(value: Any) -> bool:
             return True
         if normalized in {"false", "0", "no", "off", ""}:
             return False
-        logger.warning(
-            "Unexpected boolean value '%s' in loop detection config; treating as truthy",
-            value,
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Unexpected boolean value '%s' in loop detection config; treating as truthy",
+                value,
+            )
         return True
 
     if isinstance(value, int | float):
@@ -40,14 +43,12 @@ def _coerce_to_bool(value: Any) -> bool:
     if value is None:
         return False
 
-    logger.warning(
-        "Unexpected type %s for loop detection boolean config; treating as truthy",
-        type(value).__name__,
-    )
+    if logger.isEnabledFor(logging.WARNING):
+        logger.warning(
+            "Unexpected type %s for loop detection boolean config; treating as truthy",
+            type(value).__name__,
+        )
     return True
-
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass

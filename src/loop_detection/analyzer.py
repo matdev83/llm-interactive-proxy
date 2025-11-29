@@ -267,10 +267,12 @@ class PatternAnalyzer:
         self._content_stats = {}
         self._last_chunk_index = 0
         self.history = []  # Clear history on full reset
-        logger.debug("Pattern analyzer history reset")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Pattern analyzer history reset")
 
     def reset(self) -> None:
         """Reset the entire analyzer state, including code-block tracking."""
         self._reset_history()
         self._in_code_block = False
-        logger.debug("Pattern analyzer state reset")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Pattern analyzer state reset")

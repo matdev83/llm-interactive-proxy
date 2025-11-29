@@ -7,6 +7,8 @@ when unproductive patterns might be present, replicating gemini-cli behavior.
 Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionService.ts
 """
 
+import logging
+
 from src.core.common.logging_utils import get_logger
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
@@ -71,13 +73,15 @@ class AssessmentMiddleware:
             # 1. Increment turn counter (replicate turnStarted)
             turn_count = self.turn_counter_service.increment_turn(session_id)
 
-            logger.debug(f"Turn incremented for session {session_id}: {turn_count}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Turn incremented for session {session_id}: {turn_count}")
 
             # 2. Check if assessment should be triggered
             if self.turn_counter_service.should_trigger_assessment(session_id):
-                logger.info(
-                    f"Triggering assessment for session {session_id} at turn {turn_count}"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Triggering assessment for session {session_id} at turn {turn_count}"
+                    )
 
                 # 3. Perform assessment
                 assessment_result = (
@@ -88,22 +92,24 @@ class AssessmentMiddleware:
 
                 # 4. Handle assessment result
                 if assessment_result:
-                    logger.info(
-                        f"Assessment result for session {session_id}: "
-                        f"confidence={assessment_result.confidence}, "
-                        f"threshold={self.config.confidence_threshold}, "
-                        f"should_intervene={assessment_result.should_intervene}"
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Assessment result for session {session_id}: "
+                            f"confidence={assessment_result.confidence}, "
+                            f"threshold={self.config.confidence_threshold}, "
+                            f"should_intervene={assessment_result.should_intervene}"
+                        )
 
                     # Mark assessment as performed
                     self.turn_counter_service.mark_assessment_performed(session_id)
 
                     # Check if intervention is needed
                     if assessment_result.should_intervene:
-                        logger.warning(
-                            f"Steering intervention triggered for session {session_id}: "
-                            f"confidence={assessment_result.confidence}"
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Steering intervention triggered for session {session_id}: "
+                                f"confidence={assessment_result.confidence}"
+                            )
 
                         # Inject steering message
                         request = self._inject_steering_message(
@@ -115,21 +121,26 @@ class AssessmentMiddleware:
                         session_id, assessment_result.confidence
                     )
 
-                    logger.debug(
-                        f"Assessment completed for session {session_id}: "
-                        f"confidence={assessment_result.confidence}, "
-                        f"intervention={assessment_result.should_intervene}"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Assessment completed for session {session_id}: "
+                            f"confidence={assessment_result.confidence}, "
+                            f"intervention={assessment_result.should_intervene}"
+                        )
                 else:
-                    logger.warning(
-                        f"Assessment failed for session {session_id}, continuing without intervention"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Assessment failed for session {session_id}, continuing without intervention"
+                        )
 
             return request
 
         except Exception as e:
             # Never let assessment errors break the main conversation flow
-            logger.error(f"Assessment middleware error for session {session_id}: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Assessment middleware error for session {session_id}: {e}"
+                )
             return request
 
     def _get_session_id(self, request: ChatRequest) -> str:
@@ -194,10 +205,11 @@ class AssessmentMiddleware:
         # Create new request with steering message using Pydantic model_copy
         modified_request = request.model_copy(update={"messages": new_messages})
 
-        logger.info(
-            f"Injected steering message for session {assessment_result.session_id}: "
-            f"reasoning={assessment_result.reasoning[:50]}..."
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Injected steering message for session {assessment_result.session_id}: "
+                f"reasoning={assessment_result.reasoning[:50]}..."
+            )
 
         return modified_request
 

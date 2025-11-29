@@ -35,7 +35,8 @@ class AppLifecycle:
 
         This method is called during application startup.
         """
-        logger.info("Starting application lifecycle...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Starting application lifecycle...")
 
         # Start background tasks
         self._start_background_tasks()
@@ -45,7 +46,8 @@ class AppLifecycle:
 
         This method is called during application shutdown.
         """
-        logger.info("Shutting down application lifecycle...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Shutting down application lifecycle...")
 
         # Stop background tasks
         await self._stop_background_tasks()
@@ -66,9 +68,10 @@ class AppLifecycle:
                 self._session_cleanup_task(interval, max_age), name="session_cleanup"
             )
             self._background_tasks.append(task)
-            logger.info(
-                f"Started session cleanup task (interval: {interval}s, max age: {max_age}s)"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Started session cleanup task (interval: {interval}s, max age: {max_age}s)"
+                )
 
     async def _stop_background_tasks(self) -> None:
         """Stop background tasks."""
@@ -78,7 +81,8 @@ class AppLifecycle:
                 try:
                     await task
                 except asyncio.CancelledError:
-                    logger.info(f"Cancelled background task: {task.get_name()}")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Cancelled background task: {task.get_name()}")
 
     async def _close_connections(self) -> None:
         """Close any remaining connections."""
@@ -107,15 +111,17 @@ class AppLifecycle:
                     # Get service provider
                     provider = self.app.state.service_provider
                     if not provider:
-                        logger.warning(
-                            "Service provider not available for session cleanup"
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Service provider not available for session cleanup"
+                            )
                         continue
 
                     # Get session service
                     session_service = provider.get_service(ISessionService)
                     if not session_service:
-                        logger.warning("Session service not available for cleanup")
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning("Session service not available for cleanup")
                         continue
 
                     # Perform cleanup
@@ -127,8 +133,10 @@ class AppLifecycle:
                         logger.info(f"Cleaned up {deleted_count} expired sessions")
 
                 except Exception as e:
-                    logger.error(f"Error during session cleanup: {e!s}")
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(f"Error during session cleanup: {e!s}")
 
         except asyncio.CancelledError:
-            logger.debug("Session cleanup task cancelled")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Session cleanup task cancelled")
             raise

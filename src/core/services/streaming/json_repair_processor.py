@@ -260,11 +260,15 @@ class JsonRepairProcessor(IStreamProcessor):
         state.json_started = False
 
     def _log_buffer_capacity_warning(self, state: JsonRepairBufferState) -> None:
-        if state.json_started and len(state.buffer) > self._buffer_cap_bytes:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Buffer capacity exceeded during JSON repair. Continuing to buffer until completion."
-                )
+        if (
+            state.json_started
+            and len(state.buffer) > self._buffer_cap_bytes
+            and logger.isEnabledFor(logging.WARNING)
+        ):
+            logger.warning(
+                "Buffer capacity exceeded during JSON repair. "
+                "Continuing to buffer until completion."
+            )
 
     def _increment_success_metrics(self) -> None:
         metrics.inc(

@@ -278,11 +278,12 @@ class HybridLoopDetector(ILoopDetector):
         self._is_enabled = True
         self._loop_events: list[LoopDetectionEvent] = []
 
-        logger.debug(
-            "HybridLoopDetector initialized: short_chunk_size=%d, long_min_length=%d",
-            self.short_detector.content_chunk_size,
-            self.long_detector.min_pattern_length,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "HybridLoopDetector initialized: short_chunk_size=%d, long_min_length=%d",
+                self.short_detector.content_chunk_size,
+                self.long_detector.min_pattern_length,
+            )
 
     def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
         """
@@ -430,13 +431,15 @@ class HybridLoopDetector(ILoopDetector):
         """Enable loop detection."""
         self._is_enabled = True
         self.short_detector.enable()
-        logger.info("Hybrid loop detection enabled")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Hybrid loop detection enabled")
 
     def disable(self) -> None:
         """Disable loop detection."""
         self._is_enabled = False
         self.short_detector.disable()
-        logger.info("Hybrid loop detection disabled")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Hybrid loop detection disabled")
 
     def is_enabled(self) -> bool:
         """Check if loop detection is enabled."""
@@ -447,7 +450,8 @@ class HybridLoopDetector(ILoopDetector):
         self.short_detector.reset()
         self.long_detector.reset()
         self._loop_events.clear()
-        logger.debug("Hybrid loop detector state reset")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Hybrid loop detector state reset")
 
     def get_stats(self) -> HybridDetectorStats:
         """Get detector statistics."""

@@ -81,7 +81,7 @@ class URIParameterValidator:
                         f"Unknown URI parameter '{param_name}' with value '{param_value}'. "
                         f"Supported parameters: {', '.join(self.SUPPORTED_PARAMS.keys())}"
                     )
-                    continue
+                continue
             # Get validation rules for this parameter
             rules = self.SUPPORTED_PARAMS[param_name]
             param_type = rules["type"]

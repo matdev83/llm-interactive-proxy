@@ -57,7 +57,8 @@ class UsageCalculationService:
             prompt_text = extract_prompt_text(messages)
             return count_tokens(prompt_text, model=model)
         except Exception:
-            logger.warning("Failed to calculate prompt tokens", exc_info=True)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Failed to calculate prompt tokens", exc_info=True)
             return 0
 
     def calculate_completion_tokens(
@@ -80,7 +81,8 @@ class UsageCalculationService:
                 return 0
             return count_tokens(text, model=model)
         except Exception:
-            logger.warning("Failed to calculate completion tokens", exc_info=True)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Failed to calculate completion tokens", exc_info=True)
             return 0
 
     def _extract_completion_text(self, content: Any) -> str:
@@ -208,6 +210,7 @@ class UsageCalculationService:
         messages: list[Any] | None = None,
         response_content: Any = None,
         model: str | None = None,
+        force_recalculation: bool = False,
     ) -> OpenRouterUsage:
         """Recalculate usage accounting for proxy modifications.
 
@@ -220,6 +223,7 @@ class UsageCalculationService:
             messages: Request messages (after proxy modifications)
             response_content: Response content (after proxy modifications)
             model: Model name for tokenization
+            force_recalculation: Force recalculation even without modification tracker
 
         Returns:
             OpenRouterUsage with recalculated values
@@ -257,9 +261,16 @@ class UsageCalculationService:
                     ", ".join(modification_tracker.inbound_modification_reasons),
                 )
 
-        # Recalculate completion tokens if outbound was modified
-        if modification_tracker is not None and modification_tracker.outbound_modified:
-            if modification_tracker.outbound_modified_tokens is not None:
+        # Recalculate completion tokens if outbound was modified OR forced
+        should_recalc_completion = force_recalculation or (
+            modification_tracker is not None and modification_tracker.outbound_modified
+        )
+
+        if should_recalc_completion:
+            if (
+                modification_tracker is not None
+                and modification_tracker.outbound_modified_tokens is not None
+            ):
                 new_completion_tokens = modification_tracker.outbound_modified_tokens
             elif response_content:
                 new_completion_tokens = self.calculate_completion_tokens(
@@ -269,16 +280,22 @@ class UsageCalculationService:
             if logger.isEnabledFor(logging.DEBUG):
                 original = (
                     modification_tracker.outbound_original_tokens
-                    if modification_tracker.outbound_original_tokens is not None
+                    if modification_tracker is not None
+                    and modification_tracker.outbound_original_tokens is not None
                     else (base_usage.completion_tokens if base_usage else 0)
                 )
-                logger.debug(
-                    "Recalculated completion tokens due to outbound modification: %d -> %d "
-                    "(reasons: %s)",
-                    original,
-                    new_completion_tokens or 0,
-                    ", ".join(modification_tracker.outbound_modification_reasons),
+                reasons = (
+                    modification_tracker.outbound_modification_reasons
+                    if modification_tracker is not None
+                    else ["forced_recalculation"]
                 )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Recalculated completion tokens: %d -> %d (reasons: %s)",
+                        original,
+                        new_completion_tokens or 0,
+                        ", ".join(reasons),
+                    )
 
         # If we have base usage, update only the modified fields
         if base_usage is not None:
@@ -346,6 +363,7 @@ class UsageCalculationService:
                 messages=messages,
                 response_content=response_content,
                 model=model,
+                force_recalculation=force_recalculation,
             )
         else:
             # Use backend usage as-is (parsing to normalize format)
@@ -365,6 +383,7 @@ class UsageCalculationService:
         final_chunk_usage: dict[str, Any] | None,
         context: RequestContext | None = None,
         model: str | None = None,
+        force_recalculation: bool = False,
     ) -> dict[str, Any]:
         """Merge usage for streaming responses.
 
@@ -376,6 +395,7 @@ class UsageCalculationService:
             final_chunk_usage: Usage from final streaming chunk
             context: Request context with modification tracker
             model: Model name
+            force_recalculation: Force recalculation even without modification flags
 
         Returns:
             Dictionary with merged usage in OpenRouter format
@@ -391,7 +411,14 @@ class UsageCalculationService:
             modification_tracker = context.processing_context.modification_tracker
 
         # Check if outbound modifications require recalculation
-        if modification_tracker is not None and modification_tracker.outbound_modified:
+        should_force_recalc = force_recalculation or (
+            modification_tracker is not None and modification_tracker.outbound_modified
+        )
+
+        if should_force_recalc:
+            if not accumulated_content and base_usage is not None:
+                return base_usage.to_openrouter_dict()
+
             # Recalculate completion tokens from accumulated content
             completion_tokens = self.calculate_completion_tokens(
                 accumulated_content, model
@@ -408,11 +435,16 @@ class UsageCalculationService:
                 )
 
             if logger.isEnabledFor(logging.DEBUG):
+                reasons = (
+                    ", ".join(modification_tracker.outbound_modification_reasons)
+                    if modification_tracker is not None
+                    else "unknown"
+                )
                 logger.debug(
                     "Merged streaming usage with outbound modifications: "
                     "completion_tokens=%d (reasons: %s)",
                     completion_tokens,
-                    ", ".join(modification_tracker.outbound_modification_reasons),
+                    reasons,
                 )
 
             return result.to_openrouter_dict()

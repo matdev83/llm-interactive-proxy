@@ -290,10 +290,11 @@ class BackendRequestManager(IBackendRequestManager):
                                     f"request_id={request_id}"
                                 )
                         except Exception as e:
-                            logger.error(
-                                f"Structured output middleware failed - session_id={session_id}, "
-                                f"request_id={request_id}, error={e}"
-                            )
+                            if logger.isEnabledFor(logging.ERROR):
+                                logger.error(
+                                    f"Structured output middleware failed - session_id={session_id}, "
+                                    f"request_id={request_id}, error={e}"
+                                )
                             raise
 
                     # If we get here without exception, response was not empty
@@ -327,9 +328,10 @@ class BackendRequestManager(IBackendRequestManager):
 
                     return backend_response
                 except EmptyResponseRetryError as e:
-                    logger.info(
-                        f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
+                        )
                     # Create retry request with recovery prompt
                     retry_request = await self._create_retry_request(
                         e.original_request, e.recovery_prompt
@@ -346,17 +348,19 @@ class BackendRequestManager(IBackendRequestManager):
                         )
                     else:
                         # This case should ideally not be reached if the logic is correct
-                        logger.warning(
-                            "Expected a StreamingResponseEnvelope but got a ResponseEnvelope for a streaming request."
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Expected a StreamingResponseEnvelope but got a ResponseEnvelope for a streaming request."
+                            )
                         return backend_response
                 else:
                     return backend_response
 
         except EmptyResponseRetryError as e:
-            logger.info(
-                f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Empty response detected, retrying with recovery prompt: {e.recovery_prompt[:100]}..."
+                )
             retry_request = await self._create_retry_request(
                 e.original_request, e.recovery_prompt
             )
@@ -437,12 +441,13 @@ class BackendRequestManager(IBackendRequestManager):
                 request=retry_request, session_id=session_id, context=context
             )
         except Exception as exc:
-            logger.warning(
-                "Tool call reactor retry failed for session %s: %s",
-                session_id,
-                exc,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Tool call reactor retry failed for session %s: %s",
+                    session_id,
+                    exc,
+                    exc_info=True,
+                )
             fallback_metadata = dict(metadata)
             fallback_metadata["tool_call_reactor_retry_failed"] = True
             return ResponseEnvelope(content="", metadata=fallback_metadata)
@@ -473,12 +478,13 @@ class BackendRequestManager(IBackendRequestManager):
                         retry_response.metadata.update(processed_retry.metadata)
                 return retry_response
             except Exception as exc:
-                logger.warning(
-                    "Processing retry response failed for session %s: %s",
-                    session_id,
-                    exc,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Processing retry response failed for session %s: %s",
+                        session_id,
+                        exc,
+                        exc_info=True,
+                    )
                 return backend_response
 
         if is_streaming:
@@ -491,12 +497,13 @@ class BackendRequestManager(IBackendRequestManager):
                         context,
                     )
                 except Exception as exc:
-                    logger.warning(
-                        "Failed to process streaming retry for session %s: %s",
-                        session_id,
-                        exc,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to process streaming retry for session %s: %s",
+                            session_id,
+                            exc,
+                            exc_info=True,
+                        )
 
             async def _single_chunk_stream() -> AsyncIterator[ProcessedResponse]:
                 if isinstance(retry_response, StreamingResponseEnvelope):
@@ -536,10 +543,11 @@ class BackendRequestManager(IBackendRequestManager):
         triggering a retry with a recovery prompt if necessary.
         """
         if retry_depth > self._MAX_EMPTY_STREAM_RETRIES:
-            logger.warning(
-                "Maximum empty stream recovery attempts reached for session %s",
-                session_id,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Maximum empty stream recovery attempts reached for session %s",
+                    session_id,
+                )
             self._raise_empty_stream_error(
                 session_id=session_id,
                 reason="empty_stream_after_retries",
@@ -632,10 +640,11 @@ class BackendRequestManager(IBackendRequestManager):
                         continue
 
                     swallowed_detected = True
-                    logger.info(
-                        "Detected swallowed tool call during streaming for session %s; retrying with steering context",
-                        session_id,
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Detected swallowed tool call during streaming for session %s; retrying with steering context",
+                            session_id,
+                        )
                     retry_response = await self._retry_after_tool_swallow(
                         original_request,
                         ResponseEnvelope(content=text_fragment, metadata=metadata),
@@ -668,11 +677,12 @@ class BackendRequestManager(IBackendRequestManager):
                         try:
                             await cancel_callback()
                         except Exception as exc:
-                            logger.error(
-                                "Failed to invoke streaming cancel callback after loop detection: %s",
-                                exc,
-                                exc_info=True,
-                            )
+                            if logger.isEnabledFor(logging.ERROR):
+                                logger.error(
+                                    "Failed to invoke streaming cancel callback after loop detection: %s",
+                                    exc,
+                                    exc_info=True,
+                                )
 
                     # Emit a quiet cancellation marker without leaking debug text
                     cancellation_payload = {
@@ -898,11 +908,12 @@ class BackendRequestManager(IBackendRequestManager):
                 processed_stream, session_id
             )
         except Exception:
-            logger.warning(
-                "Response processor streaming normalization failed; "
-                "returning unprocessed stream",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Response processor streaming normalization failed; "
+                    "returning unprocessed stream",
+                    exc_info=True,
+                )
 
         async def _gate_empty_stream(
             stream: AsyncIterator[ProcessedResponse],
@@ -942,10 +953,11 @@ class BackendRequestManager(IBackendRequestManager):
                 async for chunk in stream:
                     yield chunk
             except EmptyResponseRetryError as exc:
-                logger.info(
-                    "Empty streaming response detected, retrying with recovery prompt: %s",
-                    exc.recovery_prompt[:100],
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Empty streaming response detected, retrying with recovery prompt: %s",
+                        exc.recovery_prompt[:100],
+                    )
                 retry_request = await self._create_retry_request(
                     original_request, exc.recovery_prompt
                 )
@@ -972,12 +984,13 @@ class BackendRequestManager(IBackendRequestManager):
                     metadata=getattr(retry_response, "metadata", {}),
                 )
             except Exception as exc:
-                logger.warning(
-                    "Streaming middleware failed for session %s: %s",
-                    session_id,
-                    exc,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Streaming middleware failed for session %s: %s",
+                        session_id,
+                        exc,
+                        exc_info=True,
+                    )
 
         processed_stream = _stream_with_empty_recovery(processed_stream)
 
@@ -1009,17 +1022,19 @@ class BackendRequestManager(IBackendRequestManager):
         retry_depth: int,
     ) -> StreamingResponseEnvelope:
         if retry_depth >= self._MAX_EMPTY_STREAM_RETRIES:
-            logger.warning(
-                "%s Maximum recovery attempts reached for session %s",
-                reason,
-                session_id,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "%s Maximum recovery attempts reached for session %s",
+                    reason,
+                    session_id,
+                )
             self._raise_empty_stream_error(
                 session_id=session_id,
                 reason="empty_stream_retry_failure",
             )
 
-        logger.info("%s", reason)
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("%s", reason)
         recovery_prompt = self._STREAM_RECOVERY_PROMPT
         retry_request = await self._create_retry_request(
             original_request, recovery_prompt

@@ -317,18 +317,21 @@ class ResponseProcessor(IResponseProcessor):
             # Propagate loop detection as-is
             raise
         except json.JSONDecodeError as e:
-            logger.error(
-                f"JSON decoding error in non-streaming response: {e}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"JSON decoding error in non-streaming response: {e}", exc_info=True
+                )
             raise ParsingError(
                 message=f"Failed to decode JSON in response: {e}",
                 details={"session_id": session_id, "original_error": str(e)},
             ) from e
         except (TypeError, ValueError, AttributeError, KeyError, IndexError) as e:
             # Catch common expected exceptions for data processing
-            logger.error(
-                f"Data processing error in non-streaming response: {e}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Data processing error in non-streaming response: {e}",
+                    exc_info=True,
+                )
             raise ParsingError(
                 message=f"Error processing response data: {e}",
                 details={"session_id": session_id, "original_error": str(e)},
@@ -354,9 +357,10 @@ class ResponseProcessor(IResponseProcessor):
             try:
                 loop_detector = self._loop_detector_factory()
             except Exception:
-                logger.warning(
-                    "Failed to create loop detector from factory", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to create loop detector from factory", exc_info=True
+                    )
 
         if loop_detector is None:
             # Fallback to default implementation if no factory provided
@@ -495,9 +499,10 @@ class ResponseProcessor(IResponseProcessor):
                     )
                 else:
                     # Handle unexpected types
-                    logger.warning(
-                        f"Unexpected chunk type from stream normalizer: {type(processed_chunk)}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Unexpected chunk type from stream normalizer: {type(processed_chunk)}"
+                        )
                     metadata = {"session_id": session_id} if session_id else {}
                     yield ProcessedResponse(
                         content=str(processed_chunk),
@@ -512,7 +517,8 @@ class ResponseProcessor(IResponseProcessor):
             AttributeError,
             KeyError,
         ) as e:
-            logger.error(f"Error in stream processing: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error in stream processing: {e}", exc_info=True)
             yield ProcessedResponse(
                 content=f"Error in stream processing: {e}",
                 usage=None,

@@ -189,9 +189,10 @@ class ToolCallTracker:
             active_signatures = set(current_signatures)
             for sig in list(self.consecutive_repeats.keys()):
                 if sig not in active_signatures:
-                    logger.debug(
-                        "Resetting consecutive count for expired signature: %s", sig
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Resetting consecutive count for expired signature: %s", sig
+                        )
                     del self.consecutive_repeats[sig]
                     # Also clear chance status if present
                     self.chance_given.pop(sig, None)

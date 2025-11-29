@@ -342,12 +342,13 @@ class TranslationService:
 
         # Log transformation at DEBUG level for diagnostic tracking
         chunk_keys = list(chunk.keys()) if isinstance(chunk, dict) else "N/A"
-        logger.debug(
-            "[STREAMING] TranslationService.to_domain_stream_chunk: "
-            "Transforming chunk, source_format=%s, chunk_keys=%s",
-            source_format,
-            chunk_keys,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "[STREAMING] TranslationService.to_domain_stream_chunk: "
+                "Transforming chunk, source_format=%s, chunk_keys=%s",
+                source_format,
+                chunk_keys,
+            )
 
         # Only translate when there's a format mismatch
         result: dict[str, Any] | Any
@@ -371,12 +372,13 @@ class TranslationService:
         # Log transformation result at DEBUG level
         result_type = type(result).__name__
         result_keys = list(result.keys()) if isinstance(result, dict) else "N/A"
-        logger.debug(
-            "[STREAMING] TranslationService.to_domain_stream_chunk: "
-            "Transformation complete, result_type=%s, result_keys=%s",
-            result_type,
-            result_keys,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "[STREAMING] TranslationService.to_domain_stream_chunk: "
+                "Transformation complete, result_type=%s, result_keys=%s",
+                result_type,
+                result_keys,
+            )
 
         # Convert dict to CanonicalStreamChunk for supported formats
         if source_format in canonical_formats and isinstance(result, dict):
@@ -765,15 +767,17 @@ class TranslationService:
         self, response: ChatResponse
     ) -> dict[str, Any]:
         """Translates a domain ChatResponse to a Responses API response format."""
-        logger.debug(
-            f"Converting domain response to Responses API format - response_id={getattr(response, 'id', 'unknown')}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Converting domain response to Responses API format - response_id={getattr(response, 'id', 'unknown')}"
+            )
 
         try:
             converted_response = Translation.from_domain_to_responses_response(response)
-            logger.debug(
-                f"Successfully converted response to Responses API format - response_id={getattr(response, 'id', 'unknown')}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Successfully converted response to Responses API format - response_id={getattr(response, 'id', 'unknown')}"
+                )
             return converted_response
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
@@ -786,15 +790,17 @@ class TranslationService:
         self, request: CanonicalChatRequest
     ) -> dict[str, Any]:
         """Translates a CanonicalChatRequest to a Responses API request format."""
-        logger.debug(
-            f"Converting domain request to Responses API format - model={request.model}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Converting domain request to Responses API format - model={request.model}"
+            )
 
         try:
             converted_request = Translation.from_domain_to_responses_request(request)
-            logger.debug(
-                f"Successfully converted request to Responses API format - model={request.model}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Successfully converted request to Responses API format - model={request.model}"
+                )
             return converted_request
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):

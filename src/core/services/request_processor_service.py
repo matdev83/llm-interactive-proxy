@@ -135,7 +135,8 @@ class RequestProcessor(IRequestProcessor):
                     f"Registered allowed tools for session {session_id}: {allowed_tools}"
                 )
         except Exception as e:
-            logger.warning(f"Failed to register allowed tools: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to register allowed tools: {e}", exc_info=True)
 
         # Auto-detect project directory if needed
         if (
@@ -171,11 +172,12 @@ class RequestProcessor(IRequestProcessor):
                 f"Command processing result: executed={command_result.command_executed}, "
                 f"modified_messages_count={len(command_result.modified_messages or [])}"
             )
-        logger.info(
-            f"Command processing result: command_executed={command_result.command_executed}, "
-            f"modified_messages={len(command_result.modified_messages) if hasattr(command_result.modified_messages, '__len__') else 0}, "
-            f"command_results={len(command_result.command_results) if hasattr(command_result.command_results, '__len__') else 0}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Command processing result: command_executed={command_result.command_executed}, "
+                f"modified_messages={len(command_result.modified_messages) if hasattr(command_result.modified_messages, '__len__') else 0}, "
+                f"command_results={len(command_result.command_results) if hasattr(command_result.command_results, '__len__') else 0}"
+            )
 
         self._expand_truncated_tool_outputs(command_result)
 
@@ -205,9 +207,10 @@ class RequestProcessor(IRequestProcessor):
         if self._should_process_command_only(command_result):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Taking command result path for session {session_id}")
-            logger.info(
-                "Command executed with no modified messages - returning command result without backend call"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Command executed with no modified messages - returning command result without backend call"
+                )
             await self._session_manager.record_command_in_session(
                 request_data, session_id
             )
@@ -271,14 +274,15 @@ class RequestProcessor(IRequestProcessor):
                         model_defaults = md
                         break
 
-                logger.info(
-                    "Model limits lookup: requested_model=%s backend=%s model=%s candidates=%s found=%s",
-                    requested_model,
-                    backend_key,
-                    model_name,
-                    candidate_keys,
-                    bool(model_defaults),
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Model limits lookup: requested_model=%s backend=%s model=%s candidates=%s found=%s",
+                        requested_model,
+                        backend_key,
+                        model_name,
+                        candidate_keys,
+                        bool(model_defaults),
+                    )
 
                 # Check for CLI context window override first
                 cli_context_window = None
@@ -331,11 +335,12 @@ class RequestProcessor(IRequestProcessor):
                             ),
                         }
 
-                    logger.info(
-                        "Applied CLI context window override: %s tokens for model %s",
-                        cli_context_window,
-                        requested_model or model_name,
-                    )
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Applied CLI context window override: %s tokens for model %s",
+                            cli_context_window,
+                            requested_model or model_name,
+                        )
                 if limits is not None:
                     # Note: max_output_tokens enforcement removed as it's redundant with backend limits
                     # and provides limited practical value. Backend providers already enforce
@@ -366,12 +371,13 @@ class RequestProcessor(IRequestProcessor):
 
                             # Check input token limit
                             if measured > int(max_in):
-                                logger.info(
-                                    "Input token limit exceeded: measured=%s limit=%s model=%s",
-                                    measured,
-                                    int(max_in),
-                                    requested_model,
-                                )
+                                if logger.isEnabledFor(logging.INFO):
+                                    logger.info(
+                                        "Input token limit exceeded: measured=%s limit=%s model=%s",
+                                        measured,
+                                        int(max_in),
+                                        requested_model,
+                                    )
                                 raise InvalidRequestError(
                                     message="Input token limit exceeded",
                                     code="input_limit_exceeded",
@@ -393,14 +399,15 @@ class RequestProcessor(IRequestProcessor):
                             ):
                                 total_requested = measured + max_tokens
                                 if total_requested > context_window:
-                                    logger.info(
-                                        "Total token limit exceeded: input=%s + max_tokens=%s = %s > context_window=%s model=%s",
-                                        measured,
-                                        max_tokens,
-                                        total_requested,
-                                        context_window,
-                                        requested_model,
-                                    )
+                                    if logger.isEnabledFor(logging.INFO):
+                                        logger.info(
+                                            "Total token limit exceeded: input=%s + max_tokens=%s = %s > context_window=%s model=%s",
+                                            measured,
+                                            max_tokens,
+                                            total_requested,
+                                            context_window,
+                                            requested_model,
+                                        )
                                     raise InvalidRequestError(
                                         message="Total token limit exceeded (input + max_tokens exceeds context window)",
                                         code="total_limit_exceeded",
@@ -570,11 +577,12 @@ class RequestProcessor(IRequestProcessor):
                         )
             except Exception as e:
                 # Redaction is best-effort; never block requests on failure
-                logger.warning(
-                    "Request redaction middleware failed; proceeding without redaction: %s",
-                    e,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Request redaction middleware failed; proceeding without redaction: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         # Apply edit-precision tuning middleware if enabled and we still have a backend request
         if backend_request is not None:
@@ -648,10 +656,11 @@ class RequestProcessor(IRequestProcessor):
                             cfg_enabled = False
                     except re.error as e:
                         # Invalid pattern; ignore exclusion
-                        logger.warning(
-                            "Invalid regex in edit_precision.exclude_agents_regex: %s",
-                            e,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Invalid regex in edit_precision.exclude_agents_regex: %s",
+                                e,
+                            )
 
                 # If previous response flagged a pending precision tune, apply once
                 force_apply = False
@@ -680,12 +689,13 @@ class RequestProcessor(IRequestProcessor):
                             import contextlib
 
                             with contextlib.suppress(Exception):
-                                logger.info(
-                                    "Edit-precision pending consumed; session_id=%s prior_count=%s now=%s",
-                                    session_id,
-                                    pending_count,
-                                    pending_map.get(session_id, 0),
-                                )
+                                if logger.isEnabledFor(logging.INFO):
+                                    logger.info(
+                                        "Edit-precision pending consumed; session_id=%s prior_count=%s now=%s",
+                                        session_id,
+                                        pending_count,
+                                        pending_map.get(session_id, 0),
+                                    )
                 except (AttributeError, TypeError, ValueError) as e:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -716,10 +726,11 @@ class RequestProcessor(IRequestProcessor):
                                     hybrid_disabled_map,
                                 )
                                 self._clear_active_hybrid_disable_flag(session_id)
-                            logger.info(
-                                f"Hybrid reasoning disabled for session {session_id} due to edit failure",
-                                extra={"session_id": session_id},
-                            )
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    f"Hybrid reasoning disabled for session {session_id} due to edit failure",
+                                    extra={"session_id": session_id},
+                                )
                 except (AttributeError, TypeError, ValueError) as e:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -773,9 +784,10 @@ class RequestProcessor(IRequestProcessor):
                 logger.debug(
                     f"Command executed without backend call, processing command result for session {session_id}"
                 )
-            logger.info(
-                f"Command executed without backend call, processing command result for session {session_id}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Command executed without backend call, processing command result for session {session_id}"
+                )
             await self._session_manager.record_command_in_session(
                 request_data, session_id
             )
@@ -833,19 +845,21 @@ class RequestProcessor(IRequestProcessor):
                                     backend_request = backend_request.model_copy(
                                         update={"tool_choice": "auto"}
                                     )
-                                    logger.info(
-                                        f"Reset tool_choice to 'auto' because referenced tool '{choice_name}' was filtered"
-                                    )
+                                    if logger.isEnabledFor(logging.INFO):
+                                        logger.info(
+                                            f"Reset tool_choice to 'auto' because referenced tool '{choice_name}' was filtered"
+                                        )
 
                         # Log the filtering action
                         removed_count = len(original_tools) - len(filtered_tools)
                         policy_name = metadata.get("policy_applied", "unknown")
                         filtered_names = metadata.get("filtered_tool_names", [])
 
-                        logger.info(
-                            f"Filtered {removed_count} tool definition(s) for model "
-                            f"{model_name} by policy '{policy_name}': {filtered_names}"
-                        )
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                f"Filtered {removed_count} tool definition(s) for model "
+                                f"{model_name} by policy '{policy_name}': {filtered_names}"
+                            )
 
                         # Increment telemetry counter in reactor service
                         try:
@@ -880,7 +894,10 @@ class RequestProcessor(IRequestProcessor):
 
             except Exception as e:
                 # Tool definition filtering is fail-open: log warning and proceed
-                logger.warning(f"Tool definition filtering failed: {e}", exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Tool definition filtering failed: {e}", exc_info=True
+                    )
 
         # Add session_id to extra_body if not present
         final_extra_body_attr = getattr(backend_request, "extra_body", None)
@@ -894,15 +911,17 @@ class RequestProcessor(IRequestProcessor):
         )
 
         # Process backend request with retry handling
-        logger.info(
-            f"Calling backend for session {session_id} with model: {getattr(backend_request, 'model', 'unknown')}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Calling backend for session {session_id} with model: {getattr(backend_request, 'model', 'unknown')}"
+            )
         backend_response = await self._backend_request_manager.process_backend_request(
             backend_request, session_id, context
         )
-        logger.info(
-            f"Backend response for session {session_id}: {type(backend_response).__name__}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Backend response for session {session_id}: {type(backend_response).__name__}"
+            )
 
         # Update session history with the backend interaction
         await self._session_manager.update_session_history(
@@ -1002,11 +1021,12 @@ class RequestProcessor(IRequestProcessor):
         extra_body["_temp_hybrid_reasoning_probability"] = 0.0
 
         base_display = base_probability if base_probability is not None else "unknown"
-        logger.info(
-            "Hybrid reasoning probability override applied; session_id=%s base=%s -> 0.0",
-            session_id,
-            base_display,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Hybrid reasoning probability override applied; session_id=%s base=%s -> 0.0",
+                session_id,
+                base_display,
+            )
 
         return backend_request.model_copy(update={"extra_body": extra_body})
 
@@ -1133,9 +1153,10 @@ class RequestProcessor(IRequestProcessor):
             try:
                 should_disable_commands = bool(self._app_state.get_disable_commands())
             except AttributeError as e:
-                logger.warning(
-                    f"Error getting disable_commands state: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Error getting disable_commands state: {e}", exc_info=True
+                    )
                 should_disable_commands = False
 
         if should_disable_commands:
@@ -1266,7 +1287,10 @@ class RequestProcessor(IRequestProcessor):
         try:
             artifact_text = artifact_path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            logger.warning("Failed to read tool artifact %s: %s", artifact_path, exc)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to read tool artifact %s: %s", artifact_path, exc
+                )
             return None
 
         preview = self._build_artifact_preview(artifact_text)

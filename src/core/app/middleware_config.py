@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -7,7 +8,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from src.core.app.middleware.loop_prevention_middleware import LoopPreventionMiddleware
-from src.core.common.structlog_config import get_logger
+from src.core.common.logging_utils import get_logger
 from src.core.security import APIKeyMiddleware, AuthMiddleware
 from src.request_middleware import CustomHeaderMiddleware
 from src.response_middleware import RetryAfterMiddleware
@@ -60,7 +61,8 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         # SECURITY: Removed test detection - production code should never detect test environment
         # If no API keys are provided, authentication will fail with clear error messages
         # This prevents unauthorized access and maintains security boundaries
-        logger.info("API Key authentication is enabled", key_count=len(api_keys))
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("API Key authentication is enabled", key_count=len(api_keys))
         # Add API Key middleware
         brute_force_kwargs = (
             {
@@ -91,7 +93,8 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             **brute_force_kwargs,  # type: ignore[arg-type]
         )
     else:
-        logger.info("API Key authentication is disabled")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("API Key authentication is disabled")
 
     # Auth middleware (for tokens) - only add if auth not disabled
     auth_token = None
@@ -100,7 +103,8 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             auth_token = auth_config.auth_token
 
         if auth_token:
-            logger.info("Auth token validation is enabled")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Auth token validation is enabled")
             app.add_middleware(
                 AuthMiddleware, valid_token=auth_token, bypass_paths=["/docs"]
             )
@@ -119,9 +123,13 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         from src.core.app.middleware.security_middleware import add_security_middleware
 
         add_security_middleware(app)
-        logger.info("Security middleware is enabled")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Security middleware is enabled")
     except Exception as e:
-        logger.warning("Failed to register SecurityMiddleware: %s", e, exc_info=True)
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to register SecurityMiddleware: %s", e, exc_info=True
+            )
 
     # Domain exception mapping middleware (translate domain errors to HTTP)
     try:
@@ -131,9 +139,10 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
 
         app.add_middleware(DomainExceptionMiddleware)
     except Exception as e:
-        logger.warning(
-            "Failed to register DomainExceptionMiddleware: %s", e, exc_info=True
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to register DomainExceptionMiddleware: %s", e, exc_info=True
+            )
 
     # Third-party exception handlers (connectivity, JSON decoding, validation)
     try:
@@ -156,7 +165,10 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             _PydanticValidationError, pydantic_validation_error_handler
         )
     except Exception as e:  # pragma: no cover - defensive
-        logger.warning("Failed to register exception handlers: %s", e, exc_info=True)
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to register exception handlers: %s", e, exc_info=True
+            )
 
     # Content rewriting middleware (if enabled)
     if config.rewriting.enabled:
@@ -169,7 +181,8 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             ContentRewriterService
         )
         app.add_middleware(ContentRewritingMiddleware, rewriter=rewriter)
-        logger.info("Content rewriting middleware is enabled.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Content rewriting middleware is enabled.")
 
     # LLM Assessment middleware (if enabled)
     if hasattr(config, "assessment") and getattr(config.assessment, "enabled", False):
@@ -185,11 +198,13 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
             app.add_middleware(
                 AssessmentMiddleware, assessment_service=assessment_service  # type: ignore[arg-type]
             )
-            logger.info("LLM Assessment middleware is enabled")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("LLM Assessment middleware is enabled")
         except Exception as e:
-            logger.warning(
-                "Failed to register AssessmentMiddleware: %s", e, exc_info=True
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to register AssessmentMiddleware: %s", e, exc_info=True
+                )
 
     # Request/response logging middleware (if enabled)
     request_logging = (
@@ -202,11 +217,12 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     if request_logging or response_logging:
         from src.core.app.middleware.logging_middleware import LoggingMiddleware
 
-        logger.info(
-            "Logging middleware is enabled",
-            request_logging=request_logging,
-            response_logging=response_logging,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Logging middleware is enabled",
+                request_logging=request_logging,
+                response_logging=response_logging,
+            )
         app.add_middleware(
             LoggingMiddleware,
             log_requests=request_logging,
@@ -223,17 +239,20 @@ def register_custom_middleware(app: FastAPI, *args: Any, **kwargs: Any) -> None:
         **kwargs: Keyword arguments to pass to the middleware constructor
     """
     if not args:
-        logger.warning("No middleware class provided to register_custom_middleware")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning("No middleware class provided to register_custom_middleware")
         return
 
     middleware_class = args[0]
     try:
         app.add_middleware(middleware_class, **kwargs)
-        logger.info(
-            f"Successfully registered custom middleware: {middleware_class.__name__}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Successfully registered custom middleware: {middleware_class.__name__}"
+            )
     except Exception as e:
-        logger.error(
-            f"Failed to register custom middleware: {middleware_class.__name__}",
-            exc_info=e,
-        )
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(
+                f"Failed to register custom middleware: {middleware_class.__name__}",
+                exc_info=e,
+            )

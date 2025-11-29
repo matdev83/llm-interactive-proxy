@@ -969,6 +969,9 @@ def to_fastapi_streaming_response(
         _infer_capture_fields(domain_response, context)
     )
     capture_session_id = _resolve_capture_session_id(inferred_session_id, context)
+    envelope_metadata = (
+        domain_response.metadata if isinstance(domain_response.metadata, dict) else {}
+    )
 
     async def _streaming_adapter(
         it: AsyncIterator[Any] | Iterable[Any] | None,
@@ -1280,6 +1283,9 @@ def to_fastapi_streaming_response(
                     usage_payload = (
                         enriched.get("usage") if isinstance(enriched, dict) else None
                     )
+                    computed_usage = (
+                        usage_payload if isinstance(usage_payload, dict) else None
+                    )
 
                     # Check if this chunk signals completion
                     is_done = forced_done or _chunk_signals_done(enriched, metadata)
@@ -1287,13 +1293,86 @@ def to_fastapi_streaming_response(
                     if is_done:
                         _flush_pending_tool_blocks(stream_key, decoded_payload)
 
+                        accumulated_content = None
+                        if isinstance(metadata, dict):
+                            accumulated_value = metadata.get("accumulated_content")
+                            if isinstance(accumulated_value, str):
+                                accumulated_content = accumulated_value
+
+                        model_name = None
+                        if isinstance(metadata, dict):
+                            model_candidate = metadata.get("model")
+                            if isinstance(model_candidate, str):
+                                model_name = model_candidate
+                        if model_name is None:
+                            envelope_model = envelope_metadata.get("model")
+                            if isinstance(envelope_model, str):
+                                model_name = envelope_model
+
+                        force_usage_recalc = False
+                        if isinstance(metadata, dict) and metadata.get(
+                            "allow_usage_recalculation"
+                        ) or envelope_metadata.get("allow_usage_recalculation"):
+                            force_usage_recalc = True
+                        elif context is not None:
+                            try:
+                                force_usage_recalc = (
+                                    context.requires_usage_recalculation()
+                                )
+                            except Exception:
+                                force_usage_recalc = False
+
+                        if (
+                            accumulated_content is not None
+                            or computed_usage is not None
+                        ):
+                            try:
+                                from src.core.services.usage_calculation_service import (
+                                    get_usage_calculation_service,
+                                )
+
+                                service = get_usage_calculation_service()
+                                computed_usage = service.merge_streaming_usage(
+                                    accumulated_content=accumulated_content or "",
+                                    final_chunk_usage=computed_usage,
+                                    context=context,
+                                    model=model_name,
+                                    force_recalculation=force_usage_recalc,
+                                )
+
+                                prompt_hint = envelope_metadata.get("outbound_tokens")
+                                if (
+                                    isinstance(prompt_hint, (int, float))
+                                    and isinstance(computed_usage, dict)
+                                    and computed_usage.get("prompt_tokens", 0) == 0
+                                ):
+                                    prompt_tokens = int(prompt_hint)
+                                    computed_usage["prompt_tokens"] = prompt_tokens
+                                    computed_usage["total_tokens"] = prompt_tokens + (
+                                        computed_usage.get("completion_tokens", 0)
+                                    )
+
+                                if isinstance(computed_usage, dict) and isinstance(
+                                    enriched, dict
+                                ):
+                                    try:
+                                        enriched["usage"] = computed_usage
+                                    except Exception:
+                                        enriched = dict(enriched)
+                                        enriched["usage"] = computed_usage
+                            except Exception:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Failed to merge streaming usage", exc_info=True
+                                    )
+
                     streaming_content = StreamingContent(
                         content=enriched,
                         metadata=metadata,
                         is_done=is_done,
-                        stream_id=metadata.get("stream_id"),
+                        stream_id=metadata.get("stream_id") if metadata else None,
                         usage=(
-                            usage_payload if isinstance(usage_payload, dict) else None
+                            computed_usage if isinstance(computed_usage, dict) else None
                         ),
                     )
 

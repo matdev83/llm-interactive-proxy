@@ -651,10 +651,10 @@ class BufferedWireCapture(IWireCapture):
         # Determine content type based on ORIGINAL payload type before redaction
         # This preserves the semantic type even if redaction changes the structure
         content_type = "unknown"
-        
+
         if isinstance(payload, bytes):
             content_type = "bytes"
-        elif isinstance(payload, (dict, list)):
+        elif isinstance(payload, dict | list):
             content_type = "json"
         elif isinstance(payload, str):
             content_type = "text"

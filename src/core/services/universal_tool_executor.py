@@ -118,7 +118,8 @@ class UniversalToolExecutor:
             }
 
         except Exception as e:
-            logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
             return {
                 "output": f"Error executing {tool_name}: {e!s}",
                 "exit_code": 1,
@@ -303,12 +304,13 @@ class UniversalToolExecutor:
 
         except Exception as e:
             error_msg = f"Error executing MCP tool '{tool_name}': {e!s}"
-            logger.error(
-                "MCP tool execution failed: %s",
-                e,
-                exc_info=True,
-                extra={"tool_name": tool_name, "arguments": translated_arguments},
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "MCP tool execution failed: %s",
+                    e,
+                    exc_info=True,
+                    extra={"tool_name": tool_name, "arguments": translated_arguments},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
@@ -841,9 +843,10 @@ class UniversalToolExecutor:
             )
         except Exception as e:
             error_msg = f"Error executing command: {e!s}"
-            logger.error(
-                "Unexpected error executing shell command: %s", e, exc_info=True
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error executing shell command: %s", e, exc_info=True
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
@@ -1316,12 +1319,13 @@ class UniversalToolExecutor:
 
         except Exception as e:
             error_msg = f"Error accessing MCP resource {uri}: {e!s}"
-            logger.error(
-                "Failed to access MCP resource: %s",
-                e,
-                exc_info=True,
-                extra={"uri": uri},
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to access MCP resource: %s",
+                    e,
+                    exc_info=True,
+                    extra={"uri": uri},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,

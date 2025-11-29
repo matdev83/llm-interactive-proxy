@@ -43,20 +43,22 @@ class AccessPolicy:
         try:
             self._model_regex = re.compile(self.model_pattern, re.IGNORECASE)
         except re.error as e:
-            logger.error(
-                f"Failed to compile model_pattern '{self.model_pattern}' "
-                f"in policy '{self.name}': {e}"
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failed to compile model_pattern '{self.model_pattern}' "
+                    f"in policy '{self.name}': {e}"
+                )
             self._model_regex = None
 
         if self.agent_pattern:
             try:
                 self._agent_regex = re.compile(self.agent_pattern, re.IGNORECASE)
             except re.error as e:
-                logger.error(
-                    f"Failed to compile agent_pattern '{self.agent_pattern}' "
-                    f"in policy '{self.name}': {e}"
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Failed to compile agent_pattern '{self.agent_pattern}' "
+                        f"in policy '{self.name}': {e}"
+                    )
                 self._agent_regex = None
 
         self._allowed_regexes = []
@@ -64,20 +66,22 @@ class AccessPolicy:
             try:
                 self._allowed_regexes.append(re.compile(pattern, re.IGNORECASE))
             except re.error as e:
-                logger.error(
-                    f"Failed to compile allowed pattern '{pattern}' "
-                    f"in policy '{self.name}': {e}"
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Failed to compile allowed pattern '{pattern}' "
+                        f"in policy '{self.name}': {e}"
+                    )
 
         self._blocked_regexes = []
         for pattern in self.blocked_patterns:
             try:
                 self._blocked_regexes.append(re.compile(pattern, re.IGNORECASE))
             except re.error as e:
-                logger.error(
-                    f"Failed to compile blocked pattern '{pattern}' "
-                    f"in policy '{self.name}': {e}"
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Failed to compile blocked pattern '{pattern}' "
+                        f"in policy '{self.name}': {e}"
+                    )
 
     def matches_context(self, model_name: str, agent: str | None = None) -> bool:
         """Check if this policy matches the given model and agent context."""
@@ -156,7 +160,8 @@ class ToolAccessPolicyService:
         # Sort policies by priority (highest first)
         self._policies.sort(key=lambda p: p.priority, reverse=True)
 
-        logger.info(f"Loaded {len(self._policies)} tool access policies")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Loaded {len(self._policies)} tool access policies")
         if self._policies and logger.is_enabled_for(logging.DEBUG):
             logger.debug(f"Policy names: {[p.name for p in self._policies]}")
 
@@ -170,7 +175,10 @@ class ToolAccessPolicyService:
             try:
                 # Validate required fields
                 if not isinstance(policy_data, dict):
-                    logger.warning(f"Invalid policy data (not a dict): {policy_data}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Invalid policy data (not a dict): {policy_data}"
+                        )
                     continue
 
                 name = policy_data.get("name")
@@ -178,18 +186,24 @@ class ToolAccessPolicyService:
                 default_policy = policy_data.get("default_policy")
 
                 if not name:
-                    logger.warning(f"Policy missing 'name' field: {policy_data}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(f"Policy missing 'name' field: {policy_data}")
                     continue
                 if not model_pattern:
-                    logger.warning(f"Policy '{name}' missing 'model_pattern' field")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(f"Policy '{name}' missing 'model_pattern' field")
                     continue
                 if not default_policy:
-                    logger.warning(f"Policy '{name}' missing 'default_policy' field")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Policy '{name}' missing 'default_policy' field"
+                        )
                     continue
                 if default_policy not in ("allow", "deny"):
-                    logger.warning(
-                        f"Policy '{name}' has invalid default_policy: {default_policy}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Policy '{name}' has invalid default_policy: {default_policy}"
+                        )
                     continue
 
                 policy = AccessPolicy(
@@ -210,7 +224,8 @@ class ToolAccessPolicyService:
                 self._policies.append(policy)
 
             except Exception as e:
-                logger.error(f"Failed to load policy: {e}", exc_info=True)
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Failed to load policy: {e}", exc_info=True)
 
     def _apply_global_overrides(self, overrides: dict[str, Any]) -> None:
         """Apply global policy overrides from CLI."""
@@ -229,9 +244,11 @@ class ToolAccessPolicyService:
                 priority=1000,  # Highest priority
             )
             self._global_policy.compile_patterns()
-            logger.info("Applied global policy overrides")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Applied global policy overrides")
         except Exception as e:
-            logger.error(f"Failed to apply global overrides: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to apply global overrides: {e}", exc_info=True)
 
     def _select_policy(
         self, model_name: str, agent: str | None = None
@@ -324,10 +341,11 @@ class ToolAccessPolicyService:
         self._record_evaluation_time(elapsed_ms)
 
         if filtered_names:
-            logger.info(
-                f"Filtered {len(filtered_names)} tool definitions for model "
-                f"{model_name} by policy '{policy.name}': {filtered_names}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Filtered {len(filtered_names)} tool definitions for model "
+                    f"{model_name} by policy '{policy.name}': {filtered_names}"
+                )
             if logger.is_enabled_for(logging.DEBUG):
                 logger.debug(
                     f"Remaining tools: {[self._extract_tool_name(t) for t in filtered_tools]}"

@@ -100,10 +100,11 @@ class BackendService(IBackendService):
             failover_routes=self._failover_routes
         )
         if failover_coordinator is None:
-            logger.warning(
-                "BackendService: No IFailoverCoordinator provided; using default FailoverCoordinator. "
-                "Prefer injecting an IFailoverCoordinator via DI to adhere to DIP."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "BackendService: No IFailoverCoordinator provided; using default FailoverCoordinator. "
+                    "Prefer injecting an IFailoverCoordinator via DI to adhere to DIP."
+                )
             self._failover_coordinator: IFailoverCoordinator = FailoverCoordinator(
                 self._failover_service
             )
@@ -220,12 +221,14 @@ class BackendService(IBackendService):
                 if match:
                     # Use match.expand to honor capture groups regardless of match span
                     new_model = match.expand(replacement)
-                    logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(f"Applied model alias: '{model}' -> '{new_model}'")
                     return new_model
             except (re.error, AttributeError, TypeError) as e:
-                logger.warning(
-                    f"Invalid regex pattern in model alias or mock object: {e}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Invalid regex pattern in model alias or mock object: {e}"
+                    )
                 continue
 
         return model
@@ -827,17 +830,18 @@ class BackendService(IBackendService):
                 )
 
                 # Log validation errors if any
-                if validation_errors:
+                if validation_errors and logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         f"URI parameter validation errors for {backend_type}: {', '.join(validation_errors)}. "
                         f"Invalid parameters will be excluded from the request."
                     )
             except Exception as validation_error:
                 # If validation itself fails, log error and continue without URI params
-                logger.error(
-                    f"Failed to validate URI parameters for {backend_type}: {validation_error}. "
-                    f"Continuing without URI parameters."
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Failed to validate URI parameters for {backend_type}: {validation_error}. "
+                        f"Continuing without URI parameters."
+                    )
                 return request
 
             # Extract parameters from other sources
@@ -967,10 +971,11 @@ class BackendService(IBackendService):
                 )
             except Exception as resolution_error:
                 # If parameter resolution fails, log error and continue without URI params
-                logger.error(
-                    f"Failed to resolve parameters for {backend_type}: {resolution_error}. "
-                    f"Continuing without URI parameters."
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Failed to resolve parameters for {backend_type}: {resolution_error}. "
+                        f"Continuing without URI parameters."
+                    )
                 return request
 
             # Apply resolved parameters to request
@@ -1016,19 +1021,21 @@ class BackendService(IBackendService):
                         )
             except Exception as apply_error:
                 # If applying parameters fails, log error and return original request
-                logger.error(
-                    f"Failed to apply resolved parameters to request for {backend_type}: {apply_error}. "
-                    f"Continuing with original request."
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Failed to apply resolved parameters to request for {backend_type}: {apply_error}. "
+                        f"Continuing with original request."
+                    )
                 return request
 
         except Exception as outer_error:
             # Catch-all for any unexpected errors in URI parameter application
-            logger.error(
-                f"Unexpected error applying URI parameters to request for {backend_type}: {outer_error}. "
-                f"Continuing with original request.",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Unexpected error applying URI parameters to request for {backend_type}: {outer_error}. "
+                    f"Continuing with original request.",
+                    exc_info=True,
+                )
 
         return request
 
@@ -1171,11 +1178,12 @@ class BackendService(IBackendService):
             if hasattr(backend, "get_retry_after_remaining"):
                 retry_after_remaining = backend.get_retry_after_remaining()
                 if retry_after_remaining is not None:
-                    logger.warning(
-                        "Backend %s is rate limited, retry after %.1f seconds",
-                        backend_type,
-                        retry_after_remaining,
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Backend %s is rate limited, retry after %.1f seconds",
+                            backend_type,
+                            retry_after_remaining,
+                        )
                     raise RateLimitExceededError(
                         message=f"Backend {backend_type} is rate limited",
                         details={
@@ -1196,7 +1204,7 @@ class BackendService(IBackendService):
                 if hasattr(backend, "_validate_runtime_credentials"):
                     try:
                         recovered = await backend._validate_runtime_credentials()
-                        if recovered:
+                        if recovered and logger.isEnabledFor(logging.INFO):
                             logger.info(
                                 "Backend %s recovered after validation check",
                                 backend_type,
@@ -1227,11 +1235,12 @@ class BackendService(IBackendService):
                         error_message = f"Backend {backend_type} is not functional"
 
                     # Log the error for visibility
-                    logger.warning(
-                        "Backend %s is not functional: %s",
-                        backend_type,
-                        error_message,
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Backend %s is not functional: %s",
+                            backend_type,
+                            error_message,
+                        )
 
                     # If streaming is enabled, return SSE error stream instead of raising
                     if stream or getattr(request, "stream", False):
@@ -1428,11 +1437,12 @@ class BackendService(IBackendService):
                             and hasattr(backend, "set_retry_after")
                         ):
                             backend.set_retry_after(delay_seconds)
-                            logger.info(
-                                "Backend %s rate limited, set retry-after for %.1f seconds",
-                                backend_type,
-                                delay_seconds,
-                            )
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "Backend %s rate limited, set retry-after for %.1f seconds",
+                                    backend_type,
+                                    delay_seconds,
+                                )
 
                         try:
                             await self._rate_limiter.apply_cooldown(
@@ -1591,11 +1601,12 @@ class BackendService(IBackendService):
                         retry_after_seconds = reset_at - time.time()
                         if retry_after_seconds > 0:
                             backend.set_retry_after(retry_after_seconds)
-                            logger.info(
-                                "Backend %s rate limited, cached retry-after for %.1f seconds",
-                                backend_type,
-                                retry_after_seconds,
-                            )
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "Backend %s rate limited, cached retry-after for %.1f seconds",
+                                    backend_type,
+                                    retry_after_seconds,
+                                )
 
                 # If the exception is already a BackendError or RateLimitExceededError,
                 # treat it specially; otherwise wrap or re-raise depending on allow_failover.
@@ -1648,9 +1659,10 @@ class BackendService(IBackendService):
 
             return False, f"Model {model} not available on backend {backend}"
         except (BackendError, TypeError, ValueError, AttributeError) as e:
-            logger.warning(
-                f"Backend validation failed for {backend}: {e!s}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Backend validation failed for {backend}: {e!s}", exc_info=True
+                )
             return False, f"Backend validation failed: {e!s}"
 
     async def _get_or_create_backend(
@@ -1841,10 +1853,11 @@ class BackendService(IBackendService):
             session.update_state(new_state)
             await self._session_service.update_session(session)
 
-        logger.info(
-            f"Planning phase active (turn {turn_count + 1}/{planning_config.max_turns}): "
-            f"routing from {current_full_model} to {strong_full_model}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Planning phase active (turn {turn_count + 1}/{planning_config.max_turns}): "
+                f"routing from {current_full_model} to {strong_full_model}"
+            )
 
         new_backend_config = BackendConfiguration(
             backend_type=strong_backend,
@@ -1915,9 +1928,10 @@ class BackendService(IBackendService):
                 ):
                     await self._restore_planning_phase_route(session)
         except Exception as e:
-            logger.warning(
-                f"Failed to update planning phase counters: {e}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Failed to update planning phase counters: {e}", exc_info=True
+                )
 
     async def _restore_planning_phase_route(self, session: Any) -> None:
         """Restore the original backend/model after planning phase concludes."""
@@ -1969,12 +1983,13 @@ class BackendService(IBackendService):
         session.update_state(new_state)
         await self._session_service.update_session(session)
 
-        logger.info(
-            "Planning phase complete; restored session %s to backend=%s model=%s",
-            getattr(session, "id", None),
-            target_backend,
-            target_model,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Planning phase complete; restored session %s to backend=%s model=%s",
+                getattr(session, "id", None),
+                target_backend,
+                target_model,
+            )
 
     def _count_file_writes_in_response(self, response: Any) -> int:
         """Count file write tool calls in a response.
@@ -2093,16 +2108,18 @@ class BackendService(IBackendService):
             # Parse backend:model format (check it's a string first)
             if isinstance(static_route, str) and ":" in static_route:
                 forced_backend, forced_model = static_route.split(":", 1)
-                logger.info(
-                    f"Applying static_route override: {backend_type}:{effective_model} -> {forced_backend}:{forced_model}"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Applying static_route override: {backend_type}:{effective_model} -> {forced_backend}:{forced_model}"
+                    )
                 backend_type = forced_backend
                 effective_model = forced_model
             else:
                 # If no colon, treat as model only
-                logger.info(
-                    f"Applying static_route model override: {effective_model} -> {static_route}"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Applying static_route model override: {effective_model} -> {static_route}"
+                    )
                 effective_model = static_route
 
         return backend_type, effective_model, uri_params
@@ -2212,7 +2229,8 @@ class BackendService(IBackendService):
         context: RequestContext | None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute complex failover strategy for models with configured routes"""
-        logger.info(f"Using complex failover policy for model {effective_model}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Using complex failover policy for model {effective_model}")
         try:
             from src.core.domain.configuration.backend_config import (
                 BackendConfiguration,
@@ -2234,9 +2252,10 @@ class BackendService(IBackendService):
         except BackendError:
             raise
         except (TypeError, ValueError, AttributeError, KeyError) as failover_error:
-            logger.error(
-                f"Failover processing failed: {failover_error!s}", exc_info=True
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failover processing failed: {failover_error!s}", exc_info=True
+                )
             raise BackendError(
                 message="all backends failed", backend_name=backend_type
             ) from failover_error
@@ -2292,17 +2311,19 @@ class BackendService(IBackendService):
                     context=context,
                 )
             except (BackendError, RateLimitExceededError) as attempt_error:
-                logger.warning(
-                    f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}",
+                        exc_info=True,
+                    )
                 last_error = attempt_error
                 continue
             except Exception as attempt_error:
-                logger.error(
-                    f"Unexpected error during failover attempt for {backend_attempt}:{model_attempt}: {attempt_error!s}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Unexpected error during failover attempt for {backend_attempt}:{model_attempt}: {attempt_error!s}",
+                        exc_info=True,
+                    )
                 last_error = attempt_error
                 continue
 
@@ -2351,9 +2372,10 @@ class BackendService(IBackendService):
                     request, plan_nested, stream, backend_type, context
                 )
             except (TypeError, ValueError, AttributeError, KeyError) as failover_error:
-                logger.error(
-                    f"Failover processing failed: {failover_error!s}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Failover processing failed: {failover_error!s}", exc_info=True
+                    )
                 raise BackendError(
                     message=f"Failover processing failed: {failover_error!s}",
                     backend_name=backend_type,
@@ -2365,10 +2387,11 @@ class BackendService(IBackendService):
             fallback_model: str | None = fallback_info.get("model")
 
             if fallback_backend:
-                logger.warning(
-                    f"Primary backend {backend_type} failed with error: {last_error!s}. "
-                    f"Attempting fallback to {fallback_backend}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Primary backend {backend_type} failed with error: {last_error!s}. "
+                        f"Attempting fallback to {fallback_backend}"
+                    )
 
                 fallback_extra_body: dict[str, Any] = (
                     request.extra_body.copy() if request.extra_body else {}

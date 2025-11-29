@@ -70,6 +70,7 @@ def test_wire_capture_entry_structure():
     entry = WireCaptureEntry(
         timestamp_iso="2025-01-10T15:58:41.039145+00:00",
         timestamp_unix=1736524721.039145,
+        sequence=1,
         direction="outbound_request",
         source="127.0.0.1(Cline/1.0)",
         destination="qwen-oauth",

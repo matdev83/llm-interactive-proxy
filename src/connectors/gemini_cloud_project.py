@@ -693,7 +693,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 return True
 
             if logger.isEnabledFor(logging.INFO):
-                logger.info("Access token expired or near expiry, attempting to refresh...")
+                logger.info(
+                    "Access token expired or near expiry, attempting to refresh..."
+                )
 
             try:
                 creds_dict = dict(self._oauth_credentials)
@@ -1125,7 +1127,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             raise
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error in Gemini Cloud Project chat_completions: {e}", exc_info=True)
+                logger.error(
+                    f"Error in Gemini Cloud Project chat_completions: {e}",
+                    exc_info=True,
+                )
             raise BackendError(
                 message=f"Gemini Cloud Project chat completion failed: {e!s}"
             ) from e

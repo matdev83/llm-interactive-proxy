@@ -267,9 +267,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 )
             else:
                 # Fallback for unexpected types
-                logger.warning(
-                    f"Unexpected result type for Cline agent: {type(command_result)}. Returning unknown_command tool call."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Unexpected result type for Cline agent: {type(command_result)}. Returning unknown_command tool call."
+                    )
                 return self._create_tool_calls_response(
                     "unknown_command",
                     '{"result": "Unexpected result type for Cline agent"}',
@@ -455,9 +456,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 extracted = self._extract_command_from_tool_result(message)
                 if extracted:
                     actual_command = extracted
-            logger.info(
-                f"Detected pytest command execution: {actual_command} (tool: {command_name})"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Detected pytest command execution: {actual_command} (tool: {command_name})"
+                )
         except Exception:
             pass
 
@@ -500,14 +502,16 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 min_lines = 0
 
             if message_lines < min_lines:
-                logger.info(
-                    f"Skipping pytest compression for command result: {actual_command} (tool: {command_name}) - {message_lines} lines < {min_lines} threshold"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Skipping pytest compression for command result: {actual_command} (tool: {command_name}) - {message_lines} lines < {min_lines} threshold"
+                    )
                 return message
 
-            logger.info(
-                f"Applying pytest compression to command result: {actual_command} (tool: {command_name}) - {message_lines} lines >= {min_lines} threshold"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Applying pytest compression to command result: {actual_command} (tool: {command_name}) - {message_lines} lines >= {min_lines} threshold"
+                )
         except Exception:
             # If we can't determine the threshold, apply compression as fallback
             pass
@@ -683,10 +687,11 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         compressed_lines = len(filtered_output.split("\n")) if filtered_output else 0
         if original_lines > 0:
             compression_ratio = (1 - compressed_lines / original_lines) * 100
-            logger.info(
-                f"Pytest compression applied: {original_lines} -> {compressed_lines} lines "
-                f"({compression_ratio:.1f}% reduction)"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Pytest compression applied: {original_lines} -> {compressed_lines} lines "
+                    f"({compression_ratio:.1f}% reduction)"
+                )
 
         return filtered_output
 
@@ -714,9 +719,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         original_tokens = count_tokens(output)
         original_lines = len(output.split("\n")) if output else 0
 
-        logger.info(
-            f"Pytest compression started - Original metrics: {original_tokens} tokens, {original_lines} lines"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Pytest compression started - Original metrics: {original_tokens} tokens, {original_lines} lines"
+            )
 
         lines = output.strip().split("\n")
         if not lines:
@@ -764,12 +770,13 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         )
 
         # Log comprehensive compression metrics
-        logger.info(
-            f"Pytest compression completed - Detailed metrics:\n"
-            f"  Original: {original_tokens} tokens, {original_lines} lines\n"
-            f"  Filtered: {tokens_filtered} tokens ({token_compression_ratio:.1f}%), {lines_filtered} lines ({line_compression_ratio:.1f}%)\n"
-            f"  Final: {final_tokens} tokens, {final_lines} lines\n"
-            f"  Lines dropped: {lines_dropped}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Pytest compression completed - Detailed metrics:\n"
+                f"  Original: {original_tokens} tokens, {original_lines} lines\n"
+                f"  Filtered: {tokens_filtered} tokens ({token_compression_ratio:.1f}%), {lines_filtered} lines ({line_compression_ratio:.1f}%)\n"
+                f"  Final: {final_tokens} tokens, {final_lines} lines\n"
+                f"  Lines dropped: {lines_dropped}"
+            )
 
         return filtered_output, final_tokens

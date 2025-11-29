@@ -69,7 +69,10 @@ class ToolCallRepairMiddleware(IResponseMiddleware):
                 response.content, allowed_tools=allowed_tools
             )
             if repaired_result:
-                logger.info(f"Tool call detected and repaired for session {session_id}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Tool call detected and repaired for session {session_id}"
+                    )
                 # Add tool_calls to metadata, assuming it's a list
                 # NOTE: We intentionally keep the content (XML) for clients like Kilo-Code
                 # that parse tool calls from content and ignore native tool_calls.

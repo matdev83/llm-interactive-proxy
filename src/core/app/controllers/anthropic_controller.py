@@ -97,9 +97,10 @@ class AnthropicController:
 
                 anthropic_request = AnthropicMessagesRequest(**(payload or {}))
 
-            logger.info(
-                f"Handling Anthropic messages request: model={anthropic_request.model}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Handling Anthropic messages request: model={anthropic_request.model}"
+                )
 
             # Convert Anthropic request to canonical OpenAI request
             chat_request = anthropic_to_openai_request(anthropic_request)
@@ -243,9 +244,10 @@ class AnthropicController:
 
             # Check if streaming was requested
             is_streaming = anthropic_request.stream
-            logger.info(
-                f"Streaming requested: {is_streaming}, adapted_response type: {type(adapted_response)}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Streaming requested: {is_streaming}, adapted_response type: {type(adapted_response)}"
+                )
 
             # Return as FastAPI Response with appropriate format
             from fastapi import Response as FastAPIResponse
@@ -254,7 +256,8 @@ class AnthropicController:
             if is_streaming:
                 # For streaming, we need to return the adapted response directly
                 # since domain_response_to_fastapi should handle streaming properly
-                logger.info(f"Returning streaming response: {adapted_response}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"Returning streaming response: {adapted_response}")
                 if isinstance(adapted_response, StreamingResponse):
                     # Ensure Anthropic streaming endpoints advertise proper SSE headers
                     sse_content_type = "text/event-stream; charset=utf-8"
@@ -319,7 +322,8 @@ class AnthropicController:
                     )
             else:
                 # For non-streaming, return Anthropic-formatted JSON response
-                logger.info(f"Returning JSON response: {anthropic_response_data}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"Returning JSON response: {anthropic_response_data}")
 
                 status_code = getattr(adapted_response, "status_code", 200)
 
@@ -377,7 +381,8 @@ class AnthropicController:
             raise e
         except Exception as e:
             # Log and convert other exceptions to HTTP exceptions
-            logger.error(f"Error handling Anthropic messages: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error handling Anthropic messages: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail={"error": {"message": str(e), "type": "server_error"}},

@@ -79,11 +79,12 @@ async def get_backend_service() -> IBackendService:
         service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
         return service  # type: ignore[no-any-return]
     except Exception as e:
-        logger.warning(
-            "Global service provider unavailable: %s; trying request context",
-            e,
-            exc_info=True,
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Global service provider unavailable: %s; trying request context",
+                e,
+                exc_info=True,
+            )
         # Try to get from current request context (for FastAPI dependency injection)
         try:
             from starlette.context import _request_context  # type: ignore[import]
@@ -96,9 +97,10 @@ async def get_backend_service() -> IBackendService:
                     service = connection.app.state.service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
                     return service  # type: ignore[no-any-return]
         except Exception as ctx_err:
-            logger.debug(
-                "Request-context provider lookup failed: %s", ctx_err, exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Request-context provider lookup failed: %s", ctx_err, exc_info=True
+                )
 
         raise HTTPException(
             status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
@@ -117,11 +119,12 @@ def get_config_service() -> IConfig:
         service_provider = get_service_provider()
         return service_provider.get_required_service(IConfig)  # type: ignore[type-abstract,no-any-return]
     except (KeyError, ServiceResolutionError) as e:
-        logger.debug(
-            "IConfig not registered in global provider: %s; trying request context",
-            e,
-            exc_info=True,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "IConfig not registered in global provider: %s; trying request context",
+                e,
+                exc_info=True,
+            )
         # Try to get from current request context (for FastAPI dependency injection)
         try:
             from starlette.context import _request_context  # type: ignore[import]
@@ -133,9 +136,10 @@ def get_config_service() -> IConfig:
                 ):
                     return connection.app.state.service_provider.get_required_service(IConfig)  # type: ignore[type-abstract,no-any-return]
         except Exception as ctx_err:
-            logger.debug(
-                "Request-context config lookup failed: %s", ctx_err, exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Request-context config lookup failed: %s", ctx_err, exc_info=True
+                )
 
         # Final fallback to default config if IConfig is not registered (for testing)
         from src.core.config.app_config import AppConfig
@@ -160,11 +164,12 @@ def get_backend_factory_service() -> BackendFactory:
     try:
         return _resolve_backend_factory_from_provider(provider)
     except (HTTPException, ServiceResolutionError, InitializationError) as exc:
-        logger.debug(
-            "BackendFactory resolution via existing provider failed: %s",
-            exc,
-            exc_info=True,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "BackendFactory resolution via existing provider failed: %s",
+                exc,
+                exc_info=True,
+            )
 
     from src.core.di.services import get_service_collection
 
@@ -179,11 +184,12 @@ def get_backend_factory_service() -> BackendFactory:
     try:
         return _resolve_backend_factory_from_provider(new_provider)
     except (ServiceResolutionError, InitializationError) as exc:
-        logger.error(
-            "BackendFactory resolution failed after rebuilding provider: %s",
-            exc,
-            exc_info=True,
-        )
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(
+                "BackendFactory resolution failed after rebuilding provider: %s",
+                exc,
+                exc_info=True,
+            )
         raise HTTPException(
             status_code=503,
             detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE,
@@ -196,9 +202,10 @@ def _resolve_backend_factory_from_provider(provider: Any) -> BackendFactory:
     try:
         return provider.get_required_service(BackendFactory)  # type: ignore[no-any-return]
     except (KeyError, ServiceResolutionError):
-        logger.debug(
-            "BackendFactory not registered; attempting to resolve via global provider"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "BackendFactory not registered; attempting to resolve via global provider"
+            )
 
     # Try the existing global provider first
     try:
@@ -227,9 +234,10 @@ def _resolve_backend_factory_from_provider(provider: Any) -> BackendFactory:
     try:
         set_service_provider(fallback_provider)
     except Exception:
-        logger.debug(
-            "Failed to promote fallback provider to global scope", exc_info=True
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to promote fallback provider to global scope", exc_info=True
+            )
 
     backend_factory = fallback_provider.get_service(BackendFactory)
     if backend_factory is not None:
@@ -247,7 +255,8 @@ async def _list_models_impl(
     """Shared implementation that discovers available models."""
 
     try:
-        logger.info("Listing available models")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Listing available models")
 
         all_models: list[dict[str, Any]] = []
         discovered_models: set[str] = set()
@@ -265,9 +274,10 @@ async def _list_models_impl(
         try:
             functional_backends = set(config.backends.functional_backends)
         except Exception as exc:  # pragma: no cover - defensive guard
-            logger.debug(
-                "Unable to determine functional backends: %s", exc, exc_info=True
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Unable to determine functional backends: %s", exc, exc_info=True
+                )
             functional_backends = set()
 
         # Iterate through dynamically discovered backend types from the registry
@@ -302,10 +312,11 @@ async def _list_models_impl(
             should_try_backend = backend_type in functional_backends or has_credentials
 
             if not should_try_backend:
-                logger.debug(
-                    "Skipping backend %s during model discovery: no credentials detected",
-                    backend_type,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Skipping backend %s during model discovery: no credentials detected",
+                        backend_type,
+                    )
                 continue
 
             try:
@@ -348,18 +359,21 @@ async def _list_models_impl(
                                 "owned_by": str(backend_type).lower(),
                             }
                         )
-                logger.debug(f"Discovered {len(models)} models from {backend_type}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Discovered {len(models)} models from {backend_type}")
 
             except Exception as e:  # type: ignore[misc]
-                logger.warning(
-                    f"Failed to get models from {backend_type}: {e}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to get models from {backend_type}: {e}",
+                        exc_info=True,
+                    )
                 continue
 
         # If no models were discovered, provide default fallback models
         if not all_models:
-            logger.info("No models discovered from backends, using default models")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("No models discovered from backends, using default models")
             all_models = [
                 {"id": "gpt-4", "object": "model", "owned_by": "openai"},
                 {"id": "gpt-3.5-turbo", "object": "model", "owned_by": "openai"},
@@ -377,12 +391,14 @@ async def _list_models_impl(
                 {"id": "gemini-1.5-flash", "object": "model", "owned_by": "google"},
             ]
 
-        logger.info(f"Returning {len(all_models)} models")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Returning {len(all_models)} models")
 
         return {"object": "list", "data": all_models}
 
     except Exception as e:  # type: ignore[misc]
-        logger.error(f"Error listing models: {e}", exc_info=True)
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(f"Error listing models: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

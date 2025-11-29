@@ -78,10 +78,11 @@ class ContentRewriterService:
             ]
 
             if len(found_modes) > 1:
-                logger.warning(
-                    f"Multiple replacement mode files found in {subdir_path}. "
-                    f"Skipping this rule."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Multiple replacement mode files found in {subdir_path}. "
+                        f"Skipping this rule."
+                    )
                 continue
 
             if not found_modes:
@@ -91,10 +92,11 @@ class ContentRewriterService:
             mode_file_path = mode_files[mode_file_name]
 
             if not os.path.exists(search_file):
-                logger.warning(
-                    "Missing SEARCH.txt for replacement rule in %s. Skipping this rule.",
-                    subdir_path,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Missing SEARCH.txt for replacement rule in %s. Skipping this rule.",
+                        subdir_path,
+                    )
                 continue
 
             with open(search_file, encoding="utf-8") as f:
@@ -106,10 +108,11 @@ class ContentRewriterService:
             search_text = search_text.rstrip("\r\n")
 
             if len(search_text) < 8:
-                logger.warning(
-                    f"Search pattern in {search_file} is too short. "
-                    f"Skipping this rule."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Search pattern in {search_file} is too short. "
+                        f"Skipping this rule."
+                    )
                 continue
 
             with open(mode_file_path, encoding="utf-8") as f:

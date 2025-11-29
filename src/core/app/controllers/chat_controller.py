@@ -144,11 +144,12 @@ class ChatController:
             if resolved is not None:
                 return resolved
         except Exception as exc:  # pragma: no cover - defensive fallback
-            logger.warning(
-                "Unable to resolve TranslationService via DI fallback: %s",
-                exc,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unable to resolve TranslationService via DI fallback: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         raise InitializationError("Translation service is not registered in DI")
 
@@ -276,9 +277,10 @@ class ChatController:
                         "..." if len(raw_body_bytes) > len(preview) else "",
                     )
 
-            logger.info(
-                f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
+                )
             if self._processor is None:
                 raise HTTPException(status_code=500, detail="Processor is None")
 
@@ -841,7 +843,8 @@ class ChatController:
             raise
         except Exception as e:
             # Log and convert other exceptions to HTTP exceptions
-            logger.error(f"Error handling chat completion: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error handling chat completion: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail={"error": {"message": str(e), "type": "server_error"}},

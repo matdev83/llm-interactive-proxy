@@ -155,7 +155,10 @@ class BackendFactory(IBackendFactory):
                     "https://generativelanguage.googleapis.com"
                 )
 
-        logger.info(f"Factory initializing backend {backend_type} with {init_config}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Factory initializing backend {backend_type} with {init_config}"
+            )
 
         # Step 1: Create the backend instance
         backend = self.create_backend(backend_type, app_config)  # Modified

@@ -8,6 +8,8 @@ from enum import Enum
 
 import structlog
 
+from src.core.common.logging_utils import CompatibleBoundLogger
+
 
 class LogFormat(str, Enum):
     """Log format options."""
@@ -17,7 +19,7 @@ class LogFormat(str, Enum):
     PLAIN = "plain"
 
 
-def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
+def get_logger(name: str | None = None) -> CompatibleBoundLogger:
     """Get a structured logger.
 
     Args:
@@ -26,4 +28,4 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     Returns:
         A structured logger
     """
-    return structlog.get_logger(name)  # type: ignore
+    return CompatibleBoundLogger(structlog.get_logger(name))

@@ -44,7 +44,8 @@ class InfrastructureStage(InitializationStage):
 
     async def execute(self, services: ServiceCollection, config: AppConfig) -> None:
         """Register infrastructure services."""
-        logger.info("Initializing infrastructure services...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Initializing infrastructure services...")
 
         # Register shared HTTP client
         self._register_http_client(services)
@@ -58,7 +59,8 @@ class InfrastructureStage(InitializationStage):
         # Configure streaming sampler
         self._configure_streaming_sampler(config)
 
-        logger.info("Infrastructure services initialized successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Infrastructure services initialized successfully")
 
     def _configure_streaming_sampler(self, config: AppConfig) -> None:
         """Configure the streaming sampler with settings from AppConfig."""
@@ -71,14 +73,16 @@ class InfrastructureStage(InitializationStage):
                 max_samples=sampler_config.max_samples,
                 enabled=sampler_config.enabled,
             )
-            logger.debug(
-                "Configured streaming sampler: enabled=%s, rate=%s, max=%s",
-                sampler_config.enabled,
-                sampler_config.sample_rate,
-                sampler_config.max_samples,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Configured streaming sampler: enabled=%s, rate=%s, max=%s",
+                    sampler_config.enabled,
+                    sampler_config.sample_rate,
+                    sampler_config.max_samples,
+                )
         except Exception as e:
-            logger.warning(f"Could not configure streaming sampler: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not configure streaming sampler: {e}")
 
     def _register_http_client(self, services: ServiceCollection) -> None:
         """Register shared HTTP client as singleton."""
@@ -87,9 +91,10 @@ class InfrastructureStage(InitializationStage):
 
             provider = services.build_service_provider()
             if provider.get_service(httpx.AsyncClient) is not None:
-                logger.debug(
-                    "Shared HTTP client already registered; skipping registration"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Shared HTTP client already registered; skipping registration"
+                    )
                 return
 
             # Create shared HTTP client instance with http2 fallback
@@ -119,9 +124,11 @@ class InfrastructureStage(InitializationStage):
             # Register as singleton instance
             services.add_instance(httpx.AsyncClient, shared_httpx_client)
 
-            logger.debug("Registered shared HTTP client")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered shared HTTP client")
         except ImportError as e:
-            logger.warning(f"Could not register HTTP client: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register HTTP client: {e}")
 
     def _register_rate_limiter(self, services: ServiceCollection) -> None:
         """Register rate limiter service."""
@@ -131,9 +138,11 @@ class InfrastructureStage(InitializationStage):
             # Register as singleton (no dependencies)
             services.add_singleton(RateLimiter)
 
-            logger.debug("Registered rate limiter service")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered rate limiter service")
         except ImportError as e:
-            logger.warning(f"Could not register rate limiter: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register rate limiter: {e}")
 
     def _register_loop_detector(self, services: ServiceCollection) -> None:
         """Register loop detector service."""
@@ -198,7 +207,8 @@ class InfrastructureStage(InitializationStage):
                     implementation_factory=loop_detector_factory,
                 )
 
-                logger.debug("Registered HybridLoopDetector with DI container")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Registered HybridLoopDetector with DI container")
             else:
                 # Register no-op detector when loop detection is disabled
                 from src.loop_detection.detector import NoOpLoopDetector
@@ -213,10 +223,12 @@ class InfrastructureStage(InitializationStage):
                     implementation_factory=noop_detector_factory,
                 )
 
-                logger.debug("Loop detection disabled, registered NoOpLoopDetector")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Loop detection disabled, registered NoOpLoopDetector")
 
         except ImportError as e:
-            logger.warning(f"Could not register loop detector: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Could not register loop detector: {e}")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that infrastructure services can be registered."""
@@ -225,5 +237,6 @@ class InfrastructureStage(InitializationStage):
 
             return True
         except ImportError as e:
-            logger.error(f"Infrastructure services validation failed: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Infrastructure services validation failed: {e}")
             return False
