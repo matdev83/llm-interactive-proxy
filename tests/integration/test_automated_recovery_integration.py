@@ -187,9 +187,9 @@ class TestAutomatedRecoveryIntegration:
 
         track_event("test_start")
 
-        # Setup: Pro model fails initially, recovers after 8 seconds
+        # Setup: Pro model fails initially, recovers after 13 seconds
         current_time = time.time()
-        pro_recovery_time = current_time + 8.0  # Recovers after 8 seconds
+        pro_recovery_time = current_time + 13.0  # Recovers after 13 seconds (must be > max retry delay ~11.25s)
 
         error_429 = BackendError("Rate limit exceeded", status_code=429)
         connector.set_api_behavior("gemini-2.5-pro", [error_429, error_429, error_429])

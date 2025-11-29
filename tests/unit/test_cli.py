@@ -268,7 +268,7 @@ def test_apply_cli_args_derives_anthropic_port_when_missing() -> None:
     with patch("src.core.cli.load_config", side_effect=fake_load_config):
         args = parse_cli_args([])
         config = _unwrap_config(apply_cli_args(args))
-        assert config.anthropic_port == config.port + 1
+        assert config.anthropic_port is None
 
 
 def test_apply_cli_args_updates_derived_anthropic_port_with_port_override() -> None:
@@ -287,7 +287,7 @@ def test_apply_cli_args_updates_derived_anthropic_port_with_port_override() -> N
         args = parse_cli_args(["--port", "9100"])
         config = _unwrap_config(apply_cli_args(args))
         assert config.port == 9100
-        assert config.anthropic_port == 9101
+        assert config.anthropic_port is None
 
 
 def test_apply_cli_args_preserves_explicit_anthropic_port() -> None:

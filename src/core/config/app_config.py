@@ -1093,15 +1093,16 @@ class AppConfig(DomainModel, IConfig):
             },
         }
 
-        if not config.get("anthropic_port"):
-            config["anthropic_port"] = int(config["port"]) + 1
-            if resolution is not None:
-                resolution.record(
-                    "anthropic_port",
-                    config["anthropic_port"],
-                    ParameterSource.DERIVED,
-                    origin="port+1",
-                )
+        # Anthropic port is no longer automatically derived to avoid port conflicts
+        # if not config.get("anthropic_port"):
+        #     config["anthropic_port"] = int(config["port"]) + 1
+        #     if resolution is not None:
+        #         resolution.record(
+        #             "anthropic_port",
+        #             config["anthropic_port"],
+        #             ParameterSource.DERIVED,
+        #             origin="port+1",
+        #         )
 
         # After populating auth config, if disable_auth is true, clear api_keys
         auth_config: dict[str, Any] = config["auth"]
