@@ -226,7 +226,9 @@ class JsonRepairProcessor(IStreamProcessor):
         else:
             self._increment_failure_metrics()
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("JSON block detected but failed to repair. Flushing raw buffer.")
+                logger.warning(
+                    "JSON block detected but failed to repair. Flushing raw buffer."
+                )
         return result
 
     def _flush_final_buffer(self, state: JsonRepairBufferState) -> str | None:

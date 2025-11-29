@@ -522,7 +522,10 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
                 )
                 row = cursor.fetchone()
                 if not row:
-                    logger.debug(f"Key '{ANTIGRAVITY_AUTH_KEY}' not found in {db_path}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Key '{ANTIGRAVITY_AUTH_KEY}' not found in {db_path}"
+                        )
                     return None
                 raw_value = row[0]
                 return self._parse_auth_status_value(raw_value)
@@ -562,13 +565,20 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
             if isinstance(auth_data, dict):
                 return auth_data
 
-            logger.warning(f"Parsed auth status is not a dictionary: {type(auth_data)}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Parsed auth status is not a dictionary: {type(auth_data)}"
+                )
             return None
         except json.JSONDecodeError as exc:
-            logger.warning(f"Failed to parse Antigravity auth status JSON: {exc}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to parse Antigravity auth status JSON: {exc}")
             return None
         except Exception as exc:  # pragma: no cover
-            logger.error(f"Unexpected error parsing auth status: {exc}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Unexpected error parsing auth status: {exc}", exc_info=True
+                )
             return None
 
     def _normalize_antigravity_credentials(
@@ -624,7 +634,8 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
         for path in candidate_paths:
             try:
                 if not path.exists():
-                    logger.debug(f"Path does not exist: {path}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Path does not exist: {path}")
                     continue
 
                 current_modified = None
@@ -695,7 +706,10 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
 
         if errors:
             self._credential_validation_errors = errors
-            logger.error(f"Failed to load Antigravity credentials. Errors: {errors}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failed to load Antigravity credentials. Errors: {errors}"
+                )
         return False
 
 

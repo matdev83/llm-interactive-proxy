@@ -160,10 +160,10 @@ class TestDIContainerIntegrity:
         response_processor = provider.get_service(ResponseProcessor)
         assert response_processor is not None, "ResponseProcessor must be registered"
 
-        # Verify it has loop detector (may be None if not configured, but attribute should exist)
+        # Verify it has loop detector factory (may be None if not configured, but attribute should exist)
         assert hasattr(
-            response_processor, "_loop_detector"
-        ), "ResponseProcessor must have _loop_detector attribute"
+            response_processor, "_loop_detector_factory"
+        ), "ResponseProcessor must have _loop_detector_factory attribute"
 
     @pytest.mark.asyncio
     async def test_all_critical_services_are_resolvable(self, initialized_services):

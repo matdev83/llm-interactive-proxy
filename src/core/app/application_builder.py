@@ -368,11 +368,11 @@ class ApplicationBuilder:
                 try:
                     app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]  # noqa: DIP-violation-initialization
                 except Exception:
-                                    if logger.isEnabledFor(logging.DEBUG):
-                                        logger.debug(
-                                            "Failed to set state provider on application state service",
-                                            exc_info=True,
-                                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to set state provider on application state service",
+                            exc_info=True,
+                        )
             for attribute_name in dir(app_state_service):
                 if attribute_name.startswith("_"):
                     continue
@@ -426,7 +426,9 @@ class ApplicationBuilder:
                 logger.info("API key redaction filter installed.")
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to install API key redaction filter", exc_info=True)
+                logger.debug(
+                    "Failed to install API key redaction filter", exc_info=True
+                )
 
         # Register routes
         self._register_routes(app)

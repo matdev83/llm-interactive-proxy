@@ -76,12 +76,12 @@ class URIParameterValidator:
         for param_name, param_value in params.items():
             # Check if parameter is supported
             if param_name not in self.SUPPORTED_PARAMS:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    f"Unknown URI parameter '{param_name}' with value '{param_value}'. "
-                                    f"Supported parameters: {', '.join(self.SUPPORTED_PARAMS.keys())}"
-                                )
-                                continue
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Unknown URI parameter '{param_name}' with value '{param_value}'. "
+                        f"Supported parameters: {', '.join(self.SUPPORTED_PARAMS.keys())}"
+                    )
+                    continue
             # Get validation rules for this parameter
             rules = self.SUPPORTED_PARAMS[param_name]
             param_type = rules["type"]

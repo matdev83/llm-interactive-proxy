@@ -264,7 +264,7 @@ def test_property_8_iteration_does_not_trigger_str(chunk: StopChunkWithUsage) ->
     plain_dict = dict(chunk)
     assert isinstance(plain_dict, dict), "dict() conversion should work"
     assert not isinstance(plain_dict, StopChunkWithUsage), "Should be plain dict"
-    
+
     # And we can iterate over the plain dict
     items = list(plain_dict.items())
     assert isinstance(items, list), "Plain dict items() should work"

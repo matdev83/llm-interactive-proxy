@@ -847,7 +847,9 @@ def register_core_services(
                 app_state = app_state_service.get_setting("service_provider")
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not get app_state from ApplicationStateService: {e}")
+                logger.debug(
+                    f"Could not get app_state from ApplicationStateService: {e}"
+                )
             app_state = None
 
         # Create app settings
@@ -1626,7 +1628,8 @@ def register_core_services(
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Failed to register DangerousCommandHandler: {e}", exc_info=True
+                        f"Failed to register DangerousCommandHandler: {e}",
+                        exc_info=True,
                     )
 
             # Register PytestFullSuiteHandler if enabled

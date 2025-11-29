@@ -354,8 +354,10 @@ class ResponseProcessor(IResponseProcessor):
             try:
                 loop_detector = self._loop_detector_factory()
             except Exception:
-                logger.warning("Failed to create loop detector from factory", exc_info=True)
-        
+                logger.warning(
+                    "Failed to create loop detector from factory", exc_info=True
+                )
+
         if loop_detector is None:
             # Fallback to default implementation if no factory provided
             from src.loop_detection.token_window_loop_detector import (

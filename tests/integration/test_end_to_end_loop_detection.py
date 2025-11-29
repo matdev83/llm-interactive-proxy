@@ -226,7 +226,7 @@ async def test_loop_detection_integration_with_middleware_chain():
     response_processor = ResponseProcessor(
         response_parser=mock_response_parser,
         app_state=mock_app_state,
-        loop_detector=loop_detector,
+        loop_detector_factory=lambda: loop_detector,
         stream_normalizer=stream_normalizer,
     )
     response = ChatResponse(

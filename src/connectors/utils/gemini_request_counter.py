@@ -56,14 +56,18 @@ class DailyRequestCounter:
                 } & set(self._thresholds)
         except (json.JSONDecodeError, OSError) as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to load request counter state: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to load request counter state: {e}", exc_info=True
+                )
 
     def _save_state(self) -> None:
         try:
             self.persistence_path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to create persistence directory: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to create persistence directory: {e}", exc_info=True
+                )
             return
 
         try:
@@ -79,7 +83,9 @@ class DailyRequestCounter:
                 )
         except OSError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to save request counter state: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to save request counter state: {e}", exc_info=True
+                )
 
     def _reset_if_needed(self) -> None:
         current_date = self._get_current_pacific_date()

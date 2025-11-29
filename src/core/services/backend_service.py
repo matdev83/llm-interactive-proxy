@@ -314,9 +314,7 @@ class BackendService(IBackendService):
                 return f"data: {content}\n\n".encode()
 
             if isinstance(content, dict):
-                # Use safe_json_dumps to handle StopChunkWithUsage correctly
-                from src.core.ports.streaming_contracts import StopChunkWithUsage
-                return f"data: {StopChunkWithUsage.safe_json_dumps(content)}\n\n".encode()
+                return f"data: {json.dumps(content)}\n\n".encode()
 
             return f"data: {content}\n\n".encode()
 
@@ -329,7 +327,27 @@ class BackendService(IBackendService):
                 metadata = (
                     chunk.metadata if isinstance(chunk, ProcessedResponse) else {}
                 )
-                yield _format_as_sse(content)
+
+                # CRITICAL: Check for StopChunkWithUsage and convert to SSE properly
+                # Use StreamingContent.to_bytes() which knows how to handle it correctly
+                from src.core.ports.streaming_contracts import (
+                    StopChunkWithUsage,
+                    StreamingContent,
+                )
+
+                if isinstance(content, StopChunkWithUsage):
+                    # Create StreamingContent and use its to_bytes() method
+                    # which properly serializes StopChunkWithUsage with usage at top level
+                    streaming_content = StreamingContent(
+                        content=content,
+                        is_done=True,
+                        metadata=metadata,
+                        usage=content.get("usage"),
+                    )
+                    yield streaming_content.to_bytes()
+                    done_sent = True
+                else:
+                    yield _format_as_sse(content)
 
                 if _chunk_signals_done(content, metadata):
                     done_sent = True

@@ -406,7 +406,8 @@ class AnthropicBackend(LLMBackend):
             # Re-raise HTTP errors as-is for proper error handling
             raise
         except Exception as e:
-            logger.error(f"Unexpected error in Anthropic response handling: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Unexpected error in Anthropic response handling: {e}")
             raise ServiceUnavailableError(f"Anthropic API error: {e}") from e
 
         data = response.json()
@@ -501,7 +502,8 @@ class AnthropicBackend(LLMBackend):
                         return
             except (json.JSONDecodeError, KeyError, AttributeError) as e:
                 # Best effort capture; ignore expected parsing errors
-                logger.debug(f"Failed to parse message ID from chunk: {e}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Failed to parse message ID from chunk: {e}")
                 return
 
         async def cancel_stream() -> None:
@@ -559,7 +561,8 @@ class AnthropicBackend(LLMBackend):
                     _capture_message_id(chunk)
 
                     # Log raw chunk for debugging
-                    logger.debug(f"Raw Anthropic chunk: {chunk[:200]}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Raw Anthropic chunk: {chunk[:200]}")
 
                     # Check for error events from backend
                     if (
@@ -592,7 +595,8 @@ class AnthropicBackend(LLMBackend):
                                             details={"error_data": error_data},
                                         )
                         except (json.JSONDecodeError, KeyError) as e:
-                            logger.warning(f"Failed to parse error event: {e}")
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(f"Failed to parse error event: {e}")
 
                     # Translate Anthropic SSE chunk to domain format
                     # The translation function handles both SSE format (with event:/data: lines)
@@ -697,7 +701,8 @@ class AnthropicBackend(LLMBackend):
                 if isinstance(m, dict)
             ]
         except (TypeError, KeyError, AttributeError) as e:
-            logger.warning(f"Failed to parse Anthropic model list: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to parse Anthropic model list: {e}")
             self.available_models = []
         return cast(list[dict[str, Any]], models)
 
@@ -725,7 +730,8 @@ class AnthropicBackend(LLMBackend):
         try:
             await self.client.post(url, headers=headers)
         except Exception as e:
-            logger.warning(f"Failed to cancel Anthropic message {message_id}: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to cancel Anthropic message {message_id}: {e}")
 
     # StreamProducer protocol implementation
     async def stream_completion(self, request: Any) -> AsyncGenerator[Any, None]:
@@ -788,7 +794,10 @@ class AnthropicBackend(LLMBackend):
 
             try:
                 body_text = (await response.aread()).decode("utf-8")
-                logger.error(f"Anthropic API error {response.status_code}: {body_text}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Anthropic API error {response.status_code}: {body_text}"
+                    )
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 logger.warning(f"Failed to read Anthropic error response body: {e}")
                 body_text = ""

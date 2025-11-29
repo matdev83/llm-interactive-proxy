@@ -382,7 +382,7 @@ def to_fastapi_response(
                 metadata_section.setdefault("reasoning", reasoning_meta)
                 metadata_section.setdefault("reasoning_content", reasoning_meta)
 
-    prepared_content, usage_data = _ensure_usage(envelope, prepared_content)
+    prepared_content, usage_data = _ensure_usage(envelope, prepared_content, context)
     headers = _apply_usage_headers(headers, usage_data)
 
     if media_type and media_type.startswith("application/json"):
@@ -460,12 +460,22 @@ def _prepare_json_content(content: Any) -> Any:
     return content
 
 
-def _normalize_usage_dict(usage: Any) -> dict[str, int] | None:
-    """Normalize a usage dictionary to integer values."""
+def _normalize_usage_dict(usage: Any) -> dict[str, Any] | None:
+    """Normalize a usage dictionary to OpenRouter-compatible format.
+
+    Preserves extended fields (reasoning_tokens, cached_tokens, cost) when present.
+    """
     if not isinstance(usage, dict):
         return None
 
     try:
+        from src.core.domain.openrouter_usage import OpenRouterUsage
+
+        parsed = OpenRouterUsage.from_dict(usage)
+        if parsed is not None:
+            return parsed.to_openrouter_dict()
+
+        # Fallback to basic normalization
         return {
             "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
             "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
@@ -556,46 +566,92 @@ def _should_replace_completion(existing_tokens: int, recalculated_tokens: int) -
 
 
 def _ensure_usage(
-    envelope: ResponseEnvelope, payload: Any
-) -> tuple[Any, dict[str, int] | None]:
-    """Ensure usage information is present and aligned with transformed content."""
+    envelope: ResponseEnvelope,
+    payload: Any,
+    context: RequestContext | None = None,
+) -> tuple[Any, dict[str, Any] | None]:
+    """Ensure usage information is present and aligned with transformed content.
+
+    This function now integrates with the UsageCalculationService to:
+    1. Use backend-provided usage when available
+    2. Recalculate when proxy modifications occurred
+    3. Preserve extended usage fields (reasoning_tokens, cached_tokens, cost)
+
+    Args:
+        envelope: The response envelope
+        payload: The response payload
+        context: Request context with modification tracking
+
+    Returns:
+        Tuple of (updated payload, usage dict in OpenRouter format)
+    """
+    from src.core.services.usage_calculation_service import (
+        get_usage_calculation_service,
+    )
+
+    # Get existing usage from envelope or payload
     existing_usage = _normalize_usage_dict(envelope.usage)
     if existing_usage is None and isinstance(payload, dict):
         existing_usage = _normalize_usage_dict(payload.get("usage"))
 
     model_name = _resolve_model_name(envelope, payload)
-    prompt_tokens_hint = _resolve_prompt_tokens(existing_usage, envelope)
-    completion_tokens = _calculate_completion_tokens(payload, model_name)
 
-    usage: dict[str, int] = existing_usage.copy() if existing_usage else {}
+    # Check if modifications require recalculation
+    requires_recalc = False
+    if context is not None:
+        requires_recalc = context.requires_usage_recalculation()
 
-    if prompt_tokens_hint is not None and usage.get("prompt_tokens", 0) == 0:
-        usage["prompt_tokens"] = prompt_tokens_hint
+    # Check metadata for recalculation flag
+    metadata = getattr(envelope, "metadata", None)
+    if isinstance(metadata, dict) and metadata.get("allow_usage_recalculation"):
+        requires_recalc = True
 
-    existing_completion = usage.get("completion_tokens", 0)
-    if completion_tokens is not None and _should_replace_completion(
-        existing_completion, completion_tokens
-    ):
-        if existing_completion != completion_tokens:
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Usage completion tokens recalculated: %s -> %s",
-                    existing_completion,
-                    completion_tokens,
-                )
-        usage["completion_tokens"] = completion_tokens
+    # Use the service for proper usage calculation
+    service = get_usage_calculation_service()
 
-    usage.setdefault("prompt_tokens", prompt_tokens_hint or 0)
-    usage.setdefault("completion_tokens", existing_completion or 0)
-    usage["total_tokens"] = usage.get("prompt_tokens", 0) + usage.get(
-        "completion_tokens", 0
-    )
+    if requires_recalc or existing_usage is None:
+        # Get prompt tokens hint from metadata
+        prompt_tokens_hint = _resolve_prompt_tokens(existing_usage, envelope)
 
-    usage_to_apply: dict[str, int] | None
-    if usage or existing_usage is not None or prompt_tokens_hint is not None:
-        usage_to_apply = usage
+        # Recalculate usage accounting for modifications
+        usage = service.ensure_usage(
+            backend_usage=existing_usage,
+            context=context,
+            response_content=payload,
+            model=model_name,
+            force_recalculation=requires_recalc,
+        )
+
+        # Apply prompt tokens hint if we got one from metadata
+        if prompt_tokens_hint is not None and usage.get("prompt_tokens", 0) == 0:
+            usage["prompt_tokens"] = prompt_tokens_hint
+            usage["total_tokens"] = usage.get("prompt_tokens", 0) + usage.get(
+                "completion_tokens", 0
+            )
     else:
-        usage_to_apply = None
+        # Use existing usage, ensuring it's normalized
+        usage = existing_usage
+
+        # Still check if completion tokens need recalculation based on content
+        completion_tokens = _calculate_completion_tokens(payload, model_name)
+        if completion_tokens is not None:
+            existing_completion = int(usage.get("completion_tokens", 0) or 0)
+            if _should_replace_completion(existing_completion, completion_tokens):
+                if existing_completion != completion_tokens and logger.isEnabledFor(
+                    logging.INFO
+                ):
+                    logger.info(
+                        "Usage completion tokens recalculated: %s -> %s",
+                        existing_completion,
+                        completion_tokens,
+                    )
+                usage["completion_tokens"] = completion_tokens
+                usage["total_tokens"] = (
+                    usage.get("prompt_tokens", 0) + completion_tokens
+                )
+
+    # Apply usage to envelope and payload
+    usage_to_apply: dict[str, Any] | None = usage if usage else None
 
     if usage_to_apply:
         envelope.usage = usage_to_apply
@@ -606,24 +662,66 @@ def _ensure_usage(
 
 
 def _apply_usage_headers(
-    headers: dict[str, Any] | None, usage: dict[str, int] | None
+    headers: dict[str, Any] | None, usage: dict[str, Any] | None
 ) -> dict[str, Any]:
-    """Attach usage details as response headers for clients."""
+    """Attach usage details as response headers for clients.
+
+    Includes both basic token counts and extended fields when available:
+    - x-usage-prompt-tokens
+    - x-usage-completion-tokens
+    - x-usage-total-tokens
+    - x-usage-reasoning-tokens (if available)
+    - x-usage-cached-tokens (if available)
+    - x-usage-cost (if available)
+    """
     merged_headers: dict[str, Any] = dict(headers or {})
     if not usage:
         return merged_headers
 
-    def _coerce(value: int | float | None) -> str:
+    def _coerce_int(value: int | float | None) -> str:
         try:
             return str(int(value or 0))
         except Exception:
             return "0"
 
-    merged_headers["x-usage-prompt-tokens"] = _coerce(usage.get("prompt_tokens"))
-    merged_headers["x-usage-completion-tokens"] = _coerce(
+    def _coerce_float(value: float | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return str(float(value))
+        except Exception:
+            return None
+
+    # Basic token counts (always included)
+    merged_headers["x-usage-prompt-tokens"] = _coerce_int(usage.get("prompt_tokens"))
+    merged_headers["x-usage-completion-tokens"] = _coerce_int(
         usage.get("completion_tokens")
     )
-    merged_headers["x-usage-total-tokens"] = _coerce(usage.get("total_tokens"))
+    merged_headers["x-usage-total-tokens"] = _coerce_int(usage.get("total_tokens"))
+
+    # Extended: completion tokens details
+    completion_details = usage.get("completion_tokens_details")
+    if isinstance(completion_details, dict):
+        reasoning_tokens = completion_details.get("reasoning_tokens")
+        if reasoning_tokens is not None:
+            merged_headers["x-usage-reasoning-tokens"] = _coerce_int(reasoning_tokens)
+
+    # Extended: prompt tokens details
+    prompt_details = usage.get("prompt_tokens_details")
+    if isinstance(prompt_details, dict):
+        cached_tokens = prompt_details.get("cached_tokens")
+        if cached_tokens is not None:
+            merged_headers["x-usage-cached-tokens"] = _coerce_int(cached_tokens)
+        audio_tokens = prompt_details.get("audio_tokens")
+        if audio_tokens is not None:
+            merged_headers["x-usage-audio-tokens"] = _coerce_int(audio_tokens)
+
+    # Extended: cost
+    cost = usage.get("cost")
+    cost_str = _coerce_float(cost)
+    if cost_str is not None:
+        merged_headers["x-usage-cost"] = cost_str
+
     return merged_headers
 
 
@@ -1216,7 +1314,9 @@ def to_fastapi_streaming_response(
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        "Error during streaming content conversion: %s", e, exc_info=True
+                        "Error during streaming content conversion: %s",
+                        e,
+                        exc_info=True,
                     )
                 yield StreamingContent(
                     content="",

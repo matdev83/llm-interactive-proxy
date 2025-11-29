@@ -173,7 +173,9 @@ class UniversalMCPClient:
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error executing MCP tool {tool_name}: {e}", exc_info=True)
+                logger.error(
+                    f"Error executing MCP tool {tool_name}: {e}", exc_info=True
+                )
             return {
                 "output": f"Error executing MCP tool '{tool_name}': {e!s}",
                 "exit_code": 1,

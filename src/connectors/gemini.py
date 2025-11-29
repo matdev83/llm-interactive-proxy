@@ -285,7 +285,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             )
             response = await self.client.send(request, stream=True)
         except httpx.RequestError as e:
-            logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
         except (AttributeError, TypeError):
             request = self.client.build_request(
@@ -294,7 +295,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             try:
                 response = await self.client.send(request, stream=True)
             except httpx.RequestError as e:
-                logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Request error connecting to Gemini: %s", e, exc_info=True
+                    )
                 raise ServiceUnavailableError(
                     message=f"Could not connect to Gemini ({e})"
                 )
@@ -347,13 +351,14 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     headers=cancel_headers,
                 )
             except Exception as exc:
-                logger.debug(
-                    "Gemini cancel request failed - url=%s request_id=%s error=%s",
-                    cancel_url,
-                    request_id,
-                    exc,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Gemini cancel request failed - url=%s request_id=%s error=%s",
+                        cancel_url,
+                        request_id,
+                        exc,
+                        exc_info=True,
+                    )
             else:
                 with contextlib.suppress(Exception):
                     await cancel_response.aclose()
@@ -471,7 +476,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     )
                     # Convert to SSE bytes and wrap in ProcessedResponse
                     chunk_bytes = chunk.to_bytes()
-                    logger.debug(f"Gemini streaming error chunk bytes: {chunk_bytes!r}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Gemini streaming error chunk bytes: {chunk_bytes!r}"
+                        )
                     yield ProcessedResponse(content=chunk_bytes)
 
                 return StreamingResponseEnvelope(
@@ -545,7 +553,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         # into 'generationConfig' in _apply_generation_config.
         payload.pop("generation_config", None)
         # Debug output
-        logger.debug("Final payload: %s", payload)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Final payload: %s", payload)
 
         # Normalize model id and construct URL
         model_name = self._normalize_model_name(effective_model)
@@ -803,10 +812,11 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         if model_name.startswith("gemini/"):
             model_name = model_name.split("/", 1)[1]
         if "/" in model_name:
-            logger.debug(
-                "Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.",
-                model_name,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Detected provider prefix in model name '%s'. Using last path segment as Gemini model id.",
+                    model_name,
+                )
             model_name = model_name.rsplit("/", 1)[-1]
         return model_name
 
@@ -828,7 +838,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     status_code=response.status_code,
                 )
             data = response.json()
-            logger.debug("Gemini response headers: %s", dict(response.headers))
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Gemini response headers: %s", dict(response.headers))
 
             # Extract usage from Gemini response
             usage = self._extract_gemini_usage(data)
@@ -897,7 +908,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 "total_tokens": total_tokens,
             }
         except Exception as e:
-            logger.debug(f"Failed to extract Gemini usage: {e}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Failed to extract Gemini usage: {e}")
             return None
 
     # StreamProducer protocol implementation

@@ -53,13 +53,114 @@ class RequestCookies(dict[str, str]):
 
 
 @dataclass
+class ContentModificationTracker:
+    """Tracks content modifications for accurate usage calculation.
+
+    This tracker monitors whether content has been modified during proxy processing,
+    enabling accurate token recalculation for usage reporting.
+    """
+
+    # Inbound (request) modification tracking
+    inbound_modified: bool = False
+    inbound_original_tokens: int | None = None
+    inbound_modified_tokens: int | None = None
+    inbound_modification_reasons: list[str] = field(default_factory=list)
+
+    # Outbound (response) modification tracking
+    outbound_modified: bool = False
+    outbound_original_tokens: int | None = None
+    outbound_modified_tokens: int | None = None
+    outbound_modification_reasons: list[str] = field(default_factory=list)
+
+    def mark_inbound_modified(
+        self,
+        reason: str,
+        original_tokens: int | None = None,
+        modified_tokens: int | None = None,
+    ) -> None:
+        """Mark that inbound (request) content was modified."""
+        self.inbound_modified = True
+        if reason and reason not in self.inbound_modification_reasons:
+            self.inbound_modification_reasons.append(reason)
+        if original_tokens is not None:
+            self.inbound_original_tokens = original_tokens
+        if modified_tokens is not None:
+            self.inbound_modified_tokens = modified_tokens
+
+    def mark_outbound_modified(
+        self,
+        reason: str,
+        original_tokens: int | None = None,
+        modified_tokens: int | None = None,
+    ) -> None:
+        """Mark that outbound (response) content was modified."""
+        self.outbound_modified = True
+        if reason and reason not in self.outbound_modification_reasons:
+            self.outbound_modification_reasons.append(reason)
+        if original_tokens is not None:
+            self.outbound_original_tokens = original_tokens
+        if modified_tokens is not None:
+            self.outbound_modified_tokens = modified_tokens
+
+    def requires_usage_recalculation(self) -> bool:
+        """Check if usage should be recalculated due to modifications."""
+        return self.inbound_modified or self.outbound_modified
+
+    def get_modification_summary(self) -> dict[str, Any]:
+        """Get a summary of all modifications for logging/debugging."""
+        return {
+            "inbound_modified": self.inbound_modified,
+            "inbound_reasons": self.inbound_modification_reasons,
+            "inbound_token_delta": (
+                (self.inbound_modified_tokens - self.inbound_original_tokens)
+                if self.inbound_original_tokens is not None
+                and self.inbound_modified_tokens is not None
+                else None
+            ),
+            "outbound_modified": self.outbound_modified,
+            "outbound_reasons": self.outbound_modification_reasons,
+            "outbound_token_delta": (
+                (self.outbound_modified_tokens - self.outbound_original_tokens)
+                if self.outbound_original_tokens is not None
+                and self.outbound_modified_tokens is not None
+                else None
+            ),
+        }
+
+
+@dataclass
 class ProcessingContext:
     """Mutable context shared across middleware components."""
 
     values: dict[str, Any] = field(default_factory=dict)
+    modification_tracker: ContentModificationTracker = field(
+        default_factory=ContentModificationTracker
+    )
 
     def update(self, data: Mapping[str, Any]) -> None:
         self.values.update(data)
+
+    def mark_inbound_modified(
+        self,
+        reason: str,
+        original_tokens: int | None = None,
+        modified_tokens: int | None = None,
+    ) -> None:
+        """Convenience method to mark inbound modification."""
+        self.modification_tracker.mark_inbound_modified(
+            reason, original_tokens, modified_tokens
+        )
+
+    def mark_outbound_modified(
+        self,
+        reason: str,
+        original_tokens: int | None = None,
+        modified_tokens: int | None = None,
+    ) -> None:
+        """Convenience method to mark outbound modification."""
+        self.modification_tracker.mark_outbound_modified(
+            reason, original_tokens, modified_tokens
+        )
 
 
 @dataclass
@@ -72,6 +173,7 @@ class RequestContext(InternalDTO):
     app_state: Any
     client_host: str | None = None
     session_id: str | None = None
+    request_id: str | None = None
     agent: str | None = None
     original_request: Any | None = None
     processing_context: ProcessingContext | None = None
@@ -96,7 +198,10 @@ class RequestContext(InternalDTO):
 
     def with_processing_context(self, **kwargs: Any) -> RequestContext:
         new_context = (
-            ProcessingContext(values=dict(self.processing_context.values))
+            ProcessingContext(
+                values=dict(self.processing_context.values),
+                modification_tracker=self.processing_context.modification_tracker,
+            )
             if self.processing_context
             else ProcessingContext(values={})
         )
@@ -108,7 +213,48 @@ class RequestContext(InternalDTO):
             app_state=self.app_state,
             client_host=self.client_host,
             session_id=self.session_id,
+            request_id=self.request_id,
             agent=self.agent,
             original_request=self.original_request,
             processing_context=new_context,
+        )
+
+    def ensure_processing_context(self) -> ProcessingContext:
+        """Ensure processing context exists and return it."""
+        if self.processing_context is None:
+            self.processing_context = ProcessingContext()
+        return self.processing_context
+
+    def get_modification_tracker(self) -> ContentModificationTracker:
+        """Get the modification tracker, creating processing context if needed."""
+        return self.ensure_processing_context().modification_tracker
+
+    def mark_inbound_modified(
+        self,
+        reason: str,
+        original_tokens: int | None = None,
+        modified_tokens: int | None = None,
+    ) -> None:
+        """Mark that inbound (request) content was modified."""
+        self.get_modification_tracker().mark_inbound_modified(
+            reason, original_tokens, modified_tokens
+        )
+
+    def mark_outbound_modified(
+        self,
+        reason: str,
+        original_tokens: int | None = None,
+        modified_tokens: int | None = None,
+    ) -> None:
+        """Mark that outbound (response) content was modified."""
+        self.get_modification_tracker().mark_outbound_modified(
+            reason, original_tokens, modified_tokens
+        )
+
+    def requires_usage_recalculation(self) -> bool:
+        """Check if usage should be recalculated due to content modifications."""
+        if self.processing_context is None:
+            return False
+        return (
+            self.processing_context.modification_tracker.requires_usage_recalculation()
         )

@@ -17,8 +17,6 @@ from typing import cast
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.response_parser_interface import IResponseParser
-from src.core.interfaces.response_processor_interface import IResponseMiddleware
 
 from .base import InitializationStage
 
@@ -55,8 +53,6 @@ class ProcessorStage(InitializationStage):
 
         # Register backend processor
         self._register_backend_processor(services)
-
-
 
         # Register request processor
         self._register_request_processor(services)
@@ -152,8 +148,6 @@ class ProcessorStage(InitializationStage):
             logger.debug("Registered backend processor")
         except ImportError as e:  # type: ignore[misc]
             logger.warning(f"Could not register backend processor: {e}")
-
-
 
     def _register_request_processor(self, services: ServiceCollection) -> None:
         """Register request processor as the main orchestrator."""

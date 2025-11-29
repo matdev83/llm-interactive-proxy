@@ -92,11 +92,11 @@ class StopChunkWithUsage(dict):
 
     def items(self):
         """Override items() to prevent json.dumps() from serializing directly.
-        
+
         This makes json.dumps(StopChunkWithUsage) raise a TypeError, forcing
         callers to explicitly convert to dict first via dict(chunk) or
         chunk.to_plain_dict().
-        
+
         Note: We override items() because that's what json.dumps() calls when
         serializing dict-like objects.
         """

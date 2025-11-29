@@ -180,7 +180,7 @@ class TestServiceRegistration:
                     IApplicationState  # type: ignore[type-abstract]
                 ),
                 stream_normalizer=stream_normalizer_instance,
-                loop_detector=HybridLoopDetector(),
+                loop_detector_factory=lambda: HybridLoopDetector(),
             )
 
         # Manually register required services

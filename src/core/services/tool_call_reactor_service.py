@@ -157,7 +157,7 @@ class ToolCallReactorService(IToolCallReactor):
             or None if no handler swallows it.
         """
         raw_session_id = context.session_id
-        
+
         if raw_session_id:
             # If session ID is provided, use it directly (or alias it if needed)
             alias_key = raw_session_id

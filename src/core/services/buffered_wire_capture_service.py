@@ -138,6 +138,7 @@ class WireCaptureEntry(NamedTuple):
 
     timestamp_iso: str
     timestamp_unix: float
+    sequence: int  # Sequence number to ensure stable ordering
     direction: str  # "outbound_request", "inbound_response", "outbound_response", "stream_start", "stream_chunk", "stream_end", "outbound_stream_*"
     source: str
     destination: str
@@ -215,6 +216,7 @@ class BufferedWireCapture(IWireCapture):
         self._last_flush_time: float = time.time()
         self._total_bytes_written: int = 0
         self._enabled: bool = False
+        self._sequence_counter: int = 0  # Monotonic sequence for stable ordering
 
         # PERFORMANCE OPTIMIZATION: Cache JSON serialization to avoid repeated encoding
         self._content_length_cache: dict[int, int] = {}
@@ -240,9 +242,11 @@ class BufferedWireCapture(IWireCapture):
             Path(self._file_path).parent.mkdir(parents=True, exist_ok=True)
 
             # Test write access and write format header
+            self._sequence_counter += 1
             test_entry = WireCaptureEntry(
                 timestamp_iso=datetime.now(timezone.utc).isoformat(),
                 timestamp_unix=time.time(),
+                sequence=self._sequence_counter,
                 direction="system_init",
                 source="wire_capture_service",
                 destination="file_system",
@@ -644,20 +648,25 @@ class BufferedWireCapture(IWireCapture):
         """Create a structured wire capture entry."""
         now = datetime.now(timezone.utc)
 
-        # Determine content type and length
+        # Determine content type based on ORIGINAL payload type before redaction
+        # This preserves the semantic type even if redaction changes the structure
         content_type = "unknown"
-
-        if isinstance(payload, dict | list):
+        
+        if isinstance(payload, bytes):
+            content_type = "bytes"
+        elif isinstance(payload, (dict, list)):
             content_type = "json"
         elif isinstance(payload, str):
             content_type = "text"
-        elif isinstance(payload, bytes):
-            content_type = "bytes"
         else:
             content_type = "object"
 
-        # PERFORMANCE OPTIMIZATION: Use cached content length calculation
+        # PERFORMANCE OPTIMIZATION: Calculate content length from ORIGINAL payload
+        # This allows caching to work when the same payload object is reused
         content_length = self._get_content_length_cached(payload)
+
+        # Redact payload after determining type and calculating length
+        redacted_payload = self._redact_payload(payload)
 
         # Build metadata
         entry_metadata = {
@@ -685,9 +694,14 @@ class BufferedWireCapture(IWireCapture):
                     request_id = None
             resolved_session_id = request_id or uuid4().hex
 
+        # Get next sequence number for stable ordering
+        self._sequence_counter += 1
+        sequence = self._sequence_counter
+
         return WireCaptureEntry(
             timestamp_iso=now.isoformat(),
             timestamp_unix=now.timestamp(),
+            sequence=sequence,
             direction=direction,
             source=source,
             destination=destination,
@@ -697,7 +711,7 @@ class BufferedWireCapture(IWireCapture):
             key_name=key_name,
             content_type=content_type,
             content_length=content_length,
-            payload=self._redact_payload(payload),
+            payload=redacted_payload,
             metadata=entry_metadata,
         )
 
@@ -788,11 +802,11 @@ class BufferedWireCapture(IWireCapture):
 
         # Take snapshot of buffers and clear them
         entries_to_write: list[WireCaptureEntry] = []
-        
+
         for key in list(self._buffers.keys()):
             entries_to_write.extend(self._buffers[key])
             self._buffers[key].clear()
-            
+
         # Remove empty keys to prevent dict from growing indefinitely
         self._buffers.clear()
 
@@ -800,12 +814,12 @@ class BufferedWireCapture(IWireCapture):
 
         # Write entries (do this outside the lock? No, we are inside the lock here)
         # The writing happens in run_in_executor, which is fine.
-        
+
         if not entries_to_write:
             return
 
-        # Sort by timestamp to maintain order in file
-        entries_to_write.sort(key=lambda x: x.timestamp_unix)
+        # Sort by timestamp and sequence to maintain stable order in file
+        entries_to_write.sort(key=lambda x: (x.timestamp_unix, x.sequence))
 
         import contextlib
 

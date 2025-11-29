@@ -70,7 +70,8 @@ class AnthropicCredentialsFileHandler(FileSystemEventHandler):
                     )
                     self.connector._schedule_credentials_reload()
             except Exception as e:
-                logger.error(f"Error processing file modification event: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Error processing file modification event: {e}")
 
 
 class AnthropicOAuthBackend(AnthropicBackend):
@@ -123,13 +124,15 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._initialization_failed = True
         self.is_functional = False
         self._credential_validation_errors = errors
-        logger.error(f"Anthropic OAuth initialization failed: {'; '.join(errors)}")
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(f"Anthropic OAuth initialization failed: {'; '.join(errors)}")
 
     def _degrade(self, errors: list[str]) -> None:
         """Mark backend as degraded due to runtime validation failures."""
         self.is_functional = False
         self._credential_validation_errors = errors
-        logger.warning(f"Anthropic OAuth backend degraded: {'; '.join(errors)}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Anthropic OAuth backend degraded: {'; '.join(errors)}")
 
     def _recover(self) -> None:
         """Mark backend as recovered after successful validation."""
@@ -262,7 +265,8 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 self._file_observer.stop()
                 self._file_observer.join(timeout=1.0)
             except Exception as e:
-                logger.debug(f"Error stopping Anthropic OAuth file watcher: {e}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Error stopping Anthropic OAuth file watcher: {e}")
             finally:
                 self._file_observer = None
 
@@ -293,7 +297,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 else:
                     self._degrade(["Failed to reload credentials from file"])
             except Exception as e:
-                logger.error(f"Error during Anthropic OAuth credentials reload: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Error during Anthropic OAuth credentials reload: {e}"
+                    )
                 self._degrade([f"Credentials reload failed: {e}"])
 
         try:
@@ -442,10 +449,12 @@ class AnthropicOAuthBackend(AnthropicBackend):
             return True
 
         except json.JSONDecodeError as e:
-            logger.error(f"Malformed Anthropic OAuth credentials JSON: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Malformed Anthropic OAuth credentials JSON: {e}")
             return False
         except Exception as e:
-            logger.error(f"Error loading Anthropic OAuth credentials: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error loading Anthropic OAuth credentials: {e}")
             return False
 
     # -----------------------------
@@ -495,7 +504,8 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._start_file_watching()
         self.is_functional = True
         self._last_validation_time = time.time()
-        logger.info(f"Credentials file validation passed for {self.name}.")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Credentials file validation passed for {self.name}.")
 
         # Do not fetch models during init to avoid unnecessary outbound calls in tests;
         # they'll be lazily fetched on first use via _ensure_models_loaded in the parent.

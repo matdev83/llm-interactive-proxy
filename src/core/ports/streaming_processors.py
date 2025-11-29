@@ -7,7 +7,6 @@ streaming content as it flows through the pipeline.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
@@ -144,6 +143,7 @@ class LoopDetectionProcessor(IStreamProcessor):
                 return str(content["content"])
             # Use safe_json_dumps to handle StopChunkWithUsage correctly
             from src.core.ports.streaming_contracts import StopChunkWithUsage
+
             return StopChunkWithUsage.safe_json_dumps(content)
         return str(content)
 

@@ -183,7 +183,8 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         except Exception as e:
             self._initialization_failed = True
-            logger.error(f"Failed to initialize gemini-cli-acp backend: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to initialize gemini-cli-acp backend: {e}")
             raise
 
     def _check_gemini_cli_available(self) -> bool:
@@ -223,7 +224,8 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         # Check if project directory actually changed
         if new_project_dir == self._project_dir:
-            logger.debug(f"Project directory already set to {project_dir}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Project directory already set to {project_dir}")
             return
 
         # Kill existing process
@@ -259,7 +261,8 @@ class GeminiCliAcpConnector(GeminiBackend):
                 cmd.append("-y")  # YOLO mode (auto-accept)
 
             # Spawn process
-            logger.debug(f"Spawning gemini-cli process: {' '.join(cmd)}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Spawning gemini-cli process: {' '.join(cmd)}")
             self._process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -288,7 +291,8 @@ class GeminiCliAcpConnector(GeminiBackend):
             logger.info("gemini-cli ACP process started successfully")
 
         except Exception as e:
-            logger.error(f"Failed to spawn gemini-cli process: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to spawn gemini-cli process: {e}")
             await self._kill_process()
             raise APIConnectionError(
                 message=f"Failed to start gemini-cli: {e}",
@@ -308,7 +312,8 @@ class GeminiCliAcpConnector(GeminiBackend):
                     process.wait(timeout=5)
                 logger.debug("gemini-cli process terminated")
             except Exception as e:
-                logger.warning(f"Error terminating gemini-cli process: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Error terminating gemini-cli process: {e}")
             finally:
                 self._cleanup_process(process)
 
@@ -354,9 +359,11 @@ class GeminiCliAcpConnector(GeminiBackend):
             self._process.stdin.write(message_str.encode("utf-8"))
             self._process.stdin.flush()
             self._last_activity = asyncio.get_event_loop().time()
-            logger.debug(f"Sent JSON-RPC message: {method}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Sent JSON-RPC message: {method}")
         except Exception as e:
-            logger.error(f"Failed to send JSON-RPC message: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to send JSON-RPC message: {e}")
             raise APIConnectionError(
                 message=f"Failed to communicate with gemini-cli: {e}"
             )
@@ -388,13 +395,15 @@ class GeminiCliAcpConnector(GeminiBackend):
             return response
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON-RPC response: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to parse JSON-RPC response: {e}")
             raise BackendError(
                 message="Invalid JSON response from gemini-cli",
                 details={"error": str(e)},
             )
         except Exception as e:
-            logger.error(f"Failed to read JSON-RPC response: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to read JSON-RPC response: {e}")
             raise APIConnectionError(message=f"Failed to read from gemini-cli: {e}")
 
     async def _initialize_agent(self) -> None:
@@ -459,7 +468,10 @@ class GeminiCliAcpConnector(GeminiBackend):
                             data_part = message["DataPart"]
                             if "ToolCall" in data_part:
                                 tool_call = data_part["ToolCall"]
-                                logger.debug(f"Tool call: {tool_call.get('tool_name')}")
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        f"Tool call: {tool_call.get('tool_name')}"
+                                    )
                                 # For now, we don't expose tool calls directly
                                 # They'll be reflected in the final response text
 
@@ -629,7 +641,8 @@ class GeminiCliAcpConnector(GeminiBackend):
                 )
 
         except Exception as e:
-            logger.error(f"Error in gemini-cli-acp chat_completions: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error in gemini-cli-acp chat_completions: {e}")
             # Kill process on error to force restart
             await self._kill_process()
             raise

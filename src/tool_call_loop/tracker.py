@@ -261,7 +261,9 @@ class ToolCallTracker:
             repeat_count = self.consecutive_repeats[full_sig]
 
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Repeated tool call: %s (count: %d)", tool_name, repeat_count)
+                logger.debug(
+                    "Repeated tool call: %s (count: %d)", tool_name, repeat_count
+                )
 
             # Check if we need to block based on threshold and mode
             if repeat_count >= self.config.max_repeats:

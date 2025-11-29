@@ -200,7 +200,8 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
         if not event.is_directory and event.src_path == str(
             self.connector._credentials_path
         ):
-            logger.info(f"Credentials file modified: {event.src_path}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Credentials file modified: {event.src_path}")
             # Schedule credential reload in the connector's event loop
             self.connector._schedule_credentials_reload()
 
@@ -246,10 +247,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             kwargs.get("gcp_project_id") or config.get_gcp_project_id()
         )
         if not self.gcp_project_id:
-            logger.warning(
-                "GCP Project ID not provided. This backend requires a valid Google Cloud "
-                "Project ID with billing enabled and Cloud AI Companion API enabled."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "GCP Project ID not provided. This backend requires a valid Google Cloud "
+                    "Project ID with billing enabled and Cloud AI Companion API enabled."
+                )
             self.is_functional = False
 
         # Optional: Allow custom credentials path
@@ -415,9 +417,13 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             watch_dir = self._credentials_path.parent
             self._file_observer.schedule(event_handler, str(watch_dir), recursive=False)
             self._file_observer.start()
-            logger.info(f"Started watching credentials file: {self._credentials_path}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Started watching credentials file: {self._credentials_path}"
+                )
         except Exception as e:
-            logger.warning(f"Failed to start file watching: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to start file watching: {e}")
 
     def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload when the credentials file changes."""
@@ -489,7 +495,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 task = loop.create_task(reload_task())
                 _assign_task(task)
             except Exception as exc:
-                logger.warning("Failed to schedule credentials reload: %s", exc)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to schedule credentials reload: %s", exc)
                 with self._reload_task_lock:
                     self._reload_scheduling_in_progress = False
 
@@ -517,12 +524,14 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 self._file_observer = None
                 logger.info("Stopped watching credentials file")
             except Exception as e:
-                logger.warning(f"Error stopping file watcher: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Error stopping file watcher: {e}")
 
     async def _handle_credentials_file_change(self) -> None:
         """Handle credentials file change event."""
         try:
-            logger.info("Handling credentials file change...")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Handling credentials file change...")
 
             # Validate file first
             ok, errs = self._validate_credentials_file_exists()
@@ -539,11 +548,15 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 logger.info("Successfully reloaded credentials from updated file")
             else:
                 self._degrade(["Failed to reload credentials after file change"])
-                logger.error("Failed to reload credentials after file change")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error("Failed to reload credentials after file change")
 
         except Exception as e:
             self._degrade([f"Error handling credentials file change: {e}"])
-            logger.error(f"Error handling credentials file change: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Error handling credentials file change: {e}", exc_info=True
+                )
 
     async def _validate_runtime_credentials(self) -> bool:
         """Validate credentials at runtime with throttling.
@@ -557,24 +570,28 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         self._last_validation_time = now
 
         if self._is_token_expired():
-            logger.info(
-                "Access token expired during runtime, attempting to reload credentials..."
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Access token expired during runtime, attempting to reload credentials..."
+                )
 
             if await self._load_oauth_credentials():
                 if self._is_token_expired():
                     self._degrade(["Token expired and no valid replacement found"])
-                    logger.warning(
-                        "Reloaded token is still expired, marking backend as non-functional"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Reloaded token is still expired, marking backend as non-functional"
+                        )
                     return False
                 self._recover()
-                logger.info("Successfully reloaded valid credentials")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Successfully reloaded valid credentials")
                 return True
             self._degrade(["Failed to reload expired credentials"])
-            logger.error(
-                "Failed to reload credentials, marking backend as non-functional"
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Failed to reload credentials, marking backend as non-functional"
+                )
             return False
 
         if not self.is_backend_functional():
@@ -623,7 +640,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         if adc_project and not self.gcp_project_id:
             # If ADC provided a project and user didn't specify, adopt it
             self.gcp_project_id = adc_project
-        logger.info("Using Application Default Credentials for Code Assist API")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Using Application Default Credentials for Code Assist API")
         session = google.auth.transport.requests.AuthorizedSession(credentials)
         session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
         return session
@@ -674,7 +692,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     self._recover()
                 return True
 
-            logger.info("Access token expired or near expiry, attempting to refresh...")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Access token expired or near expiry, attempting to refresh...")
 
             try:
                 creds_dict = dict(self._oauth_credentials)
@@ -709,18 +728,21 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 self._oauth_credentials.update(new_credentials)
                 await self._save_oauth_credentials(self._oauth_credentials)
 
-                logger.info(
-                    "Successfully refreshed OAuth token for GCP project access."
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Successfully refreshed OAuth token for GCP project access."
+                    )
                 if not self.is_backend_functional():
                     self._recover()
                 return True
 
             except RefreshError as e:
-                logger.error(f"Google Auth token refresh error: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Google Auth token refresh error: {e}")
                 return False
             except Exception as e:
-                logger.error(f"Unexpected error during token refresh: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Unexpected error during token refresh: {e}")
                 return False
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
@@ -738,9 +760,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
-            logger.info(f"OAuth credentials saved to {creds_path}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"OAuth credentials saved to {creds_path}")
         except Exception as e:
-            logger.error(f"Error saving OAuth credentials: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error saving OAuth credentials: {e}")
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
@@ -756,7 +780,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             self._credentials_path = creds_path
 
             if not creds_path.exists():
-                logger.warning(f"OAuth credentials not found at {creds_path}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"OAuth credentials not found at {creds_path}")
                 return False
 
             try:
@@ -779,20 +804,24 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 return False
 
             self._oauth_credentials = credentials
-            logger.info("Successfully loaded OAuth credentials.")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Successfully loaded OAuth credentials.")
             return True
         except json.JSONDecodeError as e:
-            logger.error(f"Error decoding OAuth credentials JSON: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error decoding OAuth credentials JSON: {e}")
             return False
         except Exception as e:
-            logger.error(f"Error loading OAuth credentials: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error loading OAuth credentials: {e}")
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize backend with enhanced validation following the stale token handling pattern."""
-        logger.info(
-            f"Initializing Gemini Cloud Project backend with enhanced validation for project: {self.gcp_project_id}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Initializing Gemini Cloud Project backend with enhanced validation for project: {self.gcp_project_id}"
+            )
 
         try:
             self._main_loop = asyncio.get_running_loop()
@@ -858,10 +887,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         self.is_functional = True
         self._last_validation_time = time.time()
 
-        logger.info(
-            f"Gemini Cloud Project backend initialized successfully with {len(self.available_models)} models "
-            f"for project: {self.gcp_project_id}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Gemini Cloud Project backend initialized successfully with {len(self.available_models)} models "
+                f"for project: {self.gcp_project_id}"
+            )
 
     async def _validate_project_access(self) -> None:
         """Validate that we can access the specified GCP project."""
@@ -902,7 +932,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 f"Successfully validated access to project: {self.gcp_project_id}"
             )
         except Exception as e:
-            logger.error(f"Failed to validate project access: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to validate project access: {e}", exc_info=True)
             raise
 
     async def _resolve_gemini_api_config(
@@ -942,7 +973,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             # With ADC, token handling is internal; proceed to simple request
 
             if not self.gcp_project_id:
-                logger.warning("Health check failed - no GCP project ID specified")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Health check failed - no GCP project ID specified")
                 return False
 
             # Test with a simple API call
@@ -958,7 +990,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             try:
                 response = await self.client.get(url, headers=headers, timeout=10.0)
             except httpx.TimeoutException as te:
-                logger.error(f"Health check timeout calling {url}: {te}", exc_info=True)
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Health check timeout calling {url}: {te}", exc_info=True
+                    )
                 return False
             except httpx.RequestError as rexc:
                 logger.error(
@@ -978,7 +1013,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 return False
 
         except Exception as e:
-            logger.error(f"Health check failed - unexpected error: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Health check failed - unexpected error: {e}", exc_info=True
+                )
             return False
 
     def _generate_user_prompt_id(self, request_data: Any) -> str:
@@ -1018,7 +1056,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 raise BackendError("Health check failed")
 
             self._health_checked = True
-            logger.info("Health check passed - backend is ready for use")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Health check passed - backend is ready for use")
 
     async def chat_completions(
         self,
@@ -1085,10 +1124,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         except (AuthenticationError, BackendError):
             raise
         except Exception as e:
-            logger.error(
-                f"Error in Gemini Cloud Project chat_completions: {e}",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error in Gemini Cloud Project chat_completions: {e}", exc_info=True)
             raise BackendError(
                 message=f"Gemini Cloud Project chat completion failed: {e!s}"
             ) from e
@@ -1129,7 +1166,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 gemini_request, final_contents
             )
 
-            logger.info(f"Making Code Assist API call with project {project_id}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Making Code Assist API call with project {project_id}")
 
             # Prepare request body for non-streaming call
             request_body = {
@@ -1188,7 +1226,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         except (AuthenticationError, BackendError):
             raise
         except Exception as e:
-            logger.error(f"Unexpected error during API call: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Unexpected error during API call: {e}", exc_info=True)
             raise BackendError(f"Unexpected error during API call: {e}")
 
     async def _chat_completions_streaming(
@@ -1257,9 +1296,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                             stream=True,  # Enable streaming mode for real-time data
                         )
                     except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
-                        logger.error(
-                            f"Streaming timeout calling {url}: {te}", exc_info=True
-                        )
+                        if logger.isEnabledFor(logging.ERROR):
+                            logger.error(
+                                f"Streaming timeout calling {url}: {te}", exc_info=True
+                            )
                         yield self.translation_service.to_domain_stream_chunk(
                             chunk=None, source_format="code_assist"
                         )
@@ -1394,10 +1434,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                             # Skip invalid UTF-8 bytes
                             continue
                         except Exception as chunk_error:
-                            logger.error(
-                                f"Error processing stream chunk: {chunk_error}",
-                                exc_info=True,
-                            )
+                            if logger.isEnabledFor(logging.ERROR):
+                                logger.error(
+                                    f"Error processing stream chunk: {chunk_error}",
+                                    exc_info=True,
+                                )
                             continue
 
                     # Ensure the stream is properly closed with a DONE signal
@@ -1407,7 +1448,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     )
 
                 except Exception as e:
-                    logger.error(f"Error in streaming generator: {e}")
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(f"Error in streaming generator: {e}")
                     # Yield an error chunk or ensure stream ends gracefully
                     yield self.translation_service.to_domain_stream_chunk(
                         chunk=None,  # Indicate end of stream due to error
@@ -1488,7 +1530,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         # Check if already onboarded
         if load_data.get("cloudaicompanionProject"):
             self._onboarded_project_id = load_data["cloudaicompanionProject"]
-            logger.info(f"Project {self._onboarded_project_id} is already onboarded")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Project {self._onboarded_project_id} is already onboarded"
+                )
             return self._onboarded_project_id
 
         # Need to onboard to standard-tier
