@@ -6,6 +6,7 @@ CLI while maintaining clean separation of concerns through staged initialization
 """
 
 import argparse
+import asyncio
 import logging
 import os
 import re
@@ -18,9 +19,13 @@ from typing import Any, cast
 import uvicorn
 from fastapi import FastAPI
 
+from src.anthropic_server import create_anthropic_app_async
 from src.command_prefix import validate_command_prefix
 from src.constants import DEFAULT_COMMAND_PREFIX
-from src.core.app.application_builder import ApplicationBuilder, build_app
+from src.core.app.application_builder import (
+    ApplicationBuilder,
+    build_app_async,
+)
 from src.core.common.uvicorn_logging import UVICORN_LOGGING_CONFIG
 from src.core.config.app_config import AppConfig, LogLevel, _merge_dicts, load_config
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
@@ -1986,7 +1991,7 @@ def _handle_application_build_error(error_msg: str) -> None:
     sys.stderr.write("=" * 60 + "\n")
 
 
-def main(
+async def main(
     argv: list[str] | None = None,
     build_app_fn: Callable[[AppConfig], FastAPI] | None = None,
 ) -> None:
@@ -2030,7 +2035,7 @@ def main(
         if build_app_fn:
             app = build_app_fn(cfg)  # For testing
         else:
-            app = build_app(cfg)  # Production
+            app = await build_app_async(cfg)  # Production
     except RuntimeError as e:
         # Handle application build failures with user-friendly messages
         error_msg = str(e)
@@ -2055,21 +2060,49 @@ def main(
         sys.stderr.write(f"\nERROR: {error_msg}\n")
         sys.exit(1)
 
-    # Start the server
+    # Check if Anthropic port is already in use
+    if cfg.anthropic_port and is_port_in_use(cfg.host, cfg.anthropic_port):
+        error_msg = f"Anthropic Port {cfg.anthropic_port} is already in use."
+        logging.error(error_msg)
+        sys.stderr.write(f"\nERROR: {error_msg}\n")
+        sys.exit(1)
+
+    # Start the servers
     logging.info(f"Starting uvicorn on {cfg.host}:{cfg.port}")
-    try:
-        # Start uvicorn with the configured host/port using uvicorn defaults
-        uvicorn.run(
-            app, host=cfg.host, port=cfg.port, log_config=UVICORN_LOGGING_CONFIG
+
+    servers = []
+
+    # Main server
+    main_config = uvicorn.Config(
+        app, host=cfg.host, port=cfg.port, log_config=UVICORN_LOGGING_CONFIG
+    )
+    main_server = uvicorn.Server(main_config)
+    servers.append(main_server.serve())
+
+    # Anthropic server
+    if cfg.anthropic_port:
+        logging.info(f"Starting Anthropic server on {cfg.host}:{cfg.anthropic_port}")
+        # Reuse the main app to avoid double initialization of services
+        anthropic_app = await create_anthropic_app_async(cfg, built_app=app)
+        anthropic_config = uvicorn.Config(
+            anthropic_app,
+            host=cfg.host,
+            port=cfg.anthropic_port,
+            log_config=UVICORN_LOGGING_CONFIG,
         )
+        anthropic_server = uvicorn.Server(anthropic_config)
+        servers.append(anthropic_server.serve())
+
+    try:
+        await asyncio.gather(*servers)
     except Exception as e:
-        logging.exception("Uvicorn failed to start: %s", e)
+        logging.exception("Server failed: %s", e)
         raise
 
 
 # Main entry point guard
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
 
 
 # Example of how this enables easy customization for different environments

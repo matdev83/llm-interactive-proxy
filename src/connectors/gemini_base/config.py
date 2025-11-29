@@ -1,5 +1,5 @@
 """
-Configuration classes for Gemini OAuth Base.
+Configuration primitives for Gemini OAuth connectors.
 """
 
 from collections.abc import Sequence
@@ -8,20 +8,19 @@ from typing import Any
 
 from src.core.config.app_config import AppConfig
 
+# Code Assist API endpoint (matching the CLI's endpoint):
+CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
+# Timeouts
+DEFAULT_CONNECTION_TIMEOUT = 60.0
+DEFAULT_READ_TIMEOUT = 300.0
+
 # Graceful degradation configuration
 DEFAULT_RETRY_DELAYS = [15, 30, 60]  # Wait 15s, then 30s, then 60s between retries
-DEFAULT_MAX_TOTAL_ATTEMPTS = 9  # Maximum total attempts across all models
+DEFAULT_MAX_TOTAL_ATTEMPTS = 9
 DEFAULT_COOLDOWN_DURATION = 600.0  # 10 minutes cooldown after exhaustion
 DEFAULT_RECOVERY_PROBE_INTERVAL = 120.0  # Check recovery every 2 minutes
 
-# Code Assist API configuration
-CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
-DEFAULT_CODE_ASSIST_MODEL = "gemini-1.5-pro-002"
-DEFAULT_READ_TIMEOUT = 300.0
-DEFAULT_CONNECTION_TIMEOUT = 10.0
-
-# Code Assist plan-specific prompt allowance (per request).
-# The margin stops us before the backend enforces the hard cap.
+# Prompt limit configuration
 DEFAULT_CODE_ASSIST_PROMPT_LIMIT = 65_536
 CODE_ASSIST_PROMPT_LIMIT_MARGIN = 0.97
 
@@ -59,17 +58,11 @@ class GracefulDegradationConfig:
     cooldown_duration: float = DEFAULT_COOLDOWN_DURATION
     enable_recovery_probing: bool = True
     recovery_probe_interval: float = DEFAULT_RECOVERY_PROBE_INTERVAL
-    model_fallbacks: dict[str, str] = field(default_factory=dict)
-    generic_fallback_model: str | None = None
-    base_cooldown_seconds: float = 60.0
-    cooldown_multiplier: float = 2.0
-    max_cooldown_seconds: float = 3600.0
 
     @classmethod
     def from_config(cls, config: AppConfig) -> "GracefulDegradationConfig":
         """Create configuration from AppConfig."""
 
-        # AppConfig exposes attributes rather than dict-like `.get()` in some contexts
         def _coerce_list(value: Any, default: Sequence[float]) -> list[float]:
             if isinstance(value, list | tuple):
                 return [float(v) for v in value]
@@ -158,11 +151,24 @@ class GracefulDegradationMetrics:
 class ModelRetryState:
     """State tracking for model retry attempts."""
 
-    model_name: str = ""
     attempts: int = 0
-    failure_count: int = 0
-    last_failure_time: float = 0.0
     cooldown_until: float = 0.0
     last_probe_attempt: float = 0.0
     probe_success_count: int = 0
-    retry_after_until: float = 0.0
+
+
+__all__ = [
+    "CODE_ASSIST_ENDPOINT",
+    "DEFAULT_CONNECTION_TIMEOUT",
+    "DEFAULT_READ_TIMEOUT",
+    "DEFAULT_RETRY_DELAYS",
+    "DEFAULT_MAX_TOTAL_ATTEMPTS",
+    "DEFAULT_COOLDOWN_DURATION",
+    "DEFAULT_RECOVERY_PROBE_INTERVAL",
+    "DEFAULT_CODE_ASSIST_PROMPT_LIMIT",
+    "CODE_ASSIST_PROMPT_LIMIT_MARGIN",
+    "DEFAULT_AVAILABLE_MODELS",
+    "GracefulDegradationConfig",
+    "GracefulDegradationMetrics",
+    "ModelRetryState",
+]

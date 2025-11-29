@@ -243,7 +243,8 @@ def test_apply_cli_args_respects_existing_log_level() -> None:
     assert applied.logging.level is LogLevel.DEBUG
 
 
-def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import logging
 
     import src.core.cli as cli
@@ -254,21 +255,26 @@ def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     original_handlers = root_logger.handlers[:]
     root_logger.handlers.clear()
 
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     with (
-        patch(
-            "src.core.cli.uvicorn.run", lambda app, host, port, log_config=None: None
-        ),
+        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
         patch("src.core.cli._check_privileges", lambda: None),
-        patch("src.core.app.application_builder.build_app") as mock_build_app,
+        patch(
+            "src.core.app.application_builder.build_app_async"
+        ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
     ):
-        mock_build_app.return_value = MagicMock()
+        mock_build_app_async.return_value = MagicMock()
+
+        # Mock server instance and serve method
+        mock_server_instance = MagicMock()
+        mock_server_instance.serve = AsyncMock(return_value=None)
+        mock_server_cls.return_value = mock_server_instance
 
         try:
             # Use a different port to avoid conflicts during parallel test execution
-            cli.main(["--log", str(log_file), "--port", "9999"])
+            await cli.main(["--log", str(log_file), "--port", "9999"])
 
             file_handlers = [
                 h for h in root_logger.handlers if isinstance(h, logging.FileHandler)
@@ -584,26 +590,56 @@ def test_apply_cli_args_disable_auth_with_localhost_no_force() -> None:
         mock_logging.warning.assert_not_called()
 
 
-def test_main_disable_auth_forces_localhost() -> None:
+@pytest.mark.asyncio
+async def test_main_disable_auth_forces_localhost() -> None:
     """Test that main function forces localhost when disable_auth is set."""
+    from unittest.mock import AsyncMock
+
     with (
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
         patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
-        patch("uvicorn.run") as mock_uvicorn,
+        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
         patch("src.core.cli._check_privileges"),
-        patch("src.core.app.application_builder.build_app"),
+        patch(
+            "src.core.app.application_builder.build_app_async"
+        ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
         patch("src.core.cli.is_port_in_use", return_value=False),
+        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
     ):
-        main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
+        mock_build_app_async.return_value = MagicMock()
 
-        # Should force host to localhost
-        mock_uvicorn.assert_called_once_with(
-            ANY, host="127.0.0.1", port=8080, log_config=ANY
-        )
+        # Mock server instance and serve method
+        mock_server_instance = MagicMock()
+        mock_server_instance.serve = AsyncMock(return_value=None)
+        mock_server_cls.return_value = mock_server_instance
+
+        await main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
+
+        # Should force host to localhost. Check Config initialization
+        call_args = mock_server_cls.call_args
+        assert call_args is not None
+        # uvicorn.Config is passed as first arg or 'config' kwarg
+        # In implementation: uvicorn.Config(app, host=..., ...)
+        # We need to check the arguments passed to uvicorn.Config, BUT
+        # cli.py creates uvicorn.Config object first and passes it to Server.
+        # We need to mock uvicorn.Config too to inspect it, or inspect the Server call args
+        # implementation:
+        # main_config = uvicorn.Config(app, host=cfg.host, port=cfg.port, ...)
+        # main_server = uvicorn.Server(main_config)
+
+        # Let's patch uvicorn.Config as well to check arguments easily
+        with patch("src.core.cli.uvicorn.Config") as mock_config_cls:
+            await main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
+
+            # Check that Config was initialized with forced localhost
+            mock_config_cls.assert_any_call(
+                ANY, host="127.0.0.1", port=8080, log_config=ANY
+            )
+
         # Should log warning about auth being disabled
         warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
         auth_disabled_warnings = [
@@ -612,26 +648,41 @@ def test_main_disable_auth_forces_localhost() -> None:
         assert len(auth_disabled_warnings) >= 1
 
 
-def test_main_disable_auth_with_localhost_no_force() -> None:
+@pytest.mark.asyncio
+async def test_main_disable_auth_with_localhost_no_force() -> None:
     """Test that main function doesn't force localhost when it's already localhost."""
+    from unittest.mock import AsyncMock
+
     with (
         patch.dict(
             os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "127.0.0.1"}, clear=True
         ),
         patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
-        patch("uvicorn.run") as mock_uvicorn,
+        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
         patch("src.core.cli._check_privileges"),
-        patch("src.core.app.application_builder.build_app"),
+        patch(
+            "src.core.app.application_builder.build_app_async"
+        ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
         patch("src.core.cli.is_port_in_use", return_value=False),
+        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
     ):
-        main(["--port", "8080", "--disable-auth", "--host", "127.0.0.1"])
+        mock_build_app_async.return_value = MagicMock()
 
-        # Should use localhost
-        mock_uvicorn.assert_called_once_with(
-            ANY, host="127.0.0.1", port=8080, log_config=ANY
-        )
+        # Mock server instance
+        mock_server_instance = MagicMock()
+        mock_server_instance.serve = AsyncMock(return_value=None)
+        mock_server_cls.return_value = mock_server_instance
+
+        with patch("src.core.cli.uvicorn.Config") as mock_config_cls:
+            await main(["--port", "8080", "--disable-auth", "--host", "127.0.0.1"])
+
+            # Should use localhost
+            mock_config_cls.assert_any_call(
+                ANY, host="127.0.0.1", port=8080, log_config=ANY
+            )
+
         # Should log warning about auth being disabled but not about forcing host
         warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
         auth_disabled_warnings = [
@@ -640,26 +691,41 @@ def test_main_disable_auth_with_localhost_no_force() -> None:
         assert len(auth_disabled_warnings) >= 1
 
 
-def test_main_auth_enabled_allows_custom_host() -> None:
+@pytest.mark.asyncio
+async def test_main_auth_enabled_allows_custom_host() -> None:
     """Test that main function allows custom host when auth is enabled."""
+    from unittest.mock import AsyncMock
+
     with (
         patch.dict(
             os.environ, {"DISABLE_AUTH": "false", "PROXY_HOST": "0.0.0.0"}, clear=True
         ),
         patch("src.core.cli._configure_logging"),
         patch("src.core.cli.logging") as mock_logging,
-        patch("uvicorn.run") as mock_uvicorn,
+        patch("src.core.cli.uvicorn.Server") as mock_server_cls,
         patch("src.core.cli._check_privileges"),
-        patch("src.core.app.application_builder.build_app"),
+        patch(
+            "src.core.app.application_builder.build_app_async"
+        ) as mock_build_app_async,
         patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
         patch("src.core.cli.is_port_in_use", return_value=False),
+        patch("src.core.cli.create_anthropic_app_async", new_callable=AsyncMock),
     ):
-        main(["--port", "8080", "--host", "0.0.0.0"])
+        mock_build_app_async.return_value = MagicMock()
 
-        # Should use custom host when auth is enabled
-        mock_uvicorn.assert_called_once_with(
-            ANY, host="0.0.0.0", port=8080, log_config=ANY
-        )
+        # Mock server instance
+        mock_server_instance = MagicMock()
+        mock_server_instance.serve = AsyncMock(return_value=None)
+        mock_server_cls.return_value = mock_server_instance
+
+        with patch("src.core.cli.uvicorn.Config") as mock_config_cls:
+            await main(["--port", "8080", "--host", "0.0.0.0"])
+
+            # Should use custom host when auth is enabled
+            mock_config_cls.assert_any_call(
+                ANY, host="0.0.0.0", port=8080, log_config=ANY
+            )
+
         # Should not log warning about auth being disabled
         auth_warnings = [
             call

@@ -12,7 +12,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.services.angel_service import ANGEL_PROMPT
+from src.core.services.angel_service import get_prompt_loader
 from src.core.services.backend_request_manager_service import BackendRequestManager
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.streaming.content_accumulation_processor import (
@@ -78,7 +78,10 @@ class _FakeBackendService:
     ) -> SimpleNamespace:
         self.requests.append(request)
         first_message = request.messages[0]
-        if first_message.role == "system" and first_message.content == ANGEL_PROMPT:
+        if (
+            first_message.role == "system"
+            and first_message.content == get_prompt_loader().angel_prompt
+        ):
             if self.decision.lower() == "pass":
                 content = "<angels_decision>Pass</angels_decision>"
             else:

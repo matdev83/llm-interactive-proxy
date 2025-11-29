@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.services.angel_service import ANGEL_PROMPT, AngelService
+from src.core.services.angel_service import AngelService, get_prompt_loader
 
 
 def test_parse_angel_output_pass() -> None:
@@ -49,7 +49,7 @@ def test_build_verification_messages_includes_prompt() -> None:
     )
     messages = svc.build_verification_messages(request, "draft response")
     assert messages[0].role == "system"
-    assert messages[0].content == ANGEL_PROMPT
+    assert messages[0].content == get_prompt_loader().angel_prompt
     assert messages[-1].role == "assistant"
     assert messages[-1].content == "draft response"
 
@@ -115,7 +115,7 @@ def test_build_verification_request_uses_default_backend() -> None:
     assert verification.model == "openai:gpt-4o-mini"
     assert verification.stream is False
     assert verification.messages[0].role == "system"
-    assert verification.messages[0].content == ANGEL_PROMPT
+    assert verification.messages[0].content == get_prompt_loader().angel_prompt
     assert verification.messages[-1].role == "assistant"
     assert verification.messages[-1].content == "Draft reply"
 

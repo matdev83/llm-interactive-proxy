@@ -647,7 +647,16 @@ class QwenOAuthConnector(OpenAIConnector):
         # Parse JSON body
         try:
             data = await response.json()
+        except TypeError:
+            # Some mocked responses provide a synchronous json() helper
+            try:
+                data = response.json()  # type: ignore[call-arg]
+            except Exception:
+                data = None
         except Exception:
+            data = None
+
+        if data is None:
             logger.error(
                 f"Failed to parse API token refresh response as JSON. "
                 f"Content-Type: {response.headers.get('content-type')}, "

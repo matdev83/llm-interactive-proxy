@@ -66,5 +66,8 @@ def main(
     """Entry-point retained for backwards compatibility with ``cli_v2``."""
 
     import asyncio
+    import inspect
 
-    asyncio.run(_cli_module.main(argv=argv, build_app_fn=build_app_fn))
+    result = _cli_module.main(argv=argv, build_app_fn=build_app_fn)
+    if inspect.iscoroutine(result):
+        asyncio.run(result)

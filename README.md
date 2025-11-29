@@ -79,10 +79,10 @@ pip install -e .[dev]
 ```bash
 # Start the proxy with OpenAI backend
 export OPENAI_API_KEY="your-key-here"
-python -m src.anthropic_server
+python -m src.core.cli --default-backend openai:gpt-4o
 
 # Or with custom configuration
-python -m src.anthropic_server --config config/my_config.yaml
+python -m src.core.cli --config config/my_config.yaml
 ```
 
 For detailed setup instructions, see [Quick Start Guide](docs/user_guide/quick-start.md).

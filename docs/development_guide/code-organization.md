@@ -297,7 +297,7 @@ scripts/
 ### Front-End Layer
 
 - **OpenAI Server** (`src/core/app/`): Handles OpenAI-compatible requests
-- **Anthropic Server** (`src/anthropic_server.py`): Handles Anthropic-compatible requests
+- **Anthropic Server** (`src/anthropic_server.py`): Handles Anthropic-compatible requests (integrated into main proxy process)
 - **Gemini Server** (`src/core/app/`): Handles Gemini-compatible requests
 
 ### Core Processing

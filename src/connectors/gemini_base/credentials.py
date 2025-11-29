@@ -1,5 +1,5 @@
 """
-Credentials handling for Gemini OAuth Base.
+Credential helpers for Gemini OAuth connectors.
 """
 
 import hashlib
@@ -36,18 +36,13 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
     """File system event handler for monitoring OAuth credentials file changes."""
 
     def __init__(self, connector: "GeminiOAuthBaseConnector"):
-        """Initialize the file handler with reference to the connector.
-
-        Args:
-            connector: The GeminiOAuthPersonalConnector instance to notify of file changes
-        """
+        """Initialize the file handler with reference to the connector."""
         super().__init__()
         self.connector = connector
 
     def on_modified(self, event):
         """Handle file modification events."""
         if not event.is_directory and isinstance(event.src_path, str):
-            # Compare paths using Path objects to handle Windows/Unix differences
             try:
                 event_path = Path(event.src_path).resolve()
                 credentials_path = (
@@ -92,7 +87,6 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
 
                     now = time.time()
                     if now - self.connector._last_credentials_event_log_ts >= 30:
-                        # Log at TRACE level to reduce noise - SQLite DBs update frequently
                         logger.log(
                             TRACE_LEVEL,
                             "Credentials file modified: %s",
@@ -106,9 +100,9 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                             event.src_path,
                         )
 
-                    # Schedule credential reload in the connector's event loop in a thread-safe way
+                    # Schedule credential reload in the connector's event loop
                     self.connector._schedule_credentials_reload()
-            except Exception as e:
+            except Exception as e:  # pragma: no cover - defensive logging
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(f"Error processing file modification event: {e}")
 
@@ -128,3 +122,15 @@ class _StaticTokenCreds:
     def refresh(self, request: Any) -> None:
         """No-op: token is managed by the CLI; we reload from file when needed."""
         return
+
+
+__all__ = [
+    "TOKEN_EXPIRY_BUFFER_SECONDS",
+    "CLI_REFRESH_THRESHOLD_SECONDS",
+    "CLI_REFRESH_COOLDOWN_SECONDS",
+    "TOKEN_REFRESH_MAX_WAIT_SECONDS",
+    "TOKEN_REFRESH_POLL_INTERVAL_SECONDS",
+    "CLI_REFRESH_COMMAND",
+    "GeminiPersonalCredentialsFileHandler",
+    "_StaticTokenCreds",
+]

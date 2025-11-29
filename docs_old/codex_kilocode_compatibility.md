@@ -81,7 +81,7 @@ export OPENAI_API_KEY="your-api-key-here"
 Restart the LLM Interactive Proxy to load the new configuration:
 
 ```bash
-python -m src.anthropic_server
+python -m src.core.cli
 ```
 
 ### Step 5: Verify Activation

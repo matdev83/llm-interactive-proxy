@@ -50,7 +50,7 @@ export OPENAI_API_KEY="your-api-key-here"
 ### Step 4: Restart Proxy (30 seconds)
 
 ```bash
-python -m src.anthropic_server
+python -m src.core.cli
 ```
 
 ### Step 5: Verify (1 minute)

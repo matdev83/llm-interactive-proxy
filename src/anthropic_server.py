@@ -15,14 +15,25 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def create_anthropic_app_async(config: AppConfig) -> FastAPI:
+async def create_anthropic_app_async(
+    config: AppConfig, built_app: FastAPI | None = None
+) -> FastAPI:
     """
     Create a lightweight FastAPI application with only Anthropic routes (async).
-    """
-    built_app = await build_app_async(config)
-    app_config = config
 
-    service_provider = getattr(built_app.state, "service_provider", None)
+    Args:
+        config: Application configuration
+        built_app: Optional existing main application. If provided, service provider
+                  will be extracted from it to avoid double initialization.
+    """
+    if built_app:
+        service_provider = getattr(built_app.state, "service_provider", None)
+        app_config = config
+    else:
+        built_app_internal = await build_app_async(config)
+        service_provider = getattr(built_app_internal.state, "service_provider", None)
+        app_config = config
+
     if service_provider is None and logger.isEnabledFor(logging.WARNING):
         logger.warning(
             "Service provider missing on base application; Anthropic routes may fail."

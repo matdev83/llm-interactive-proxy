@@ -23,8 +23,8 @@ def get_prompt_loader() -> AngelPromptLoader:
     return _prompt_loader
 
 
-# Backward compatibility: ANGEL_PROMPT constant
-ANGEL_PROMPT = get_prompt_loader().angel_prompt
+# Backward compatibility: ANGEL_PROMPT constant removed to avoid import-time I/O
+# Use get_prompt_loader().angel_prompt instead
 
 
 class AngelService:
