@@ -65,4 +65,6 @@ def main(
 ) -> None:
     """Entry-point retained for backwards compatibility with ``cli_v2``."""
 
-    _cli_module.main(argv=argv, build_app_fn=build_app_fn)
+    import asyncio
+
+    asyncio.run(_cli_module.main(argv=argv, build_app_fn=build_app_fn))

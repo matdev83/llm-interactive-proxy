@@ -41,7 +41,7 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
             name=name or self.backend_type,
         )
 
-    async def _discover_project_id(self, auth_session: Any) -> str:
+    async def _discover_project_id(self, auth_session: Any = None) -> str:
         """
         Discover or retrieve the project ID for Code Assist API (Free Tier).
 
@@ -51,6 +51,15 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
         # If we already have a project ID, return it
         if hasattr(self, "_project_id") and self._project_id:
             return str(self._project_id)
+
+        if not auth_session:
+            # Fallback to a simplified discovery or raise error if strictly required
+            # For now, we can assume it's required and raise if missing
+            logger.warning(
+                "auth_session required for free-tier project discovery but missing"
+            )
+            # We might return a default to avoid crash if called without session (e.g. generic probe)
+            return "default"
 
         initial_project_id = "default"
 

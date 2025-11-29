@@ -262,7 +262,7 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
 
         return await super()._perform_health_check()
 
-    async def _discover_project_id(self, auth_session: Any) -> str:
+    async def _discover_project_id(self, auth_session: Any = None) -> str:
         """
         Discover the project id using the paid-tier onboarding flow.
 
@@ -272,6 +272,17 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
         """
         if self._project_id:
             return str(self._project_id)
+
+        if not auth_session:
+            logger.warning(
+                "auth_session required for Antigravity project discovery but missing"
+            )
+            initial = (
+                self._oauth_credentials.get("project_id")
+                if self._oauth_credentials
+                else None
+            )
+            return str(initial or "default")
 
         initial_project_id = (
             self._oauth_credentials.get("project_id")
