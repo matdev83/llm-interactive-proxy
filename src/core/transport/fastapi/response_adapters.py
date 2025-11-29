@@ -1310,9 +1310,11 @@ def to_fastapi_streaming_response(
                                 model_name = envelope_model
 
                         force_usage_recalc = False
-                        if isinstance(metadata, dict) and metadata.get(
-                            "allow_usage_recalculation"
-                        ) or envelope_metadata.get("allow_usage_recalculation"):
+                        if (
+                            isinstance(metadata, dict)
+                            and metadata.get("allow_usage_recalculation")
+                            or envelope_metadata.get("allow_usage_recalculation")
+                        ):
                             force_usage_recalc = True
                         elif context is not None:
                             try:
@@ -1342,7 +1344,7 @@ def to_fastapi_streaming_response(
 
                                 prompt_hint = envelope_metadata.get("outbound_tokens")
                                 if (
-                                    isinstance(prompt_hint, (int, float))
+                                    isinstance(prompt_hint, int | float)
                                     and isinstance(computed_usage, dict)
                                     and computed_usage.get("prompt_tokens", 0) == 0
                                 ):
