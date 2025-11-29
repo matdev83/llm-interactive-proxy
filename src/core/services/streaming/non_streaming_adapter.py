@@ -166,9 +166,9 @@ def _extract_content(response: Any) -> str:
             except UnicodeDecodeError:
                 return content.decode("latin-1")
         if isinstance(content, dict):
-            import json
-
-            return json.dumps(content)
+            # Use safe_json_dumps to handle StopChunkWithUsage correctly
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+            return StopChunkWithUsage.safe_json_dumps(content)
         return str(content) if content else ""
 
     if isinstance(response, dict):

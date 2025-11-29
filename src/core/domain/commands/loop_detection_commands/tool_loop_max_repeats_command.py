@@ -75,7 +75,8 @@ class ToolLoopMaxRepeatsCommand(StatelessCommandBase, BaseCommand):
                 new_state=updated_state,
             )
         except Exception as e:
-            logger.error(f"Error setting tool loop max repeats: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error setting tool loop max repeats: {e}")
             return CommandResult(
                 success=False,
                 message=f"Error setting tool loop max repeats: {e}",

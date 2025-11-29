@@ -161,9 +161,12 @@ def get_service_collection() -> ServiceCollection:
         try:
             register_core_services(_service_collection, None)
         except Exception as exc:
-            logging.getLogger(__name__).exception(
-                "Failed to register core services into global service collection"
-            )
+            logger_for_this_file = logging.getLogger(__name__)
+            if logger_for_this_file.isEnabledFor(logging.ERROR):
+                logger_for_this_file.error(
+                    "Failed to register core services into global service collection",
+                    exc_info=True,
+                )
             _service_collection = None
             raise ServiceResolutionError(
                 "Failed to register core services",
@@ -184,10 +187,12 @@ def get_or_build_service_provider() -> IServiceProvider:
     global _service_provider
     if _service_provider is None:
         if _get_di_diagnostics():
-            logging.getLogger("llm.di").info(
-                "Building service provider; descriptors=%d",
-                len(get_service_collection()._descriptors),
-            )
+            di_logger = logging.getLogger("llm.di")
+            if di_logger.isEnabledFor(logging.INFO):
+                di_logger.info(
+                    "Building service provider; descriptors=%d",
+                    len(get_service_collection()._descriptors),
+                )
         _service_provider = get_service_collection().build_service_provider()
     return _service_provider
 
@@ -241,10 +246,11 @@ def _ensure_tool_call_reactor_services(
         return provider
 
     logger = logging.getLogger(__name__)
-    logger.warning(
-        "DI provider missing tool call reactor components: %s. Re-registering core services.",
-        ", ".join(missing_components),
-    )
+    if logger.isEnabledFor(logging.WARNING):
+        logger.warning(
+            "DI provider missing tool call reactor components: %s. Re-registering core services.",
+            ", ".join(missing_components),
+        )
 
     services = get_service_collection()
     descriptors = getattr(services, "_descriptors", {})
@@ -297,7 +303,8 @@ def register_core_services(
                 app_config,
             )  # type: ignore[type-abstract]
         except Exception as e:
-            logger.warning(f"Failed to register IConfig interface: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to register IConfig interface: {e}")
             # Continue without interface registration if it fails
     else:
         # Register default AppConfig as IConfig for testing and basic functionality
@@ -309,7 +316,8 @@ def register_core_services(
                 default_config,
             )  # type: ignore[type-abstract]
         except Exception as e:
-            logger.warning(f"Failed to register default IConfig interface: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Failed to register default IConfig interface: {e}")
             # Continue without interface registration if it fails
 
     # Helper wrappers to make registration idempotent and provide debug logging
@@ -324,10 +332,11 @@ def register_core_services(
         implementation_factory: Callable[[IServiceProvider], Any] | None = None,
     ) -> None:
         if _registered(service_type):
-            logger.debug(
-                "Skipping registration of %s; already present",
-                getattr(service_type, "__name__", str(service_type)),
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping registration of %s; already present",
+                    getattr(service_type, "__name__", str(service_type)),
+                )
             return
         services.add_singleton(
             service_type, implementation_type, implementation_factory
@@ -335,10 +344,11 @@ def register_core_services(
 
     def _add_instance(service_type: type, instance: Any) -> None:
         if _registered(service_type):
-            logger.debug(
-                "Skipping instance registration of %s; already present",
-                getattr(service_type, "__name__", str(service_type)),
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping instance registration of %s; already present",
+                    getattr(service_type, "__name__", str(service_type)),
+                )
             return
         services.add_instance(service_type, instance)
 
@@ -391,9 +401,11 @@ def register_core_services(
         for m in pkgutil.iter_modules(package.__path__):  # type: ignore[attr-defined]
             importlib.import_module(f"{package_name}.{m.name}")
     except Exception:
-        logging.getLogger(__name__).warning(
-            "Failed to import command handlers for registration", exc_info=True
-        )
+        file_logger = logging.getLogger(__name__)
+        if file_logger.isEnabledFor(logging.WARNING):
+            file_logger.warning(
+                "Failed to import command handlers for registration", exc_info=True
+            )
 
     # Register session service factory
     def _session_service_factory(provider: IServiceProvider) -> SessionService:
@@ -416,7 +428,8 @@ def register_core_services(
             cast(type, ISessionService), implementation_factory=_session_service_factory
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register ISessionService interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register ISessionService interface: {e}")
         # Continue if concrete SessionService is registered
 
     # Register command state service
@@ -443,7 +456,8 @@ def register_core_services(
             ),
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register ICommandStateService interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register ICommandStateService interface: {e}")
         # Continue if concrete CommandStateService is registered
 
     # Register command policy service
@@ -471,7 +485,8 @@ def register_core_services(
             ),
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register ICommandPolicyService interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register ICommandPolicyService interface: {e}")
         # Continue if concrete CommandPolicyService is registered
 
     # Register command processor
@@ -507,7 +522,8 @@ def register_core_services(
             implementation_factory=_command_processor_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register ICommandProcessor interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register ICommandProcessor interface: {e}")
         # Continue without interface registration if it fails
 
     # Register backend processor
@@ -537,7 +553,8 @@ def register_core_services(
             implementation_factory=_backend_processor_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IBackendProcessor interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IBackendProcessor interface: {e}")
         # Continue if concrete BackendProcessor is registered
 
     # Register response handlers
@@ -552,7 +569,8 @@ def register_core_services(
             cast(type, IStreamingResponseHandler), DefaultStreamingResponseHandler
         )
     except Exception as e:
-        logger.warning(f"Failed to register response handler interfaces: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register response handler interfaces: {e}")
         # Continue if concrete handlers are registered
 
     # Register MiddlewareApplicationManager and IMiddlewareApplicationManager with configured middleware list
@@ -586,9 +604,11 @@ def register_core_services(
                     )
                 )
         except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Error configuring EmptyResponseMiddleware: {e}", exc_info=True
-            )
+            file_logger = logging.getLogger(__name__)
+            if file_logger.isEnabledFor(logging.WARNING):
+                file_logger.warning(
+                    f"Error configuring EmptyResponseMiddleware: {e}", exc_info=True
+                )
 
         # Edit-precision response-side detection (optional)
         try:
@@ -599,10 +619,12 @@ def register_core_services(
             app_state = provider.get_required_service(ApplicationStateService)
             middlewares.append(EditPrecisionResponseMiddleware(app_state))
         except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Error configuring EditPrecisionResponseMiddleware: {e}",
-                exc_info=True,
-            )
+            file_logger = logging.getLogger(__name__)
+            if file_logger.isEnabledFor(logging.WARNING):
+                file_logger.warning(
+                    f"Error configuring EditPrecisionResponseMiddleware: {e}",
+                    exc_info=True,
+                )
 
         # Think tags fix middleware (optional)
         try:
@@ -621,10 +643,12 @@ def register_core_services(
                     )
                 )
         except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Error configuring ThinkTagsFixMiddleware: {e}",
-                exc_info=True,
-            )
+            file_logger = logging.getLogger(__name__)
+            if file_logger.isEnabledFor(logging.WARNING):
+                file_logger.warning(
+                    f"Error configuring ThinkTagsFixMiddleware: {e}",
+                    exc_info=True,
+                )
 
         if getattr(cfg.session, "json_repair_enabled", False):
             json_service: JsonRepairService = provider.get_required_service(
@@ -787,7 +811,8 @@ def register_core_services(
             implementation_factory=_loop_detector_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register ILoopDetector interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register ILoopDetector interface: {e}")
         # Continue if concrete LoopDetector is registered
 
     # Register response processor and bind to interface
@@ -801,7 +826,8 @@ def register_core_services(
             implementation_factory=_response_processor_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IResponseProcessor interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IResponseProcessor interface: {e}")
         # Continue if concrete ResponseProcessor is registered
 
     def _application_state_factory(
@@ -821,7 +847,8 @@ def register_core_services(
             if app_state_service:
                 app_state = app_state_service.get_setting("service_provider")
         except Exception as e:
-            logger.debug(f"Could not get app_state from ApplicationStateService: {e}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Could not get app_state from ApplicationStateService: {e}")
             app_state = None
 
         # Create app settings
@@ -835,7 +862,8 @@ def register_core_services(
             cast(type, IAppSettings), implementation_factory=_app_settings_factory
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IAppSettings interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IAppSettings interface: {e}")
         # Continue if concrete AppSettings is registered
 
     # Register application state service
@@ -847,7 +875,8 @@ def register_core_services(
             implementation_factory=_application_state_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IApplicationState interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IApplicationState interface: {e}")
         # Continue if concrete ApplicationStateService is registered
 
     # Register secure state service
@@ -866,7 +895,8 @@ def register_core_services(
             implementation_factory=_secure_state_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register secure state interfaces: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register secure state interfaces: {e}")
         # Continue if concrete SecureStateService is registered
 
     # Register secure command factory
@@ -908,7 +938,8 @@ def register_core_services(
             cast(type, ISessionManager), implementation_factory=_session_manager_factory
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register ISessionManager interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register ISessionManager interface: {e}")
         # Continue if concrete SessionManager is registered
 
     # Register agent response formatter
@@ -928,7 +959,8 @@ def register_core_services(
             implementation_factory=_agent_response_formatter_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IAgentResponseFormatter interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IAgentResponseFormatter interface: {e}")
         # Continue if concrete AgentResponseFormatter is registered
 
     # Register response manager
@@ -945,7 +977,8 @@ def register_core_services(
             implementation_factory=_response_manager_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IResponseManager interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IResponseManager interface: {e}")
         # Continue if concrete ResponseManager is registered
 
     # Register backend request manager
@@ -973,7 +1006,8 @@ def register_core_services(
             implementation_factory=_backend_request_manager_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IBackendRequestManager interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IBackendRequestManager interface: {e}")
         # Continue if concrete BackendRequestManager is registered
 
     # Register stream normalizer
@@ -1002,13 +1036,15 @@ def register_core_services(
                 loop_detection_processor = provider.get_required_service(
                     DomainLoopDetectionProcessor
                 )
-                logger.debug(
-                    "LoopDetectionProcessor successfully registered for streaming"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "LoopDetectionProcessor successfully registered for streaming"
+                    )
             except Exception as e:
-                logger.warning(
-                    f"Failed to register LoopDetectionProcessor for streaming: {e}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register LoopDetectionProcessor for streaming: {e}"
+                    )
                 loop_detection_processor = None
             middleware_application_processor = provider.get_required_service(
                 MiddlewareApplicationProcessor
@@ -1029,13 +1065,15 @@ def register_core_services(
                         ThinkTagsProcessor
                     )
                     processors.append(cast(IStreamProcessor, think_tags_processor))
-                    logger.debug(
-                        "ThinkTagsProcessor successfully registered for streaming"
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "ThinkTagsProcessor successfully registered for streaming"
+                        )
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to register ThinkTagsProcessor for streaming: {e}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to register ThinkTagsProcessor for streaming: {e}"
+                        )
             # Then tool-call repair
             if tool_call_repair_processor is not None:
                 processors.append(tool_call_repair_processor)
@@ -1047,10 +1085,11 @@ def register_core_services(
         except Exception as e:
             # Fail fast: streaming pipeline must be fully configured
             # Empty processor list fallback is no longer acceptable (P0-3 fix)
-            logger.error(
-                f"Failed to create stream processors: {e}. "
-                "Streaming pipeline requires all processors to be properly configured."
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failed to create stream processors: {e}. "
+                    "Streaming pipeline requires all processors to be properly configured."
+                )
             raise ServiceResolutionError(
                 "Failed to create streaming pipeline processors",
                 details={
@@ -1069,7 +1108,8 @@ def register_core_services(
             implementation_factory=_stream_normalizer_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IStreamNormalizer interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IStreamNormalizer interface: {e}")
         # Continue if concrete StreamNormalizer is registered
 
     # Register ResponseParser
@@ -1083,7 +1123,8 @@ def register_core_services(
             cast(type, IResponseParser), implementation_factory=_response_parser_factory
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IResponseParser interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IResponseParser interface: {e}")
         # Continue if concrete ResponseParser is registered
 
     # Register individual stream processors
@@ -1396,7 +1437,8 @@ def register_core_services(
             implementation_factory=_tool_call_repair_service_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IToolCallRepairService interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IToolCallRepairService interface: {e}")
         # Continue if concrete ToolCallRepairService is registered
 
     # Register dangerous command service
@@ -1546,14 +1588,16 @@ def register_core_services(
                     try:
                         reactor.register_handler_sync(config_handler)
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to register config steering handler: {e}",
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register config steering handler: {e}",
+                                exc_info=True,
+                            )
             except Exception as e:
-                logger.warning(
-                    "Failed to register steering handlers: %s", e, exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to register steering handlers: %s", e, exc_info=True
+                    )
 
             # Register DangerousCommandHandler if enabled in session config
             try:
@@ -1575,14 +1619,16 @@ def register_core_services(
                     try:
                         reactor.register_handler_sync(dangerous_handler)
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to register dangerous command handler: {e}",
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register dangerous command handler: {e}",
+                                exc_info=True,
+                            )
             except Exception as e:
-                logger.warning(
-                    f"Failed to register DangerousCommandHandler: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register DangerousCommandHandler: {e}", exc_info=True
+                    )
 
             # Register PytestFullSuiteHandler if enabled
             try:
@@ -1597,14 +1643,16 @@ def register_core_services(
                     try:
                         reactor.register_handler_sync(pytest_full_suite_handler)
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to register pytest full-suite handler: {e}",
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register pytest full-suite handler: {e}",
+                                exc_info=True,
+                            )
             except Exception as e:
-                logger.warning(
-                    f"Failed to register PytestFullSuiteHandler: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register PytestFullSuiteHandler: {e}", exc_info=True
+                    )
 
             # Register PytestContextSavingHandler if enabled
             try:
@@ -1617,14 +1665,17 @@ def register_core_services(
                     try:
                         reactor.register_handler_sync(context_saving_handler)
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to register pytest context saving handler: {e}",
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register pytest context saving handler: {e}",
+                                exc_info=True,
+                            )
             except Exception as e:
-                logger.warning(
-                    f"Failed to register PytestContextSavingHandler: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register PytestContextSavingHandler: {e}",
+                        exc_info=True,
+                    )
 
             # Register PytestCompressionHandler if enabled in session config
             try:
@@ -1645,14 +1696,17 @@ def register_core_services(
                     try:
                         reactor.register_handler_sync(pytest_handler)
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to register pytest compression handler: {e}",
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register pytest compression handler: {e}",
+                                exc_info=True,
+                            )
             except Exception as e:
-                logger.warning(
-                    f"Failed to register PytestCompressionHandler: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register PytestCompressionHandler: {e}",
+                        exc_info=True,
+                    )
 
             # Register ToolAccessControlHandler if access policies are configured
             try:
@@ -1675,19 +1729,23 @@ def register_core_services(
                     )
                     try:
                         reactor.register_handler_sync(tool_access_handler)
-                        logger.info(
-                            f"Registered ToolAccessControlHandler with priority 90 "
-                            f"({len(policy_service._policies)} policies loaded)"
-                        )
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                f"Registered ToolAccessControlHandler with priority 90 "
+                                f"({len(policy_service._policies)} policies loaded)"
+                            )
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to register tool access control handler: {e}",
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register tool access control handler: {e}",
+                                exc_info=True,
+                            )
             except Exception as e:
-                logger.warning(
-                    f"Failed to register ToolAccessControlHandler: {e}", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register ToolAccessControlHandler: {e}",
+                        exc_info=True,
+                    )
 
         return reactor
 
@@ -1820,16 +1878,18 @@ def register_core_services(
         try:
             failover_coordinator = provider.get_service(IFailoverCoordinator)  # type: ignore[type-abstract]
         except Exception as e:
-            logger.debug(f"FailoverCoordinator not available: {e}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"FailoverCoordinator not available: {e}")
 
         # Get backend config provider or create one
         backend_config_provider = None
         try:
             backend_config_provider = provider.get_service(IBackendConfigProvider)  # type: ignore[type-abstract]
         except Exception as e:
-            logger.debug(
-                f"BackendConfigProvider not available, will create default: {e}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"BackendConfigProvider not available, will create default: {e}"
+                )
 
         # If not available, create one with the app config
         if backend_config_provider is None:
@@ -1873,7 +1933,8 @@ def register_core_services(
             cast(type, IBackendService), implementation_factory=_backend_service_factory
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IBackendService interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IBackendService interface: {e}")
         # Continue if concrete BackendService is registered
 
     # Register FailoverService first (dependency of FailoverCoordinator)
@@ -1907,7 +1968,8 @@ def register_core_services(
             implementation_factory=_failover_coordinator_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IFailoverCoordinator interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IFailoverCoordinator interface: {e}")
         # Continue if concrete FailoverCoordinator is registered
 
     # Register request processor
@@ -1937,7 +1999,8 @@ def register_core_services(
             implementation_factory=_request_processor_factory,
         )  # type: ignore[type-abstract]
     except Exception as e:
-        logger.warning(f"Failed to register IRequestProcessor interface: {e}")
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(f"Failed to register IRequestProcessor interface: {e}")
         # Continue if concrete RequestProcessor is registered
 
 

@@ -142,7 +142,9 @@ class LoopDetectionProcessor(IStreamProcessor):
             # Extract text from dict (e.g., delta content)
             if "content" in content:
                 return str(content["content"])
-            return json.dumps(content)
+            # Use safe_json_dumps to handle StopChunkWithUsage correctly
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+            return StopChunkWithUsage.safe_json_dumps(content)
         return str(content)
 
 

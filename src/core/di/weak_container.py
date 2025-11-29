@@ -76,7 +76,10 @@ class WeakDIContainer:
                 try:
                     cleanup_callback(instance)
                 except Exception as e:
-                    logger.warning(f"Error in cleanup callback for {service_type}: {e}")
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Error in cleanup callback for {service_type}: {e}"
+                        )
 
             weakref.ref(instance, on_delete)
 
@@ -128,9 +131,10 @@ class WeakDIContainer:
                             try:
                                 cleanup_callback(instance)
                             except Exception as e:
-                                logger.warning(
-                                    f"Error in cleanup callback for {service_type}: {e}"
-                                )
+                                if logger.isEnabledFor(logging.WARNING):
+                                    logger.warning(
+                                        f"Error in cleanup callback for {service_type}: {e}"
+                                    )
 
                         weakref.ref(instance, on_delete)
 
@@ -149,9 +153,10 @@ class WeakDIContainer:
                     try:
                         cleanup_callback(instance)
                     except Exception as e:
-                        logger.warning(
-                            f"Error in cleanup callback for {service_type}: {e}"
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Error in cleanup callback for {service_type}: {e}"
+                            )
 
             self._instances.clear()
 
@@ -175,9 +180,10 @@ class WeakDIContainer:
                     try:
                         cleanup_callback(instance)
                     except Exception as e:
-                        logger.warning(
-                            f"Error in cleanup callback for {service_type}: {e}"
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Error in cleanup callback for {service_type}: {e}"
+                            )
 
                 del self._instances[service_type]  # type: ignore[arg-type]
                 removed = True
@@ -260,7 +266,8 @@ class ServiceLifecycleManager:
         if self._started:
             return
 
-        logger.info("Starting service lifecycle manager")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Starting service lifecycle manager")
 
         # Call startup callbacks
         for callback in self._startup_callbacks:
@@ -270,18 +277,21 @@ class ServiceLifecycleManager:
                 else:
                     callback()
             except Exception as e:
-                logger.error(f"Error in startup callback: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Error in startup callback: {e}")
                 raise
 
         self._started = True
-        logger.info("Service lifecycle manager started")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Service lifecycle manager started")
 
     async def shutdown(self) -> None:
         """Shutdown all services."""
         if not self._started:
             return
 
-        logger.info("Shutting down service lifecycle manager")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Shutting down service lifecycle manager")
 
         # Call shutdown callbacks in reverse order
         for callback in reversed(self._shutdown_callbacks):
@@ -291,13 +301,15 @@ class ServiceLifecycleManager:
                 else:
                     callback()
             except Exception as e:
-                logger.warning(f"Error in shutdown callback: {e}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(f"Error in shutdown callback: {e}")
 
         # Clear container instances
         await self._container.clear_instances()
 
         self._started = False
-        logger.info("Service lifecycle manager shutdown completed")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Service lifecycle manager shutdown completed")
 
 
 # Global weak DI container

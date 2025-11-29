@@ -94,7 +94,8 @@ class BackendSimulator:
         # Find the next unmatched request
         request_indices = sorted(self._response_queues.keys())
         if self._request_index >= len(request_indices):
-            logger.warning("No more captured requests to match")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("No more captured requests to match")
             return RequestMatch(matched=False)
 
         req_idx = request_indices[self._request_index]
@@ -106,10 +107,11 @@ class BackendSimulator:
         # Check if this is a streaming response
         is_streaming = any(e.metadata.is_stream_start for e in response_entries)
 
-        logger.debug(
-            f"Matched request {self._request_index} to captured request at index {req_idx}, "
-            f"streaming={is_streaming}, responses={len(response_entries)}"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Matched request {self._request_index} to captured request at index {req_idx}, "
+                f"streaming={is_streaming}, responses={len(response_entries)}"
+            )
 
         return RequestMatch(
             matched=True,

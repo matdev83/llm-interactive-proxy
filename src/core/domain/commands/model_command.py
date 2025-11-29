@@ -82,7 +82,8 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
             )
         except Exception as e:
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
-            logger.error(error_message)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(error_message)
             return CommandResult(success=False, message=error_message, name=self.name)
 
     def _set_model(self, model_name: str, session: Session) -> CommandResult:
@@ -114,7 +115,8 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
             )
         except Exception as e:
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
-            logger.error(error_message)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(error_message)
             return CommandResult(success=False, message=error_message, name=self.name)
 
     def _is_static_route_locked(self) -> bool:
@@ -126,11 +128,12 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
             try:
                 return policy.is_static_route_enforced()
             except Exception as exc:  # pragma: no cover - defensive logging
-                logger.debug(
-                    "Policy service failed to determine static routing: %s",
-                    exc,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Policy service failed to determine static routing: %s",
+                        exc,
+                        exc_info=True,
+                    )
 
         import os
 

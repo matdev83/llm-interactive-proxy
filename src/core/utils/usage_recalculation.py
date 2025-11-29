@@ -60,12 +60,13 @@ def recalculate_usage_after_transformation(
         reduction_pct = (
             (reduction / original_completion * 100) if original_completion > 0 else 0
         )
-        logger.info(
-            f"Usage recalculated after content transformation: "
-            f"completion_tokens: {original_completion} -> {completion_tokens} "
-            f"({reduction} tokens / {reduction_pct:.1f}% reduction), "
-            f"total_tokens: {original_usage.get('total_tokens', 0)} -> {total_tokens}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Usage recalculated after content transformation: "
+                f"completion_tokens: {original_completion} -> {completion_tokens} "
+                f"({reduction} tokens / {reduction_pct:.1f}% reduction), "
+                f"total_tokens: {original_usage.get('total_tokens', 0)} -> {total_tokens}"
+            )
 
     return {
         "prompt_tokens": prompt_tokens,

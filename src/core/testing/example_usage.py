@@ -152,7 +152,8 @@ def create_validated_test_app() -> Any:
 
         logger = logging.getLogger(__name__)
         for warning in warnings:
-            logger.warning(f"Test app validation warning: {warning}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Test app validation warning: {warning}")
 
     return app
 
@@ -229,9 +230,11 @@ if __name__ == "__main__":
         logger.info("Static analysis results:")
         if issues:
             for issue in issues:
-                logger.info(f"  - {issue}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"  - {issue}")
         else:
-            logger.info("  No issues found!")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("  No issues found!")
 
     # The checker should detect the ProblematicTestStage as an issue
     # but not flag the SafeTestStage

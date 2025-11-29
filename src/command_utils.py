@@ -82,7 +82,8 @@ def is_tool_call_result(text: str) -> bool:
     # Use pre-compiled patterns for performance optimization
     for pattern in _TOOL_RESULT_PATTERNS:
         if pattern.match(text):
-            logger.debug("Detected tool call result pattern")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Detected tool call result pattern")
             return True
     return False
 
@@ -97,7 +98,8 @@ def extract_feedback_from_tool_result(text: str) -> str:
     match = re.search(feedback_pattern, text, re.DOTALL | re.IGNORECASE)
     if match:
         feedback_content = match.group(1).strip()
-        logger.debug("Extracted feedback from tool result: %r", feedback_content)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Extracted feedback from tool result: %r", feedback_content)
         return feedback_content
     return ""
 
@@ -117,11 +119,13 @@ def get_text_for_command_check(content: Any) -> str:
         # Check if this tool call result contains user feedback with commands
         feedback_text = extract_feedback_from_tool_result(text_to_check)
         if not feedback_text:
-            logger.debug("Skipping command detection in tool call result content")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Skipping command detection in tool call result content")
             return ""
-        logger.debug(
-            "Found feedback in tool call result, checking for commands in feedback"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Found feedback in tool call result, checking for commands in feedback"
+            )
         return COMMENT_LINE_PATTERN.sub("", feedback_text).strip()
 
     # Remove comments and strip whitespace for accurate command pattern matching

@@ -75,7 +75,8 @@ class ToolLoopTTLCommand(StatelessCommandBase, BaseCommand):
                 new_state=updated_state,
             )
         except Exception as e:
-            logger.error(f"Error setting tool loop TTL: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error setting tool loop TTL: {e}")
             return CommandResult(
                 success=False,
                 message=f"Error setting tool loop TTL: {e}",

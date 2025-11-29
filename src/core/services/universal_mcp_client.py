@@ -60,7 +60,8 @@ class UniversalMCPClient:
             # 3. Performing MCP handshake
             # 4. Storing connection handle
 
-            logger.info(f"Connecting to MCP server: {server_name}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Connecting to MCP server: {server_name}")
 
             # Placeholder implementation
             self._connected_servers[server_name] = {
@@ -75,7 +76,8 @@ class UniversalMCPClient:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to connect to MCP server {server_name}: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to connect to MCP server {server_name}: {e}")
             return False
 
     async def _discover_server_tools(self, server_name: str) -> None:
@@ -113,7 +115,8 @@ class UniversalMCPClient:
                     )
 
         except Exception as e:
-            logger.error(f"Failed to discover tools from server {server_name}: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to discover tools from server {server_name}: {e}")
 
     async def execute_tool(
         self, tool_name: str, arguments: dict[str, Any]
@@ -169,7 +172,8 @@ class UniversalMCPClient:
             }
 
         except Exception as e:
-            logger.error(f"Error executing MCP tool {tool_name}: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error executing MCP tool {tool_name}: {e}", exc_info=True)
             return {
                 "output": f"Error executing MCP tool '{tool_name}': {e!s}",
                 "exit_code": 1,
@@ -214,7 +218,8 @@ class UniversalMCPClient:
             }
 
         except Exception as e:
-            logger.error(f"Error reading MCP resource {uri}: {e}", exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error reading MCP resource {uri}: {e}", exc_info=True)
             raise
 
     async def _send_tool_call(
@@ -283,7 +288,8 @@ class UniversalMCPClient:
                 # TODO: Implement actual server disconnection
                 # This would involve properly closing the MCP connection
 
-                logger.info(f"Disconnecting from MCP server: {server_name}")
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(f"Disconnecting from MCP server: {server_name}")
 
                 # Remove tools from this server
                 tools_to_remove = [
@@ -299,7 +305,8 @@ class UniversalMCPClient:
                 del self._connected_servers[server_name]
 
         except Exception as e:
-            logger.error(f"Error disconnecting from MCP server {server_name}: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Error disconnecting from MCP server {server_name}: {e}")
 
     def get_server_status(self) -> dict[str, dict[str, Any]]:
         """Get status of all connected MCP servers.

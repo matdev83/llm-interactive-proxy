@@ -141,9 +141,10 @@ class StructuredOutputMiddleware(IResponseMiddleware):
             return updated_response
 
         except (ValidationError, JSONParsingError) as e:
-            logger.error(
-                f"Structured output validation failed for session {session_id}: {e}"
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Structured output validation failed for session {session_id}: {e}"
+                )
 
             # Add error information to the response metadata
             if hasattr(response, "metadata") and response.metadata is not None:
@@ -177,10 +178,11 @@ class StructuredOutputMiddleware(IResponseMiddleware):
             return response
 
         except Exception as e:
-            logger.error(
-                f"Unexpected error in structured output middleware for session {session_id}: {e}",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Unexpected error in structured output middleware for session {session_id}: {e}",
+                    exc_info=True,
+                )
 
             # Add error information to the response metadata
             if hasattr(response, "metadata") and response.metadata is not None:
@@ -229,9 +231,10 @@ class StructuredOutputMiddleware(IResponseMiddleware):
         elif isinstance(response, str):
             return response
         else:
-            logger.warning(
-                f"Unable to extract content from response type: {type(response)}"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Unable to extract content from response type: {type(response)}"
+                )
             return None
 
     def _update_response(

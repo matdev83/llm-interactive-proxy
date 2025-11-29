@@ -242,7 +242,9 @@ class ContentAccumulationProcessor(IStreamProcessor):
                     # passed through as-is for proper SSE serialization
                     chunk_text = ""
                 else:
-                    chunk_text = json.dumps(raw_chunk)
+                    # Use safe_json_dumps to handle StopChunkWithUsage correctly
+                    # (though we should never reach here for StopChunkWithUsage due to check above)
+                    chunk_text = StopChunkWithUsage.safe_json_dumps(raw_chunk)
             # OPTIMIZATION: Encode content ONCE and cache both string and bytes
             encoded_content = chunk_text.encode("utf-8")
             content_length = len(encoded_content)

@@ -183,19 +183,22 @@ class TranslationService:
                 raise
             except (ValueError, KeyError) as e:
                 if isinstance(e, json.JSONDecodeError):
-                    logger.error(
-                        f"JSON decode error in Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}"
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            f"JSON decode error in Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}"
+                        )
                     raise ValueError(f"Invalid JSON in request: {e}") from e
-                logger.error(
-                    f"Invalid format in Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}"
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Invalid format in Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}"
+                    )
                 raise ValueError(f"Invalid request format: {e}") from e
             except Exception as e:
-                logger.error(
-                    f"Unexpected error converting Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Unexpected error converting Responses API request - model={getattr(request, 'model', 'unknown')}, error={e}",
+                        exc_info=True,
+                    )
                 raise
         converter = self._to_domain_request_converters.get(source_format)
         if not converter:
@@ -773,9 +776,10 @@ class TranslationService:
             )
             return converted_response
         except Exception as e:
-            logger.error(
-                f"Failed to convert response to Responses API format - response_id={getattr(response, 'id', 'unknown')}, error={e}"
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failed to convert response to Responses API format - response_id={getattr(response, 'id', 'unknown')}, error={e}"
+                )
             raise
 
     def from_domain_to_responses_request(
@@ -793,9 +797,10 @@ class TranslationService:
             )
             return converted_request
         except Exception as e:
-            logger.error(
-                f"Failed to convert request to Responses API format - model={request.model}, error={e}"
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failed to convert request to Responses API format - model={request.model}, error={e}"
+                )
             raise
 
     def enhance_structured_output_response(

@@ -247,10 +247,11 @@ class TokenWindowLoopDetector(ILoopDetector):
             chunk_hash = hashlib.sha256(current_chunk.encode("utf-8")).hexdigest()
 
             if self._is_loop_detected_for_chunk(current_chunk, chunk_hash):
-                logger.warning(
-                    "Loop detected: chunk repeated %d times within short distance",
-                    self.content_loop_threshold,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Loop detected: chunk repeated %d times within short distance",
+                        self.content_loop_threshold,
+                    )
                 return True
 
             # Move to next position in the sliding window
@@ -382,12 +383,14 @@ class TokenWindowLoopDetector(ILoopDetector):
     def enable(self) -> None:
         """Enable loop detection."""
         self._is_enabled = True
-        logger.info("Loop detection enabled")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Loop detection enabled")
 
     def disable(self) -> None:
         """Disable loop detection."""
         self._is_enabled = False
-        logger.info("Loop detection disabled")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Loop detection disabled")
 
     def is_enabled(self) -> bool:
         """Check if loop detection is enabled."""

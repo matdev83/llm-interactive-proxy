@@ -57,7 +57,8 @@ class ToolLoopDetectionCommand(StatelessCommandBase, BaseCommand):
                 new_state=updated_state,
             )
         except Exception as e:
-            logger.error("Error toggling tool loop detection: %s", e, exc_info=True)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Error toggling tool loop detection: %s", e, exc_info=True)
             return CommandResult(
                 success=False,
                 message=f"Error toggling tool loop detection: {e}",

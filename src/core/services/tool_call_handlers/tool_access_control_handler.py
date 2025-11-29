@@ -122,19 +122,22 @@ class ToolAccessControlHandler(IToolCallHandler):
             is_first_block = context.session_id not in self._sessions_with_blocked_tools
             if is_first_block:
                 self._sessions_with_blocked_tools.add(context.session_id)
-                logger.info(
-                    f"First blocked tool call in session {context.session_id}: '{tool_name}' "
-                    f"by policy '{metadata.get('policy_applied')}'"
-                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"First blocked tool call in session {context.session_id}: '{tool_name}' "
+                        f"by policy '{metadata.get('policy_applied')}'"
+                    )
 
-            logger.info(
-                f"Blocked tool call '{tool_name}' by policy "
-                f"'{metadata.get('policy_applied')}' in session {context.session_id}"
-            )
-            logger.debug(
-                f"Block reason: {metadata.get('reason')}, "
-                f"model: {model_name}, agent: {agent}"
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Blocked tool call '{tool_name}' by policy "
+                    f"'{metadata.get('policy_applied')}' in session {context.session_id}"
+                )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Block reason: {metadata.get('reason')}, "
+                    f"model: {model_name}, agent: {agent}"
+                )
 
             # Increment telemetry counter
             if self._reactor_service and hasattr(
@@ -166,10 +169,11 @@ class ToolAccessControlHandler(IToolCallHandler):
 
         except Exception as e:
             # On error, fail open (allow the tool call)
-            logger.warning(
-                f"Tool access policy evaluation failed for tool '{tool_name}': {e}",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Tool access policy evaluation failed for tool '{tool_name}': {e}",
+                    exc_info=True,
+                )
             return ToolCallReactionResult(
                 should_swallow=False,
                 metadata={

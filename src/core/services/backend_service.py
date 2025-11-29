@@ -314,7 +314,9 @@ class BackendService(IBackendService):
                 return f"data: {content}\n\n".encode()
 
             if isinstance(content, dict):
-                return f"data: {json.dumps(content)}\n\n".encode()
+                # Use safe_json_dumps to handle StopChunkWithUsage correctly
+                from src.core.ports.streaming_contracts import StopChunkWithUsage
+                return f"data: {StopChunkWithUsage.safe_json_dumps(content)}\n\n".encode()
 
             return f"data: {content}\n\n".encode()
 
@@ -1638,13 +1640,16 @@ class BackendService(IBackendService):
     ) -> LLMBackend:
         """Get an existing backend or create a new one."""
 
-        cache_key = backend_type
-        if backend_type == "gemini-cli-acp":
-            cache_key = (
-                f"{backend_type}:{session_id}"
-                if session_id
-                else f"{backend_type}:default"
-            )
+        # Always use session-specific cache key if session_id is provided
+        # This ensures all backends are isolated per session
+        if session_id:
+            cache_key = f"{backend_type}:{session_id}"
+        elif backend_type == "gemini-cli-acp":
+            # Special case for gemini-cli-acp which requires isolation even without explicit session_id
+            # (though session_id should ideally be provided)
+            cache_key = f"{backend_type}:default"
+        else:
+            cache_key = backend_type
 
         if self._is_per_session_cache_key(cache_key, backend_type):
             backend = self._per_session_backends.get(cache_key)

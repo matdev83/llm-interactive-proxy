@@ -68,12 +68,13 @@ class LoopDetector(ILoopDetector):
         # characters have arrived (important for token-by-token streaming).
         self._last_analysis_position = -1
 
-        logger.info(
-            "LoopDetector initialized: enabled=%s, buffer_size=%s, max_pattern_length=%s",
-            self.is_active,
-            self.config.buffer_size,
-            self.config.max_pattern_length,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "LoopDetector initialized: enabled=%s, buffer_size=%s, max_pattern_length=%s",
+                self.is_active,
+                self.config.buffer_size,
+                self.config.max_pattern_length,
+            )
 
     def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
         """Process a chunk of response text and check for loops."""
@@ -111,9 +112,10 @@ class LoopDetector(ILoopDetector):
                 try:
                     self.on_loop_detected(event)
                 except Exception as e:
-                    logger.error(
-                        "Error in loop detection callback: %s", e, exc_info=True
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            "Error in loop detection callback: %s", e, exc_info=True
+                        )
             return event
 
         # No detection
@@ -122,12 +124,14 @@ class LoopDetector(ILoopDetector):
     def enable(self) -> None:
         """Enable loop detection."""
         self.is_active = True
-        logger.info("Loop detection enabled")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Loop detection enabled")
 
     def disable(self) -> None:
         """Disable loop detection."""
         self.is_active = False
-        logger.info("Loop detection disabled")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Loop detection disabled")
 
     def is_enabled(self) -> bool:
         """Check if loop detection is enabled."""
@@ -141,7 +145,8 @@ class LoopDetector(ILoopDetector):
         self._last_analysis_position = -1
         self.analyzer.reset()  # Reset the analyzer's state
         self._history.clear()
-        logger.debug("Loop detector state reset")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Loop detector state reset")
 
     def get_stats(self) -> StandardLoopDetectorStats:
         """Get detector statistics."""

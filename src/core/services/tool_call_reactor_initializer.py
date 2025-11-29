@@ -31,10 +31,12 @@ async def initialize_tool_call_reactor(
         _ = provider.get_required_service(ToolCallReactorService)
 
         # Handlers are registered during DI setup. Nothing to do here.
-        logger.info("Tool call reactor is available")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Tool call reactor is available")
 
     except Exception as e:
-        logger.error(f"Failed to initialize tool call reactor: {e}", exc_info=True)
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(f"Failed to initialize tool call reactor: {e}", exc_info=True)
         raise
 
 

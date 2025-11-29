@@ -104,7 +104,8 @@ class NewCommandService(ICommandService):
 
         session = await self._state_service.get_session(session_id)
         if not session:
-            logger.warning(f"Session '{session_id}' not found.")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Session '{session_id}' not found.")
             return ProcessedResult(
                 modified_messages=messages, command_executed=False, command_results=[]
             )
@@ -155,7 +156,8 @@ class NewCommandService(ICommandService):
 
         handler_class = get_command_handler(command.name)
         if not handler_class:
-            logger.warning(f"Command '{command.name}' not found.")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Command '{command.name}' not found.")
             return ProcessedResult(
                 modified_messages=modified_messages,
                 command_executed=False,

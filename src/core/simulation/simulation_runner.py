@@ -132,7 +132,8 @@ class SimulationRunner:
         try:
             session = self._reader.load(capture_path)
         except Exception as e:
-            logger.error(f"Failed to load capture file: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Failed to load capture file: {e}")
             return SimulationResult(
                 success=False,
                 capture_file=str(capture_path),
@@ -178,7 +179,8 @@ class SimulationRunner:
                     all_mismatches.extend(result.content_mismatches)
                     all_deviations.extend(result.timing_deviations)
         except Exception as e:
-            logger.error(f"Simulation failed: {e}")
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(f"Simulation failed: {e}")
             failed += 1
             all_mismatches.append(
                 ContentMismatch(
@@ -221,7 +223,8 @@ class SimulationRunner:
         for path in capture_paths:
             result = await self.run(path)
             results.append(result)
-            logger.info(result.summary)
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(result.summary)
         return results
 
     def run_sync(self, capture_path: Path | str) -> SimulationResult:

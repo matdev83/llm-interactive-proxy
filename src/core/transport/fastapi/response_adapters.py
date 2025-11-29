@@ -577,11 +577,12 @@ def _ensure_usage(
         existing_completion, completion_tokens
     ):
         if existing_completion != completion_tokens:
-            logger.info(
-                "Usage completion tokens recalculated: %s -> %s",
-                existing_completion,
-                completion_tokens,
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Usage completion tokens recalculated: %s -> %s",
+                    existing_completion,
+                    completion_tokens,
+                )
         usage["completion_tokens"] = completion_tokens
 
     usage.setdefault("prompt_tokens", prompt_tokens_hint or 0)
@@ -1213,9 +1214,10 @@ def to_fastapi_streaming_response(
                     )
 
             except Exception as e:
-                logger.error(
-                    "Error during streaming content conversion: %s", e, exc_info=True
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Error during streaming content conversion: %s", e, exc_info=True
+                    )
                 yield StreamingContent(
                     content="",
                     metadata={"error": str(e), "finish_reason": "error"},

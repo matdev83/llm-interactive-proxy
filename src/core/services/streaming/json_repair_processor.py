@@ -217,16 +217,16 @@ class JsonRepairProcessor(IStreamProcessor):
                     message=f"JSON repair failed in strict mode: {e}",
                     details={"original_buffer": state.buffer},
                 ) from e
-            logger.warning("JSON repair raised error: %s", e)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("JSON repair raised error: %s", e)
             return JsonRepairResult(success=False, content=None)
 
         if result.success:
             self._increment_success_metrics()
         else:
             self._increment_failure_metrics()
-            logger.warning(
-                "JSON block detected but failed to repair. Flushing raw buffer."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("JSON block detected but failed to repair. Flushing raw buffer.")
         return result
 
     def _flush_final_buffer(self, state: JsonRepairBufferState) -> str | None:
@@ -259,9 +259,10 @@ class JsonRepairProcessor(IStreamProcessor):
 
     def _log_buffer_capacity_warning(self, state: JsonRepairBufferState) -> None:
         if state.json_started and len(state.buffer) > self._buffer_cap_bytes:
-            logger.warning(
-                "Buffer capacity exceeded during JSON repair. Continuing to buffer until completion."
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Buffer capacity exceeded during JSON repair. Continuing to buffer until completion."
+                )
 
     def _increment_success_metrics(self) -> None:
         metrics.inc(

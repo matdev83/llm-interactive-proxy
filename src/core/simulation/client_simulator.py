@@ -251,7 +251,8 @@ class ClientSimulator:
                                 )
                             )
         except Exception as e:
-            logger.warning(f"Error consuming stream: {e}")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(f"Error consuming stream: {e}")
 
         # Check for missing chunks
         if len(actual_chunks) < len(expected_chunks):
@@ -363,7 +364,8 @@ class ClientSimulator:
 
                 results.append(result)
             except Exception as e:
-                logger.error(f"Error replaying request {req.sequence}: {e}")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(f"Error replaying request {req.sequence}: {e}")
                 results.append(
                     ValidationResult(
                         success=False,

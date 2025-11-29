@@ -49,16 +49,17 @@ class UsageChunkLeakError(LLMProxyError):
 
 
 class StopChunkWithUsage(dict):
-    """A dict subclass that prevents accidental stringification.
+    """A dict subclass that prevents accidental stringification and JSON serialization.
 
     This class wraps the final stop chunk dict (containing usage data) and
     raises an error if anyone attempts to:
     - Convert it to string via str()
-    - Serialize it via json.dumps() when treated as a string
+    - Serialize it via json.dumps() directly
     - Interpolate it in an f-string or % formatting
 
     The only valid way to serialize this is through StreamingContent.to_bytes()
-    which handles it as an OpenAI-format chunk.
+    which handles it as an OpenAI-format chunk, or by explicitly converting to
+    a plain dict first.
 
     Usage:
         stop_chunk = StopChunkWithUsage({
@@ -66,9 +67,10 @@ class StopChunkWithUsage(dict):
             "choices": [...],
             "usage": {...}
         })
-        # This will raise UsageChunkLeakError:
+        # These will raise UsageChunkLeakError:
         str(stop_chunk)
         f"Content: {stop_chunk}"
+        json.dumps(stop_chunk)  # Raises TypeError
 
         # This is the correct way (handled by to_bytes()):
         json.dumps(dict(stop_chunk))  # Explicitly convert to plain dict first
@@ -87,6 +89,22 @@ class StopChunkWithUsage(dict):
     def __repr__(self) -> str:
         """Safe repr for debugging - shows it's a protected chunk."""
         return f"<StopChunkWithUsage id={self.get('id')} usage={self.get('usage')}>"
+
+    def items(self):
+        """Override items() to prevent json.dumps() from serializing directly.
+        
+        This makes json.dumps(StopChunkWithUsage) raise a TypeError, forcing
+        callers to explicitly convert to dict first via dict(chunk) or
+        chunk.to_plain_dict().
+        
+        Note: We override items() because that's what json.dumps() calls when
+        serializing dict-like objects.
+        """
+        raise TypeError(
+            f"Cannot directly serialize StopChunkWithUsage (id={dict.get(self, 'id', 'unknown')}). "
+            "Convert to plain dict first using dict(chunk) or chunk.to_plain_dict(), "
+            "or use StopChunkWithUsage.safe_json_dumps(chunk)."
+        )
 
     def allow_stringify(self) -> StopChunkWithUsage:
         """Temporarily allow stringification (for legitimate serialization).

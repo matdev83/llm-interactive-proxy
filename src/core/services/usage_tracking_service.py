@@ -287,11 +287,12 @@ class UsageTrackingService(IUsageTrackingService):
             A :class:`UsageStatsResponse` with aggregated usage metrics.
         """
         if days <= 0:
-            logger.warning(
-                "Received non-positive days=%s when requesting usage stats; "
-                "falling back to complete history.",
-                days,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Received non-positive days=%s when requesting usage stats; "
+                    "falling back to complete history.",
+                    days,
+                )
             raw_stats = await self._repository.get_stats(project)
             stats_response = UsageStatsResponse()
             for model_name, payload in raw_stats.items():

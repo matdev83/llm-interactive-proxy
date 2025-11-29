@@ -56,10 +56,11 @@ class PytestCompressionHandler(IToolCallHandler):
             result = self._service.scan_for_pytest(tool_name, arguments)
             return result is not None
         except Exception:
-            logger.warning(
-                "PytestCompressionHandler.can_handle failed to scan arguments",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "PytestCompressionHandler.can_handle failed to scan arguments",
+                    exc_info=True,
+                )
             return False
 
     async def handle(self, context: ToolCallContext) -> ToolCallReactionResult:
@@ -73,11 +74,12 @@ class PytestCompressionHandler(IToolCallHandler):
 
         is_pytest, command = scan_result
 
-        logger.info(
-            "Detected pytest command in tool call. Setting compression state for next reply. Tool='%s', Command='%s'",
-            tool_name,
-            command,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Detected pytest command in tool call. Setting compression state for next reply. Tool='%s', Command='%s'",
+                tool_name,
+                command,
+            )
 
         # Set compression state in session
         try:
@@ -85,11 +87,13 @@ class PytestCompressionHandler(IToolCallHandler):
             new_state = session.state.with_compress_next_tool_call_reply(True)
             session.state = new_state
             await self._session_service.update_session(session)
-            logger.info(f"Set compression state for session {context.session_id}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Set compression state for session {context.session_id}")
         except Exception as e:
-            logger.error(
-                f"Failed to set compression state for session {context.session_id}: {e}"
-            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failed to set compression state for session {context.session_id}: {e}"
+                )
 
         # Do NOT swallow the tool call - let it execute normally
         # We just set the state so the reply will be compressed

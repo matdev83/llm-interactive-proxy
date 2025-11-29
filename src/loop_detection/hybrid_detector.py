@@ -324,11 +324,12 @@ class HybridLoopDetector(ILoopDetector):
             )
             self._loop_events.append(event)
 
-            logger.warning(
-                "Long pattern loop detected: %d repetitions of %d-char pattern",
-                repetitions,
-                pattern_length,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Long pattern loop detected: %d repetitions of %d-char pattern",
+                    repetitions,
+                    pattern_length,
+                )
 
             return event
 

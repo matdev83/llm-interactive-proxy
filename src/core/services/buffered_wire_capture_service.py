@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import time
+from collections import defaultdict
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -208,7 +209,7 @@ class BufferedWireCapture(IWireCapture):
         self._total_cap: int = _coerce_int(total_cap, 0, minimum=0)
 
         # Internal state
-        self._buffer: list[WireCaptureEntry] = []
+        self._buffers: dict[str, list[WireCaptureEntry]] = defaultdict(list)
         self._buffer_lock = asyncio.Lock()
         self._flush_task: asyncio.Task[None] | None = None
         self._last_flush_time: float = time.time()
@@ -766,11 +767,14 @@ class BufferedWireCapture(IWireCapture):
     async def _buffer_entry(self, entry: WireCaptureEntry) -> None:
         """Add entry to buffer for eventual flushing."""
         async with self._buffer_lock:
-            self._buffer.append(entry)
+            # Use session_id or 'default' as key
+            key = entry.session_id or "default"
+            self._buffers[key].append(entry)
 
-            # Check if we should flush immediately
+            # Check if we should flush immediately (check total size across all buffers)
+            total_entries = sum(len(b) for b in self._buffers.values())
             should_flush = (
-                len(self._buffer) >= self._max_entries_per_flush
+                total_entries >= self._max_entries_per_flush
                 or (time.time() - self._last_flush_time) >= self._flush_interval
             )
 
@@ -779,15 +783,30 @@ class BufferedWireCapture(IWireCapture):
 
     async def _flush_buffer(self) -> None:
         """Flush buffered entries to file."""
-        if not self._buffer or not self._file_path:
+        if not self._buffers or not self._file_path:
             return
 
-        # Take snapshot of buffer and clear it
-        entries_to_write = self._buffer.copy()
-        self._buffer.clear()
+        # Take snapshot of buffers and clear them
+        entries_to_write: list[WireCaptureEntry] = []
+        
+        for key in list(self._buffers.keys()):
+            entries_to_write.extend(self._buffers[key])
+            self._buffers[key].clear()
+            
+        # Remove empty keys to prevent dict from growing indefinitely
+        self._buffers.clear()
+
         self._last_flush_time = time.time()
 
-        # Write entries (do this outside the lock to avoid blocking)
+        # Write entries (do this outside the lock? No, we are inside the lock here)
+        # The writing happens in run_in_executor, which is fine.
+        
+        if not entries_to_write:
+            return
+
+        # Sort by timestamp to maintain order in file
+        entries_to_write.sort(key=lambda x: x.timestamp_unix)
+
         import contextlib
 
         with contextlib.suppress(Exception):
@@ -899,7 +918,7 @@ class BufferedWireCapture(IWireCapture):
                     if not self._enabled:
                         break
                     async with self._buffer_lock:
-                        if self._buffer:
+                        if any(self._buffers.values()):
                             await self._flush_buffer()
                 except asyncio.CancelledError:
                     # Task was cancelled, exit cleanly
@@ -912,10 +931,10 @@ class BufferedWireCapture(IWireCapture):
             pass
         finally:
             # Final flush attempt on exit if still enabled
-            if self._enabled and self._buffer:
+            if self._enabled:
                 try:
                     async with self._buffer_lock:
-                        if self._buffer:
+                        if any(self._buffers.values()):
                             await self._flush_buffer()
                 except Exception:
                     # Best effort flush on exit
@@ -945,7 +964,7 @@ class BufferedWireCapture(IWireCapture):
 
         # Final flush
         async with self._buffer_lock:
-            if self._buffer:
+            if any(self._buffers.values()):
                 await self._flush_buffer()
 
         # PERFORMANCE OPTIMIZATION: Clean up caches to prevent memory leaks

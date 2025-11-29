@@ -101,7 +101,8 @@ class ToolCallReactorService(IToolCallReactor):
 
         self._handlers[handler.name] = handler
         self._invalidate_sorted_handlers()
-        logger.info(f"Registered tool call handler synchronously: {handler.name}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Registered tool call handler synchronously: {handler.name}")
 
     async def register_handler(self, handler: IToolCallHandler) -> None:
         """Register a tool call handler.
@@ -120,7 +121,8 @@ class ToolCallReactorService(IToolCallReactor):
 
             self._handlers[handler.name] = handler
             self._invalidate_sorted_handlers()
-            logger.info(f"Registered tool call handler: {handler.name}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Registered tool call handler: {handler.name}")
 
     async def unregister_handler(self, handler_name: str) -> None:
         """Unregister a tool call handler.
@@ -139,7 +141,8 @@ class ToolCallReactorService(IToolCallReactor):
 
             del self._handlers[handler_name]
             self._invalidate_sorted_handlers()
-            logger.info(f"Unregistered tool call handler: {handler_name}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Unregistered tool call handler: {handler_name}")
 
     async def process_tool_call(
         self, context: ToolCallContext
@@ -203,17 +206,19 @@ class ToolCallReactorService(IToolCallReactor):
                     result = await handler.handle(context)
 
                     if result.should_swallow:
-                        logger.info(
-                            f"Handler '{handler.name}' swallowed tool call '{context.tool_name}' "
-                            f"in session {resolved_session_id}"
-                        )
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                f"Handler '{handler.name}' swallowed tool call '{context.tool_name}' "
+                                f"in session {resolved_session_id}"
+                            )
                         return result
 
             except Exception as e:
-                logger.error(
-                    f"Error processing tool call with handler '{handler.name}': {e}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Error processing tool call with handler '{handler.name}': {e}",
+                        exc_info=True,
+                    )
                 # Continue with next handler on error
 
         # No handler swallowed the call

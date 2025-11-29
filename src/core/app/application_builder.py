@@ -35,28 +35,32 @@ def _register_sandboxing_handler(
     """
     # Skip if sandboxing is disabled
     if not config.sandboxing.enabled:
-        logger.info("File access sandboxing: DISABLED")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("File access sandboxing: DISABLED")
         return
 
     # Validate configuration
     validation_errors = config.sandboxing.validate_configuration()
     if validation_errors:
         logger.error(
-            f"File sandboxing configuration is invalid: {'; '.join(validation_errors)}"
+            "File sandboxing configuration is invalid: %s", "; ".join(validation_errors)
         )
         logger.error("Sandboxing will be disabled due to invalid configuration")
         return
 
     # Check if project directory resolution is enabled
     if config.session.project_dir_resolution_mode == "disabled":
-        logger.info(
-            "File sandboxing requires project directory resolution but "
-            "project directory resolution is DISABLED"
-        )
-        logger.info("File access sandboxing status: DISABLED (dependency not met)")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "File sandboxing requires project directory resolution but "
+                "project directory resolution is DISABLED"
+            )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("File access sandboxing status: DISABLED (dependency not met)")
         return
 
-    logger.info("File access sandboxing: ENABLED")
+    if logger.isEnabledFor(logging.INFO):
+        logger.info("File access sandboxing: ENABLED")
 
     try:
         from src.core.services.file_sandboxing_handler import FileSandboxingHandler
@@ -70,8 +74,10 @@ def _register_sandboxing_handler(
 
         # Register the handler with the reactor service
         reactor_service.register_handler_sync(handler)
-        logger.info("File sandboxing handler registered successfully")
-        logger.info("File access sandboxing status: ACTIVE")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("File sandboxing handler registered successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("File access sandboxing status: ACTIVE")
 
     except Exception as e:
         logger.error(f"Failed to register file sandboxing handler: {e}", exc_info=True)
@@ -129,7 +135,8 @@ class ApplicationBuilder:
             raise ValueError(f"Stage '{stage.name}' is already registered")
 
         self._stages[stage.name] = stage
-        logger.debug(f"Added stage: {stage}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Added stage: {stage}")
         return self
 
     def add_default_stages(self) -> ApplicationBuilder:
@@ -246,19 +253,22 @@ class ApplicationBuilder:
         Raises:
             RuntimeError: If stage execution fails
         """
-        logger.info("Starting application build process...")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Starting application build process...")
 
         # Validate stages before execution
         await self.validate_stages(config)
 
         # Calculate execution order
         execution_order: list[str] = self._get_execution_order()
-        logger.info(f"Executing stages in order: {execution_order}")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(f"Executing stages in order: {execution_order}")
 
         # Execute stages in dependency order
         for stage_name in execution_order:
             stage: InitializationStage = self._stages[stage_name]
-            logger.info(f"Executing stage: {stage_name}")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(f"Executing stage: {stage_name}")
 
             try:
                 await stage.execute(self._services, config)
@@ -269,11 +279,13 @@ class ApplicationBuilder:
 
         # Build service provider
         service_provider: IServiceProvider = self._services.build_service_provider()
-        logger.info("Service provider built successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Service provider built successfully")
 
         # Create FastAPI application
         app: FastAPI = self._create_fastapi_app(config, service_provider)
-        logger.info("FastAPI application created successfully")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("FastAPI application created successfully")
 
         return app
 
@@ -346,20 +358,21 @@ class ApplicationBuilder:
             try:
                 app.state.application_state_service = app_state_service
             except Exception:
-                logger.debug(
-                    "Failed to expose application_state_service on app.state",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to expose application_state_service on app.state",
+                        exc_info=True,
+                    )
 
             if hasattr(app_state_service, "set_state_provider"):
                 try:
                     app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]  # noqa: DIP-violation-initialization
                 except Exception:
-                    logger.debug(
-                        "Failed to set state provider on application state service",
-                        exc_info=True,
-                    )
-
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            "Failed to set state provider on application state service",
+                                            exc_info=True,
+                                        )
             for attribute_name in dir(app_state_service):
                 if attribute_name.startswith("_"):
                     continue
@@ -374,16 +387,18 @@ class ApplicationBuilder:
                             app.state, attribute_name, attribute_value
                         )  # noqa: DIP-violation-initialization
                     except Exception:
-                        logger.debug(
-                            "Failed to expose application state attribute '%s' on app.state",
-                            attribute_name,
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to expose application state attribute '%s' on app.state",
+                                attribute_name,
+                                exc_info=True,
+                            )
         except Exception:
-            logger.debug(
-                "Unable to bind application state service methods to FastAPI state",
-                exc_info=True,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Unable to bind application state service methods to FastAPI state",
+                    exc_info=True,
+                )
 
         # Ensure global DI accessor is in sync for legacy helpers/dependencies
         try:
@@ -391,7 +406,8 @@ class ApplicationBuilder:
 
             set_service_provider(service_provider)
         except Exception:
-            logger.debug("Unable to set global service provider", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Unable to set global service provider", exc_info=True)
 
         # Configure middleware
         self._configure_middleware(app, config)
@@ -406,9 +422,11 @@ class ApplicationBuilder:
             # Discover API keys from all sources for redaction
             api_keys = discover_api_keys_from_config_and_env(config)
             install_api_key_redaction_filter(api_keys)
-            logger.info("API key redaction filter installed.")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("API key redaction filter installed.")
         except Exception:
-            logger.debug("Failed to install API key redaction filter", exc_info=True)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to install API key redaction filter", exc_info=True)
 
         # Register routes
         self._register_routes(app)
@@ -431,7 +449,8 @@ class ApplicationBuilder:
 
             configure_middleware(app, config)
         except ImportError:
-            logger.warning("Middleware configuration not available")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Middleware configuration not available")
 
     def _register_routes(self, app: FastAPI) -> None:
         """Register routes for the FastAPI application."""
@@ -440,7 +459,8 @@ class ApplicationBuilder:
 
             register_routes(app)
         except ImportError:
-            logger.warning("Route registration not available")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Route registration not available")
 
     def _register_exception_handlers(self, app: FastAPI) -> None:
         """Register exception handlers for the FastAPI application."""
@@ -451,7 +471,8 @@ class ApplicationBuilder:
 
             register_exception_handlers(app)
         except ImportError:
-            logger.warning("Exception handlers not available")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Exception handlers not available")
 
     def _add_lifecycle_handlers(
         self, app: FastAPI, service_provider: IServiceProvider
@@ -463,10 +484,12 @@ class ApplicationBuilder:
         @asynccontextmanager
         async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def,no-any-return,misc]
             # Startup
-            logger.info("Application startup complete")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Application startup complete")
             yield
             # Shutdown
-            logger.info("Shutting down application")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Shutting down application")
             # Clean up resources
             try:
                 import httpx
@@ -486,13 +509,18 @@ class ApplicationBuilder:
 
                 wire_capture = service_provider.get_service(IWireCapture)  # type: ignore[type-abstract]
                 if wire_capture and hasattr(wire_capture, "shutdown"):
-                    logger.info("Shutting down wire capture service...")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("Shutting down wire capture service...")
                     # type: ignore[attr-defined]
                     await wire_capture.shutdown()  # pyright: ignore[reportAttributeAccessIssue]
-                    logger.info("Wire capture service shut down successfully.")
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("Wire capture service shut down successfully.")
             except Exception:
                 # Best-effort shutdown; ignore errors to avoid masking real failures
-                logger.debug("Failed to shut down wire capture service", exc_info=True)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to shut down wire capture service", exc_info=True
+                    )
 
         # Set lifespan handler
         app.router.lifespan_context = lifespan

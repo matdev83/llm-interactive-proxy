@@ -76,12 +76,12 @@ class URIParameterValidator:
         for param_name, param_value in params.items():
             # Check if parameter is supported
             if param_name not in self.SUPPORTED_PARAMS:
-                logger.warning(
-                    f"Unknown URI parameter '{param_name}' with value '{param_value}'. "
-                    f"Supported parameters: {', '.join(self.SUPPORTED_PARAMS.keys())}"
-                )
-                continue
-
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    f"Unknown URI parameter '{param_name}' with value '{param_value}'. "
+                                    f"Supported parameters: {', '.join(self.SUPPORTED_PARAMS.keys())}"
+                                )
+                                continue
             # Get validation rules for this parameter
             rules = self.SUPPORTED_PARAMS[param_name]
             param_type = rules["type"]
@@ -103,9 +103,10 @@ class URIParameterValidator:
                     )
                 else:
                     # Unsupported type in rules (should not happen)
-                    logger.error(
-                        f"Unsupported parameter type '{param_type}' for '{param_name}'"
-                    )
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            f"Unsupported parameter type '{param_type}' for '{param_name}'"
+                        )
                     validation_errors.append(
                         f"{param_name}: unsupported parameter type"
                     )
@@ -117,9 +118,10 @@ class URIParameterValidator:
             except ValueError as e:
                 # Validation failed - log error and add to error list
                 error_msg = str(e)
-                logger.error(
-                    f"Invalid URI parameter value: {param_name}={param_value}. {error_msg}"
-                )
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        f"Invalid URI parameter value: {param_name}={param_value}. {error_msg}"
+                    )
                 validation_errors.append(f"{param_name}: {error_msg}")
 
         return normalized_params, validation_errors

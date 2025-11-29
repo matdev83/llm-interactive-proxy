@@ -102,5 +102,6 @@ class OpenAIUrlCommand(StatefulCommandBase, BaseCommand):
             )
         except Exception as e:
             error_message = COMMAND_EXECUTION_ERROR.format(error=str(e))
-            logger.error(error_message)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(error_message)
             return CommandResult(success=False, message=error_message, name=self.name)

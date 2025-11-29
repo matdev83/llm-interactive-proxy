@@ -125,7 +125,7 @@ class IntelligentSessionResolver(ISessionResolver):
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "Computed fingerprint bundle primary=%s message_count=%s rolling=%s topic_hash=%s",
+                "Computed fingerprint bundle primary=%s message_count=%s rolling=%s",
                 conversation_fp,
                 fp_bundle.message_count,
                 len(fp_bundle.rolling_fingerprints),

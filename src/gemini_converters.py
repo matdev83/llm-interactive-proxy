@@ -143,9 +143,10 @@ def openai_to_gemini_contents(messages: list[ChatMessage]) -> list[Content]:
             import logging
 
             logger = logging.getLogger(__name__)
-            logger.warning(
-                f"Converting OpenAI tool message to Gemini: {message.model_dump_json()}"
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Converting OpenAI tool message to Gemini: {message.model_dump_json()}"
+                )
             role = "function"
         elif message.role == "user":
             role = "user"
