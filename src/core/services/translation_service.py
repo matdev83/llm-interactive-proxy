@@ -337,6 +337,15 @@ class TranslationService:
             "responses",
         }
 
+        # Log transformation at DEBUG level for diagnostic tracking
+        chunk_keys = list(chunk.keys()) if isinstance(chunk, dict) else "N/A"
+        logger.debug(
+            "[STREAMING] TranslationService.to_domain_stream_chunk: "
+            "Transforming chunk, source_format=%s, chunk_keys=%s",
+            source_format,
+            chunk_keys,
+        )
+
         # Only translate when there's a format mismatch
         result: dict[str, Any] | Any
         if source_format == "gemini":
@@ -355,6 +364,16 @@ class TranslationService:
             raise NotImplementedError(
                 f"Stream chunk converter for format '{source_format}' not implemented."
             )
+
+        # Log transformation result at DEBUG level
+        result_type = type(result).__name__
+        result_keys = list(result.keys()) if isinstance(result, dict) else "N/A"
+        logger.debug(
+            "[STREAMING] TranslationService.to_domain_stream_chunk: "
+            "Transformation complete, result_type=%s, result_keys=%s",
+            result_type,
+            result_keys,
+        )
 
         # Convert dict to CanonicalStreamChunk for supported formats
         if source_format in canonical_formats and isinstance(result, dict):

@@ -3594,6 +3594,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             # stringification. If any code tries to str() this dict,
                             # it will raise UsageChunkLeakError with a stack trace.
                             final_content = StopChunkWithUsage(final_content)
+                            # Log StopChunkWithUsage creation at DEBUG level
+                            logger.debug(
+                                "[STREAMING] Created StopChunkWithUsage: "
+                                "chunk_id=%s, usage=%s",
+                                final_content.get("id", "unknown"),
+                                usage,
+                            )
                         yield ProcessedResponse(
                             content=final_content,
                             metadata=final_stop_chunk.metadata,
@@ -3613,6 +3620,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             final_chunk["usage"] = usage
                             # Wrap with protective class
                             final_chunk = StopChunkWithUsage(final_chunk)
+                            # Log StopChunkWithUsage creation at DEBUG level
+                            logger.debug(
+                                "[STREAMING] Created StopChunkWithUsage (fallback): "
+                                "chunk_id=%s, usage=%s",
+                                final_chunk.get("id", "unknown"),
+                                usage,
+                            )
                         yield ProcessedResponse(content=final_chunk, usage=usage)
 
                 except BackendError as e:

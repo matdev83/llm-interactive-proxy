@@ -450,7 +450,12 @@ class TestStopChunkWithUsage:
 
         # Verify the output is correct SSE format with usage at top level
         assert "data: " in result_str
-        json_part = result_str.replace("data: ", "").replace("\n\n", "").strip()
+        # The output format is: "data: {json}\n\ndata: [DONE]\n\n"
+        # Split by "data: " and filter out empty strings and [DONE]
+        parts = [p.strip() for p in result_str.split("data: ") if p.strip()]
+        # First part should be the JSON, second should be [DONE]
+        assert len(parts) >= 1, f"Expected at least 1 data part, got: {parts}"
+        json_part = parts[0].replace("\n\n", "").strip()
         parsed = json.loads(json_part)
 
         assert parsed["id"] == "chatcmpl-test"

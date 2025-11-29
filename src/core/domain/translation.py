@@ -1056,6 +1056,11 @@ class Translation(BaseTranslator):
         import uuid
 
         if not isinstance(chunk, dict):
+            logger.debug(
+                "gemini_to_domain_stream_chunk: Invalid chunk format (not dict), "
+                "type=%s",
+                type(chunk).__name__,
+            )
             return {"error": "Invalid chunk format: expected a dictionary"}
 
         response_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
@@ -1066,6 +1071,11 @@ class Translation(BaseTranslator):
         reasoning_pieces: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         finish_reason = None
+
+        logger.debug(
+            "gemini_to_domain_stream_chunk: Processing chunk with keys=%s",
+            list(chunk.keys()) if isinstance(chunk, dict) else "N/A",
+        )
 
         if "candidates" in chunk:
             for candidate in chunk["candidates"]:
@@ -1119,6 +1129,16 @@ class Translation(BaseTranslator):
             ).strip()
         if tool_calls:
             delta_dict["tool_calls"] = tool_calls
+
+        # Log transformation summary at DEBUG level for tracking
+        logger.debug(
+            "gemini_to_domain_stream_chunk: Transformed chunk - "
+            "content_len=%d, reasoning_len=%d, tool_calls=%d, finish_reason=%s",
+            len(delta_dict.get("content", "")),
+            len(delta_dict.get("reasoning_content", "")),
+            len(tool_calls),
+            finish_reason,
+        )
 
         delta = StreamingChatCompletionChoiceDelta(**delta_dict)
         choice = StreamingChatCompletionChoice(

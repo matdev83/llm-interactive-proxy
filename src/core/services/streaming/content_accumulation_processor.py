@@ -64,6 +64,36 @@ class ContentAccumulationProcessor(IStreamProcessor):
         # Handle OpenAI-format dict chunks specially - pass through for SSE output
         # while accumulating the extracted text content for metadata
         if isinstance(content.content, dict) and "choices" in content.content:
+            # CRITICAL: Check for StopChunkWithUsage FIRST - these must pass through
+            # completely unchanged without any content accumulation. StopChunkWithUsage
+            # contains usage data that must be preserved at the top level of the SSE
+            # output, not embedded in delta.content.
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+            if isinstance(content.content, StopChunkWithUsage):
+                # Pass through StopChunkWithUsage unchanged - do NOT accumulate
+                # Preserve usage data in metadata for downstream processing
+                usage_info = content.content.get("usage") or content.usage
+                output_metadata = dict(content.metadata or {})
+                if usage_info:
+                    output_metadata["usage"] = usage_info
+                # Log StopChunkWithUsage pass-through at DEBUG level
+                logger.debug(
+                    "ContentAccumulationProcessor: Passing through StopChunkWithUsage "
+                    "unchanged, chunk_id=%s, has_usage=%s, stream_id=%s",
+                    content.content.get("id", "unknown"),
+                    usage_info is not None,
+                    stream_id,
+                )
+                return StreamingContent(
+                    content=content.content,  # Keep original StopChunkWithUsage
+                    is_done=content.is_done,
+                    is_cancellation=content.is_cancellation,
+                    metadata=output_metadata,
+                    usage=usage_info if isinstance(usage_info, dict) else None,
+                    raw_data=content.raw_data,
+                )
+
             chunk_dict = content.content
             choices = chunk_dict.get("choices", [])
             usage_info = chunk_dict.get("usage") or content.usage
@@ -78,6 +108,15 @@ class ContentAccumulationProcessor(IStreamProcessor):
                             delta_content = delta.get("content")
                             if isinstance(delta_content, str):
                                 extracted_content += delta_content
+
+            # Log text content extraction at DEBUG level
+            if extracted_content:
+                logger.debug(
+                    "ContentAccumulationProcessor: Extracted text content, "
+                    "len=%d, stream_id=%s",
+                    len(extracted_content),
+                    stream_id,
+                )
 
             # Accumulate extracted content (but don't modify the chunk for output)
             if extracted_content:
@@ -105,6 +144,14 @@ class ContentAccumulationProcessor(IStreamProcessor):
                     output_metadata["accumulated_reasoning"] = "".join(
                         state.reasoning_chunks
                     )
+                # Log final accumulated content at DEBUG level
+                logger.debug(
+                    "ContentAccumulationProcessor: Final accumulated content, "
+                    "len=%d, stream_id=%s, has_reasoning=%s",
+                    len(final_content),
+                    stream_id,
+                    bool(state.reasoning_chunks),
+                )
                 # Clear state
                 state.chunks.clear()
                 state.encoded_chunks.clear()

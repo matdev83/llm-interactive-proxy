@@ -787,7 +787,9 @@ class ChatController:
                         # Best-effort stringify for non-dict/list types
                         try:
                             # Use dict() for dict types to safely handle StopChunkWithUsage
-                            safe_content = dict(content) if isinstance(content, dict) else content
+                            safe_content = (
+                                dict(content) if isinstance(content, dict) else content
+                            )
                             text = _json.dumps(safe_content)
                         except Exception:
                             text = str(content)

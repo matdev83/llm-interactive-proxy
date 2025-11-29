@@ -120,8 +120,12 @@ class NonStreamingAdapter:
 
                         if isinstance(chunk.content, StopChunkWithUsage):
                             # Don't accumulate stop chunks with usage - they should
-                            # be handled separately as final chunks, not content
-                            pass
+                            # be handled separately as final chunks, not content.
+                            # Extract and preserve usage data from the StopChunkWithUsage
+                            # so it's available in the final response.
+                            stop_chunk_usage = chunk.content.get("usage")
+                            if stop_chunk_usage and isinstance(stop_chunk_usage, dict):
+                                final_usage = stop_chunk_usage
                         else:
                             final_content += json.dumps(chunk.content)
                 if chunk.usage:

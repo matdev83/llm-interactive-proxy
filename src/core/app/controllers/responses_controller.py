@@ -623,7 +623,11 @@ class ResponsesController:
                             content_value, str
                         ):
                             # Use dict() for dict types to safely handle StopChunkWithUsage
-                            safe_value = dict(content_value) if isinstance(content_value, dict) else content_value
+                            safe_value = (
+                                dict(content_value)
+                                if isinstance(content_value, dict)
+                                else content_value
+                            )
                             delta["content"] = json.dumps(safe_value)
 
                         tool_calls = delta.get("tool_calls") or chunk_metadata.get(

@@ -183,6 +183,24 @@ class SSEAssembler(IStreamAssembler):
                 # Convert chunk to bytes using StreamingContent's to_bytes method
                 chunk_bytes = chunk.to_bytes()
 
+                # Log SSE output format at DEBUG level for diagnostic tracking
+                from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+                is_stop_chunk_with_usage = isinstance(chunk.content, StopChunkWithUsage)
+                has_usage = (
+                    isinstance(chunk.content, dict) and "usage" in chunk.content
+                ) or chunk.usage is not None
+                logger.debug(
+                    "[STREAMING][SSE] Assembler serializing chunk: "
+                    "stream_id=%s, is_done=%s, has_usage=%s, "
+                    "is_stop_chunk_with_usage=%s, output_bytes=%d",
+                    stream_id_for_metrics,
+                    chunk.is_done,
+                    has_usage,
+                    is_stop_chunk_with_usage,
+                    len(chunk_bytes),
+                )
+
                 # Check if this is a done marker (but may still have content to emit)
                 is_final_chunk = SentinelManager.is_done_marker(chunk)
 

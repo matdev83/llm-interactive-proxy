@@ -72,6 +72,8 @@ class StopChunkWithUsage(dict):
 
         # This is the correct way (handled by to_bytes()):
         json.dumps(dict(stop_chunk))  # Explicitly convert to plain dict first
+        # Or use the safe_json_dumps static method:
+        StopChunkWithUsage.safe_json_dumps(stop_chunk)
     """
 
     _stringify_allowed: bool = False
@@ -99,8 +101,58 @@ class StopChunkWithUsage(dict):
         """Convert to a plain dict for safe serialization.
 
         This is the safe way to get the data when you need to serialize it.
+        Returns a true plain dict (not a subclass).
         """
+        # Use dict() constructor to ensure we return a plain dict, not a subclass
         return dict(self)
+
+    @staticmethod
+    def safe_json_dumps(obj: Any, **kwargs: Any) -> str:
+        """Safely serialize any object to JSON, converting StopChunkWithUsage to plain dict.
+
+        This method checks if the object is a StopChunkWithUsage and converts it
+        to a plain dict before calling json.dumps(). This prevents accidental
+        stringification that would trigger UsageChunkLeakError.
+
+        Args:
+            obj: The object to serialize to JSON
+            **kwargs: Additional arguments to pass to json.dumps()
+
+        Returns:
+            JSON string representation of the object
+        """
+        if isinstance(obj, StopChunkWithUsage):
+            return json.dumps(dict(obj), **kwargs)
+        return json.dumps(obj, **kwargs)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> StopChunkWithUsage:
+        """Create a StopChunkWithUsage from a plain dict.
+
+        This is the inverse of to_plain_dict() and enables round-trip
+        serialization/deserialization.
+
+        Args:
+            data: A dictionary containing the chunk data
+
+        Returns:
+            A new StopChunkWithUsage instance
+
+        Raises:
+            ValueError: If data is not a dict
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected dict, got {type(data).__name__}")
+        instance = cls(data)
+        # Log creation at DEBUG level for diagnostic tracking
+        logger.debug(
+            "[STREAMING] StopChunkWithUsage.from_dict: Created instance, "
+            "chunk_id=%s, has_usage=%s, usage=%s",
+            data.get("id", "unknown"),
+            "usage" in data,
+            data.get("usage"),
+        )
+        return instance
 
     @classmethod
     def wrap(cls, chunk: dict[str, Any]) -> StopChunkWithUsage:
@@ -113,8 +165,18 @@ class StopChunkWithUsage(dict):
             StopChunkWithUsage if chunk has usage, otherwise returns original dict
         """
         if isinstance(chunk, cls):
+            logger.debug(
+                "[STREAMING] StopChunkWithUsage.wrap: Already wrapped, " "chunk_id=%s",
+                chunk.get("id", "unknown"),
+            )
             return chunk
         if isinstance(chunk, dict) and chunk.get("usage") and chunk.get("choices"):
+            logger.debug(
+                "[STREAMING] StopChunkWithUsage.wrap: Wrapping chunk with usage, "
+                "chunk_id=%s, usage=%s",
+                chunk.get("id", "unknown"),
+                chunk.get("usage"),
+            )
             return cls(chunk)
         return chunk  # type: ignore[return-value]
 
@@ -297,7 +359,42 @@ class StreamingContent:
 
         Returns:
             Bytes representation suitable for SSE streaming
+
+        Note:
+            This method handles StopChunkWithUsage specially to ensure usage data
+            is serialized at the top level of the SSE chunk, not embedded in
+            delta.content. This is critical for proper billing/usage reporting.
         """
+        # Log SSE serialization at DEBUG level for diagnostic tracking
+        content_type = type(self.content).__name__
+        has_usage = (
+            isinstance(self.content, dict) and "usage" in self.content
+        ) or self.usage is not None
+        logger.debug(
+            "[STREAMING] StreamingContent.to_bytes: Serializing chunk to SSE, "
+            "content_type=%s, is_done=%s, has_usage=%s, is_stop_chunk_with_usage=%s",
+            content_type,
+            self.is_done,
+            has_usage,
+            isinstance(self.content, StopChunkWithUsage),
+        )
+
+        # CRITICAL: Handle StopChunkWithUsage at the very start to ensure
+        # usage data is serialized correctly at the top level, not in delta.content.
+        # This prevents the usage data leak bug where JSON chunks appear in
+        # conversation history.
+        if isinstance(self.content, StopChunkWithUsage):
+            # Convert to plain dict to avoid triggering __str__ protection
+            plain_dict = dict(self.content)
+            logger.debug(
+                "[STREAMING] StreamingContent.to_bytes: Emitting StopChunkWithUsage "
+                "as top-level SSE with usage, chunk_id=%s, usage=%s",
+                plain_dict.get("id", "unknown"),
+                plain_dict.get("usage"),
+            )
+            # Emit as proper SSE with usage at top level, then [DONE]
+            return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
+
         if self.is_done:
             # Check for error metadata first
             if (
@@ -516,8 +613,72 @@ class StreamingContent:
         }
 
     @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> StreamingContent:
+        """Create a StreamingContent instance from a dictionary.
+
+        This is the inverse of to_dict() and enables round-trip serialization.
+
+        Args:
+            data: Dictionary with StreamingContent fields
+
+        Returns:
+            A new StreamingContent instance
+
+        Raises:
+            ValueError: If required fields are missing or invalid
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected dict, got {type(data).__name__}")
+
+        # Extract fields with defaults
+        content = data.get("content", "")
+        metadata = data.get("metadata", {})
+        is_done = data.get("is_done", False)
+        is_empty = data.get("is_empty")
+        stream_id = data.get("stream_id")
+        is_cancellation = data.get("is_cancellation", False)
+        usage = data.get("usage")
+
+        # Validate types
+        if not isinstance(metadata, dict):
+            raise ValueError(f"metadata must be dict, got {type(metadata).__name__}")
+
+        return cls(
+            content=content,
+            metadata=metadata,
+            is_done=is_done,
+            is_empty=is_empty,
+            stream_id=stream_id,
+            is_cancellation=is_cancellation,
+            usage=usage,
+        )
+
+    @classmethod
     def from_raw(cls, raw_data: Any) -> StreamingContent:
         """Create a StreamingContent instance from raw backend data."""
+        # Log chunk entering the pipeline at DEBUG level for diagnostic tracking
+        raw_type = type(raw_data).__name__
+        raw_keys = (
+            list(raw_data.keys())
+            if isinstance(raw_data, dict)
+            else (
+                list(raw_data.content.keys())
+                if hasattr(raw_data, "content") and isinstance(raw_data.content, dict)
+                else "N/A"
+            )
+        )
+        is_stop_chunk = isinstance(raw_data, StopChunkWithUsage) or (
+            hasattr(raw_data, "content")
+            and isinstance(raw_data.content, StopChunkWithUsage)
+        )
+        logger.debug(
+            "[STREAMING] StreamingContent.from_raw: Chunk entering pipeline, "
+            "type=%s, keys=%s, is_stop_chunk_with_usage=%s",
+            raw_type,
+            raw_keys,
+            is_stop_chunk,
+        )
+
         content: str | dict | bytes = ""
         is_done = False
         metadata: dict[str, Any] = {}
@@ -570,6 +731,31 @@ class StreamingContent:
             if isinstance(content_val, ProcessedResponse):
                 return _finalize(cls.from_raw(content_val))
 
+            # CRITICAL: Check for StopChunkWithUsage BEFORE generic dict check.
+            # StopChunkWithUsage is a dict subclass that must be preserved as-is
+            # to prevent usage data from leaking into delta.content.
+            if isinstance(content_val, StopChunkWithUsage):
+                logger.debug(
+                    "[STREAMING] StreamingContent.from_raw: Preserving StopChunkWithUsage, "
+                    "chunk_id=%s, has_usage=%s",
+                    content_val.get("id", "unknown"),
+                    "usage" in content_val,
+                )
+                # Preserve the StopChunkWithUsage directly as content
+                return _finalize(
+                    cls(
+                        content=content_val,  # Keep as StopChunkWithUsage
+                        is_done=True,  # Stop chunks are always final
+                        metadata={
+                            "id": content_val.get("id"),
+                            "model": content_val.get("model"),
+                            "created": content_val.get("created"),
+                            "finish_reason": "stop",
+                        },
+                        usage=content_val.get("usage"),
+                    )
+                )
+
             if isinstance(content_val, dict | str | bytes | bytearray | list):
                 return _finalize(cls.from_raw(content_val))
 
@@ -595,6 +781,27 @@ class StreamingContent:
             )
 
         if isinstance(raw_data, dict):
+            # CRITICAL: Check for StopChunkWithUsage FIRST - preserve it directly
+            # to prevent usage data from being extracted and lost
+            if isinstance(raw_data, StopChunkWithUsage):
+                logger.debug(
+                    "[STREAMING] StreamingContent.from_raw: Preserving StopChunkWithUsage (direct), "
+                    "chunk_id=%s, has_usage=%s",
+                    raw_data.get("id", "unknown"),
+                    "usage" in raw_data,
+                )
+                return cls(
+                    content=raw_data,  # Keep as StopChunkWithUsage
+                    is_done=True,
+                    metadata={
+                        "id": raw_data.get("id"),
+                        "model": raw_data.get("model"),
+                        "created": raw_data.get("created"),
+                        "finish_reason": "stop",
+                    },
+                    usage=raw_data.get("usage"),
+                )
+
             if raw_data.get("type") == "content_block_delta":
                 delta = raw_data.get("delta", {})
                 if delta.get("type") == "text_delta":
