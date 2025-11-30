@@ -91,6 +91,8 @@ properties:
       pytest_compression_min_lines: { type: integer, minimum: 1 }
       pytest_full_suite_steering_enabled: { type: boolean }
       pytest_full_suite_steering_message: { type: ["string", "null"] }
+      test_execution_reminder_enabled: { type: boolean }
+      test_execution_reminder_message: { type: ["string", "null"] }
       angel_model: { type: ["string", "null"] }
       angel_frequency:
         type: integer
@@ -137,6 +139,8 @@ properties:
           apply_diff_steering_message: { type: ["string", "null"] }
           pytest_full_suite_steering_enabled: { type: boolean }
           pytest_full_suite_steering_message: { type: ["string", "null"] }
+          test_execution_reminder_enabled: { type: boolean }
+          test_execution_reminder_message: { type: ["string", "null"] }
           steering_rules:
             type: array
             items: { type: object }

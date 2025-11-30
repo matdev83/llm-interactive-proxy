@@ -37,6 +37,21 @@ session:
   # Tool call reactor steering for pytest full-suite runs (requires opt-in)
   pytest_full_suite_steering_enabled: false
 
+  # Test execution reminder system
+  # Tracks file modifications and test executions, reminding agents to run tests
+  # before completing tasks when code changes haven't been verified.
+  # When enabled, the system:
+  # - Detects file modification tool calls (write_file, str_replace, etc.)
+  # - Detects test execution commands across multiple languages
+  # - Reminds agents to run tests before task completion if changes are unverified
+  # Default: false (opt-in feature)
+  test_execution_reminder_enabled: false
+  # Optional custom reminder message. If not set, uses default message:
+  # "You have made code changes but haven't run tests yet. Please run the test
+  # suite to verify your changes before completing this task. Once tests pass,
+  # you can proceed with task completion."
+  test_execution_reminder_message: null
+
   # Fix improperly formatted <think> tags in model responses
   fix_think_tags_enabled: false  # Set to true to enable think tags correction
 

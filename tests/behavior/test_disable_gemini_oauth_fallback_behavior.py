@@ -34,8 +34,15 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
 
     def __init__(self, config: AppConfig | None = None):
         """Initialize with optional config override."""
+        from src.connectors.gemini_base.file_watcher import FileWatcherState
+        from src.connectors.gemini_base.token_manager import TokenManager
+
         if config is None:
             config = AppConfig.from_env()
+
+        # Initialize composed managers FIRST (before setting properties that delegate to them)
+        self._token_manager = TokenManager()
+        self._file_watcher_state = FileWatcherState()
 
         # Initialize with minimal required components
         self.config = config
@@ -45,17 +52,10 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         self._credentials_path = None
         self._last_modified = 0
         self._refresh_token = None
-        self._token_refresh_lock = asyncio.Lock()  # type: ignore[assignment]
         self.translation_service = MagicMock()
-        self._file_observer = None
         self._credential_validation_errors: list[str] = []
         self._initialization_failed = False
         self._last_validation_time = 0.0
-        self._pending_reload_task = None
-        self._reload_task_lock = asyncio.Lock()  # type: ignore[assignment]
-        self._reload_scheduling_in_progress = False
-        self._last_cli_refresh_attempt = 0.0
-        self._cli_refresh_process = None
         self._main_loop = None
         self._quota_exceeded = False
         self._request_counter = None

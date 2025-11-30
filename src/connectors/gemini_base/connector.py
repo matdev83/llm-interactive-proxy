@@ -5,12 +5,8 @@ Base class for Gemini OAuth connectors.
 import abc
 import asyncio
 import contextlib
-import hashlib
 import json
 import logging
-import random
-import shutil
-import subprocess
 import threading
 import time
 import uuid
@@ -22,7 +18,6 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
-from watchdog.observers import Observer
 
 from src.core.domain.chat import (
     CanonicalChatRequest,
@@ -30,28 +25,40 @@ from src.core.domain.chat import (
 )
 
 if TYPE_CHECKING:
+    import subprocess
+
     from watchdog.observers.api import BaseObserver
 
 from src.connectors.gemini import GeminiBackend
 from src.connectors.gemini_base.config import (
     CODE_ASSIST_ENDPOINT,
-    CODE_ASSIST_PROMPT_LIMIT_MARGIN,
     DEFAULT_CODE_ASSIST_PROMPT_LIMIT,
     DEFAULT_READ_TIMEOUT,
     GracefulDegradationConfig,
     GracefulDegradationMetrics,
     ModelRetryState,
 )
+from src.connectors.gemini_base.credential_loader import CredentialLoader
 from src.connectors.gemini_base.credentials import (
-    CLI_REFRESH_COMMAND,
-    CLI_REFRESH_COOLDOWN_SECONDS,
-    CLI_REFRESH_THRESHOLD_SECONDS,
     TOKEN_EXPIRY_BUFFER_SECONDS,
-    TOKEN_REFRESH_MAX_WAIT_SECONDS,
-    TOKEN_REFRESH_POLL_INTERVAL_SECONDS,
-    GeminiPersonalCredentialsFileHandler,
     _StaticTokenCreds,
 )
+from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherState
+from src.connectors.gemini_base.graceful_degradation import (
+    calculate_retry_delay,
+    get_fallback_model,
+    is_model_in_cooldown,
+    is_rate_limit_like_error,
+    set_model_cooldown,
+)
+from src.connectors.gemini_base.prompt_limiter import (
+    enforce_prompt_limit,
+    estimate_prompt_tokens,
+    get_prompt_limit,
+    normalize_model_key,
+)
+from src.connectors.gemini_base.token_manager import TokenManager
+from src.connectors.gemini_base.tool_sanitizer import sanitize_code_assist_tools
 from src.connectors.mixins.gemini_code_assist_mixin import GeminiCodeAssistMixin
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.app.constants.logging_constants import TRACE_LEVEL
@@ -70,7 +77,6 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
 )
-from src.core.domain.translation import Translation
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.services.translation_service import TranslationService
@@ -128,12 +134,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     @staticmethod
     def _normalize_model_key(model_name: str) -> str:
         """Normalize model identifiers for prompt-limit lookups."""
-        normalized = (model_name or "").strip().lower()
-        if ":" in normalized:
-            normalized = normalized.split(":", 1)[-1]
-        if normalized.startswith("models/"):
-            normalized = normalized[len("models/") :]
-        return normalized
+        return normalize_model_key(model_name)
 
     @staticmethod
     def _sanitize_model_name(model_name: str) -> str:
@@ -416,19 +417,15 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._oauth_credentials: dict[str, Any] | None = None
         self._credentials_path: Path | None = None
         self._last_modified: float = 0
-        self._refresh_token: str | None = None
-        self._token_refresh_lock = asyncio.Lock()
         self.translation_service = translation_service
-        # Use BaseObserver for type checking to ensure stop/join are recognized by mypy
-        self._file_observer: BaseObserver | None = None
         self._credential_validation_errors: list[str] = []
         self._initialization_failed = False
         self._last_validation_time = 0.0
-        self._pending_reload_task: asyncio.Future[Any] | None = None
-        self._reload_task_lock = threading.Lock()
-        self._reload_scheduling_in_progress = False
-        self._last_cli_refresh_attempt = 0.0
-        self._cli_refresh_process: subprocess.Popen[bytes] | None = None
+
+        # Token management (composed)
+        self._token_manager = TokenManager()
+        # File watching (composed)
+        self._file_watcher_state = FileWatcherState()
         # Store reference to the main event loop for thread-safe operations
         self._main_loop: asyncio.AbstractEventLoop | None = None
         # Flag to track if quota has been exceeded
@@ -487,8 +484,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             if limit_value > 0:
                 normalized_prefixes.append((normalized_prefix, limit_value))
         self._prompt_limit_prefix_overrides = tuple(normalized_prefixes)
-        # Debounce credentials reload events to avoid noisy filesystem churn
-        self._last_reload_event_ts: float = 0.0
+        # Credential tracking
         self._credentials_fingerprint: str | None = None
         self._credentials_file_hash: str | None = None
         self._last_credentials_event_hash: str | None = None
@@ -507,6 +503,88 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             and len(self._credential_validation_errors) == 0
         )
 
+    # Backward-compatible properties for TokenManager internals
+    @property
+    def _refresh_token(self) -> str | None:
+        """Backward-compatible access to cached refresh token."""
+        return self._token_manager._refresh_token
+
+    @_refresh_token.setter
+    def _refresh_token(self, value: str | None) -> None:
+        """Backward-compatible setter for refresh token."""
+        self._token_manager._refresh_token = value
+
+    @property
+    def _cli_refresh_process(self) -> "subprocess.Popen[bytes] | None":
+        """Backward-compatible access to CLI refresh subprocess."""
+        return self._token_manager._cli_refresh_process
+
+    @_cli_refresh_process.setter
+    def _cli_refresh_process(self, value: "subprocess.Popen[bytes] | None") -> None:
+        """Backward-compatible setter for CLI refresh subprocess."""
+        self._token_manager._cli_refresh_process = value
+
+    @property
+    def _last_cli_refresh_attempt(self) -> float:
+        """Backward-compatible access to last CLI refresh timestamp."""
+        return self._token_manager._last_cli_refresh_attempt
+
+    @_last_cli_refresh_attempt.setter
+    def _last_cli_refresh_attempt(self, value: float) -> None:
+        """Backward-compatible setter for last CLI refresh timestamp."""
+        self._token_manager._last_cli_refresh_attempt = value
+
+    @property
+    def _token_refresh_lock(self) -> "asyncio.Lock":
+        """Backward-compatible access to token refresh lock."""
+        return self._token_manager._token_refresh_lock
+
+    # Backward-compatible properties for FileWatcherState internals
+    @property
+    def _file_observer(self) -> "BaseObserver | None":
+        """Backward-compatible access to file observer."""
+        return self._file_watcher_state.file_observer
+
+    @_file_observer.setter
+    def _file_observer(self, value: "BaseObserver | None") -> None:
+        """Backward-compatible setter for file observer."""
+        self._file_watcher_state.file_observer = value
+
+    @property
+    def _pending_reload_task(self) -> asyncio.Future[Any] | None:
+        """Backward-compatible access to pending reload task."""
+        return self._file_watcher_state.pending_reload_task
+
+    @_pending_reload_task.setter
+    def _pending_reload_task(self, value: asyncio.Future[Any] | None) -> None:
+        """Backward-compatible setter for pending reload task."""
+        self._file_watcher_state.pending_reload_task = value
+
+    @property
+    def _reload_task_lock(self) -> threading.Lock:
+        """Backward-compatible access to reload task lock."""
+        return self._file_watcher_state.reload_task_lock
+
+    @property
+    def _reload_scheduling_in_progress(self) -> bool:
+        """Backward-compatible access to reload scheduling flag."""
+        return self._file_watcher_state.reload_scheduling_in_progress
+
+    @_reload_scheduling_in_progress.setter
+    def _reload_scheduling_in_progress(self, value: bool) -> None:
+        """Backward-compatible setter for reload scheduling flag."""
+        self._file_watcher_state.reload_scheduling_in_progress = value
+
+    @property
+    def _last_reload_event_ts(self) -> float:
+        """Backward-compatible access to last reload event timestamp."""
+        return self._file_watcher_state.last_reload_event_ts
+
+    @_last_reload_event_ts.setter
+    def _last_reload_event_ts(self, value: float) -> None:
+        """Backward-compatible setter for last reload event timestamp."""
+        self._file_watcher_state.last_reload_event_ts = value
+
     def get_graceful_degradation_metrics(self) -> dict[str, float | int]:
         """Expose graceful degradation telemetry for diagnostics."""
         return self._graceful_metrics.as_dict()
@@ -522,125 +600,21 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _validate_credentials_structure(
         self, credentials: dict[str, Any], silent: bool = False
     ) -> tuple[bool, list[str]]:
-        """Validate the structure and content of OAuth credentials.
-
-        Args:
-            credentials: The credentials dictionary to validate
-            silent: If True, suppress INFO level logging
-
-        Returns:
-            Tuple of (is_valid, list_of_errors)
-        """
-        errors = []
-
-        # Required fields for OAuth credentials
-        required_fields = ["access_token"]
-        for f in required_fields:
-            if f not in credentials:
-                errors.append(f"Missing required field: {f}")
-            elif not isinstance(credentials[f], str) or not credentials[f]:
-                errors.append(f"Invalid {f}: must be a non-empty string")
-
-        # Optional refresh token validation
-        if "refresh_token" in credentials and (
-            not isinstance(credentials["refresh_token"], str)
-            or not credentials["refresh_token"]
-        ):
-            errors.append("Invalid refresh_token: must be a non-empty string")
-
-        # Expiry validation (if present)
-        if "expiry_date" in credentials:
-            expiry = credentials["expiry_date"]
-            if not isinstance(expiry, int | float):
-                errors.append("Invalid expiry_date: must be a number (ms)")
-            else:
-                # Record expired status without failing validation; refresh logic handles it
-                import datetime
-
-                current_utc_s = datetime.datetime.now(datetime.timezone.utc).timestamp()
-                if (
-                    current_utc_s >= float(expiry) / 1000.0
-                    and not silent
-                    and logger.isEnabledFor(logging.INFO)
-                ):
-                    logger.info(
-                        "Loaded Gemini OAuth credentials appear expired; refresh will be triggered."
-                    )
-
-        return len(errors) == 0, errors
+        """Validate the structure and content of OAuth credentials."""
+        return CredentialLoader.validate_credentials_structure(credentials, silent)
 
     def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
-        """Validate that the OAuth credentials file exists and is readable.
-
-        Returns:
-            Tuple of (is_valid, list_of_errors)
-        """
-        errors = []
-
-        # Use custom path if provided, otherwise default to ~/.gemini
-        if self.gemini_cli_oauth_path:
-            creds_path = Path(self.gemini_cli_oauth_path) / "oauth_creds.json"
-        else:
-            home_dir = Path.home()
-            creds_path = home_dir / ".gemini" / "oauth_creds.json"
-
-        if not creds_path.exists():
-            errors.append(f"OAuth credentials file not found at {creds_path}")
-            return False, errors
-
-        if not creds_path.is_file():
-            errors.append(
-                f"OAuth credentials path exists but is not a file: {creds_path}"
-            )
-            return False, errors
-
-        try:
-            with open(creds_path, encoding="utf-8") as f:
-                credentials = json.load(f)
-
-            # Validate the loaded credentials
-            is_valid, validation_errors = self._validate_credentials_structure(
-                credentials
-            )
-            errors.extend(validation_errors)
-
-            return is_valid, errors
-
-        except json.JSONDecodeError as e:
-            errors.append(f"Invalid JSON in credentials file: {e}")
-            return False, errors
-        except PermissionError:
-            errors.append(f"Permission denied reading credentials file: {creds_path}")
-            return False, errors
-        except Exception as e:
-            errors.append(f"Unexpected error reading credentials file: {e}")
-            return False, errors
+        """Validate that the OAuth credentials file exists and is readable."""
+        is_valid, errors, _ = CredentialLoader.validate_credentials_file_exists(
+            self.gemini_cli_oauth_path
+        )
+        return is_valid, errors
 
     def _validate_active_credentials_path(self) -> tuple[bool, list[str]]:
-        """Validate the currently used credentials path, if known.
-
-        This avoids incorrectly validating a different credential source (e.g.,
-        oauth_creds.json when a connector uses an alternate database file).
-        """
-        if self._credentials_path:
-            errors: list[str] = []
-            try:
-                if not self._credentials_path.exists():
-                    errors.append(
-                        f"Credentials path not found: {self._credentials_path}"
-                    )
-                elif not self._credentials_path.is_file():
-                    errors.append(
-                        f"Credentials path exists but is not a file: {self._credentials_path}"
-                    )
-            except OSError as exc:
-                errors.append(
-                    f"Error accessing credentials path {self._credentials_path}: {exc}"
-                )
-
-            return len(errors) == 0, errors
-
-        return self._validate_credentials_file_exists()
+        """Validate the currently used credentials path, if known."""
+        return CredentialLoader.validate_active_credentials_path(
+            self._credentials_path, self.gemini_cli_oauth_path
+        )
 
     def _fail_init(self, errors: list[str]) -> None:
         """Mark initialization as failed with given errors."""
@@ -737,98 +711,19 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self, code_assist_request: dict[str, Any]
     ) -> int | None:
         """Best-effort estimate of prompt token usage for the current request."""
-        prompt_text_parts: list[str] = []
-        try:
-            encoding = _get_tiktoken_encoding()
-
-            def _serialize_part(part: Any) -> str | None:
-                if isinstance(part, dict):
-                    text_value = part.get("text")
-                    if isinstance(text_value, str):
-                        return text_value
-                    try:
-                        return json.dumps(part, ensure_ascii=False, default=str)
-                    except Exception:
-                        return repr(part)
-                if isinstance(part, str | bytes):
-                    return (
-                        part.decode("utf-8", "ignore")
-                        if isinstance(part, bytes)
-                        else part
-                    )
-                if part is None:
-                    return None
-                return str(part)
-
-            system_instruction = code_assist_request.get("systemInstruction")
-            if isinstance(system_instruction, dict):
-                for part in system_instruction.get("parts", []):
-                    serialized = _serialize_part(part)
-                    if serialized:
-                        prompt_text_parts.append(serialized)
-
-            for content in code_assist_request.get("contents", []):
-                if not isinstance(content, dict):
-                    continue
-                for part in content.get("parts", []):
-                    serialized = _serialize_part(part)
-                    if serialized:
-                        prompt_text_parts.append(serialized)
-
-            generation_config = code_assist_request.get("generationConfig")
-            if generation_config:
-                try:
-                    prompt_text_parts.append(
-                        json.dumps(generation_config, ensure_ascii=False)
-                    )
-                except Exception:
-                    prompt_text_parts.append(repr(generation_config))
-
-            for extra_key in ("tools", "toolConfig", "safetySettings"):
-                extra_value = code_assist_request.get(extra_key)
-                if extra_value:
-                    try:
-                        prompt_text_parts.append(
-                            json.dumps(extra_value, ensure_ascii=False)
-                        )
-                    except Exception:
-                        prompt_text_parts.append(repr(extra_value))
-
-            if not prompt_text_parts:
-                return 0
-
-            full_prompt = "\n".join(prompt_text_parts)
-            return len(encoding.encode(full_prompt))
-        except Exception as exc:  # pragma: no cover - defensive logging only
-            logger.warning("Failed to estimate prompt tokens: %s", exc)
-            return None
+        encoding = _get_tiktoken_encoding()
+        return estimate_prompt_tokens(code_assist_request, encoding)
 
     def _get_prompt_limit(self, effective_model: str) -> int | None:
         """Resolve the prompt-size threshold for the given model."""
-        normalized = self._normalize_model_key(effective_model)
-
-        limit = self._prompt_limit_overrides.get(normalized)
-
-        if limit is None:
-            for prefix, candidate_limit in self._prompt_limit_prefix_overrides:
-                if normalized.startswith(prefix):
-                    limit = candidate_limit
-                    break
-
-        if limit is None:
-            limit = self._default_prompt_limit
-
         override_limit = getattr(self.config, "context_window_override", None)
-        if isinstance(override_limit, int) and override_limit > 0:
-            if limit is None:
-                limit = override_limit
-            else:
-                limit = min(limit, override_limit)
-
-        if limit is None or limit <= 0:
-            return None
-
-        return int(limit)
+        return get_prompt_limit(
+            effective_model,
+            self._prompt_limit_overrides,
+            self._prompt_limit_prefix_overrides,
+            default_limit=self._default_prompt_limit,
+            context_window_override=override_limit,
+        )
 
     def _enforce_prompt_limit(
         self,
@@ -838,171 +733,30 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         request_id: str | None = None,
     ) -> None:
         """Prevent Code Assist requests that would exceed the plan allowance."""
-        if prompt_tokens is None:
-            return
-
         limit = self._get_prompt_limit(effective_model)
-        if limit is None:
-            return
-
-        soft_limit = int(limit * CODE_ASSIST_PROMPT_LIMIT_MARGIN)
-        if prompt_tokens <= soft_limit:
-            return
-
-        message = (
-            "Estimated prompt size exceeds the Code Assist plan allowance. "
-            "Please compress the conversation history or trim the request."
-        )
-        details = {
-            "model": effective_model,
-            "estimated_tokens": prompt_tokens,
-            "limit": limit,
-            "status": "CONTEXT_WINDOW_WILL_OVERFLOW",
-            "advice": (
-                "Use /compress or start a new session to reduce history size before retrying."
-            ),
-        }
-        if request_id:
-            details["request_id"] = request_id
-
-        logger.warning(
-            "Code Assist prompt blocked locally: estimated_tokens=%s limit=%s model=%s",
-            prompt_tokens,
-            limit,
-            effective_model,
-        )
-
-        raise InvalidRequestError(
-            message=message,
-            details=details,
-            code="context_window_will_overflow",
-        )
+        enforce_prompt_limit(prompt_tokens, effective_model, limit, request_id)
 
     def _start_file_watching(self) -> None:
         """Start watching the credentials file for changes."""
-        if not self._credentials_path or self._file_observer:
-            return
-
-        try:
-            event_handler = GeminiPersonalCredentialsFileHandler(self)
-            self._file_observer = Observer()
-            # Watch the parent directory of the credentials file
-            watch_dir = self._credentials_path.parent
-            self._file_observer.schedule(event_handler, str(watch_dir), recursive=False)
-            self._file_observer.start()
-            logger.info(f"Started watching credentials file: {self._credentials_path}")
-        except Exception as e:
-            logger.warning(f"Failed to start file watching: {e}")
+        # Sync main_loop to state before starting
+        self._file_watcher_state.main_loop = self._main_loop
+        FileWatcher.start_file_watching(
+            self._credentials_path, self, self._file_watcher_state
+        )
 
     def _stop_file_watching(self) -> None:
         """Stop watching the credentials file."""
-        observer = self._file_observer
-        if observer:
-            try:
-                if observer.is_alive():
-                    observer.stop()
-                    # Only join if we're not in the observer thread to avoid "cannot join current thread" error
-                    current_thread = threading.current_thread()
-                    if (
-                        hasattr(observer, "_thread")
-                        and observer._thread != current_thread
-                    ):
-                        observer.join()
-                self._file_observer = None
-                logger.info("Stopped watching credentials file")
-            except Exception as e:
-                logger.warning(f"Error stopping file watcher: {e}")
+        FileWatcher.stop_file_watching(self._file_watcher_state)
 
     def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload when the credentials file changes."""
-        now = time.time()
-        # Drop duplicate events that happen too frequently (e.g., editor/temp-file noise)
-        if now - self._last_reload_event_ts < 5.0:
-            return
-        self._last_reload_event_ts = now
-
-        with self._reload_task_lock:
-            if (
-                self._pending_reload_task is not None
-                and not self._pending_reload_task.done()
-            ):
-                return
-            if self._reload_scheduling_in_progress:
-                return
-            self._reload_scheduling_in_progress = True
-
-        async def reload_task() -> None:
-            await self._handle_credentials_file_change()
-
-        loop = self._main_loop
-        if loop is None:
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            self._main_loop = loop
-
-        if loop is None:
-            logger.warning(
-                "Cannot schedule credentials reload: no running event loop available."
-            )
-            with self._reload_task_lock:
-                self._reload_scheduling_in_progress = False
-            return
-
-        if loop.is_closed():
-            logger.debug(
-                "Skipping credentials reload scheduling: event loop is closed. Stopping file watcher."
-            )
-            self._stop_file_watching()
-            self._main_loop = None
-            with self._reload_task_lock:
-                self._pending_reload_task = None
-                self._reload_scheduling_in_progress = False
-            return
-
-        def _clear(_: asyncio.Future[Any]) -> None:
-            with self._reload_task_lock:
-                self._pending_reload_task = None
-                self._reload_scheduling_in_progress = False
-
-        def _assign_task(task: asyncio.Future[None]) -> None:
-            task.add_done_callback(_clear)
-            with self._reload_task_lock:
-                self._pending_reload_task = task
-                self._reload_scheduling_in_progress = False
-
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-
-        if running_loop is loop:
-            task = loop.create_task(reload_task())
-            _assign_task(task)
-            return
-
-        def schedule_task() -> None:
-            try:
-                task = loop.create_task(reload_task())
-                _assign_task(task)
-            except Exception as exc:
-                logger.warning("Failed to schedule credentials reload: %s", exc)
-                with self._reload_task_lock:
-                    self._reload_scheduling_in_progress = False
-
-        try:
-            loop.call_soon_threadsafe(schedule_task)
-        except RuntimeError as exc:
-            logger.debug(
-                "Event loop unavailable for credentials reload scheduling: %s",
-                exc,
-            )
-            self._stop_file_watching()
-            self._main_loop = None
-            with self._reload_task_lock:
-                self._pending_reload_task = None
-                self._reload_scheduling_in_progress = False
+        # Sync main_loop to state
+        self._file_watcher_state.main_loop = self._main_loop
+        FileWatcher.schedule_credentials_reload(
+            self._file_watcher_state,
+            self._handle_credentials_file_change,
+            self._stop_file_watching,
+        )
 
     async def _handle_credentials_file_change(self) -> None:
         """Handle credentials file change event.
@@ -1090,295 +844,50 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     def _seconds_until_token_expiry(self) -> float | None:
         """Return seconds remaining before token expiry, or None if unknown."""
-        if not self._oauth_credentials:
-            return None
-
-        expiry_value = self._oauth_credentials.get("expiry_date")
-        if not isinstance(expiry_value, int | float):
-            return None
-
-        expiry_seconds = float(expiry_value) / 1000.0
-        return expiry_seconds - time.time()
+        return self._token_manager.seconds_until_token_expiry(self._oauth_credentials)
 
     def _is_token_expired(
         self, buffer_seconds: float = TOKEN_EXPIRY_BUFFER_SECONDS
     ) -> bool:
         """Check if the current access token is expired or within buffer window."""
-        if not self._oauth_credentials:
-            return True
-
-        seconds_remaining = self._seconds_until_token_expiry()
-        if seconds_remaining is None:
-            return False
-
-        return seconds_remaining <= buffer_seconds
+        return self._token_manager.is_token_expired(
+            self._oauth_credentials, buffer_seconds
+        )
 
     def _should_trigger_cli_refresh(self) -> bool:
         """Determine whether we should proactively trigger CLI token refresh."""
-        if not self._oauth_credentials:
-            return True
-
-        seconds_remaining = self._seconds_until_token_expiry()
-        if seconds_remaining is None:
-            return False
-
-        if seconds_remaining > CLI_REFRESH_THRESHOLD_SECONDS:
-            return False
-
-        now = time.time()
-        if (now - self._last_cli_refresh_attempt) < CLI_REFRESH_COOLDOWN_SECONDS:
-            return False
-
-        return not (
-            self._cli_refresh_process and self._cli_refresh_process.poll() is None
-        )
+        return self._token_manager.should_trigger_cli_refresh(self._oauth_credentials)
 
     def _launch_cli_refresh_process(self) -> None:
         """Launch gemini CLI command to refresh the OAuth token in background."""
-        now = time.time()
-
-        if (now - self._last_cli_refresh_attempt) < CLI_REFRESH_COOLDOWN_SECONDS:
-            return
-
-        if self._cli_refresh_process and self._cli_refresh_process.poll() is None:
-            return
-
-        try:
-            command = list(CLI_REFRESH_COMMAND)
-            executable = shutil.which(command[0])
-            if executable:
-                command[0] = executable
-            else:
-                raise FileNotFoundError(command[0])
-
-            self._cli_refresh_process = subprocess.Popen(  # - intended CLI call
-                command,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            self._last_cli_refresh_attempt = now
-            logger.info("Triggered Gemini CLI background refresh process")
-        except FileNotFoundError:
-            self._last_cli_refresh_attempt = now
-            logger.error(
-                "Gemini CLI binary not found; cannot refresh OAuth token automatically."
-            )
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self._last_cli_refresh_attempt = now
-            logger.error(
-                "Failed to launch Gemini CLI for token refresh: %s",
-                exc,
-                exc_info=True,
-            )
+        self._token_manager.launch_cli_refresh_process()
 
     async def _poll_for_new_token(self, max_wait_seconds: float | None = None) -> bool:
         """Poll the credential file for an updated token after CLI refresh."""
-        if not self._is_token_expired():
-            return True
-
-        wait_window = (
-            TOKEN_REFRESH_MAX_WAIT_SECONDS
-            if max_wait_seconds is None
-            else max_wait_seconds
-        )
-        if wait_window <= 0:
-            return not self._is_token_expired()
-
-        deadline = time.time() + wait_window
-        attempts = 0
-
-        while time.time() < deadline:
-            remaining = deadline - time.time()
-            sleep_for = min(TOKEN_REFRESH_POLL_INTERVAL_SECONDS, remaining)
-            if sleep_for > 0:
-                await asyncio.sleep(sleep_for)
-            attempts += 1
-            loaded = await self._load_oauth_credentials()
-            if loaded and not self._is_token_expired():
-                logger.debug("Token refresh succeeded after %d poll attempts", attempts)
-                return True
-
-        # One final check in case the token refreshed just as the loop exited
-        loaded = await self._load_oauth_credentials()
-        if loaded and not self._is_token_expired():
-            logger.debug(
-                "Token refresh finalized after max wait window (%s seconds)",
-                wait_window,
-            )
-            return True
-
-        return not self._is_token_expired()
+        return await self._token_manager.poll_for_new_token(self, max_wait_seconds)
 
     def _get_refresh_token(self) -> str | None:
         """Get refresh token, either from credentials or cached value."""
-        if self._refresh_token:
-            return self._refresh_token
-
-        if self._oauth_credentials and "refresh_token" in self._oauth_credentials:
-            self._refresh_token = self._oauth_credentials["refresh_token"]
-            return self._refresh_token
-
-        return None
+        return self._token_manager.get_refresh_token(self._oauth_credentials)
 
     async def _refresh_token_if_needed(self) -> bool:
         """Ensure a valid access token is available, refreshing when necessary."""
-        if not self._oauth_credentials:
-            await self._load_oauth_credentials()
-
-        if not self._oauth_credentials:
-            return False
-
-        expired = self._is_token_expired()
-        near_expiry = self._should_trigger_cli_refresh()
-
-        if not expired and not near_expiry:
-            return True
-
-        async with self._token_refresh_lock:
-            if not self._oauth_credentials:
-                await self._load_oauth_credentials()
-
-            if not self._oauth_credentials:
-                return False
-
-            expired = self._is_token_expired()
-            near_expiry = self._should_trigger_cli_refresh()
-
-            if not expired and near_expiry:
-                self._launch_cli_refresh_process()
-                return True
-
-            if not expired:
-                return True
-
-            logger.info(
-                "Access token expired; reloading credentials and invoking CLI refresh if needed."
-            )
-
-            reloaded = await self._load_oauth_credentials()
-            if reloaded and not self._is_token_expired():
-                if self._should_trigger_cli_refresh():
-                    self._launch_cli_refresh_process()
-                return True
-
-            self._launch_cli_refresh_process()
-
-            refreshed = await self._poll_for_new_token()
-            if refreshed:
-                return True
-
-            logger.warning(
-                "Automatic Gemini CLI refresh did not produce a valid token in time."
-            )
-            return False
+        return await self._token_manager.refresh_token_if_needed(self)
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
-        try:
-            home_dir = Path.home()
-            gemini_dir = home_dir / ".gemini"
-            gemini_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-            creds_path = gemini_dir / "oauth_creds.json"
-
-            with open(creds_path, "w", encoding="utf-8") as f:
-                json.dump(credentials, f, indent=4)
-            logger.info(f"Gemini OAuth credentials saved to {creds_path}")
-        except OSError as e:
-            logger.error(f"Error saving Gemini OAuth credentials: {e}", exc_info=True)
+        await CredentialLoader.save_oauth_credentials(credentials)
 
     @staticmethod
     def _compute_credentials_fingerprint(credentials: dict[str, Any]) -> str:
         """Return a stable fingerprint for the currently loaded credentials."""
-        relevant = {
-            "access_token": credentials.get("access_token", ""),
-            "refresh_token": credentials.get("refresh_token", ""),
-            "expiry_date": credentials.get("expiry_date"),
-        }
-        payload = json.dumps(relevant, sort_keys=True, default=str)
-        return hashlib.sha256(payload.encode("utf-8", "ignore")).hexdigest()
+        return CredentialLoader.compute_credentials_fingerprint(credentials)
 
     async def _load_oauth_credentials(
         self, force_reload: bool = False, silent: bool = False
     ) -> bool:
-        """Load OAuth credentials from oauth_creds.json file.
-
-        Args:
-            force_reload: If True, bypass cache and force reload from file even if timestamp unchanged
-            silent: If True, suppress INFO level logging (used when checking for changes)
-
-        Returns:
-            bool: True if credentials loaded successfully, False otherwise
-        """
-        try:
-            # Use custom path if provided, otherwise default to ~/.gemini
-            if self.gemini_cli_oauth_path:
-                creds_path = Path(self.gemini_cli_oauth_path) / "oauth_creds.json"
-            else:
-                home_dir = Path.home()
-                creds_path = home_dir / ".gemini" / "oauth_creds.json"
-            self._credentials_path = creds_path
-
-            if not creds_path.exists():
-                logger.warning(f"Gemini OAuth credentials not found at {creds_path}")
-                return False
-
-            # Check if file has been modified since last load (unless force_reload is True)
-            if not force_reload:
-                try:
-                    current_modified = creds_path.stat().st_mtime
-                    if (
-                        current_modified == self._last_modified
-                        and self._oauth_credentials
-                    ):
-                        # File hasn't changed and credentials are in memory, no need to reload
-                        logger.debug(
-                            "Gemini OAuth credentials file not modified, using cached."
-                        )
-                        return True
-                except OSError:
-                    # If cannot get file stats, proceed with reading
-                    pass
-
-            # Update last modified time
-            try:
-                current_modified = creds_path.stat().st_mtime
-                self._last_modified = current_modified
-            except OSError:
-                pass
-
-            raw_text = creds_path.read_text(encoding="utf-8")
-            credentials = json.loads(raw_text)
-
-            # Validate essential fields
-            if "access_token" not in credentials:
-                logger.warning(
-                    "Malformed Gemini OAuth credentials: missing access_token"
-                )
-                return False
-
-            self._oauth_credentials = credentials
-            self._credentials_fingerprint = self._compute_credentials_fingerprint(
-                credentials
-            )
-            self._credentials_file_hash = hashlib.sha256(
-                raw_text.encode("utf-8", "ignore")
-            ).hexdigest()
-            self._last_credentials_event_hash = self._credentials_file_hash
-            if not silent and logger.isEnabledFor(logging.INFO):
-                log_msg = "Successfully loaded Gemini OAuth credentials"
-                if force_reload:
-                    log_msg += " (force reload)"
-                logger.info(log_msg + ".")
-            return True
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"Error decoding Gemini OAuth credentials JSON: {e}",
-                exc_info=True,
-            )
-            return False
-        except OSError as e:
-            logger.error(f"Error loading Gemini OAuth credentials: {e}", exc_info=True)
-            return False
+        """Load OAuth credentials from oauth_creds.json file."""
+        return await CredentialLoader.load_oauth_credentials(self, force_reload, silent)
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize backend with enhanced validation following the stale token handling pattern."""
@@ -2039,131 +1548,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def _sanitize_code_assist_tools(
         canonical_request: Any, code_assist_request: dict[str, Any]
     ) -> None:
-        """Ensure only Gemini-compatible function tools are sent.
-
-        This method handles various tool formats from different clients:
-        1. OpenAI format: {"type": "function", "function": {"name": ..., "parameters": ...}}
-        2. Anthropic/custom format: {"type": "custom", "name": ..., "input_schema": ...}
-        3. Direct format: {"name": ..., "description": ..., "parameters": ...}
-        4. Custom nested format: {"type": "custom", "custom": {"input_schema": ...}}
-
-        All formats are converted to Gemini function_declarations format.
-        """
-
-        tools = getattr(canonical_request, "tools", None) or []
-
-        def _extract_function_declarations(
-            source_tools: list[Any],
-        ) -> list[dict[str, Any]]:
-            declarations: list[dict[str, Any]] = []
-            for tool in source_tools:
-                tool_dict = tool if isinstance(tool, dict) else None
-                if tool_dict is None and hasattr(tool, "model_dump"):
-                    try:
-                        tool_dict = tool.model_dump()  # type: ignore[attr-defined]
-                    except Exception:
-                        tool_dict = None
-                if not isinstance(tool_dict, dict):
-                    continue
-
-                # Try to extract function declaration from various formats
-                name: str = ""
-                description: str = ""
-                params: dict[str, Any] = {}
-
-                # Format 1: OpenAI standard format - {"type": "function", "function": {...}}
-                function = tool_dict.get("function")
-                if isinstance(function, dict):
-                    name = function.get("name", "")
-                    description = function.get("description", "")
-                    params = function.get("parameters", {})
-                # Format 2: Anthropic/direct format - {"name": ..., "input_schema": ...}
-                elif tool_dict.get("name"):
-                    name = tool_dict.get("name", "")
-                    description = tool_dict.get("description", "")
-                    # Support both "parameters" and "input_schema" keys
-                    params = (
-                        tool_dict.get("parameters")
-                        or tool_dict.get("input_schema")
-                        or {}
-                    )
-                # Format 3: Custom nested format - {"type": "custom", "custom": {"input_schema": ...}}
-                elif tool_dict.get("type") == "custom":
-                    custom_data = tool_dict.get("custom")
-                    if isinstance(custom_data, dict):
-                        # Try to extract name from custom data or use a generated name
-                        name = custom_data.get("name", "")
-                        description = custom_data.get("description", "")
-                        params = (
-                            custom_data.get("input_schema")
-                            or custom_data.get("parameters")
-                            or {}
-                        )
-                    # Skip custom tools without extractable function info
-                    if not name:
-                        logger.debug(
-                            "Skipping custom tool without name: %s",
-                            str(tool_dict)[:200],
-                        )
-                        continue
-
-                # Skip tools without a name (can't create valid function declaration)
-                if not name:
-                    continue
-
-                sanitized_params = (
-                    Translation._sanitize_gemini_parameters(params)
-                    if isinstance(params, dict)
-                    else {}
-                )
-                declarations.append(
-                    {
-                        "name": name,
-                        "description": description,
-                        "parameters": sanitized_params,
-                    }
-                )
-            return declarations
-
-        function_declarations: list[dict[str, Any]] = _extract_function_declarations(
-            tools
-        )
-
-        # Fallback: if canonical_request had no tools, try to salvage any existing function declarations
-        if not function_declarations:
-            existing_tools = code_assist_request.get("tools")
-            if isinstance(existing_tools, list):
-                for entry in existing_tools:
-                    fd_list = None
-                    if isinstance(entry, dict):
-                        fd_list = entry.get("function_declarations")
-                    if isinstance(fd_list, list):
-                        function_declarations.extend(
-                            [fd for fd in fd_list if isinstance(fd, dict)]
-                        )
-
-        if function_declarations:
-            code_assist_request["tools"] = [
-                {"function_declarations": function_declarations}
-            ]
-
-            # Filter allowedFunctionNames to declared functions, if present
-            tool_config = code_assist_request.get("toolConfig", {})
-            if isinstance(tool_config, dict):
-                fcc = tool_config.get("functionCallingConfig")
-                if isinstance(fcc, dict):
-                    allowed = fcc.get("allowedFunctionNames")
-                    if isinstance(allowed, list):
-                        declared = {fd.get("name", "") for fd in function_declarations}
-                        filtered = [n for n in allowed if n in declared]
-                        if filtered:
-                            fcc["allowedFunctionNames"] = filtered
-                        else:
-                            fcc.pop("allowedFunctionNames", None)
-        else:
-            code_assist_request.pop("tools", None)
-            # If no tools, drop toolConfig entirely to avoid invalid references
-            code_assist_request.pop("toolConfig", None)
+        """Ensure only Gemini-compatible function tools are sent."""
+        sanitize_code_assist_tools(canonical_request, code_assist_request)
 
     async def _chat_completions_code_assist(
         self,
@@ -3697,71 +3083,23 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return openai_response
 
     def _get_fallback_model(self, original_model: str) -> str | None:
-        """Get the fallback model for a given model.
-
-        Args:
-            original_model: The model that needs fallback
-
-        Returns:
-            The fallback model name, or None if no fallback available
-        """
-        fallback_map = {
-            # Gemini 3.x series
-            "gemini-3-pro": "gemini-3-flash",
-            "gemini-3-pro-high": "gemini-3-flash",
-            "gemini-3-flash": None,  # No fallback for flash variants
-            "gemini-3-flash-lite": None,
-            # Gemini 2.5 series
-            "gemini-2.5-pro": "gemini-2.5-flash",
-            "gemini-2.5-flash": None,  # No fallback for flash
-            "gemini-2.5-flash-lite": None,
-            "gemini-2.5-pro-preview-05-06": "gemini-2.5-flash",
-            "gemini-2.5-pro-preview-06-05": "gemini-2.5-flash",
-            "gemini-2.5-flash-preview-05-20": None,
-            # Gemini 2.0/1.5 series
-            "gemini-2.0-flash": "gemini-1.5-flash",
-            "gemini-1.5-pro": "gemini-1.5-flash",
-            "gemini-1.5-flash": None,
-        }
-        return fallback_map.get(original_model)
+        """Get the fallback model for a given model."""
+        return get_fallback_model(original_model)
 
     def _is_in_cooldown(self, model: str) -> bool:
-        """Check if a model is currently in cooldown.
-
-        Args:
-            model: The model to check
-
-        Returns:
-            True if model is in cooldown, False otherwise
-        """
-        state = self._model_retry_states.get(model)
-        if not state:
-            return False
-        return time.time() < state.cooldown_until
+        """Check if a model is currently in cooldown."""
+        return is_model_in_cooldown(model, self._model_retry_states)
 
     def _set_cooldown(self, model: str) -> None:
-        """Put a model into cooldown state.
-
-        Args:
-            model: The model to put in cooldown
-        """
-        if model not in self._model_retry_states:
-            self._model_retry_states[model] = ModelRetryState()
-
-        state = self._model_retry_states[model]
-        state.cooldown_until = time.time() + self._degradation_config.cooldown_duration
-        state.attempts = 0  # Reset attempts after cooldown
-        state.probe_success_count = 0
-
-        logger.info(f"Model {model} put in cooldown until {state.cooldown_until}")
+        """Put a model into cooldown state."""
+        set_model_cooldown(
+            model, self._model_retry_states, self._degradation_config.cooldown_duration
+        )
 
     @staticmethod
     def _is_rate_limit_like_error(error: BackendError) -> bool:
         """Determine whether an error should trigger graceful degradation retries."""
-
-        code = getattr(error, "code", None)
-        status = getattr(error, "status_code", None)
-        return status == 429 or (isinstance(code, str) and code in {"empty_response"})
+        return is_rate_limit_like_error(error)
 
     async def _probe_model_recovery(
         self, model: str, bypass_interval_check: bool = False
@@ -3981,28 +3319,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 state.attempts = attempt
 
                 try:
-                    # Calculate delay for this attempt
-                    # Even for attempt 0, we add a small initial delay (2s) since
-                    # we're already in graceful degradation due to a 429 error.
-                    # This prevents burst rate limiting from immediate retries.
-                    if attempt == 0:
-                        # Initial delay after 429 to avoid immediate retry burst
-                        base_delay = 2.0
-                    else:
-                        # Retry with configured delays
-                        delay_idx = min(
-                            attempt - 1, len(self._degradation_config.retry_delays) - 1
-                        )
-                        base_delay = self._degradation_config.retry_delays[delay_idx]
-
-                    # Add jitter: ±25% of the base delay to prevent synchronized retries
-                    jitter_factor = 0.25
-                    jitter_range = base_delay * jitter_factor
-                    jitter = random.uniform(-jitter_range, jitter_range)
-                    delay = max(0.5, base_delay + jitter)  # Ensure minimum 0.5s delay
+                    # Calculate delay for this attempt with jitter
+                    delay = calculate_retry_delay(
+                        attempt, self._degradation_config.retry_delays
+                    )
 
                     logger.info(
-                        f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt}, base: {base_delay}s, jitter: {jitter:+.1f}s)"
+                        f"Retrying model {model} after {delay:.1f}s delay (attempt {attempt})"
                     )
                     self._graceful_metrics.record_wait(delay)
                     await asyncio.sleep(delay)
@@ -4129,18 +3452,27 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     def __del__(self):
         """Cleanup file watcher on destruction."""
         self._stop_file_watching()
-        if self._cli_refresh_process and self._cli_refresh_process.poll() is None:
-            with contextlib.suppress(Exception):
-                self._cli_refresh_process.terminate()
-        self._cli_refresh_process = None
+
+        # Cleanup CLI refresh process via token manager
+        if hasattr(self, "_token_manager"):
+            cli_process = self._token_manager._cli_refresh_process
+            if cli_process and cli_process.poll() is None:
+                with contextlib.suppress(Exception):
+                    cli_process.terminate()
+            self._token_manager._cli_refresh_process = None
 
         # Cancel recovery probe task if running
         # During shutdown, we need to cancel the task without trying to schedule it
         # on the event loop, which may already be closed
-        if self._recovery_probe_task and not self._recovery_probe_task.done():
+        if (
+            hasattr(self, "_recovery_probe_task")
+            and self._recovery_probe_task
+            and not self._recovery_probe_task.done()
+        ):
             # Simply cancel without awaiting - the task will be cleaned up
             # We suppress all exceptions because during interpreter shutdown,
             # the logging system may already be torn down
             with contextlib.suppress(Exception):
                 self._recovery_probe_task.cancel()
-        self._recovery_probe_task = None
+        if hasattr(self, "_recovery_probe_task"):
+            self._recovery_probe_task = None

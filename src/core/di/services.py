@@ -1749,6 +1749,41 @@ def register_core_services(
                         exc_info=True,
                     )
 
+            # Register TestExecutionReminderHandler if enabled
+            try:
+                if getattr(app_config, "test_execution_reminder_enabled", False):
+                    from src.services.test_execution_reminder.test_execution_reminder_handler import (
+                        TestExecutionReminderHandler,
+                    )
+
+                    # Get custom message if configured
+                    custom_message = getattr(
+                        app_config, "test_execution_reminder_message", None
+                    )
+
+                    test_execution_handler = TestExecutionReminderHandler(
+                        message=custom_message,
+                        enabled=True,
+                    )
+                    try:
+                        reactor.register_handler_sync(test_execution_handler)
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "Registered TestExecutionReminderHandler with priority 90"
+                            )
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to register test execution reminder handler: {e}",
+                                exc_info=True,
+                            )
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to register TestExecutionReminderHandler: {e}",
+                        exc_info=True,
+                    )
+
         return reactor
 
     _add_singleton(

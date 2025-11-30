@@ -20,6 +20,12 @@ properties:
     type:
       - string
       - "null"
+  test_execution_reminder_enabled:
+    type: boolean
+  test_execution_reminder_message:
+    type:
+      - string
+      - "null"
   steering_rules:
     type: array
     items:

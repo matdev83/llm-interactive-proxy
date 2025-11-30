@@ -70,6 +70,7 @@
 --log
 --log-level
 --model-alias
+--no-test-execution-reminder-enabled
 --openrouter-api-base-url
 --openrouter-api-key
 --planning-phase-max-file-writes
@@ -86,6 +87,7 @@
 --reasoning_injection_probability
 --static-route
 --strict-command-detection
+--test-execution-reminder-enabled
 --thinking-budget
 --timeout
 --trusted-ip

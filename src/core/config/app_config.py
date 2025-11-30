@@ -378,6 +378,12 @@ class ToolCallReactorConfig(DomainModel):
     fix_think_tags_enabled: bool = False
     """Whether correction of improperly formatted <think> tags is enabled."""
 
+    test_execution_reminder_enabled: bool = False
+    """Whether test execution reminder steering is enabled."""
+
+    test_execution_reminder_message: str | None = None
+    """Optional custom steering message for test execution reminders."""
+
     # New: fully configurable steering rules
     steering_rules: list[dict[str, Any]] = Field(default_factory=list)
     """Configurable steering rules.
@@ -484,6 +490,8 @@ class SessionConfig(DomainModel):
     pytest_compression_min_lines: int = 30
     pytest_full_suite_steering_enabled: bool | None = None
     pytest_full_suite_steering_message: str | None = None
+    test_execution_reminder_enabled: bool | None = None
+    test_execution_reminder_message: str | None = None
     fix_think_tags_enabled: bool = False
     fix_think_tags_streaming_buffer_size: int = 4096
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
@@ -547,6 +555,27 @@ class SessionConfig(DomainModel):
             values["fix_think_tags_enabled"] = reactor_config_dict.get(
                 "fix_think_tags_enabled",
                 values.get("fix_think_tags_enabled", False),
+            )
+
+        test_exec_reminder_enabled = values.get("test_execution_reminder_enabled")
+        if test_exec_reminder_enabled is not None:
+            reactor_config_dict["test_execution_reminder_enabled"] = (
+                test_exec_reminder_enabled
+            )
+        else:
+            values["test_execution_reminder_enabled"] = reactor_config_dict.get(
+                "test_execution_reminder_enabled",
+                values.get("test_execution_reminder_enabled", False),
+            )
+
+        test_exec_reminder_message = values.get("test_execution_reminder_message")
+        if test_exec_reminder_message is not None:
+            reactor_config_dict["test_execution_reminder_message"] = (
+                test_exec_reminder_message
+            )
+        else:
+            values["test_execution_reminder_message"] = reactor_config_dict.get(
+                "test_execution_reminder_message"
             )
 
         # Store the dict - Pydantic will convert it to ToolCallReactorConfig
@@ -1282,6 +1311,20 @@ class AppConfig(DomainModel, IConfig):
                 "PYTEST_FULL_SUITE_STEERING_MESSAGE",
                 None,
                 path="session.pytest_full_suite_steering_message",
+                resolution=resolution,
+            ),
+            "test_execution_reminder_enabled": _env_to_bool(
+                "TEST_EXECUTION_REMINDER_ENABLED",
+                False,
+                env,
+                path="session.test_execution_reminder_enabled",
+                resolution=resolution,
+            ),
+            "test_execution_reminder_message": _get_env_value(
+                env,
+                "TEST_EXECUTION_REMINDER_MESSAGE",
+                None,
+                path="session.test_execution_reminder_message",
                 resolution=resolution,
             ),
             "fix_think_tags_enabled": _env_to_bool(

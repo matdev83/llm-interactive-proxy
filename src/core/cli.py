@@ -593,6 +593,24 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Enable correction of improperly formatted <think> tags in model responses",
     )
 
+    # Test execution reminder
+    test_exec_reminder_group = parser.add_mutually_exclusive_group()
+    test_exec_reminder_group.add_argument(
+        "--test-execution-reminder-enabled",
+        action="store_const",
+        const=True,
+        dest="test_execution_reminder_enabled",
+        default=None,
+        help="Enable test execution reminder steering (overrides config)",
+    )
+    test_exec_reminder_group.add_argument(
+        "--no-test-execution-reminder-enabled",
+        action="store_const",
+        const=False,
+        dest="test_execution_reminder_enabled",
+        help="Disable test execution reminder steering (overrides config)",
+    )
+
     # Dangerous command protection
     parser.add_argument(
         "--disable-dangerous-git-commands-protection",
@@ -1304,6 +1322,26 @@ def apply_cli_args(
             "session.pytest_full_suite_steering_enabled",
             args.pytest_full_suite_steering_enabled,
             "--enable/disable-pytest-full-suite-steering",
+        )
+
+    # Test execution reminder flag
+    if getattr(args, "test_execution_reminder_enabled", None) is not None:
+        session = cli_overrides.setdefault("session", {})
+        session["test_execution_reminder_enabled"] = (
+            args.test_execution_reminder_enabled
+        )
+        # Also update tool_call_reactor
+        tool_call_reactor_overrides_ter: dict[str, Any] = session.get(
+            "tool_call_reactor", {}
+        )
+        tool_call_reactor_overrides_ter["test_execution_reminder_enabled"] = (
+            args.test_execution_reminder_enabled
+        )
+        session["tool_call_reactor"] = tool_call_reactor_overrides_ter
+        record_cli(
+            "session.test_execution_reminder_enabled",
+            args.test_execution_reminder_enabled,
+            "--test-execution-reminder-enabled/--no-test-execution-reminder-enabled",
         )
 
     # Pytest context saving flag
