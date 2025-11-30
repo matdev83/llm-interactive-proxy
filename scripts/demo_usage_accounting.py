@@ -101,7 +101,10 @@ class TestResult:
 
 # Configuration
 OPENAI_BASE_URL = os.getenv("LLM_PROXY_URL", "http://127.0.0.1:8000")
-ANTHROPIC_BASE_URL = os.getenv("LLM_PROXY_ANTHROPIC_URL", "http://127.0.0.1:8001")
+# Anthropic endpoint is now on the main proxy under /anthropic prefix
+ANTHROPIC_BASE_URL = os.getenv(
+    "LLM_PROXY_ANTHROPIC_URL", "http://127.0.0.1:8000/anthropic"
+)
 API_KEY = os.getenv("LLM_PROXY_KEY", "dev-key")
 
 # Test prompt
@@ -674,9 +677,9 @@ def main() -> int:
         print(f"[ERROR] Main proxy NOT reachable at {OPENAI_BASE_URL}")
 
     if anthropic_proxy_ok:
-        print(f"[OK] Anthropic proxy reachable at {ANTHROPIC_BASE_URL}")
+        print(f"[OK] Anthropic endpoint reachable at {ANTHROPIC_BASE_URL}")
     else:
-        print(f"[WARN] Anthropic proxy NOT reachable at {ANTHROPIC_BASE_URL}")
+        print(f"[WARN] Anthropic endpoint NOT reachable at {ANTHROPIC_BASE_URL}")
         print("       Anthropic frontend tests will be skipped.")
 
     print()

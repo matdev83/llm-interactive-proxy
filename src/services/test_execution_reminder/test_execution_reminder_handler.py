@@ -144,10 +144,14 @@ class TestExecutionReminderHandler(IToolCallHandler):
                     return False
 
             # Check if this is a completion signal
-            # Extract response text if available
-            response_text = self._extract_response_text(context.full_response)
+            # Extract finish_reason and metadata if available
+            finish_reason = self._extract_finish_reason(context.full_response)
+            metadata = self._extract_metadata(context.full_response)
             is_completion = CompletionSignalDetector.is_completion_signal(
-                tool_name, tool_arguments, response_text
+                tool_name=tool_name,
+                tool_arguments=tool_arguments,
+                finish_reason=finish_reason,
+                metadata=metadata,
             )
 
             if is_completion:
@@ -157,29 +161,27 @@ class TestExecutionReminderHandler(IToolCallHandler):
 
                 # Determine detection reason
                 is_tool_match = CompletionSignalDetector._is_completion_tool(tool_name)
-                is_pattern_match = (
-                    response_text
-                    and CompletionSignalDetector._contains_completion_pattern(
-                        response_text
-                    )
+                is_finish_reason_match = CompletionSignalDetector._is_finish_reason(
+                    finish_reason
                 )
 
-                if is_tool_match and is_pattern_match:
-                    reason = "tool_name_and_message_pattern"
+                if is_tool_match and is_finish_reason_match:
+                    reason = "tool_name_and_finish_reason"
                 elif is_tool_match:
                     reason = "tool_name"
-                elif is_pattern_match:
-                    reason = "message_pattern"
+                elif is_finish_reason_match:
+                    reason = "finish_reason"
                 else:
                     reason = "unknown"
 
                 # Log completion signal detection with reason and current state
                 logger.info(
-                    "Completion signal detected: session=%s, reason=%s, current_state=%s, tool=%s",
+                    "Completion signal detected: session=%s, reason=%s, current_state=%s, tool=%s, finish_reason=%s",
                     context.session_id,
                     reason,
                     current_state,
                     tool_name,
+                    finish_reason,
                 )
 
                 # Only handle if session is dirty
@@ -230,10 +232,14 @@ class TestExecutionReminderHandler(IToolCallHandler):
             if not state or not state.is_dirty:
                 return ToolCallReactionResult(should_swallow=False)
 
-            # Extract response text for completion signal verification
-            response_text = self._extract_response_text(context.full_response)
+            # Extract finish_reason and metadata for completion signal verification
+            finish_reason = self._extract_finish_reason(context.full_response)
+            metadata = self._extract_metadata(context.full_response)
             is_completion = CompletionSignalDetector.is_completion_signal(
-                context.tool_name, context.tool_arguments, response_text
+                tool_name=context.tool_name,
+                tool_arguments=context.tool_arguments,
+                finish_reason=finish_reason,
+                metadata=metadata,
             )
 
             if not is_completion:
@@ -500,37 +506,78 @@ class TestExecutionReminderHandler(IToolCallHandler):
             )
             return None
 
-    def _extract_response_text(self, full_response: Any) -> str | None:
-        """Extract response text from the full LLM response.
+    def _extract_finish_reason(self, full_response: Any) -> str | None:
+        """Extract finish_reason from the full LLM response.
 
-        This method attempts to extract text content from various response
-        formats to check for completion patterns.
+        This method attempts to extract the finish_reason field from streaming
+        responses, which indicates the end of the LLM's response.
 
         Args:
             full_response: The full response from the LLM
 
         Returns:
-            The extracted text or None if not found
+            The finish_reason value or None if not found
         """
         try:
-            # Handle dict responses (common format)
-            if isinstance(full_response, dict):
-                # Try common text fields
-                for key in ["content", "text", "message", "response"]:
-                    if key in full_response:
-                        value = full_response[key]
-                        if isinstance(value, str):
-                            return value
+            if not isinstance(full_response, dict):
+                return None
 
-            # Handle string responses
-            if isinstance(full_response, str):
-                return full_response
+            # Check top-level finish_reason
+            if "finish_reason" in full_response:
+                return full_response["finish_reason"]
+
+            # Check in choices array (OpenAI format)
+            choices = full_response.get("choices", [])
+            if choices and isinstance(choices, list) and len(choices) > 0:
+                first_choice = choices[0]
+                if isinstance(first_choice, dict):
+                    finish_reason = first_choice.get("finish_reason")
+                    if finish_reason:
+                        return finish_reason
+
+            # Check in metadata
+            metadata = full_response.get("metadata", {})
+            if isinstance(metadata, dict) and "finish_reason" in metadata:
+                return metadata["finish_reason"]
 
             return None
 
         except Exception as e:
             logger.debug(
-                "Error extracting response text: %s",
+                "Error extracting finish_reason: %s",
+                str(e),
+            )
+            return None
+
+    def _extract_metadata(self, full_response: Any) -> dict[str, Any] | None:
+        """Extract metadata from the full LLM response.
+
+        This method attempts to extract metadata that may contain finish_reason
+        or other completion indicators.
+
+        Args:
+            full_response: The full response from the LLM
+
+        Returns:
+            The metadata dict or None if not found
+        """
+        try:
+            if not isinstance(full_response, dict):
+                return None
+
+            # Check for metadata field
+            if "metadata" in full_response:
+                metadata = full_response["metadata"]
+                if isinstance(metadata, dict):
+                    return metadata
+
+            # Return the full response as metadata if it's a dict
+            # This allows checking for finish_reason at the top level
+            return full_response
+
+        except Exception as e:
+            logger.debug(
+                "Error extracting metadata: %s",
                 str(e),
             )
             return None

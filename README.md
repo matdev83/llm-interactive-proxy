@@ -48,6 +48,7 @@ graph TD
 - **Connect Any App to Any Model**: Route requests from any LLM client to any backend, even across protocols
 - **Model Override**: Force applications to use your chosen model, regardless of hardcoded defaults
 - **API Key Rotation**: Aggregate and auto-rotate API keys to maximize free-tier usage
+- **Test Execution Reminder**: Automatically reminds agents to run tests before completing tasks (14+ languages)
 - **LLM Assessment**: Detect conversation loops and stuck patterns with intelligent monitoring
 - **Tool Access Control**: Fine-grained control over which tools LLMs can access
 - **Dangerous Command Protection**: Block destructive git operations before they cause damage

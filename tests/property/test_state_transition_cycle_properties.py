@@ -60,7 +60,7 @@ def file_modification_tool_strategy(draw: Any) -> str:
 
 
 @st.composite
-def test_execution_command_strategy(draw: Any) -> str:
+def execution_command_strategy(draw: Any) -> str:
     """Generate test execution commands."""
     commands = [
         "pytest",
@@ -101,7 +101,7 @@ def test_execution_command_strategy(draw: Any) -> str:
 @given(
     file_tool_1=file_modification_tool_strategy(),
     file_tool_2=file_modification_tool_strategy(),
-    test_command=test_execution_command_strategy(),
+    test_command=execution_command_strategy(),
     session_id=st.text(min_size=1, max_size=50),
 )
 @property_test_settings()
@@ -200,7 +200,7 @@ async def test_property_14_state_transition_cycle(
         max_size=5,
     ),
     test_commands=st.lists(
-        test_execution_command_strategy(),
+        execution_command_strategy(),
         min_size=1,
         max_size=3,
     ),

@@ -61,14 +61,16 @@ def test_ttl_cleanup_removes_expired_sessions(
     # Create a session
     handler._mark_session_dirty(session_id)
 
-    # Verify session exists
-    state = handler._get_session_state(session_id)
-    assert state is not None
+    # Verify session exists (without updating last_seen)
+    assert session_id in handler._session_state
+    state = handler._session_state[session_id]
     assert state.is_dirty is True
 
-    # Simulate time passing
-    current_time = time()
-    future_time = current_time + time_offset
+    # Record the last_seen time when session was created
+    session_last_seen = state.last_seen
+
+    # Simulate time passing by calculating future time
+    future_time = session_last_seen + time_offset
 
     # Run cleanup with future time
     handler._prune_session_state(future_time)

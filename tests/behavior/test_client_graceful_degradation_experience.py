@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 import httpx
 import pytest
@@ -190,6 +190,9 @@ async def test_immediate_fallback_returns_flash_response(
     )
     connector.set_behavior("gemini-2.5-flash", ["flash-response"])
 
+    # Mock sleep to avoid real delay
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
     start = time.time()
     response = await connector._handle_429_with_graceful_degradation(
         original_model="gemini-2.5-pro",
@@ -210,11 +213,16 @@ async def test_immediate_fallback_returns_flash_response(
 
 
 @pytest.mark.asyncio
-async def test_flash_failure_marks_backend_unusable() -> None:
+async def test_flash_failure_marks_backend_unusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     connector = ClientExperienceConnector()
     rate_limit = BackendError("Rate limit", status_code=429)
     connector.set_behavior("gemini-2.5-pro", [rate_limit])
     connector.set_behavior("gemini-2.5-flash", [rate_limit, rate_limit, rate_limit])
+
+    # Mock sleep to avoid real delay
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
     with pytest.raises(BackendError) as exc:
         await connector._handle_429_with_graceful_degradation(
@@ -240,10 +248,10 @@ async def test_metrics_capture_wait_time_and_duration(
 
     wait_times: list[float] = []
 
-    async def fake_sleep(delay: float) -> None:
+    async def fake_sleep_impl(delay: float) -> None:
         wait_times.append(delay)
 
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock(side_effect=fake_sleep_impl))
 
     await connector._handle_429_with_graceful_degradation(
         original_model="gemini-2.5-pro",
@@ -259,10 +267,15 @@ async def test_metrics_capture_wait_time_and_duration(
 
 
 @pytest.mark.asyncio
-async def test_streaming_envelope_carries_fallback_text() -> None:
+async def test_streaming_envelope_carries_fallback_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     connector = ClientExperienceConnector()
     connector.set_behavior("gemini-2.5-pro", [BackendError("limit", status_code=429)])
     connector.set_behavior("gemini-2.5-flash", ["streamed-response"])
+
+    # Mock sleep to avoid real delay
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
     envelope = await connector._handle_429_with_graceful_degradation(
         original_model="gemini-2.5-pro",

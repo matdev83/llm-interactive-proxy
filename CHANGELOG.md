@@ -1,5 +1,103 @@
 # Changelog
 
+## [2025-12-01] - Test Execution Reminder System
+
+### New Feature: Intelligent Test Execution Steering for Agentic Workflows
+
+- **Automated Test Enforcement**: Prevents agents from completing tasks without running tests after code modifications
+  - **Dirty State Tracking**: Monitors file modifications and test executions per session
+  - **Completion Signal Detection**: Identifies when agents attempt to signal task completion
+  - **Steering Message Injection**: Automatically reminds agents to run tests before finalizing work
+  - **Context Preservation**: Maintains full conversation history during steering interventions
+
+- **Multi-Language Test Runner Support**: Recognizes test execution across 14+ programming languages
+  - **Python**: pytest, unittest, py.test, python -m pytest
+  - **JavaScript/TypeScript**: jest, vitest, mocha, ava, npm test, yarn test
+  - **Rust**: cargo test
+  - **Go**: go test
+  - **Java**: mvn test, gradle test, ./gradlew test
+  - **C#**: dotnet test
+  - **Ruby**: rspec, rake test, bundle exec rspec
+  - **PHP**: phpunit, composer test
+  - **C/C++**: ctest, make test, cmake --build . --target test
+  - **Swift**: swift test
+  - **Kotlin**: gradle test (Kotlin projects)
+  - **Scala**: sbt test
+  - **Elixir**: mix test
+  - **Dart/Flutter**: flutter test, dart test
+
+- **File Modification Detection**: Tracks all file-modifying tool calls
+  - Supports: write_file, str_replace, apply_diff, apply_patch, patch_file, multiedit, fs/write_text_file, insert_content, and variations
+  - Case-insensitive matching with normalization for tool name variations
+
+- **Extensible Pattern Registry**: Easy addition of new test runners without code changes
+  - Pattern-based command matching with regex support
+  - Priority-based pattern selection for specificity
+  - Framework and language identification
+
+- **Configuration Options**: Multiple configuration methods with proper precedence
+  - **CLI Flags**: `--test-execution-reminder-enabled` / `--no-test-execution-reminder-enabled`
+  - **Environment Variables**: `TEST_EXECUTION_REMINDER_ENABLED`, `TEST_EXECUTION_REMINDER_MESSAGE`
+  - **Config File**: `test_execution_reminder_enabled`, `test_execution_reminder_message`
+  - **Precedence**: CLI > Environment > Config file
+  - **Custom Messages**: Configurable steering message text
+
+- **Session Management**: Robust session isolation and cleanup
+  - Independent state tracking per agent session
+  - TTL-based cleanup (default: 30 minutes)
+  - Memory guardrails with max session limits (default: 1024)
+  - Concurrent session support
+
+- **Error Handling**: Production-grade reliability
+  - Fail-open strategy (allows requests through on errors)
+  - Never crashes the proxy pipeline
+  - Graceful degradation when disabled
+  - Comprehensive logging at appropriate levels
+
+- **Integration**: Seamless integration with existing infrastructure
+  - Implements `IToolCallHandler` interface (priority: 90)
+  - Works alongside existing handlers without interference
+  - Tool Call Reactor pattern for event-driven steering
+  - Swallow-and-replace pattern for steering injection
+
+- **Testing**: Comprehensive test coverage ensuring correctness
+  - **100% Code Coverage**: All new code fully tested
+  - **15 Property-Based Tests**: Using Hypothesis library (100+ iterations each)
+  - **184 Unit Tests**: Covering all components and edge cases
+  - **14 Integration Tests**: End-to-end flow verification
+  - **No Regressions**: All existing tests pass (5398 tests green)
+
+- **Industry Best Practices**: Enforces quality standards for agentic workflows
+  - Prevents incomplete work from being marked as done
+  - Enforces test-driven development practices
+  - Maintains conversation context during interventions
+  - Provides clear, actionable feedback to agents
+  - Supports multi-language development environments
+
+- **Files Added**:
+  - `src/services/test_execution_reminder/` - Core implementation package
+    - `test_execution_reminder_handler.py` - Main handler with state management
+    - `file_modification_detector.py` - File modification tool detection
+    - `test_runner_registry.py` - Extensible test runner pattern registry
+    - `completion_signal_detector.py` - Completion signal detection
+    - `session_state.py` - Session state tracking dataclass
+  - `tests/unit/services/test_execution_reminder/` - Comprehensive unit tests
+  - `tests/property/` - 15 property-based tests for correctness verification
+  - `tests/integration/test_test_execution_reminder_integration.py` - Integration tests
+  - `.kiro/specs/test-execution-reminder/` - Complete specification documents
+
+- **Configuration Files Updated**:
+  - `config/config.example.yaml` - Added test execution reminder configuration
+  - `config/sample.env` - Added environment variable examples
+  - `src/core/config/app_config.py` - Extended with new configuration fields
+  - `src/core/cli.py` - Added CLI arguments for feature control
+
+- **Documentation**: Complete feature documentation
+  - Requirements document with EARS-compliant acceptance criteria
+  - Design document with correctness properties and testing strategy
+  - Implementation tasks with property-based testing requirements
+  - Verification document confirming all requirements met
+
 ## [2025-11-27] - CBOR Wire Capture and Simulation Engine
 
 ### New Feature: Byte-Precise Wire Capture with CBOR

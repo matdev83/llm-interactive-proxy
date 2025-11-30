@@ -230,13 +230,13 @@ class TestTestExecutionReminderHandlerCompletionSignal:
         )
         await handler.can_handle(dirty_context)
 
-        # Now try to complete
+        # Now try to complete using a completion tool name
         completion_context = ToolCallContext(
             session_id="test-session",
             backend_name="test-backend",
             model_name="test-model",
-            full_response={"content": "The task is complete"},
-            tool_name="some_tool",
+            full_response={},
+            tool_name="attempt_completion",
             tool_arguments={},
         )
 
@@ -259,13 +259,13 @@ class TestTestExecutionReminderHandlerCompletionSignal:
         )
         await handler.can_handle(dirty_context)
 
-        # Now try to complete
+        # Now try to complete using a completion tool name
         completion_context = ToolCallContext(
             session_id="test-session",
             backend_name="test-backend",
             model_name="test-model",
-            full_response={"content": "The task is complete"},
-            tool_name="some_tool",
+            full_response={},
+            tool_name="attempt_completion",
             tool_arguments={},
         )
 
@@ -451,46 +451,6 @@ class TestTestExecutionReminderHandlerCommandExtraction:
         handler = TestExecutionReminderHandler(enabled=True)
         command = handler._extract_command("run_command", {"command": "pytest"})
         assert command == "pytest"
-
-
-class TestTestExecutionReminderHandlerResponseTextExtraction:
-    """Test response text extraction."""
-
-    def test_extract_response_text_from_dict_with_content(self) -> None:
-        """Test extracting response text from dict with 'content' key."""
-        handler = TestExecutionReminderHandler(enabled=True)
-        text = handler._extract_response_text({"content": "Task is complete"})
-        assert text == "Task is complete"
-
-    def test_extract_response_text_from_dict_with_text(self) -> None:
-        """Test extracting response text from dict with 'text' key."""
-        handler = TestExecutionReminderHandler(enabled=True)
-        text = handler._extract_response_text({"text": "Task is complete"})
-        assert text == "Task is complete"
-
-    def test_extract_response_text_from_dict_with_message(self) -> None:
-        """Test extracting response text from dict with 'message' key."""
-        handler = TestExecutionReminderHandler(enabled=True)
-        text = handler._extract_response_text({"message": "Task is complete"})
-        assert text == "Task is complete"
-
-    def test_extract_response_text_from_string(self) -> None:
-        """Test extracting response text from string."""
-        handler = TestExecutionReminderHandler(enabled=True)
-        text = handler._extract_response_text("Task is complete")
-        assert text == "Task is complete"
-
-    def test_extract_response_text_returns_none_for_empty_dict(self) -> None:
-        """Test that response text extraction returns None for empty dict."""
-        handler = TestExecutionReminderHandler(enabled=True)
-        text = handler._extract_response_text({})
-        assert text is None
-
-    def test_extract_response_text_returns_none_for_none(self) -> None:
-        """Test that response text extraction returns None for None."""
-        handler = TestExecutionReminderHandler(enabled=True)
-        text = handler._extract_response_text(None)
-        assert text is None
 
 
 class TestTestExecutionReminderHandlerErrorHandling:
@@ -692,13 +652,13 @@ class TestTestExecutionReminderHandlerMetadata:
         await handler.can_handle(dirty_context)
         await handler.can_handle(dirty_context)
 
-        # Try to complete
+        # Try to complete using a completion tool name
         completion_context = ToolCallContext(
             session_id="test-session",
             backend_name="test-backend",
             model_name="test-model",
-            full_response={"content": "Task is complete"},
-            tool_name="some_tool",
+            full_response={},
+            tool_name="attempt_completion",
             tool_arguments={},
         )
 

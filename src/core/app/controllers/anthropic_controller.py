@@ -56,6 +56,34 @@ class AnthropicController:
         self._processor = request_processor
         self._wire_capture = wire_capture
 
+    def _extract_usage_from_headers(self, response: Any) -> dict[str, int] | None:
+        """Extract usage information from response headers.
+
+        FastAPI responses may have usage info in x-usage-* headers.
+        """
+        if not hasattr(response, "headers"):
+            return None
+
+        headers = getattr(response, "headers", {})
+        if not headers:
+            return None
+
+        try:
+            prompt_tokens = int(headers.get("x-usage-prompt-tokens", 0))
+            completion_tokens = int(headers.get("x-usage-completion-tokens", 0))
+            total_tokens = int(headers.get("x-usage-total-tokens", 0))
+
+            if prompt_tokens or completion_tokens or total_tokens:
+                return {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                }
+        except (ValueError, TypeError):
+            pass
+
+        return None
+
     async def handle_anthropic_messages(
         self, request: Request, request_data: AnthropicMessagesRequest | dict[str, Any]
     ) -> Response:
@@ -149,6 +177,20 @@ class AnthropicController:
                 try:
                     decoded_content = body_content.decode()
                     openai_response_data = json.loads(decoded_content)
+
+                    # If JSON parsing returned a string (e.g., response was just quoted text),
+                    # convert it to a proper OpenAI-style response structure
+                    if isinstance(openai_response_data, str):
+                        openai_response_data = {
+                            "choices": [
+                                {
+                                    "message": {"content": openai_response_data},
+                                    "finish_reason": "stop",
+                                }
+                            ],
+                            # Extract usage from response headers if available
+                            "usage": self._extract_usage_from_headers(adapted_response),
+                        }
                 except json.JSONDecodeError:
                     # If it's not valid JSON, treat it as a plain text response
                     openai_response_data = {
@@ -157,7 +199,9 @@ class AnthropicController:
                                 "message": {"content": decoded_content},
                                 "finish_reason": "stop",
                             }
-                        ]
+                        ],
+                        # Extract usage from response headers if available
+                        "usage": self._extract_usage_from_headers(adapted_response),
                     }
 
                 # Preferred path: if we still have access to the domain ChatResponse,
@@ -231,16 +275,26 @@ class AnthropicController:
                                         }
                                     ]
                                 }
-                except Exception:
-                    # On any error, create a safe fallback structure
-                    anthropic_response_data = {
-                        "choices": [
-                            {
-                                "message": {"content": str(openai_response_data)},
-                                "finish_reason": "stop",
-                            }
-                        ]
-                    }
+                except Exception as e:
+                    # On any error, log it and try to preserve original response
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Error building Anthropic response from domain: {e}",
+                            exc_info=True,
+                        )
+                    # If openai_response_data is valid, use it as-is (will be converted later)
+                    if isinstance(openai_response_data, dict) and openai_response_data:
+                        anthropic_response_data = openai_response_data
+                    else:
+                        # Create a safe fallback structure only as last resort
+                        anthropic_response_data = {
+                            "choices": [
+                                {
+                                    "message": {"content": str(openai_response_data)},
+                                    "finish_reason": "stop",
+                                }
+                            ]
+                        }
 
             # Check if streaming was requested
             is_streaming = anthropic_request.stream

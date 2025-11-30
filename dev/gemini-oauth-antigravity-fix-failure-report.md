@@ -361,3 +361,4 @@ The user has been working on this all day and is frustrated. The issue is critic
 
 The `StopChunkWithUsage` protection concept is sound but not being triggered because `json.dumps(dict)` doesn't call `__str__`. May need to override `__iter__` or use a different protection mechanism.
 
+

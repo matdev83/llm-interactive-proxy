@@ -138,6 +138,16 @@ def mock_request():
     )
 
 
+@pytest.fixture
+def mock_sleep(monkeypatch):
+    """Mock asyncio.sleep to avoid waiting in tests."""
+
+    async def fake_sleep(delay):
+        pass
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+
 class TestGracefulDegradationBehavior:
     """Test graceful degradation behavioral scenarios."""
 
@@ -162,7 +172,7 @@ class TestGracefulDegradationBehavior:
 
     @pytest.mark.asyncio
     async def test_single_429_triggers_immediate_fallback(
-        self, connector, mock_request
+        self, connector, mock_request, mock_sleep
     ):
         """Test that a single 429 error triggers an immediate fallback to flash."""
         error_429 = BackendError("Rate limit exceeded", status_code=429)
@@ -221,7 +231,7 @@ class TestGracefulDegradationBehavior:
 
     @pytest.mark.asyncio
     async def test_pro_model_exhaustion_triggers_flash_fallback(
-        self, connector, mock_request
+        self, connector, mock_request, mock_sleep
     ):
         """Test that exhausting pro model retries triggers fallback to flash model."""
         # Setup: Pro model always fails, flash model succeeds
@@ -256,7 +266,7 @@ class TestGracefulDegradationBehavior:
     @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_both_models_exhausted_marks_permanently_failed(
-        self, connector, mock_request
+        self, connector, mock_request, mock_sleep
     ):
         """Test that exhausting both pro and flash models marks backend as permanently failed."""
         # Setup: Both models always fail
@@ -304,7 +314,7 @@ class TestRecoveryProbingBehavior:
 
     @pytest.mark.asyncio
     async def test_recovery_probing_starts_after_cooldown(
-        self, connector, mock_request
+        self, connector, mock_request, mock_sleep
     ):
         """Test that recovery probing starts automatically after a model is put in cooldown."""
         # Setup: Pro model fails, flash succeeds
@@ -379,7 +389,7 @@ class TestRecoveryProbingBehavior:
 
     @pytest.mark.asyncio
     async def test_inline_recovery_during_graceful_degradation(
-        self, connector, mock_request
+        self, connector, mock_request, mock_sleep
     ):
         """Test that recovery probing works inline during graceful degradation attempts."""
         # Setup: Put pro model in cooldown, configure recovery
@@ -436,7 +446,7 @@ class TestConfigurationBehavior:
         assert connector._quota_exceeded
 
     @pytest.mark.asyncio
-    async def test_disabled_recovery_probing(self, connector, mock_request):
+    async def test_disabled_recovery_probing(self, connector, mock_request, mock_sleep):
         """Test that disabling recovery probing prevents automatic recovery."""
         # Setup: Disable recovery probing
         connector._degradation_config.enable_recovery_probing = False
@@ -490,7 +500,7 @@ class TestEdgeCaseBehavior:
     """Test edge cases and error conditions."""
 
     @pytest.mark.asyncio
-    async def test_streaming_request_graceful_degradation(self, connector):
+    async def test_streaming_request_graceful_degradation(self, connector, mock_sleep):
         """Test that streaming requests also benefit from graceful degradation."""
         # Setup: Streaming request
         streaming_request = MockChatRequest(
@@ -539,7 +549,7 @@ class TestEdgeCaseBehavior:
         assert "gemini-1.0-flash" not in connector._api_call_count
 
     @pytest.mark.asyncio
-    async def test_concurrent_requests_during_degradation(self, connector):
+    async def test_concurrent_requests_during_degradation(self, connector, mock_sleep):
         """Test that concurrent requests during degradation are handled correctly."""
         # Setup: Increase max total attempts to accommodate concurrent requests
         connector._degradation_config.max_total_attempts = (
@@ -583,7 +593,9 @@ class TestOracleImprovementsBehavior:
     """Test the immediate improvements recommended by Oracle: per-request attempts and jitter."""
 
     @pytest.mark.asyncio
-    async def test_per_request_attempts_isolation(self, connector, mock_request):
+    async def test_per_request_attempts_isolation(
+        self, connector, mock_request, mock_sleep
+    ):
         """Test that attempt counters are isolated per request, not shared globally."""
         # Setup: Configure failures that would exhaust global attempts
         error_429 = BackendError("Rate limit exceeded", status_code=429)
@@ -698,7 +710,7 @@ class TestOracleImprovementsBehavior:
     @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_per_request_attempts_limit_enforcement(
-        self, connector, mock_request
+        self, connector, mock_request, mock_sleep
     ):
         """Test that per-request attempt limits are properly enforced."""
         # Setup: Configure a low max attempt limit for testing
