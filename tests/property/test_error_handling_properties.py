@@ -46,25 +46,24 @@ def malformed_tool_arguments(draw: Any) -> dict[str, Any]:
         )
     )
 
-    if arg_type == "empty":
-        return {}
-    elif arg_type == "nested":
-        return {"command": {"nested": {"deeply": "value"}}}
-    elif arg_type == "invalid_types":
-        return {
+    mapping = {
+        "empty": {},
+        "nested": {"command": {"nested": {"deeply": "value"}}},
+        "invalid_types": {
             "command": [1, 2, 3],  # List instead of string
             "args": {"key": "value"},  # Dict instead of list
-        }
-    elif arg_type == "missing_keys":
-        return {
+        },
+        "missing_keys": {
             "unexpected_key": "value",
             "another_key": 123,
-        }
-    else:  # null_values
-        return {
+        },
+        "null_values": {
             "command": None,
             "args": None,
-        }
+        },
+    }
+
+    return mapping.get(arg_type, {})
 
 
 # Strategy for generating malformed responses

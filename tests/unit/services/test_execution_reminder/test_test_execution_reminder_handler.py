@@ -514,7 +514,7 @@ class TestTestExecutionReminderHandlerErrorHandling:
         handler = TestExecutionReminderHandler(enabled=True)
 
         # Should not raise even with invalid session ID
-        state = handler._get_session_state("")
+        handler._get_session_state("")
         # Should return None or a valid state, not raise
 
 
@@ -616,13 +616,13 @@ class TestTestExecutionReminderHandlerCustomMessage:
         )
         await handler.can_handle(dirty_context)
 
-        # Try to complete
+        # Try to complete using a completion tool name
         completion_context = ToolCallContext(
             session_id="test-session",
             backend_name="test-backend",
             model_name="test-model",
-            full_response={"content": "Task is complete"},
-            tool_name="some_tool",
+            full_response={},
+            tool_name="attempt_completion",
             tool_arguments={},
         )
 
@@ -730,8 +730,8 @@ class TestTestExecutionReminderHandlerCompletionDetection:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_completion_message_pattern_detected(self) -> None:
-        """Test that completion message patterns are detected."""
+    async def test_completion_finish_reason_detected(self) -> None:
+        """Test that finish_reason signals completion."""
         handler = TestExecutionReminderHandler(enabled=True)
 
         # Mark as dirty
@@ -745,18 +745,203 @@ class TestTestExecutionReminderHandlerCompletionDetection:
         )
         await handler.can_handle(dirty_context)
 
-        # Use completion message pattern
+        # Use finish_reason to signal completion
         completion_context = ToolCallContext(
             session_id="test-session",
             backend_name="test-backend",
             model_name="test-model",
-            full_response={"content": "The implementation is complete"},
+            full_response={"finish_reason": "stop"},
             tool_name="some_tool",
             tool_arguments={},
         )
 
         result = await handler.can_handle(completion_context)
         assert result is True
+
+    @pytest.mark.asyncio
+    async def test_completion_finish_reason_in_choices(self) -> None:
+        """Test that finish_reason in choices array signals completion."""
+        handler = TestExecutionReminderHandler(enabled=True)
+
+        # Mark as dirty
+        dirty_context = ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+        )
+        await handler.can_handle(dirty_context)
+
+        # Use finish_reason in choices array (OpenAI format)
+        completion_context = ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"choices": [{"finish_reason": "stop"}]},
+            tool_name="some_tool",
+            tool_arguments={},
+        )
+
+        result = await handler.can_handle(completion_context)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_completion_finish_reason_in_metadata(self) -> None:
+        """Test that finish_reason in metadata signals completion."""
+        handler = TestExecutionReminderHandler(enabled=True)
+
+        # Mark as dirty
+        dirty_context = ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+        )
+        await handler.can_handle(dirty_context)
+
+        # Use finish_reason in metadata
+        completion_context = ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"metadata": {"finish_reason": "stop"}},
+            tool_name="some_tool",
+            tool_arguments={},
+        )
+
+        result = await handler.can_handle(completion_context)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_completion_attempt_completion_tool(self) -> None:
+        """Test that attempt_completion tool is detected."""
+        handler = TestExecutionReminderHandler(enabled=True)
+
+        # Mark as dirty
+        dirty_context = ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+        )
+        await handler.can_handle(dirty_context)
+
+        # Use attempt_completion tool (used by Cline/Roo-Code)
+        completion_context = ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="attempt_completion",
+            tool_arguments={},
+        )
+
+        result = await handler.can_handle(completion_context)
+        assert result is True
+
+
+class TestTestExecutionReminderHandlerExtractFinishReason:
+    """Test _extract_finish_reason method."""
+
+    def test_extract_finish_reason_from_top_level(self) -> None:
+        """Test extracting finish_reason from top level of response."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {"finish_reason": "stop"}
+        result = handler._extract_finish_reason(response)
+        assert result == "stop"
+
+    def test_extract_finish_reason_from_choices(self) -> None:
+        """Test extracting finish_reason from choices array (OpenAI format)."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {"choices": [{"finish_reason": "tool_calls"}]}
+        result = handler._extract_finish_reason(response)
+        assert result == "tool_calls"
+
+    def test_extract_finish_reason_from_metadata(self) -> None:
+        """Test extracting finish_reason from metadata."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {"metadata": {"finish_reason": "length"}}
+        result = handler._extract_finish_reason(response)
+        assert result == "length"
+
+    def test_extract_finish_reason_returns_none_for_non_dict(self) -> None:
+        """Test that non-dict responses return None."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        result = handler._extract_finish_reason("not a dict")
+        assert result is None
+
+    def test_extract_finish_reason_returns_none_when_missing(self) -> None:
+        """Test that missing finish_reason returns None."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {"other_field": "value"}
+        result = handler._extract_finish_reason(response)
+        assert result is None
+
+    def test_extract_finish_reason_handles_empty_choices(self) -> None:
+        """Test that empty choices array returns None."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {"choices": []}
+        result = handler._extract_finish_reason(response)
+        assert result is None
+
+    def test_extract_finish_reason_handles_none_response(self) -> None:
+        """Test that None response returns None."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        result = handler._extract_finish_reason(None)
+        assert result is None
+
+    def test_extract_finish_reason_prioritizes_top_level(self) -> None:
+        """Test that top-level finish_reason is prioritized."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {
+            "finish_reason": "stop",
+            "choices": [{"finish_reason": "tool_calls"}],
+        }
+        result = handler._extract_finish_reason(response)
+        assert result == "stop"
+
+
+class TestTestExecutionReminderHandlerExtractMetadata:
+    """Test _extract_metadata method."""
+
+    def test_extract_metadata_from_metadata_field(self) -> None:
+        """Test extracting metadata from metadata field."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {"metadata": {"finish_reason": "stop", "other": "value"}}
+        result = handler._extract_metadata(response)
+        assert result == {"finish_reason": "stop", "other": "value"}
+
+    def test_extract_metadata_returns_full_response_as_fallback(self) -> None:
+        """Test that full response is returned when no metadata field."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {"finish_reason": "stop", "content": "text"}
+        result = handler._extract_metadata(response)
+        assert result == {"finish_reason": "stop", "content": "text"}
+
+    def test_extract_metadata_returns_none_for_non_dict(self) -> None:
+        """Test that non-dict responses return None."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        result = handler._extract_metadata("not a dict")
+        assert result is None
+
+    def test_extract_metadata_handles_none_response(self) -> None:
+        """Test that None response returns None."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        result = handler._extract_metadata(None)
+        assert result is None
+
+    def test_extract_metadata_handles_non_dict_metadata(self) -> None:
+        """Test that non-dict metadata field returns full response."""
+        handler = TestExecutionReminderHandler(enabled=True)
+        response = {"metadata": "not a dict", "other": "value"}
+        result = handler._extract_metadata(response)
+        assert result == {"metadata": "not a dict", "other": "value"}
 
 
 class TestTestExecutionReminderHandlerNonCompletionScenarios:
@@ -818,4 +1003,33 @@ class TestTestExecutionReminderHandlerNonCompletionScenarios:
         )
 
         result = await handler.can_handle(progress_context)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_no_finish_reason_not_detected_as_completion(self) -> None:
+        """Test that responses without finish_reason are not detected as completion."""
+        handler = TestExecutionReminderHandler(enabled=True)
+
+        # Mark as dirty
+        dirty_context = ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+        )
+        await handler.can_handle(dirty_context)
+
+        # Response without finish_reason or completion tool
+        non_completion_context = ToolCallContext(
+            session_id="test-session",
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"content": "Some response"},
+            tool_name="some_tool",
+            tool_arguments={},
+        )
+
+        result = await handler.can_handle(non_completion_context)
         assert result is False

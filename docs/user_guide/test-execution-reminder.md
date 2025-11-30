@@ -8,7 +8,9 @@ The Test Execution Reminder system automatically detects when coding agents have
 
 1. **File Modification Tracking**: The system monitors all file-modifying tool calls (write_file, str_replace, apply_diff, etc.)
 2. **Test Execution Detection**: Recognizes test commands across 14+ programming languages
-3. **Completion Signal Detection**: Identifies when agents attempt to signal task completion
+3. **Completion Signal Detection**: Identifies when agents attempt to signal task completion using two reliable methods:
+   - **Primary**: Actual completion tool names from popular agents (e.g., `attempt_completion` from Cline/Roo-Code, `finish` from OpenHands)
+   - **Secondary**: Streaming `finish_reason` markers from LLM APIs (e.g., "stop", "tool_calls", "length", "end_turn")
 4. **Steering Intervention**: If files were modified but tests weren't run, the system:
    - Swallows the completion tool call
    - Injects a steering message reminding the agent to run tests
@@ -256,9 +258,62 @@ The feature is designed with security in mind:
 - **Fail-open**: Errors never block legitimate requests
 - **Logging**: All interventions are logged for audit
 
+## Completion Detection Methods
+
+The system uses two reliable methods to detect when agents signal task completion:
+
+### Primary: Actual Completion Tool Names
+
+Based on source code analysis of popular coding agents, the system recognizes these completion tools:
+
+- **`attempt_completion`**: Used by Cline and Roo-Code (Kilo Code) - most common
+- **`finish`**: Used by OpenHands (formerly OpenDevin)
+- **`finish_task`**: Generic completion tool
+- **`task_complete`**: Generic completion tool
+- **`mark_complete`**: Generic completion tool
+- **`complete`**: Generic completion tool
+- **`done`**: Generic completion tool
+
+This approach is based on actual agent source code rather than speculation, making it highly reliable.
+
+### Secondary: Streaming finish_reason Markers
+
+The system also recognizes standard `finish_reason` values from LLM APIs:
+
+- **`stop`**: Normal completion (OpenAI, Anthropic)
+- **`tool_calls`**: Completed with tool calls (OpenAI)
+- **`length`**: Maximum token limit reached (OpenAI, Anthropic)
+- **`end_turn`**: Anthropic's completion marker
+
+These markers are extracted from streaming responses and metadata, providing a reliable secondary detection method.
+
+### Why This Approach?
+
+**Phase 2 Improvements** (December 2025): The initial implementation used pattern matching against model output text, which was unreliable and prone to false positives. The current implementation uses:
+
+1. **Evidence-Based Detection**: Actual tool names from real agent source code
+2. **API-Compliant Detection**: Standard finish_reason values from LLM specifications
+3. **No False Positives**: Only triggers on explicit signals, not ambiguous text
+4. **Streaming Support**: Works with streaming responses via finish_reason
+5. **Maintainable**: Easy to add new agent tool names as discovered
+
+## Agent Compatibility
+
+The system is compatible with popular coding agents:
+
+| Agent | Completion Tool | Detection Method |
+|-------|----------------|------------------|
+| **Cline** | `attempt_completion` | Primary (tool name) |
+| **Roo-Code (Kilo Code)** | `attempt_completion` | Primary (tool name) |
+| **OpenHands** | `finish` | Primary (tool name) |
+| **Generic Agents** | Various | Secondary (finish_reason) |
+| **Custom Agents** | Extensible | Both methods |
+
+The system automatically detects completion signals from these agents without requiring any agent-specific configuration.
+
 ## Related Features
 
-- **Pytest Full-Suite Steering**: Prevents agents from running entire test suites inadvertently
-- **Dangerous Command Protection**: Blocks destructive operations
-- **Tool Access Control**: Fine-grained control over tool usage
-- **LLM Assessment**: Detects conversation loops and stuck patterns
+- [Pytest Full-Suite Steering](features/pytest-full-suite-steering.md) - Prevents agents from running entire test suites inadvertently
+- [Dangerous Command Protection](features/dangerous-command-protection.md) - Blocks destructive operations
+- [Tool Access Control](features/tool-access-control.md) - Fine-grained control over tool usage
+- [LLM Assessment](features/llm-assessment.md) - Detects conversation loops and stuck patterns

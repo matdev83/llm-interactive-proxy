@@ -2,7 +2,7 @@
 
 Feature: test-execution-reminder
 Property 4: Completion Signal Detection
-Validates: Requirements 3.1, 3.2, 3.5
+Validates: Requirements 3.1, 3.2
 """
 
 from __future__ import annotations
@@ -29,7 +29,9 @@ def completion_tool_name_strategy(draw: Any) -> str:
     with random case variations and formatting to test normalization.
     """
     # Base tool names that should be recognized as completion signals
+    # Including attempt_completion which is used by Cline and Roo-Code
     base_tools = [
+        "attempt_completion",
         "task_complete",
         "mark_complete",
         "finish_task",
@@ -103,247 +105,64 @@ def non_completion_tool_name_strategy(draw: Any) -> str:
 
 
 @st.composite
-def completion_message_strategy(draw: Any) -> str:
-    """Generate messages that contain completion indicators.
+def finish_reason_strategy(draw: Any) -> str:
+    """Generate valid finish_reason values.
 
-    This generates text that should be recognized as completion signals
-    based on the defined patterns.
+    This generates finish_reason values that should be recognized as
+    completion signals, with random case variations.
     """
-    # Templates that match completion patterns
-    templates = [
-        # Pattern 1: (task|implementation|feature|fix|change)s? (is )?(complete|done|finished|ready)
-        "The task is complete",
-        "Task complete",
-        "Implementation is done",
-        "Feature finished",
-        "Fix is ready",
-        "Changes are complete",
-        "The implementation is finished",
-        "Task is done",
-        # Pattern 2: completed? (the )?(task|implementation|feature|fix|work)
-        "Completed the task",
-        "Completed task",
-        "Complete the implementation",
-        "Completed the feature",
-        "Completed the fix",
-        "Completed the work",
-        "Complete work",
-        # Pattern 3: all (tests?|checks?) pass(ing|ed)?
-        "All tests pass",
-        "All tests passing",
-        "All tests passed",
-        "All checks pass",
-        "All checks passing",
-        "All checks passed",
-        # Pattern 4: ready (for|to) (review|merge|deploy|commit)
-        "Ready for review",
-        "Ready to merge",
-        "Ready for deploy",
-        "Ready to commit",
-        "Ready for merge",
-        # Pattern 5: finished (implementing|coding|working on)
-        "Finished implementing",
-        "Finished coding",
-        "Finished working on",
-        "Finished implementing the feature",
+    # Valid finish reasons from OpenAI/Anthropic APIs
+    base_reasons = [
+        "stop",
+        "tool_calls",
+        "length",
+        "end_turn",
     ]
 
-    template = draw(st.sampled_from(templates))
+    # Pick a base reason
+    base_reason = draw(st.sampled_from(base_reasons))
 
-    # Optionally add context before/after
-    add_prefix = draw(st.booleans())
-    add_suffix = draw(st.booleans())
+    # Apply random case transformations
+    case_transform = draw(st.sampled_from(["lower", "upper", "title"]))
 
-    prefixes = [
-        "",
-        "I have ",
-        "We have ",
-        "The agent has ",
-        "Successfully ",
-        "Finally, ",
-    ]
-
-    suffixes = [
-        "",
-        ".",
-        "!",
-        " and ready to proceed.",
-        " as requested.",
-        " successfully.",
-    ]
-
-    result = template
-    if add_prefix:
-        result = draw(st.sampled_from(prefixes)) + result
-    if add_suffix:
-        result = result + draw(st.sampled_from(suffixes))
-
-    return result
+    if case_transform == "lower":
+        return base_reason.lower()
+    elif case_transform == "upper":
+        return base_reason.upper()
+    else:  # title
+        return base_reason.title()
 
 
 @st.composite
-def non_completion_message_strategy(draw: Any) -> str:
-    """Generate messages that should NOT be recognized as completion signals.
+def non_finish_reason_strategy(draw: Any) -> str:
+    """Generate invalid finish_reason values.
 
-    This generates progress updates and other messages that are ambiguous
-    or clearly not completion signals.
+    This generates finish_reason values that should NOT be recognized
+    as completion signals.
     """
-    # Messages that should NOT match completion patterns
-    non_completion_messages = [
-        "Working on the task",
-        "In progress",
-        "Starting implementation",
-        "Analyzing the code",
-        "Running tests",
-        "Executing command",
-        "Reading file",
-        "Writing to file",
-        "Applying changes",
-        "Modifying code",
-        "Updating implementation",
-        "Refactoring code",
-        "Adding feature",
-        "Fixing bug",
-        "Testing changes",
-        "Compiling code",
-        "Building project",
-        "Deploying application",
-        "Starting server",
-        "Stopping server",
-        "Querying database",
-        "Fetching data",
-        "Parsing response",
-        "Validating input",
-        "Processing request",
-        "Handling error",
-        "Logging message",
-        "Debugging issue",
-        "Investigating problem",
-        "Researching solution",
-        "Planning approach",
-        "Designing architecture",
-        "Documenting code",
-        "Reviewing changes",
-        "Merging branches",
-        "Committing changes",
-        "Pushing code",
-        "Pulling updates",
-        "Checking status",
-        "Monitoring progress",
-        "Tracking metrics",
-        "Measuring performance",
-        "Optimizing code",
-        "Improving efficiency",
-        "Enhancing functionality",
-        "Extending features",
-        "Maintaining codebase",
-        "Supporting users",
-        "Assisting developers",
-        "Collaborating with team",
-        "Communicating updates",
-        "Reporting results",
-        "Summarizing findings",
-        "Presenting data",
-        "Visualizing metrics",
-        "Analyzing trends",
-        "Predicting outcomes",
-        "Recommending actions",
-        "Suggesting improvements",
-        "Proposing changes",
-        "Requesting feedback",
-        "Awaiting approval",
-        "Pending review",
-        "Under consideration",
-        "In development",
-        "Being tested",
-        "Undergoing validation",
-        "Awaiting deployment",
-        "Scheduled for release",
-        "Planned for next sprint",
-        "Targeted for milestone",
-        "Assigned to developer",
-        "Allocated to team",
-        "Prioritized in backlog",
-        "Queued for processing",
-        "Waiting for resources",
-        "Blocked by dependency",
-        "Delayed due to issue",
-        "Postponed until later",
-        "Deferred to future",
-        "Cancelled by request",
-        "Rejected by reviewer",
-        "Declined by stakeholder",
-        "Abandoned due to constraints",
+    # Invalid finish reasons that should not trigger completion
+    invalid_reasons = [
+        "error",
+        "timeout",
+        "cancelled",
+        "interrupted",
+        "pending",
+        "processing",
+        "waiting",
+        "streaming",
+        "partial",
+        "incomplete",
+        "failed",
+        "aborted",
+        "rejected",
+        "invalid",
+        "unknown",
+        "",
+        "null",
+        "none",
     ]
 
-    message = draw(st.sampled_from(non_completion_messages))
-
-    # Optionally add context
-    add_suffix = draw(st.booleans())
-    if add_suffix:
-        suffixes = [".", "...", " now.", " currently.", " at the moment."]
-        message = message + draw(st.sampled_from(suffixes))
-
-    return message
-
-
-@st.composite
-def ambiguous_message_strategy(draw: Any) -> str:
-    """Generate ambiguous messages that might be mistaken for completion.
-
-    These messages contain words like 'complete' or 'done' but in contexts
-    that should NOT be recognized as completion signals.
-    """
-    ambiguous_messages = [
-        "Need to complete the task",
-        "Will be done soon",
-        "Almost complete",
-        "Nearly finished",
-        "Close to completion",
-        "Approaching the finish",
-        "Making progress toward completion",
-        "Working to complete",
-        "Trying to finish",
-        "Attempting to complete",
-        "Planning to finish",
-        "Expecting to complete",
-        "Hoping to finish",
-        "Aiming to complete",
-        "Striving to finish",
-        "Preparing to complete",
-        "Getting ready to finish",
-        "About to complete",
-        "On the verge of finishing",
-        "Nearing completion",
-        "Incomplete",
-        "Not done yet",
-        "Still working",
-        "Partially complete",
-        "Halfway done",
-        "Quarter complete",
-        "Mostly done",
-        "Largely complete",
-        "Substantially finished",
-        "Essentially complete",
-        "Practically done",
-        "Virtually finished",
-        "More or less complete",
-        "Just about done",
-        "Very nearly finished",
-        "So close to completion",
-        "This will complete the task",
-        "That would finish the work",
-        "It should complete soon",
-        "They will be done later",
-        "We might finish tomorrow",
-        "You could complete it",
-        "I may finish eventually",
-        "Someone should complete this",
-        "Anyone can finish that",
-        "Everyone must complete their part",
-    ]
-
-    return draw(st.sampled_from(ambiguous_messages))
+    return draw(st.sampled_from(invalid_reasons))
 
 
 # ============================================================================
@@ -364,7 +183,7 @@ def test_property_4_completion_tool_detection_positive(tool_name: str) -> None:
     Validates: Requirements 3.2
     """
     # The detector should recognize this as a completion signal
-    result = CompletionSignalDetector.is_completion_signal(tool_name)
+    result = CompletionSignalDetector.is_completion_signal(tool_name=tool_name)
 
     assert result is True, (
         f"Completion tool '{tool_name}' was not detected. "
@@ -386,8 +205,7 @@ def test_property_4_completion_tool_detection_negative(tool_name: str) -> None:
     Validates: Requirements 3.2
     """
     # The detector should NOT recognize this as a completion signal
-    # (unless there's completion text, which we're not providing)
-    result = CompletionSignalDetector.is_completion_signal(tool_name)
+    result = CompletionSignalDetector.is_completion_signal(tool_name=tool_name)
 
     assert result is False, (
         f"Non-completion tool '{tool_name}' was incorrectly detected "
@@ -396,119 +214,170 @@ def test_property_4_completion_tool_detection_negative(tool_name: str) -> None:
     )
 
 
-@given(message=completion_message_strategy())
+@given(finish_reason=finish_reason_strategy())
 @property_test_settings()
-def test_property_4_completion_message_detection_positive(message: str) -> None:
+def test_property_4_finish_reason_detection_positive(finish_reason: str) -> None:
     """
-    Property 4: Completion Message Detection (Positive Cases).
+    Property 4: Finish Reason Detection (Positive Cases).
 
-    For any message containing completion indicators, the detector should
-    identify it as a completion signal, regardless of the tool name.
+    For any valid finish_reason value, the detector should identify it
+    as a completion signal, regardless of case variations.
 
     Validates: Requirements 3.1
     """
-    # Use a non-completion tool name to ensure we're testing message detection
-    tool_name = "some_tool"
-
-    # The detector should recognize this as a completion signal based on message
-    result = CompletionSignalDetector.is_completion_signal(
-        tool_name, response_text=message
-    )
+    # The detector should recognize this as a completion signal
+    result = CompletionSignalDetector.is_completion_signal(finish_reason=finish_reason)
 
     assert result is True, (
-        f"Completion message '{message}' was not detected. "
-        f"The detector should recognize completion patterns in messages."
+        f"Valid finish_reason '{finish_reason}' was not detected. "
+        f"The detector should recognize all valid finish_reason values "
+        f"with case-insensitive matching."
     )
 
 
-@given(message=non_completion_message_strategy())
+@given(finish_reason=non_finish_reason_strategy())
 @property_test_settings()
-def test_property_4_completion_message_detection_negative(message: str) -> None:
+def test_property_4_finish_reason_detection_negative(finish_reason: str) -> None:
     """
-    Property 4: Completion Message Detection (Negative Cases).
+    Property 4: Finish Reason Detection (Negative Cases).
 
-    For any message that does NOT contain completion indicators, the detector
-    should NOT identify it as a completion signal.
+    For any invalid finish_reason value, the detector should NOT identify
+    it as a completion signal.
 
-    Validates: Requirements 3.1, 3.5
+    Validates: Requirements 3.1
     """
-    # Use a non-completion tool name
-    tool_name = "some_tool"
-
     # The detector should NOT recognize this as a completion signal
-    result = CompletionSignalDetector.is_completion_signal(
-        tool_name, response_text=message
-    )
+    result = CompletionSignalDetector.is_completion_signal(finish_reason=finish_reason)
 
     assert result is False, (
-        f"Non-completion message '{message}' was incorrectly detected "
-        f"as a completion signal. The detector should distinguish "
-        f"progress updates from completion signals."
+        f"Invalid finish_reason '{finish_reason}' was incorrectly detected "
+        f"as a completion signal. The detector should only match known "
+        f"finish_reason values."
     )
 
 
-@given(message=ambiguous_message_strategy())
+@given(finish_reason=finish_reason_strategy())
 @property_test_settings()
-def test_property_4_ambiguous_message_handling(message: str) -> None:
+def test_property_4_finish_reason_in_metadata(finish_reason: str) -> None:
     """
-    Property 4: Ambiguous Message Handling.
+    Property 4: Finish Reason in Metadata.
 
-    For any ambiguous message (containing words like 'complete' or 'done'
-    but not in completion context), the detector should NOT identify it
-    as a completion signal. This tests the pattern matching's ability to
-    distinguish genuine completion from progress updates.
+    For any valid finish_reason value in metadata, the detector should
+    identify it as a completion signal.
 
-    Validates: Requirements 3.5
+    Validates: Requirements 3.1
     """
-    # Use a non-completion tool name
-    tool_name = "some_tool"
+    # The detector should recognize finish_reason in metadata
+    metadata = {"finish_reason": finish_reason}
+    result = CompletionSignalDetector.is_completion_signal(metadata=metadata)
 
-    # The detector should NOT recognize ambiguous messages as completion signals
-    result = CompletionSignalDetector.is_completion_signal(
-        tool_name, response_text=message
-    )
-
-    assert result is False, (
-        f"Ambiguous message '{message}' was incorrectly detected "
-        f"as a completion signal. The detector should use pattern matching "
-        f"to distinguish completion signals from progress updates."
+    assert result is True, (
+        f"Valid finish_reason '{finish_reason}' in metadata was not detected. "
+        f"The detector should check metadata for finish_reason values."
     )
 
 
 @given(
     tool_name=completion_tool_name_strategy(),
-    message=completion_message_strategy(),
+    finish_reason=finish_reason_strategy(),
 )
 @property_test_settings()
-def test_property_4_combined_detection(tool_name: str, message: str) -> None:
+def test_property_4_combined_tool_and_finish_reason(
+    tool_name: str, finish_reason: str
+) -> None:
     """
-    Property 4: Combined Detection.
+    Property 4: Combined Tool Name and Finish Reason.
 
-    When both tool name and message indicate completion, the detector
+    When both tool name and finish_reason indicate completion, the detector
     should identify it as a completion signal.
 
     Validates: Requirements 3.1, 3.2
     """
-    # Both tool name and message indicate completion
+    # Both tool name and finish_reason indicate completion
     result = CompletionSignalDetector.is_completion_signal(
-        tool_name, response_text=message
+        tool_name=tool_name, finish_reason=finish_reason
     )
 
     assert result is True, (
-        f"Combined completion signal (tool='{tool_name}', message='{message}') "
-        f"was not detected. The detector should recognize completion signals "
-        f"from either tool name or message content."
+        f"Combined completion signal (tool='{tool_name}', "
+        f"finish_reason='{finish_reason}') was not detected. "
+        f"The detector should recognize completion signals from either "
+        f"tool name or finish_reason."
     )
+
+
+@given(
+    tool_name=non_completion_tool_name_strategy(),
+    finish_reason=non_finish_reason_strategy(),
+)
+@property_test_settings()
+def test_property_4_no_completion_signals(tool_name: str, finish_reason: str) -> None:
+    """
+    Property 4: No Completion Signals.
+
+    When neither tool name nor finish_reason indicate completion, the
+    detector should NOT identify it as a completion signal.
+
+    Validates: Requirements 3.1, 3.2
+    """
+    # Neither tool name nor finish_reason indicate completion
+    result = CompletionSignalDetector.is_completion_signal(
+        tool_name=tool_name, finish_reason=finish_reason
+    )
+
+    assert result is False, (
+        f"Non-completion signals (tool='{tool_name}', "
+        f"finish_reason='{finish_reason}') were incorrectly detected "
+        f"as completion. The detector should only match known patterns."
+    )
+
+
+@given(tool_name=completion_tool_name_strategy())
+@property_test_settings()
+def test_property_4_tool_name_with_underscores_and_hyphens(tool_name: str) -> None:
+    """
+    Property 4: Tool Name Normalization.
+
+    For any completion tool name, variations with underscores and hyphens
+    should be detected correctly due to normalization.
+
+    Validates: Requirements 3.2
+    """
+    # Original detection
+    original_result = CompletionSignalDetector.is_completion_signal(tool_name=tool_name)
+    assert (
+        original_result is True
+    ), f"Original tool name '{tool_name}' should be detected"
+
+    # Add hyphens instead of underscores
+    hyphenated = tool_name.replace("_", "-")
+    hyphenated_result = CompletionSignalDetector.is_completion_signal(
+        tool_name=hyphenated
+    )
+    assert (
+        hyphenated_result is True
+    ), f"Hyphenated tool name '{hyphenated}' should be detected"
+
+    # Remove all separators
+    no_separators = tool_name.replace("_", "").replace("-", "")
+    no_sep_result = CompletionSignalDetector.is_completion_signal(
+        tool_name=no_separators
+    )
+    assert (
+        no_sep_result is True
+    ), f"Tool name without separators '{no_separators}' should be detected"
 
 
 @given(
     tool_name=st.one_of(
         completion_tool_name_strategy(),
         non_completion_tool_name_strategy(),
+        st.just(""),
+        st.none(),
     )
 )
 @property_test_settings()
-def test_property_4_empty_and_none_handling(tool_name: str) -> None:
+def test_property_4_empty_and_none_handling(tool_name: str | None) -> None:
     """
     Property 4: Empty and None Handling.
 
@@ -517,96 +386,42 @@ def test_property_4_empty_and_none_handling(tool_name: str) -> None:
 
     Validates: Requirements 3.1, 3.2
     """
-    # Test with empty response text
-    result_empty = CompletionSignalDetector.is_completion_signal(
-        tool_name, response_text=""
-    )
-    # Should only be True if tool_name is a completion tool
-    # (empty text should not cause issues)
-
-    # Test with None response text
-    result_none = CompletionSignalDetector.is_completion_signal(
-        tool_name, response_text=None
+    # Test with None finish_reason
+    CompletionSignalDetector.is_completion_signal(
+        tool_name=tool_name, finish_reason=None
     )
     # Should only be True if tool_name is a completion tool
 
-    # Test with empty tool name
-    result_empty_tool = CompletionSignalDetector.is_completion_signal(
-        "", response_text="some message"
-    )
-    # Should be False (empty tool name is not a completion tool)
-    assert (
-        result_empty_tool is False
-    ), "Empty tool name should not be detected as completion"
+    # Test with empty finish_reason
+    CompletionSignalDetector.is_completion_signal(tool_name=tool_name, finish_reason="")
+    # Should only be True if tool_name is a completion tool
 
+    # Test with empty metadata
+    CompletionSignalDetector.is_completion_signal(tool_name=tool_name, metadata={})
+    # Should only be True if tool_name is a completion tool
 
-@given(
-    tool_name=completion_tool_name_strategy(),
-    message=non_completion_message_strategy(),
-)
-@property_test_settings()
-def test_property_4_tool_name_overrides_message(tool_name: str, message: str) -> None:
-    """
-    Property 4: Tool Name Detection.
+    # Test with None metadata
+    CompletionSignalDetector.is_completion_signal(tool_name=tool_name, metadata=None)
+    # Should only be True if tool_name is a completion tool
 
-    When the tool name indicates completion but the message does not,
-    the detector should still identify it as a completion signal
-    (tool name is sufficient).
-
-    Validates: Requirements 3.2
-    """
-    # Tool name indicates completion, message does not
-    result = CompletionSignalDetector.is_completion_signal(
-        tool_name, response_text=message
-    )
-
-    assert result is True, (
-        f"Completion tool '{tool_name}' was not detected even though "
-        f"the tool name alone should be sufficient for detection."
-    )
-
-
-@given(
-    tool_name=non_completion_tool_name_strategy(),
-    message=completion_message_strategy(),
-)
-@property_test_settings()
-def test_property_4_message_overrides_tool_name(tool_name: str, message: str) -> None:
-    """
-    Property 4: Message Detection.
-
-    When the message indicates completion but the tool name does not,
-    the detector should still identify it as a completion signal
-    (message is sufficient).
-
-    Validates: Requirements 3.1
-    """
-    # Message indicates completion, tool name does not
-    result = CompletionSignalDetector.is_completion_signal(
-        tool_name, response_text=message
-    )
-
-    assert result is True, (
-        f"Completion message '{message}' was not detected even though "
-        f"the message alone should be sufficient for detection."
-    )
+    # No assertions needed - just verify no exceptions are raised
 
 
 @given(tool_name=completion_tool_name_strategy())
 @property_test_settings()
-def test_property_4_normalization_consistency(tool_name: str) -> None:
+def test_property_4_attempt_completion_detection(tool_name: str) -> None:
     """
-    Property 4: Normalization Consistency.
+    Property 4: Attempt Completion Tool Detection.
 
-    For any completion tool name, adding or removing underscores
-    should not affect detection (normalization should handle it).
+    The detector should specifically recognize 'attempt_completion' which
+    is used by Cline and Roo-Code agents.
 
     Validates: Requirements 3.2
     """
-    # Original detection
-    original_result = CompletionSignalDetector.is_completion_signal(tool_name)
-
-    # The original tool name should be detected correctly
-    assert (
-        original_result is True
-    ), f"Original tool name '{tool_name}' should be detected"
+    # Test the specific attempt_completion tool
+    if "attempt" in tool_name.lower() and "completion" in tool_name.lower():
+        result = CompletionSignalDetector.is_completion_signal(tool_name=tool_name)
+        assert result is True, (
+            f"attempt_completion variant '{tool_name}' should be detected "
+            f"as it's used by Cline and Roo-Code agents"
+        )

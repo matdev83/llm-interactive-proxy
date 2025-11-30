@@ -20,7 +20,7 @@ class TestLogging:
         """Test that initialization logs when feature is enabled."""
         caplog.set_level(logging.INFO)
 
-        handler = TestExecutionReminderHandler(enabled=True)
+        TestExecutionReminderHandler(enabled=True)
 
         # Should log initialization with pattern count
         assert any(
@@ -35,7 +35,7 @@ class TestLogging:
         """Test that initialization logs when feature is disabled."""
         caplog.set_level(logging.INFO)
 
-        handler = TestExecutionReminderHandler(enabled=False)
+        TestExecutionReminderHandler(enabled=False)
 
         # Should log initialization as disabled
         assert any(

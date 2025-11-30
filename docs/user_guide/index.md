@@ -36,6 +36,8 @@ Advanced features that enhance the proxy's capabilities:
 
 - **[Pytest Output Compression](features/pytest-compression.md)** - Compress verbose pytest output to save context tokens
 - **[Pytest Context Saving](features/pytest-context-saving.md)** - Automatically add helpful pytest flags for better output
+- **[Pytest Full-Suite Steering](features/pytest-full-suite-steering.md)** - Prevent agents from running entire test suites inadvertently
+- **[Test Execution Reminder](features/test-execution-reminder.md)** - Remind agents to run tests before completing tasks
 - **[Session Management](features/session-management.md)** - Intelligent session handling and state management
 - **[Context Window Enforcement](features/context-window-enforcement.md)** - Enforce context window limits and prevent overruns
 

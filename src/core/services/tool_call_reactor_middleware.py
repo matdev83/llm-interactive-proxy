@@ -7,6 +7,7 @@ It detects tool calls in LLM responses and passes them through registered handle
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from dataclasses import asdict, is_dataclass
@@ -605,8 +606,38 @@ class ToolCallReactorMiddleware(IResponseMiddleware):
                 }
             )
 
+            # Construct OpenAI-compatible response structure
+            import time
+
+            # Try to preserve model name from metadata or context
+            model_name = merged_metadata.get("model", "steering-agent")
+
+            replacement_struct = {
+                "id": f"chatcmpl-steering-{int(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": replacement_content,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": getattr(original_response, "usage", None),
+            }
+
+            # Ensure content type consistency with original response
+            content: str | dict[str, Any] = replacement_struct
+            if isinstance(original_content, str):
+                with contextlib.suppress(Exception):
+                    content = json.dumps(replacement_struct)
+
             new_response = ProcessedResponse(
-                content=replacement_content,
+                content=content,
                 usage=getattr(original_response, "usage", None),
                 metadata=merged_metadata,
             )

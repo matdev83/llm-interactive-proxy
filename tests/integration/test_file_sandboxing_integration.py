@@ -237,7 +237,12 @@ class TestFileSandboxingIntegration:
 
         # Verify the tool call was blocked
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "paths outside project root" in result.content.lower()
+        # Extract content from OpenAI-compatible response structure
+        if isinstance(result.content, dict):
+            content = result.content["choices"][0]["message"]["content"]
+        else:
+            content = result.content
+        assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
     async def test_kilocode_apply_diff_with_relative_path(self, temp_project_dir):
@@ -314,7 +319,12 @@ class TestFileSandboxingIntegration:
 
         # Verify the tool call was blocked
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "paths outside project root" in result.content.lower()
+        # Extract content from OpenAI-compatible response structure
+        if isinstance(result.content, dict):
+            content = result.content["choices"][0]["message"]["content"]
+        else:
+            content = result.content
+        assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
     async def test_codex_apply_patch_allowed_inside_project(self, temp_project_dir):
@@ -439,10 +449,20 @@ class TestFileSandboxingIntegration:
 
         # Verify error response format
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "paths outside project root" in result.content.lower()
-        assert str(temp_project_dir) in result.content
+        # Extract content from OpenAI-compatible response structure
+        if isinstance(result.content, dict):
+            content = result.content["choices"][0]["message"]["content"]
+        else:
+            # Parse JSON string if needed
+            try:
+                parsed = json.loads(result.content)
+                content = parsed["choices"][0]["message"]["content"]
+            except (json.JSONDecodeError, KeyError, TypeError):
+                content = result.content
+        assert "paths outside project root" in content.lower()
+        assert str(temp_project_dir) in content
         # The error message should explain the violation clearly
-        assert "file operation" in result.content.lower()
+        assert "file operation" in content.lower()
 
     # Test 16.2: Project directory detection integration
 
@@ -857,7 +877,12 @@ class TestFileSandboxingIntegration:
 
         # Should be blocked by sandboxing (not access control)
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "paths outside project root" in result.content.lower()
+        # Extract content from OpenAI-compatible response structure
+        if isinstance(result.content, dict):
+            content = result.content["choices"][0]["message"]["content"]
+        else:
+            content = result.content
+        assert "paths outside project root" in content.lower()
 
     @pytest.mark.asyncio
     async def test_tool_access_control_blocks_before_sandboxing(self, temp_project_dir):
@@ -926,7 +951,12 @@ class TestFileSandboxingIntegration:
 
         # Should be blocked by access control (not sandboxing)
         assert result.metadata.get("tool_call_swallowed") is True
-        assert "blocked by policy" in result.content.lower()
+        # Extract content from OpenAI-compatible response structure
+        if isinstance(result.content, dict):
+            content = result.content["choices"][0]["message"]["content"]
+        else:
+            content = result.content
+        assert "blocked by policy" in content.lower()
 
     @pytest.mark.asyncio
     async def test_independent_operation_of_systems(self, temp_project_dir):

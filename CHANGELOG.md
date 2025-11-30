@@ -1,5 +1,60 @@
 # Changelog
 
+## [2025-12-02] - Test Execution Reminder Phase 2: Improved Completion Detection
+
+### Enhancement: Reliable Completion Detection Based on Actual Agent Behavior
+
+- **Replaced Unreliable Pattern Matching**: Removed speculative text pattern matching in favor of evidence-based detection
+  - **Old Approach**: Used regex patterns to match completion phrases in model output (prone to false positives)
+  - **New Approach**: Uses actual tool names from real coding agents and API finish_reason markers
+
+- **Primary Detection: Actual Completion Tool Names**: Based on source code analysis of popular coding agents
+  - **`attempt_completion`**: Used by Cline and Roo-Code (Kilo Code) - most common completion tool
+  - **`finish`**: Used by OpenHands (formerly OpenDevin)
+  - **Generic Tools**: `finish_task`, `task_complete`, `mark_complete`, `complete`, `done`
+  - **Evidence-Based**: Tool names extracted from actual agent source code, not speculation
+
+- **Secondary Detection: Streaming finish_reason Markers**: Uses standard API values from OpenAI/Anthropic
+  - **`stop`**: Normal completion
+  - **`tool_calls`**: Completed with tool calls
+  - **`length`**: Maximum token limit reached
+  - **`end_turn`**: Anthropic's completion marker
+  - **API-Compliant**: Based on official LLM API specifications
+
+- **Benefits of New Approach**:
+  - **No False Positives**: Only triggers on explicit completion signals, not ambiguous text
+  - **Streaming Support**: Works with streaming responses via finish_reason extraction
+  - **Agent-Specific**: Detects actual completion tools used by real coding agents
+  - **Maintainable**: Easy to add new agent tool names as discovered
+  - **Reliable**: Based on actual behavior, not speculation about what models might say
+
+- **Implementation Changes**:
+  - **CompletionSignalDetector**: Removed `COMPLETION_PATTERNS` and `_contains_completion_pattern()` method
+  - **CompletionSignalDetector**: Added `FINISH_REASONS` set and `_is_finish_reason()` method
+  - **CompletionSignalDetector**: Updated `is_completion_signal()` to accept `finish_reason` and `metadata` parameters
+  - **TestExecutionReminderHandler**: Added `_extract_finish_reason()` and `_extract_metadata()` methods
+  - **TestExecutionReminderHandler**: Updated logging to show finish_reason instead of pattern matching
+
+- **Agent Compatibility**:
+  - **Cline**: Automatically detected via `attempt_completion` tool
+  - **Roo-Code (Kilo Code)**: Automatically detected via `attempt_completion` tool
+  - **OpenHands**: Automatically detected via `finish` tool
+  - **Generic Agents**: Detected via streaming finish_reason markers
+  - **Custom Agents**: Extensible - new tool names can be added easily
+
+- **Testing**: All tests updated and passing
+  - **17 Unit Tests Rewritten**: Replaced pattern matching tests with tool name and finish_reason tests
+  - **Property Tests Updated**: All property-based tests now use new detection methods
+  - **Integration Tests Updated**: End-to-end tests verify new detection approach
+  - **100% Coverage Maintained**: All new code fully tested
+  - **No Regressions**: All existing tests remain green
+
+- **Documentation**: Complete documentation of Phase 2 improvements
+  - **User Guide Updated**: Added "Completion Detection Methods" section with detailed explanation
+  - **Agent Compatibility Table**: Documents which agents use which completion tools
+  - **Migration Notes**: Explains why the change was made and benefits of new approach
+  - **PHASE2_IMPROVEMENTS.md**: Technical documentation of implementation changes
+
 ## [2025-12-01] - Test Execution Reminder System
 
 ### New Feature: Intelligent Test Execution Steering for Agentic Workflows

@@ -55,7 +55,10 @@ async def test_reactor_swallows_dangerous_command_and_steers() -> None:
     )
 
     assert isinstance(result, ProcessedResponse)
-    assert result.content == "steering"
+    # The content is now a full OpenAI-compatible response structure as JSON string
+    assert isinstance(result.content, str)
+    result_data = json.loads(result.content)
+    assert result_data["choices"][0]["message"]["content"] == "steering"
 
 
 @pytest.mark.asyncio

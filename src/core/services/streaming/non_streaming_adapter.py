@@ -92,7 +92,33 @@ class NonStreamingAdapter:
         final_usage: dict[str, Any] | None = None
         final_metadata: dict[str, Any] = {}
 
+        # Collect all chunks first to check for single-chunk optimization
+        collected_chunks: list[StreamingContent | ProcessedResponse | bytes] = []
         async for chunk in stream:
+            collected_chunks.append(chunk)
+
+        # Optimization for single chunk (common in non-streaming)
+        if len(collected_chunks) == 1:
+            chunk = collected_chunks[0]
+            if isinstance(chunk, StreamingContent | ProcessedResponse) and isinstance(
+                chunk.content, dict
+            ):
+                # Check for StopChunkWithUsage special case
+                from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+                if not isinstance(chunk.content, StopChunkWithUsage):
+                    # Remove internal flags from output metadata
+                    metadata = dict(chunk.metadata) if chunk.metadata else {}
+                    metadata.pop("non_streaming", None)
+
+                    return ProcessedResponse(
+                        content=chunk.content,
+                        usage=chunk.usage,
+                        metadata=metadata,
+                    )
+
+        # Process accumulated chunks
+        for chunk in collected_chunks:
             if isinstance(chunk, bytes):
                 # Handle bytes directly - decode and accumulate
                 try:

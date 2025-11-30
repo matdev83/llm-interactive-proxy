@@ -39,18 +39,20 @@ def file_modification_tool_strategy(draw: Any) -> str:
 
 
 @st.composite
-def completion_signal_strategy(draw: Any) -> tuple[str, dict[str, Any], str]:
-    """Generate completion signals (tool_name, tool_arguments, response_text).
+def completion_signal_strategy(draw: Any) -> tuple[str, dict[str, Any], str | None]:
+    """Generate completion signals (tool_name, tool_arguments, finish_reason).
 
-    Returns a tuple of (tool_name, tool_arguments, response_text) that
-    represents a completion signal.
+    Returns a tuple of (tool_name, tool_arguments, finish_reason) that
+    represents a completion signal using Phase 2 detection methods.
     """
-    # Choose between tool-based or message-based completion
+    # Choose between tool-based or finish_reason-based completion
     use_tool = draw(st.booleans())
 
     if use_tool:
-        # Use a completion tool name
+        # Use a completion tool name (Phase 2: actual agent tool names)
         completion_tools = [
+            "attempt_completion",  # Cline, Roo-Code
+            "finish",  # OpenHands
             "task_complete",
             "mark_complete",
             "finish_task",
@@ -59,23 +61,20 @@ def completion_signal_strategy(draw: Any) -> tuple[str, dict[str, Any], str]:
         ]
         tool_name = draw(st.sampled_from(completion_tools))
         tool_arguments = {}
-        response_text = "Some response"
+        finish_reason = None
     else:
-        # Use a completion message
+        # Use a finish_reason marker (Phase 2: streaming completion)
         tool_name = "some_tool"
         tool_arguments = {}
-        completion_messages = [
-            "The task is complete",
-            "Implementation is done",
-            "All tests pass",
-            "Ready for review",
-            "Finished implementing",
-            "Task complete",
-            "Completed the task",
+        finish_reasons = [
+            "stop",
+            "tool_calls",
+            "length",
+            "end_turn",
         ]
-        response_text = draw(st.sampled_from(completion_messages))
+        finish_reason = draw(st.sampled_from(finish_reasons))
 
-    return tool_name, tool_arguments, response_text
+    return tool_name, tool_arguments, finish_reason
 
 
 @st.composite
@@ -106,7 +105,7 @@ def session_id_strategy(draw: Any) -> str:
 @property_test_settings()
 async def test_property_5_steering_injection_on_dirty_completion(
     file_tool: str,
-    completion_signal: tuple[str, dict[str, Any], str],
+    completion_signal: tuple[str, dict[str, Any], str | None],
     session_id: str,
 ) -> None:
     """
@@ -140,13 +139,18 @@ async def test_property_5_steering_injection_on_dirty_completion(
     assert state is not None, f"Session state should exist for session {session_id}"
     assert state.is_dirty is True, "Session should be dirty after file modification"
 
-    # Step 2: Send completion signal
-    tool_name, tool_arguments, response_text = completion_signal
+    # Step 2: Send completion signal (Phase 2: tool name or finish_reason)
+    tool_name, tool_arguments, finish_reason = completion_signal
+    full_response = {}
+    if finish_reason:
+        # Add finish_reason to response for streaming completion detection
+        full_response["finish_reason"] = finish_reason
+
     completion_context = ToolCallContext(
         session_id=session_id,
         backend_name="test_backend",
         model_name="test_model",
-        full_response={"content": response_text},
+        full_response=full_response,
         tool_name=tool_name,
         tool_arguments=tool_arguments,
     )
@@ -155,7 +159,7 @@ async def test_property_5_steering_injection_on_dirty_completion(
     can_handle_result = await handler.can_handle(completion_context)
     assert can_handle_result is True, (
         f"can_handle should return True for completion signal in dirty state. "
-        f"Tool: {tool_name}, Response: {response_text}"
+        f"Tool: {tool_name}, finish_reason: {finish_reason}"
     )
 
     # Step 4: Verify handle returns steering message
@@ -198,7 +202,7 @@ async def test_property_5_steering_injection_on_dirty_completion(
 @property_test_settings()
 async def test_property_5_custom_steering_message(
     file_tool: str,
-    completion_signal: tuple[str, dict[str, Any], str],
+    completion_signal: tuple[str, dict[str, Any], str | None],
     session_id: str,
 ) -> None:
     """
@@ -225,13 +229,17 @@ async def test_property_5_custom_steering_message(
     )
     await handler.can_handle(file_context)
 
-    # Send completion signal
-    tool_name, tool_arguments, response_text = completion_signal
+    # Send completion signal (Phase 2: tool name or finish_reason)
+    tool_name, tool_arguments, finish_reason = completion_signal
+    full_response = {}
+    if finish_reason:
+        full_response["finish_reason"] = finish_reason
+
     completion_context = ToolCallContext(
         session_id=session_id,
         backend_name="test_backend",
         model_name="test_model",
-        full_response={"content": response_text},
+        full_response=full_response,
         tool_name=tool_name,
         tool_arguments=tool_arguments,
     )
@@ -254,7 +262,7 @@ async def test_property_5_custom_steering_message(
 @property_test_settings()
 async def test_property_5_default_steering_message(
     file_tool: str,
-    completion_signal: tuple[str, dict[str, Any], str],
+    completion_signal: tuple[str, dict[str, Any], str | None],
     session_id: str,
 ) -> None:
     """
@@ -279,13 +287,17 @@ async def test_property_5_default_steering_message(
     )
     await handler.can_handle(file_context)
 
-    # Send completion signal
-    tool_name, tool_arguments, response_text = completion_signal
+    # Send completion signal (Phase 2: tool name or finish_reason)
+    tool_name, tool_arguments, finish_reason = completion_signal
+    full_response = {}
+    if finish_reason:
+        full_response["finish_reason"] = finish_reason
+
     completion_context = ToolCallContext(
         session_id=session_id,
         backend_name="test_backend",
         model_name="test_model",
-        full_response={"content": response_text},
+        full_response=full_response,
         tool_name=tool_name,
         tool_arguments=tool_arguments,
     )
@@ -309,7 +321,7 @@ async def test_property_5_default_steering_message(
 @property_test_settings()
 async def test_property_5_multiple_modifications_before_completion(
     modification_count: int,
-    completion_signal: tuple[str, dict[str, Any], str],
+    completion_signal: tuple[str, dict[str, Any], str | None],
     session_id: str,
 ) -> None:
     """
@@ -341,13 +353,17 @@ async def test_property_5_multiple_modifications_before_completion(
     assert state.is_dirty is True
     assert state.modification_count == modification_count
 
-    # Send completion signal
-    tool_name, tool_arguments, response_text = completion_signal
+    # Send completion signal (Phase 2: tool name or finish_reason)
+    tool_name, tool_arguments, finish_reason = completion_signal
+    full_response = {}
+    if finish_reason:
+        full_response["finish_reason"] = finish_reason
+
     completion_context = ToolCallContext(
         session_id=session_id,
         backend_name="test_backend",
         model_name="test_model",
-        full_response={"content": response_text},
+        full_response=full_response,
         tool_name=tool_name,
         tool_arguments=tool_arguments,
     )
@@ -374,7 +390,7 @@ async def test_property_5_multiple_modifications_before_completion(
 @property_test_settings()
 async def test_property_5_metadata_includes_tool_name(
     file_tool: str,
-    completion_signal: tuple[str, dict[str, Any], str],
+    completion_signal: tuple[str, dict[str, Any], str | None],
     session_id: str,
 ) -> None:
     """
@@ -399,13 +415,17 @@ async def test_property_5_metadata_includes_tool_name(
     )
     await handler.can_handle(file_context)
 
-    # Send completion signal
-    tool_name, tool_arguments, response_text = completion_signal
+    # Send completion signal (Phase 2: tool name or finish_reason)
+    tool_name, tool_arguments, finish_reason = completion_signal
+    full_response = {}
+    if finish_reason:
+        full_response["finish_reason"] = finish_reason
+
     completion_context = ToolCallContext(
         session_id=session_id,
         backend_name="test_backend",
         model_name="test_model",
-        full_response={"content": response_text},
+        full_response=full_response,
         tool_name=tool_name,
         tool_arguments=tool_arguments,
     )

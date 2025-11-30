@@ -215,6 +215,11 @@ class TestFileModificationDetector:
 
     def test_unicode_characters(self) -> None:
         """Test handling of tool names with unicode characters."""
-        assert FileModificationDetector.is_file_modification("write_file_😀") is False
-        assert FileModificationDetector.is_file_modification("写入文件") is False
-        assert FileModificationDetector.is_file_modification("écrire_fichier") is False
+        # ASCII-only test names (no unicode emojis allowed per AGENTS.md)
+        assert (
+            FileModificationDetector.is_file_modification("write_file_unicode") is False
+        )
+        assert (
+            FileModificationDetector.is_file_modification("non_english_chars") is False
+        )
+        assert FileModificationDetector.is_file_modification("ecrire_fichier") is False

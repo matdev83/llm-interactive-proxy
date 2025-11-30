@@ -74,11 +74,10 @@ def test_markdown_syntax_validation() -> None:
 
     # Files to check
     markdown_files = [
-        project_root / "dev" / "README.md",
-        project_root / "dev" / "AGENTS.md",
-        project_root / "dev" / "CONTRIBUTING.md",
-        project_root / "dev" / "CHANGELOG.md",
-        project_root / "dev" / "MIGRATION_NOTES.md",
+        project_root / "README.md",
+        project_root / "AGENTS.md",
+        project_root / "CONTRIBUTING.md",
+        project_root / "CHANGELOG.md",
     ]
 
     # Track all failures

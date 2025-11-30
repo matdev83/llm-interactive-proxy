@@ -5,7 +5,7 @@ import contextlib
 import time
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.connectors.gemini_oauth_base import (
@@ -195,12 +195,14 @@ class TestDisableGeminiOAuthFallbackBehavior:
             )
 
         # Verify: Pro model attempts match retry configuration, flash not used
+        # Total attempts = 1 initial attempt + (len(retry_delays) + 1) graceful degradation attempts
+        # With retry_delays=[0.0, 0.0], that's 1 + 3 = 4 total attempts
         pro_attempts = connector_fallback_disabled._api_call_count["gemini-2.5-pro"]
         delay_count = len(connector_fallback_disabled._degradation_config.retry_delays)
-        expected_attempts = delay_count + 2  # initial call plus configured retries
-        # Note: The implementation actually does len(delays) + 1 total attempts
-        # But since retry_delays is [0.0, 0.0] (length 2), max attempts is 3.
-        
+        expected_attempts = (
+            1 + delay_count + 1
+        )  # initial + graceful degradation retries
+
         assert (
             pro_attempts == expected_attempts
         ), f"Expected {expected_attempts} pro attempts, observed {pro_attempts}"
@@ -232,13 +234,13 @@ class TestDisableGeminiOAuthFallbackBehavior:
         """Test that with fallback enabled, flash model IS attempted after pro fails."""
 
         # Mock sleep
-        async def fake_sleep(delay: float) -> None:
-            pass
 
-        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
         # Setup: Pro fails, Flash succeeds
+
         error_429 = BackendError("Rate limit exceeded", status_code=429)
+
         connector_fallback_enabled.set_api_behavior(
             "gemini-2.5-pro", [error_429, error_429, error_429]
         )
@@ -279,13 +281,13 @@ class TestDisableGeminiOAuthFallbackBehavior:
         """Test that with fallback disabled, failure occurs faster (no flash attempt)."""
 
         # Mock sleep
-        async def fake_sleep(delay: float) -> None:
-            pass
 
-        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
         # Setup: Pro model always fails
+
         error_429 = BackendError("Rate limit exceeded", status_code=429)
+
         connector_fallback_disabled.set_api_behavior(
             "gemini-2.5-pro", [error_429, error_429, error_429, error_429]
         )
@@ -331,13 +333,13 @@ class TestDisableGeminiOAuthFallbackBehavior:
         """Test that with fallback enabled, both models are tried before final failure."""
 
         # Mock sleep
-        async def fake_sleep(delay: float) -> None:
-            pass
 
-        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
 
         # Setup: Both models fail
+
         error_429 = BackendError("Rate limit exceeded", status_code=429)
+
         connector_fallback_enabled.set_api_behavior(
             "gemini-2.5-pro", [error_429, error_429, error_429]
         )

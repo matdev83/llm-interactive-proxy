@@ -270,6 +270,7 @@ def _has_valid_antigravity_credentials() -> tuple[bool, str]:
     return asyncio.run(_check_connector_credentials(connector, validate_file=False))
 
 
+@pytest.mark.slow
 def test_openrouter_free_model_roundtrip() -> None:
     """Full flow: proxy + OpenAI client hitting OpenRouter with a free model."""
     api_key = _get_openrouter_api_key()
@@ -358,6 +359,7 @@ def test_openrouter_free_model_roundtrip() -> None:
         )
 
 
+@pytest.mark.slow
 def test_gemini_oauth_plan_end_to_end() -> None:
     """Full flow for gemini-oauth-plan using gemini-2.5-flash."""
     ok, reason = _has_valid_plan_credentials()
@@ -384,6 +386,7 @@ def test_gemini_oauth_plan_end_to_end() -> None:
         _stop_proxy(proc)
 
 
+@pytest.mark.slow
 def test_gemini_oauth_antigravity_end_to_end() -> None:
     """Full flow for gemini-oauth-antigravity using gpt-oss-120b-medium."""
     ok, reason = _has_valid_antigravity_credentials()

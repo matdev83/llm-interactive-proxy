@@ -376,7 +376,7 @@ async def test_disabled_feature_logs_initialization() -> None:
         "src.services.test_execution_reminder.test_execution_reminder_handler.logger"
     ) as mock_logger:
         # Act: Create handler with feature DISABLED
-        handler = TestExecutionReminderHandler(enabled=False)
+        TestExecutionReminderHandler(enabled=False)
 
         # Assert: Logger should have been called with disabled message
         mock_logger.info.assert_called_once()

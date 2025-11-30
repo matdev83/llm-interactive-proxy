@@ -1850,11 +1850,11 @@ def _with_timestamp_suffix(path: str | None) -> str | None:
         return None
     from datetime import datetime
 
-    timestamp = datetime.now().strftime("%H%M")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     p = Path(path)
     # Check if already has a timestamp-like suffix to avoid double appending
-    # Simple check for 4 digits at end of stem
-    if re.search(r"-\d{4}$", p.stem):
+    # Check for YYYYMMDD_HHmm at end of stem
+    if re.search(r"-\d{8}_\d{4}$", p.stem):
         return str(p)
     new_name = f"{p.stem}-{timestamp}{p.suffix}"
     return str(p.with_name(new_name))

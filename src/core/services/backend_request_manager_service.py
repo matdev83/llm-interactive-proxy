@@ -476,6 +476,11 @@ class BackendRequestManager(IBackendRequestManager):
                         if retry_response.metadata is None:
                             retry_response.metadata = {}
                         retry_response.metadata.update(processed_retry.metadata)
+
+                if retry_response.metadata is None:
+                    retry_response.metadata = {}
+                retry_response.metadata["steering_retry_occurred"] = True
+
                 return retry_response
             except Exception as exc:
                 if logger.isEnabledFor(logging.WARNING):

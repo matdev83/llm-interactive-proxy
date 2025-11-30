@@ -382,6 +382,11 @@ def to_fastapi_response(
                 metadata_section.setdefault("reasoning", reasoning_meta)
                 metadata_section.setdefault("reasoning_content", reasoning_meta)
 
+        if envelope.metadata.get("steering_retry_occurred"):
+            metadata_section = prepared_content.setdefault("metadata", {})
+            if isinstance(metadata_section, dict):
+                metadata_section["steering_retry_occurred"] = True
+
     prepared_content, usage_data = _ensure_usage(envelope, prepared_content, context)
     headers = _apply_usage_headers(headers, usage_data)
 
@@ -437,6 +442,14 @@ def _normalize_response_envelope(domain_response: Any) -> ResponseEnvelope:
             metadata=(
                 {"model": domain_response.model} if domain_response.model else None
             ),
+        )
+    elif isinstance(domain_response, ProcessedResponse):
+        return ResponseEnvelope(
+            content=domain_response.content,
+            headers=None,
+            status_code=200,
+            usage=domain_response.usage,
+            metadata=domain_response.metadata,
         )
     elif isinstance(domain_response, dict):
         return ResponseEnvelope(content=domain_response, headers=None, status_code=200)

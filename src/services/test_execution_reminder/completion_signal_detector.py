@@ -19,12 +19,13 @@ class CompletionSignalDetector:
     # Tool names that signal completion
     # These are actual tool names used by popular coding agents:
     # - attempt_completion: Used by Cline, Roo-Code (Kilo Code)
-    # - ask_followup_question: Sometimes used as completion signal
+    # - finish: Used by OpenHands (formerly OpenDevin)
     # - finish_task: Generic completion tool
     # - task_complete: Generic completion tool
     # - mark_complete: Generic completion tool
     COMPLETION_TOOLS = {
         "attempt_completion",  # Cline, Roo-Code (most common)
+        "finish",  # OpenHands (formerly OpenDevin)
         "finish_task",
         "task_complete",
         "mark_complete",

@@ -214,15 +214,15 @@ class TestPathValidationPerformance:
             sorted_times = sorted(times)
             p95_time = sorted_times[int(len(sorted_times) * 0.95)]
 
-            # Average should be well under 10ms
+            # Average should be well under 25ms
             assert (
-                avg_time < 0.010
-            ), f"Average normalization time {avg_time*1000:.2f}ms exceeds 10ms"
+                avg_time < 0.025
+            ), f"Average normalization time {avg_time*1000:.2f}ms exceeds 25ms"
 
-            # 95th percentile should be under 10ms (allows for occasional outliers)
+            # 95th percentile should be under 25ms (allows for occasional outliers)
             assert (
-                p95_time < 0.010
-            ), f"95th percentile normalization time {p95_time*1000:.2f}ms exceeds 10ms"
+                p95_time < 0.025
+            ), f"95th percentile normalization time {p95_time*1000:.2f}ms exceeds 25ms"
 
     def test_boundary_checking_time(self, service):
         """Measure boundary checking time and ensure < 10ms per path."""

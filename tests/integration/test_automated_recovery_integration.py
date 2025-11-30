@@ -168,6 +168,7 @@ def mock_request():
 class TestAutomatedRecoveryIntegration:
     """Integration tests for automated recovery system."""
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_complete_automated_recovery_scenario(self, connector, mock_request):
         """

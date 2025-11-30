@@ -627,3 +627,681 @@ async def test_handler_does_not_swallow_non_completion_tools():
             )
         )
         assert result is None, f"Tool {tool_name} should not be swallowed"
+
+
+# Tests with attempt_completion tool (Cline/Roo-Code)
+
+
+@pytest.mark.asyncio
+async def test_attempt_completion_tool_in_dirty_state():
+    """Test that attempt_completion tool is detected and blocked in dirty state."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-attempt-completion-dirty"
+
+    # Modify file to make session dirty
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with attempt_completion tool (should be blocked)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="attempt_completion",
+            tool_arguments={"result": "Task completed successfully"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is not None, "attempt_completion should be blocked in dirty state"
+    assert result.should_swallow is True
+    assert "test" in result.replacement_response.lower()
+
+
+@pytest.mark.asyncio
+async def test_attempt_completion_tool_in_clean_state():
+    """Test that attempt_completion tool is allowed in clean state."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-attempt-completion-clean"
+
+    # Modify file
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Run tests to make session clean
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="bash",
+            tool_arguments={"command": "pytest"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with attempt_completion tool (should succeed)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="attempt_completion",
+            tool_arguments={"result": "Task completed successfully"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is None, "attempt_completion should be allowed in clean state"
+
+
+@pytest.mark.asyncio
+async def test_attempt_completion_without_modification():
+    """Test that attempt_completion is allowed when no modifications were made."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-attempt-completion-no-mod"
+
+    # Try to complete without any modifications (should succeed)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="attempt_completion",
+            tool_arguments={"result": "Task completed successfully"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is None, "attempt_completion should be allowed without modifications"
+
+
+# Tests with finish_reason in responses
+
+
+@pytest.mark.asyncio
+async def test_finish_reason_stop_in_dirty_state():
+    """Test that finish_reason='stop' is detected and blocked in dirty state."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-finish-reason-stop-dirty"
+
+    # Modify file to make session dirty
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with finish_reason='stop' (should be blocked)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"finish_reason": "stop", "content": "Task completed"},
+            tool_name="some_tool",
+            tool_arguments={},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is not None, "finish_reason='stop' should be blocked in dirty state"
+    assert result.should_swallow is True
+    assert "test" in result.replacement_response.lower()
+
+
+@pytest.mark.asyncio
+async def test_finish_reason_in_choices_array():
+    """Test that finish_reason in choices array (OpenAI format) is detected."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-finish-reason-choices"
+
+    # Modify file to make session dirty
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with finish_reason in choices array (OpenAI format)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={
+                "choices": [{"finish_reason": "stop", "message": {"content": "Done"}}]
+            },
+            tool_name="some_tool",
+            tool_arguments={},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert (
+        result is not None
+    ), "finish_reason in choices array should be blocked in dirty state"
+    assert result.should_swallow is True
+
+
+@pytest.mark.asyncio
+async def test_finish_reason_in_metadata():
+    """Test that finish_reason in metadata is detected."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-finish-reason-metadata"
+
+    # Modify file to make session dirty
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with finish_reason in metadata
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"metadata": {"finish_reason": "end_turn"}},
+            tool_name="some_tool",
+            tool_arguments={},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert (
+        result is not None
+    ), "finish_reason in metadata should be blocked in dirty state"
+    assert result.should_swallow is True
+
+
+@pytest.mark.asyncio
+async def test_finish_reason_tool_calls():
+    """Test that finish_reason='tool_calls' is detected."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-finish-reason-tool-calls"
+
+    # Modify file to make session dirty
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with finish_reason='tool_calls'
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"finish_reason": "tool_calls"},
+            tool_name="some_tool",
+            tool_arguments={},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert (
+        result is not None
+    ), "finish_reason='tool_calls' should be blocked in dirty state"
+    assert result.should_swallow is True
+
+
+@pytest.mark.asyncio
+async def test_finish_reason_length():
+    """Test that finish_reason='length' is detected."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-finish-reason-length"
+
+    # Modify file to make session dirty
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with finish_reason='length'
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"finish_reason": "length"},
+            tool_name="some_tool",
+            tool_arguments={},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is not None, "finish_reason='length' should be blocked in dirty state"
+    assert result.should_swallow is True
+
+
+@pytest.mark.asyncio
+async def test_finish_reason_in_clean_state():
+    """Test that finish_reason is allowed in clean state."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-finish-reason-clean"
+
+    # Modify file
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Run tests to make session clean
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="bash",
+            tool_arguments={"command": "pytest"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with finish_reason='stop' (should succeed)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"finish_reason": "stop"},
+            tool_name="some_tool",
+            tool_arguments={},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is None, "finish_reason should be allowed in clean state"
+
+
+# End-to-end flow with real agent tool names
+
+
+@pytest.mark.asyncio
+async def test_real_agent_flow_cline_attempt_completion():
+    """Test end-to-end flow with Cline's attempt_completion tool."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-cline-flow"
+
+    # Step 1: Agent modifies a file
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="anthropic",
+            model_name="claude-3-5-sonnet-20241022",
+            full_response={},
+            tool_name="write_to_file",
+            tool_arguments={"path": "src/main.py", "content": "def main(): pass"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Step 2: Agent tries to complete without tests (should be blocked)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="anthropic",
+            model_name="claude-3-5-sonnet-20241022",
+            full_response={},
+            tool_name="attempt_completion",
+            tool_arguments={
+                "result": "I've implemented the main function as requested."
+            },
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is not None, "Cline's attempt_completion should be blocked"
+    assert result.should_swallow is True
+    assert "test" in result.replacement_response.lower()
+
+    # Step 3: Agent runs tests
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="anthropic",
+            model_name="claude-3-5-sonnet-20241022",
+            full_response={},
+            tool_name="execute_command",
+            tool_arguments={"command": "python -m pytest tests/"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Step 4: Agent tries to complete again (should succeed)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="anthropic",
+            model_name="claude-3-5-sonnet-20241022",
+            full_response={},
+            tool_name="attempt_completion",
+            tool_arguments={"result": "Implementation complete and tests passing."},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is None, "attempt_completion should succeed after tests"
+
+
+@pytest.mark.asyncio
+async def test_real_agent_flow_with_finish_reason():
+    """Test end-to-end flow with streaming finish_reason."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-finish-reason-flow"
+
+    # Step 1: Agent modifies a file
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="openai",
+            model_name="gpt-4",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "app.js", "content": "console.log('hello');"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Step 2: Streaming response ends with finish_reason='stop' (should be blocked)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="openai",
+            model_name="gpt-4",
+            full_response={
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": "Changes implemented successfully."},
+                    }
+                ]
+            },
+            tool_name="assistant_response",
+            tool_arguments={},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is not None, "finish_reason='stop' should be blocked"
+    assert result.should_swallow is True
+
+    # Step 3: Agent runs tests
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="openai",
+            model_name="gpt-4",
+            full_response={},
+            tool_name="bash",
+            tool_arguments={"command": "npm test"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Step 4: Streaming response ends again (should succeed)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="openai",
+            model_name="gpt-4",
+            full_response={
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": "All tests passing."},
+                    }
+                ]
+            },
+            tool_name="assistant_response",
+            tool_arguments={},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is None, "finish_reason should succeed after tests"
+
+
+@pytest.mark.asyncio
+async def test_combined_tool_and_finish_reason_detection():
+    """Test that both tool name and finish_reason can trigger detection."""
+    # Create config with feature enabled
+    config = AppConfig().model_copy(update={"test_execution_reminder_enabled": True})
+
+    # Create service collection and register services
+    services = ServiceCollection()
+    register_core_services(services, config)
+
+    # Build service provider
+    provider = services.build_service_provider()
+
+    # Get reactor service
+    reactor = provider.get_required_service(ToolCallReactorService)
+
+    session_id = "test-combined-detection"
+
+    # Modify file to make session dirty
+    await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={},
+            tool_name="write_file",
+            tool_arguments={"path": "test.py", "content": "code"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    # Try to complete with both tool name and finish_reason (should be blocked)
+    result = await reactor.process_tool_call(
+        ToolCallContext(
+            session_id=session_id,
+            backend_name="test-backend",
+            model_name="test-model",
+            full_response={"finish_reason": "stop"},
+            tool_name="attempt_completion",
+            tool_arguments={"result": "Done"},
+            timestamp=datetime.now(),
+        )
+    )
+
+    assert result is not None, "Combined tool name and finish_reason should be blocked"
+    assert result.should_swallow is True

@@ -161,8 +161,10 @@ class TestExecutionReminderHandler(IToolCallHandler):
 
                 # Determine detection reason
                 is_tool_match = CompletionSignalDetector._is_completion_tool(tool_name)
-                is_finish_reason_match = CompletionSignalDetector._is_finish_reason(
-                    finish_reason
+                is_finish_reason_match = (
+                    CompletionSignalDetector._is_finish_reason(finish_reason)
+                    if finish_reason is not None
+                    else False
                 )
 
                 if is_tool_match and is_finish_reason_match:
@@ -524,7 +526,12 @@ class TestExecutionReminderHandler(IToolCallHandler):
 
             # Check top-level finish_reason
             if "finish_reason" in full_response:
-                return full_response["finish_reason"]
+                finish_reason_value = full_response["finish_reason"]
+                return (
+                    str(finish_reason_value)
+                    if finish_reason_value is not None
+                    else None
+                )
 
             # Check in choices array (OpenAI format)
             choices = full_response.get("choices", [])
@@ -533,12 +540,17 @@ class TestExecutionReminderHandler(IToolCallHandler):
                 if isinstance(first_choice, dict):
                     finish_reason = first_choice.get("finish_reason")
                     if finish_reason:
-                        return finish_reason
+                        return str(finish_reason)
 
             # Check in metadata
             metadata = full_response.get("metadata", {})
             if isinstance(metadata, dict) and "finish_reason" in metadata:
-                return metadata["finish_reason"]
+                finish_reason_value = metadata["finish_reason"]
+                return (
+                    str(finish_reason_value)
+                    if finish_reason_value is not None
+                    else None
+                )
 
             return None
 

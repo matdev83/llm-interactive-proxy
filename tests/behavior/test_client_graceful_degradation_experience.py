@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest

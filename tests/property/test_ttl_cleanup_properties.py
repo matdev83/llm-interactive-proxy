@@ -333,7 +333,7 @@ def test_ttl_cleanup_updates_last_seen(
     # Get initial last_seen
     state = handler._get_session_state(session_id)
     assert state is not None
-    initial_last_seen = state.last_seen
+    # initial_last_seen = state.last_seen  # Unused
 
     # Manually set last_seen to be old (but not expired yet)
     current_time = time()

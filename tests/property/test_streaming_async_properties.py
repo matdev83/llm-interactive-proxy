@@ -23,6 +23,7 @@ class _PassthroughProcessor(IStreamProcessor):
         return None
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 @given(chunks=chunk_stream_strategy(min_size=2, max_size=8))
 @property_test_settings()

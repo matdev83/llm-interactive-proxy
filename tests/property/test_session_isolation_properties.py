@@ -98,11 +98,7 @@ def test_session_isolation_multiple_sessions(
     the state of other sessions.
     """
     # Skip if any session IDs are the same
-    if (
-        session1_id == session2_id
-        or session1_id == session3_id
-        or session2_id == session3_id
-    ):
+    if len({session1_id, session2_id, session3_id}) < 3:
         return
 
     # Create handler
