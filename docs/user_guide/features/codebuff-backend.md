@@ -83,6 +83,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 #### Client Messages
 
 **Identify Message**
+
 ```json
 {
   "type": "identify",
@@ -92,6 +93,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 ```
 
 **Ping Message**
+
 ```json
 {
   "type": "ping",
@@ -100,6 +102,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 ```
 
 **Prompt Action**
+
 ```json
 {
   "type": "action",
@@ -117,6 +120,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 ```
 
 **Init Action**
+
 ```json
 {
   "type": "action",
@@ -134,6 +138,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 ```
 
 **Subscribe/Unsubscribe**
+
 ```json
 {
   "type": "subscribe",
@@ -145,6 +150,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 #### Server Messages
 
 **Acknowledgment**
+
 ```json
 {
   "type": "ack",
@@ -155,6 +161,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 ```
 
 **Response Chunk (Streaming)**
+
 ```json
 {
   "type": "action",
@@ -167,6 +174,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 ```
 
 **Prompt Response (Final)**
+
 ```json
 {
   "type": "action",
@@ -182,6 +190,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 ```
 
 **Error Response**
+
 ```json
 {
   "type": "action",
@@ -200,6 +209,7 @@ The Codebuff protocol uses JSON messages over WebSocket. All messages follow a s
 ### Session Management
 
 Each WebSocket connection maintains a session with:
+
 - Unique session ID
 - Conversation history
 - File context (from init action)
@@ -215,6 +225,7 @@ Clients must send periodic `ping` messages to keep the connection alive. If no p
 ### Streaming Responses
 
 LLM responses are streamed in real-time as `response-chunk` actions. Each chunk includes:
+
 - The user input ID for correlation
 - A text chunk from the LLM response
 
@@ -227,6 +238,7 @@ Clients can initialize a session with file context using the `init` action. This
 ### Topic Subscriptions
 
 Clients can subscribe to topics to receive targeted messages. The subscription system supports:
+
 - Multiple topics per client
 - Dynamic subscribe/unsubscribe
 - Automatic cleanup on disconnect
@@ -267,6 +279,7 @@ The Codebuff backend integrates seamlessly with the proxy's existing infrastruct
 ### Logging
 
 The Codebuff backend logs:
+
 - Connection events (connect, disconnect)
 - Message types and session IDs
 - Errors with full context
@@ -277,6 +290,7 @@ Sensitive information (auth tokens, full message contents) is never logged.
 ### Metrics
 
 Key metrics to monitor:
+
 - Active WebSocket connections
 - Messages per second
 - Average response time
@@ -289,11 +303,13 @@ Key metrics to monitor:
 ### Authentication (MVP)
 
 In the current MVP implementation:
+
 - Auth tokens are accepted but not validated
 - Fingerprint IDs are tracked for attribution
 - Usage values are dummy placeholders
 
 Future versions will add:
+
 - Token validation against user database
 - Rate limiting per user
 - Real usage tracking and billing
@@ -301,6 +317,7 @@ Future versions will add:
 ### Input Validation
 
 All inputs are validated:
+
 - JSON schema validation for all messages
 - Sanitization of user-provided strings
 - Model name validation against allowed list
@@ -309,6 +326,7 @@ All inputs are validated:
 ### Logging Security
 
 Logs exclude:
+
 - Auth tokens
 - Full message contents (only types and IDs logged)
 - Sensitive file contents
@@ -321,6 +339,7 @@ Logs exclude:
 **Problem**: Client cannot connect to WebSocket
 
 **Solutions**:
+
 - Verify `codebuff.enabled: true` in configuration
 - Check that proxy is running and accessible
 - Verify WebSocket path matches client configuration
@@ -331,6 +350,7 @@ Logs exclude:
 **Problem**: Connections frequently timeout
 
 **Solutions**:
+
 - Increase `heartbeat_timeout_seconds` in configuration
 - Verify client is sending ping messages regularly
 - Check network stability between client and server
@@ -340,6 +360,7 @@ Logs exclude:
 **Problem**: Messages rejected with validation errors
 
 **Solutions**:
+
 - Verify message format matches protocol specification
 - Check JSON is valid and properly formatted
 - Ensure all required fields are present
@@ -350,6 +371,7 @@ Logs exclude:
 **Problem**: Prompts fail with backend errors
 
 **Solutions**:
+
 - Verify backend is configured and accessible
 - Check API keys are set correctly
 - Ensure model name is supported by backend
@@ -360,6 +382,7 @@ Logs exclude:
 The current MVP implementation has the following limitations:
 
 **Not Implemented**:
+
 - Tool call support (tool-call-request/response flow)
 - File access support (read-files request/response)
 - MCP tool support
@@ -441,6 +464,22 @@ async def codebuff_client():
 
 asyncio.run(codebuff_client())
 ```
+
+## Disclaimer
+
+**IMPORTANT LEGAL NOTICE - READ CAREFULLY BEFORE USING THE CODEBUFF-COMPATIBLE BACKEND**
+
+1. **Non-Affiliation**: This project is an independent open-source initiative. It is **not affiliated with, endorsed by, authorized by, or in any way officially connected to** Codebuff or any of their subsidiaries or affiliates. All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.
+
+2. **No Liability**: The authors, contributors, and maintainers of this project hold **no responsibility or liability** for any consequences arising from the use of this backend in violation of these rules, or for any violations of third-party Terms of Service resulting from such use.
+
+3. **User Responsibility**: You accept full responsibility for ensuring your use of this tool complies with all applicable laws and third-party agreements.
+
+4. **Compliance with Provider Terms**: Users of the Codebuff-compatible backend connector are strictly required to respect all related Terms of Service (ToS) and other agreements with Codebuff and any backend providers. You are solely responsible for verifying that your use of this software is compatible with those agreements.
+
+5. **Indemnification**: You agree to indemnify, defend, and hold harmless the authors and contributors of this project from and against any and all claims, liabilities, damages, losses, or expenses, including legal fees and costs, arising out of or in any way connected with your access to or use of the Codebuff-compatible backend.
+
+**If you do not agree to these terms, do not use the Codebuff-compatible backend interface.**
 
 ## See Also
 

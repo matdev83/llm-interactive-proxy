@@ -211,6 +211,15 @@ identity:
   x_title:
     mode: passthrough
     override_value: null
+
+# [Codebuff WebSocket Server](features/codebuff-backend.md)
+codebuff:
+  enabled: false
+  websocket_path: "/ws"
+  heartbeat_timeout_seconds: 60
+  session_cleanup_hours: 24
+  max_connections: 1000
+  max_message_size_bytes: 1048576
 ```
 
 ### Backend-Specific Configuration
@@ -327,6 +336,38 @@ python -m src.core.cli \
   --capture-file var/wire_captures_json/debug.log \
   --cbor-capture-file var/wire_captures_cbor/debug.cbor
 ```
+
+### Enable Codebuff WebSocket Server
+
+The [Codebuff backend](features/codebuff-backend.md) provides a WebSocket server for real-time AI communication:
+
+```yaml
+codebuff:
+  enabled: true
+  websocket_path: "/ws"
+  heartbeat_timeout_seconds: 60
+  session_cleanup_hours: 24
+  max_connections: 1000
+  max_message_size_bytes: 1048576
+```
+
+**Configuration Parameters**:
+
+- `enabled` (boolean, default: `false`) - Enable/disable the Codebuff WebSocket server
+- `websocket_path` (string, default: `"/ws"`) - WebSocket endpoint path
+- `heartbeat_timeout_seconds` (integer, default: `60`) - Connection timeout in seconds
+- `session_cleanup_hours` (integer, default: `24`) - Session cleanup interval in hours
+- `max_connections` (integer, default: `1000`) - Maximum concurrent connections
+- `max_message_size_bytes` (integer, default: `1048576`) - Maximum message size (1MB)
+
+**Quick Start**:
+
+```bash
+# Start with Codebuff enabled
+python -m src.core.cli --config config.yaml
+```
+
+See the [Codebuff Quick Start Guide](features/codebuff-quick-start.md) and [Codebuff Protocol Reference](codebuff-protocol-reference.md) for more details.
 
 ## Configuration Files Location
 

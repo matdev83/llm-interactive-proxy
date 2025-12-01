@@ -43,6 +43,17 @@ class TestToolCallRepairService:
             "arg1": "val1"
         }
 
+    def test_json_decode_failure_falls_back_to_xml(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        """If JSON decoding fails, the detector should still pick up XML tools."""
+        content = (
+            '<write_to_file><path>f</path><content>{"foo": "bar"}</content></write_to_file>'
+        )
+        repaired = repair_service.repair_tool_calls(content)
+        assert repaired is not None
+        assert repaired.tool_call["function"]["name"] == "write_to_file"
+
     def test_repair_tool_calls_text_pattern(
         self, repair_service: ToolCallRepairService
     ) -> None:
@@ -80,6 +91,13 @@ class TestToolCallRepairService:
         arguments = json.loads(repaired.tool_call["function"]["arguments"])
         assert arguments["path"] == "src/example.py"
         assert arguments["patch_content"] == 'print("hello world")'
+
+    def test_repair_tool_calls_skipped_when_tools_disallowed(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        content = "<test_tool><arg1>val1</arg1></test_tool>"
+        repaired = repair_service.repair_tool_calls(content, allowed_tools=[])
+        assert repaired is None
 
     def test_repair_tool_calls_xml_direct_tool_nested(
         self, repair_service: ToolCallRepairService

@@ -72,6 +72,10 @@ class ToolCallRepairService(IToolCallRepairService):
         if not response_content:
             return None
 
+        # If tools are explicitly disallowed, skip detection entirely
+        if allowed_tools is not None and len(allowed_tools) == 0:
+            return None
+
         # Fast-path checks to avoid expensive regex when not needed
         content = response_content
 
@@ -79,7 +83,9 @@ class ToolCallRepairService(IToolCallRepairService):
         if "```" in content:
             match = self._CODE_BLOCK_PATTERN.search(content)
             if match:
-                return self._process_json_match(match.group(1), match.group(0))
+                result = self._process_json_match(match.group(1), match.group(0))
+                if result:
+                    return result
 
         # Attempt to detect using JSON patterns only if likely keys present
         if '"function_call"' in content or '"tool"' in content:
@@ -92,12 +98,16 @@ class ToolCallRepairService(IToolCallRepairService):
             # Fallback to regex if balanced extraction failed
             match = self._JSON_PATTERN.search(content)
             if match:
-                return self._process_json_match(match.group(1), match.group(0))
+                processed = self._process_json_match(match.group(1), match.group(0))
+                if processed:
+                    return processed
 
         # Attempt to detect using XML patterns (Kilo MCP tool format)
-        xml_tool_call = self._extract_xml_tool_call(content, allowed_tools)
-        if xml_tool_call:
-            return xml_tool_call
+        # Only if the content contains obvious XML markers
+        if "<" in content and "</" in content:
+            xml_tool_call = self._extract_xml_tool_call(content, allowed_tools)
+            if xml_tool_call:
+                return xml_tool_call
 
         # Attempt to detect using textual patterns only if keywords present
         if (

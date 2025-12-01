@@ -132,6 +132,7 @@ class QwenOAuthConnector(OpenAIConnector):
         self._last_cli_refresh_attempt = 0.0
         self._cli_refresh_process: subprocess.Popen[bytes] | None = None
         self._main_loop: asyncio.AbstractEventLoop | None = None
+        self._enable_qwen_oauth_backend_debugging_override = False
 
     @property
     def api_base_url(self) -> str:
@@ -819,6 +820,13 @@ class QwenOAuthConnector(OpenAIConnector):
         """Initialize backend with comprehensive validation and error handling."""
         logger.info("Initializing Qwen OAuth backend with enhanced validation...")
 
+        backend_config = getattr(self.config.backends, "qwen_oauth", None)
+        extras = backend_config.extra if backend_config else {}
+
+        self._enable_qwen_oauth_backend_debugging_override = kwargs.get(
+            "enable_qwen_oauth_backend_debugging_override"
+        ) or extras.get("enable_qwen_oauth_backend_debugging_override", False)
+
         # Reset state
         try:
             self._event_loop = asyncio.get_running_loop()
@@ -1156,6 +1164,19 @@ class QwenOAuthConnector(OpenAIConnector):
         - This triggers Qwen's extended reasoning mode for more thoughtful responses.
         - The " /think" suffix is only appended to regular messages, not tool call responses.
         """
+        if not self._enable_qwen_oauth_backend_debugging_override:
+            logger.warning(
+                "Rejected request: Qwen OAuth backend requires debugging override flag. "
+                "To enable, use the --enable-qwen-oauth-backend-debugging-override flag."
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: This backend is reserved for internal development and debugging purposes only. "
+                    "Use --enable-qwen-oauth-backend-debugging-override to bypass this check."
+                ),
+            )
+
         # Ensure token is refreshed before making the API call
         if not await self._refresh_token_if_needed():
             raise AuthenticationError(

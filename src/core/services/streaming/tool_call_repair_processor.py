@@ -51,6 +51,10 @@ class ToolCallRepairProcessor(IStreamProcessor):
         """
         Processes a streaming content chunk, attempting to repair tool calls.
         """
+        # If backend already provided structured tool calls, pass through.
+        if content.metadata.get("tool_calls"):
+            return content
+
         if content.is_empty and not content.is_done:
             return content  # Nothing to process
 

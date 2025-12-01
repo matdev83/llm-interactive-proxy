@@ -118,6 +118,24 @@ class TestBufferHandlingWithToolCalls:
         assert has_tool_call
 
     @pytest.mark.asyncio
+    async def test_passthrough_when_tool_calls_already_present(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """If backend already supplies tool_calls metadata, repair should not modify content."""
+        original = StreamingContent(
+            content="unchanged",
+            metadata={
+                "session_id": "skip-repair",
+                "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "x"}}
+                ],
+            },
+        )
+        processed = await processor.process(original)
+        assert processed is original or processed.content == "unchanged"
+        assert processed.metadata.get("tool_calls")
+
+    @pytest.mark.asyncio
     async def test_openai_chunk_apply_diff_not_truncated(
         self, processor: ToolCallRepairProcessor
     ) -> None:

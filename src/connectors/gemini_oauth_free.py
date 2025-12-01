@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 import httpx
+from fastapi import HTTPException
 
 from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
 from src.core.common.exceptions import BackendError
@@ -39,6 +40,52 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
             config,
             translation_service,
             name=name or self.backend_type,
+        )
+        self._enable_gemini_oauth_free_backend_debugging_override = False
+
+    async def initialize(self, **kwargs: Any) -> None:
+        """Initialize the connector and check for debugging override flag."""
+        backend_config = getattr(self.config.backends, "gemini_oauth_free", None)
+        extras = backend_config.extra if backend_config else {}
+
+        self._enable_gemini_oauth_free_backend_debugging_override = kwargs.get(
+            "enable_gemini_oauth_free_backend_debugging_override"
+        ) or extras.get("enable_gemini_oauth_free_backend_debugging_override", False)
+
+        await super().initialize(**kwargs)
+
+    async def chat_completions(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+        identity: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Handle chat completions with debugging flag validation.
+
+        Raises:
+            HTTPException: If the debugging override flag is not enabled.
+        """
+        if not self._enable_gemini_oauth_free_backend_debugging_override:
+            logger.warning(
+                "Rejected request: Gemini OAuth Free backend requires debugging override flag. "
+                "To enable, use the --enable-gemini-oauth-free-backend-debugging-override flag."
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: This backend is reserved for internal development and debugging purposes only. "
+                    "Use --enable-gemini-oauth-free-backend-debugging-override to bypass this check."
+                ),
+            )
+
+        return await super().chat_completions(
+            request_data,
+            processed_messages,
+            effective_model,
+            identity,
+            **kwargs,
         )
 
     async def _discover_project_id(self, auth_session: Any = None) -> str:

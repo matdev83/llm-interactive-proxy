@@ -62,6 +62,7 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
         self.gemini_api_base_url = (
             getattr(self, "gemini_api_base_url", None) or ANTIGRAVITY_SANDBOX_ENDPOINT
         )
+        self._enable_antigravity_backend_debugging_override = False
 
     def _get_api_headers(self) -> dict[str, str]:
         """
@@ -119,6 +120,13 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize using Antigravity's sandbox endpoint and custom User-Agent."""
+        backend_config = getattr(self.config.backends, "gemini_oauth_antigravity", None)
+        extras = backend_config.extra if backend_config else {}
+
+        self._enable_antigravity_backend_debugging_override = kwargs.get(
+            "enable_antigravity_backend_debugging_override"
+        ) or extras.get("enable_antigravity_backend_debugging_override", False)
+
         kwargs.setdefault("gemini_api_base_url", ANTIGRAVITY_SANDBOX_ENDPOINT)
 
         # Create a custom client with Antigravity-specific User-Agent
@@ -161,7 +169,21 @@ class GeminiOAuthAntigravityConnector(GeminiOAuthFreeConnector):
 
         Raises:
             BackendError: If the requested model is not available
+            HTTPException: If the debugging override flag is not enabled
         """
+        if not self._enable_antigravity_backend_debugging_override:
+            logger.warning(
+                "Rejected request: Antigravity backend requires debugging override flag. "
+                "To enable, use the --enable-antigravity-backend-debugging-override flag."
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: This backend is reserved for internal development and debugging purposes only. "
+                    "Use --enable-antigravity-backend-debugging-override to bypass this check."
+                ),
+            )
+
         # Ensure models are loaded (cached after first call)
         await self._ensure_models_loaded()
 

@@ -12,6 +12,7 @@ The proxy supports the following backend providers out of the box:
 | `openai-codex` | OpenAI (ChatGPT/Codex OAuth) | Local OAuth token | Using ChatGPT login instead of API key |
 | `anthropic` | Anthropic | API Key | Claude models via standard API |
 | `anthropic-oauth` | Anthropic (OAuth) | Local OAuth token | Claude via OAuth credential flow |
+| `cline` | Cline | Local OAuth token | Internal development & debugging |
 | `gemini` | Google Gemini | API Key | Metered API usage, production apps |
 | `gemini-oauth-plan` | Google Gemini (CLI) | OAuth | Users with Google One subscription |
 | `gemini-oauth-free` | Google Gemini (CLI) | OAuth | Free tier users |
@@ -113,6 +114,7 @@ For detailed configuration and usage information for each backend, see:
 - [OpenAI Backend](openai.md)
 - [Anthropic Backend](anthropic.md)
 - [Gemini Backends](gemini.md)
+- [Cline Backend](cline.md)
 - [OpenRouter Backend](openrouter.md)
 - [ZAI Backend](zai.md)
 - [Qwen Backend](qwen.md)

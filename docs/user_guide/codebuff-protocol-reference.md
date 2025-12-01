@@ -21,6 +21,7 @@ Most messages include a `txid` (transaction ID) field for request-response corre
 Establishes the client session ID.
 
 **Format**:
+
 ```json
 {
   "type": "identify",
@@ -30,6 +31,7 @@ Establishes the client session ID.
 ```
 
 **Fields**:
+
 - `type`: Must be `"identify"`
 - `txid`: Transaction ID for correlation
 - `clientSessionId`: Unique identifier for this client session
@@ -37,6 +39,7 @@ Establishes the client session ID.
 **Response**: `ack` message with `success: true`
 
 **Example**:
+
 ```json
 {
   "type": "identify",
@@ -50,6 +53,7 @@ Establishes the client session ID.
 Heartbeat message to keep connection alive.
 
 **Format**:
+
 ```json
 {
   "type": "ping",
@@ -58,12 +62,14 @@ Heartbeat message to keep connection alive.
 ```
 
 **Fields**:
+
 - `type`: Must be `"ping"`
 - `txid`: Transaction ID for correlation
 
 **Response**: `ack` message with `success: true`
 
 **Example**:
+
 ```json
 {
   "type": "ping",
@@ -72,6 +78,7 @@ Heartbeat message to keep connection alive.
 ```
 
 **Notes**:
+
 - Clients must send ping messages regularly (recommended: every 30 seconds)
 - Connections timeout after `heartbeat_timeout_seconds` without ping
 - Default timeout: 60 seconds
@@ -81,6 +88,7 @@ Heartbeat message to keep connection alive.
 Subscribe to one or more topics.
 
 **Format**:
+
 ```json
 {
   "type": "subscribe",
@@ -90,6 +98,7 @@ Subscribe to one or more topics.
 ```
 
 **Fields**:
+
 - `type`: Must be `"subscribe"`
 - `txid`: Transaction ID for correlation
 - `topics`: Array of topic names to subscribe to
@@ -97,6 +106,7 @@ Subscribe to one or more topics.
 **Response**: `ack` message with `success: true`
 
 **Example**:
+
 ```json
 {
   "type": "subscribe",
@@ -110,6 +120,7 @@ Subscribe to one or more topics.
 Unsubscribe from one or more topics.
 
 **Format**:
+
 ```json
 {
   "type": "unsubscribe",
@@ -119,6 +130,7 @@ Unsubscribe from one or more topics.
 ```
 
 **Fields**:
+
 - `type`: Must be `"unsubscribe"`
 - `txid`: Transaction ID for correlation
 - `topics`: Array of topic names to unsubscribe from
@@ -126,6 +138,7 @@ Unsubscribe from one or more topics.
 **Response**: `ack` message with `success: true`
 
 **Example**:
+
 ```json
 {
   "type": "unsubscribe",
@@ -139,6 +152,7 @@ Unsubscribe from one or more topics.
 Container for action-specific messages (prompt, init, etc.).
 
 **Format**:
+
 ```json
 {
   "type": "action",
@@ -148,6 +162,7 @@ Container for action-specific messages (prompt, init, etc.).
 ```
 
 **Fields**:
+
 - `type`: Must be `"action"`
 - `txid`: Transaction ID for correlation
 - `data`: Action-specific object (see Action Types below)
@@ -161,6 +176,7 @@ Container for action-specific messages (prompt, init, etc.).
 Request LLM completion.
 
 **Format**:
+
 ```json
 {
   "type": "prompt",
@@ -180,6 +196,7 @@ Request LLM completion.
 ```
 
 **Fields**:
+
 - `type`: Must be `"prompt"`
 - `promptId`: Unique identifier for this prompt request
 - `prompt`: Simple text prompt (alternative to `content`)
@@ -195,12 +212,14 @@ Request LLM completion.
 - `agentId`: Optional agent identifier
 
 **Response Sequence**:
+
 1. `ack` message with `success: true`
 2. Multiple `response-chunk` actions (streaming)
 3. Final `prompt-response` action (completion)
 4. Or `prompt-error` action (on error)
 
 **Example**:
+
 ```json
 {
   "type": "action",
@@ -223,6 +242,7 @@ Request LLM completion.
 Initialize session with file context.
 
 **Format**:
+
 ```json
 {
   "type": "init",
@@ -234,6 +254,7 @@ Initialize session with file context.
 ```
 
 **Fields**:
+
 - `type`: Must be `"init"`
 - `fingerprintId`: Client fingerprint for usage attribution
 - `authToken`: Optional authentication token
@@ -241,6 +262,7 @@ Initialize session with file context.
 - `repoUrl`: Optional repository URL
 
 **File Context Structure**:
+
 ```json
 {
   "files": [
@@ -255,6 +277,7 @@ Initialize session with file context.
 **Response**: `init-response` action
 
 **Example**:
+
 ```json
 {
   "type": "action",
@@ -286,6 +309,7 @@ Initialize session with file context.
 Acknowledges receipt and validation of client message.
 
 **Format**:
+
 ```json
 {
   "type": "ack",
@@ -296,6 +320,7 @@ Acknowledges receipt and validation of client message.
 ```
 
 **Fields**:
+
 - `type`: Always `"ack"`
 - `txid`: Transaction ID from client message (null if not applicable)
 - `success`: `true` if message was valid and accepted, `false` otherwise
@@ -304,6 +329,7 @@ Acknowledges receipt and validation of client message.
 **Examples**:
 
 Success:
+
 ```json
 {
   "type": "ack",
@@ -314,6 +340,7 @@ Success:
 ```
 
 Failure:
+
 ```json
 {
   "type": "ack",
@@ -328,6 +355,7 @@ Failure:
 Container for server-initiated actions.
 
 **Format**:
+
 ```json
 {
   "type": "action",
@@ -336,6 +364,7 @@ Container for server-initiated actions.
 ```
 
 **Fields**:
+
 - `type`: Always `"action"`
 - `data`: Action-specific object (see Server Action Types below)
 
@@ -346,6 +375,7 @@ Container for server-initiated actions.
 Streaming chunk of LLM response.
 
 **Format**:
+
 ```json
 {
   "type": "response-chunk",
@@ -355,11 +385,13 @@ Streaming chunk of LLM response.
 ```
 
 **Fields**:
+
 - `type`: Must be `"response-chunk"`
 - `userInputId`: Prompt ID from the original request
 - `chunk`: Text chunk from the LLM response
 
 **Example**:
+
 ```json
 {
   "type": "action",
@@ -372,6 +404,7 @@ Streaming chunk of LLM response.
 ```
 
 **Notes**:
+
 - Multiple chunks are sent for a single prompt
 - Chunks should be concatenated in order to build the complete response
 - Final `prompt-response` action signals completion
@@ -381,6 +414,7 @@ Streaming chunk of LLM response.
 Final response after streaming completes.
 
 **Format**:
+
 ```json
 {
   "type": "prompt-response",
@@ -393,6 +427,7 @@ Final response after streaming completes.
 ```
 
 **Fields**:
+
 - `type`: Must be `"prompt-response"`
 - `promptId`: Prompt ID from the original request
 - `sessionState`: Updated session state after this interaction
@@ -401,6 +436,7 @@ Final response after streaming completes.
 - `output`: Additional output data (null in MVP)
 
 **Example**:
+
 ```json
 {
   "type": "action",
@@ -425,6 +461,7 @@ Final response after streaming completes.
 Error during prompt processing.
 
 **Format**:
+
 ```json
 {
   "type": "prompt-error",
@@ -436,6 +473,7 @@ Error during prompt processing.
 ```
 
 **Fields**:
+
 - `type`: Must be `"prompt-error"`
 - `userInputId`: Prompt ID from the original request
 - `message`: User-friendly error message
@@ -443,6 +481,7 @@ Error during prompt processing.
 - `remainingBalance`: Remaining usage balance (null in MVP)
 
 **Example**:
+
 ```json
 {
   "type": "action",
@@ -461,6 +500,7 @@ Error during prompt processing.
 Response to init action.
 
 **Format**:
+
 ```json
 {
   "type": "init-response",
@@ -473,6 +513,7 @@ Response to init action.
 ```
 
 **Fields**:
+
 - `type`: Must be `"init-response"`
 - `message`: Optional status message
 - `agentNames`: Optional agent name mappings
@@ -481,6 +522,7 @@ Response to init action.
 - `next_quota_reset`: Next quota reset time (null in MVP)
 
 **Example**:
+
 ```json
 {
   "type": "action",
@@ -515,6 +557,7 @@ Errors in message parsing or validation return an `ack` message with `success: f
 Errors during action processing return action-specific error messages:
 
 **Prompt Errors**:
+
 ```json
 {
   "type": "action",
@@ -529,6 +572,7 @@ Errors during action processing return action-specific error messages:
 ```
 
 **Action Errors** (generic):
+
 ```json
 {
   "type": "action",
@@ -650,6 +694,22 @@ The current implementation has these limitations:
 5. **No Persistence**: Sessions not persisted across server restarts
 
 These features are planned for future releases.
+
+## Disclaimer
+
+**IMPORTANT LEGAL NOTICE - READ CAREFULLY BEFORE USING THE CODEBUFF-COMPATIBLE BACKEND**
+
+1. **Non-Affiliation**: This project is an independent open-source initiative. It is **not affiliated with, endorsed by, authorized by, or in any way officially connected to** Codebuff or any of their subsidiaries or affiliates. All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.
+
+2. **No Liability**: The authors, contributors, and maintainers of this project hold **no responsibility or liability** for any consequences arising from the use of this backend in violation of these rules, or for any violations of third-party Terms of Service resulting from such use.
+
+3. **User Responsibility**: You accept full responsibility for ensuring your use of this tool complies with all applicable laws and third-party agreements.
+
+4. **Compliance with Provider Terms**: Users of the Codebuff-compatible backend connector are strictly required to respect all related Terms of Service (ToS) and other agreements with Codebuff and any backend providers. You are solely responsible for verifying that your use of this software is compatible with those agreements.
+
+5. **Indemnification**: You agree to indemnify, defend, and hold harmless the authors and contributors of this project from and against any and all claims, liabilities, damages, losses, or expenses, including legal fees and costs, arising out of or in any way connected with your access to or use of the Codebuff-compatible backend.
+
+**If you do not agree to these terms, do not use the Codebuff-compatible backend interface.**
 
 ## See Also
 

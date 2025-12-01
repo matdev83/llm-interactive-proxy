@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 import httpx
+from fastapi import HTTPException
 
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
     """
-    Connector that uses access_token from gemini-cli oauth_creds.json file for paid plans.
+    Connector that uses access_token from the gemini-cli oauth_creds.json file for paid plans.
     """
 
     prompt_limit_prefix_overrides: tuple[tuple[str, int], ...] = (
@@ -45,6 +46,52 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
             config,
             translation_service,
             name=name or self.backend_type,
+        )
+        self._enable_gemini_oauth_plan_backend_debugging_override = False
+
+    async def initialize(self, **kwargs: Any) -> None:
+        """Initialize the connector and check for debugging override flag."""
+        backend_config = getattr(self.config.backends, "gemini_oauth_plan", None)
+        extras = backend_config.extra if backend_config else {}
+
+        self._enable_gemini_oauth_plan_backend_debugging_override = kwargs.get(
+            "enable_gemini_oauth_plan_backend_debugging_override"
+        ) or extras.get("enable_gemini_oauth_plan_backend_debugging_override", False)
+
+        await super().initialize(**kwargs)
+
+    async def chat_completions(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+        identity: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Handle chat completions with debugging flag validation.
+
+        Raises:
+            HTTPException: If the debugging override flag is not enabled.
+        """
+        if not self._enable_gemini_oauth_plan_backend_debugging_override:
+            logger.warning(
+                "Rejected request: Gemini OAuth Plan backend requires debugging override flag. "
+                "To enable, use the --enable-gemini-oauth-plan-backend-debugging-override flag."
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: This backend is reserved for internal development and debugging purposes only. "
+                    "Use --enable-gemini-oauth-plan-backend-debugging-override to bypass this check."
+                ),
+            )
+
+        return await super().chat_completions(
+            request_data,
+            processed_messages,
+            effective_model,
+            identity,
+            **kwargs,
         )
 
     async def _discover_project_id(self, auth_session: Any = None) -> str:

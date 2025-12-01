@@ -55,6 +55,7 @@ Backend provider configuration and usage:
 - **[Backend Overview](backends/overview.md)** - Supported backends, choosing a backend, and switching between providers
 - **[OpenAI Backend](backends/openai.md)** - OpenAI API and ChatGPT OAuth configuration
 - **[Anthropic Backend](backends/anthropic.md)** - Claude API and OAuth configuration
+- **[Cline Backend](backends/cline.md)** - Internal development & debugging backend
 - **[Gemini Backends](backends/gemini.md)** - Google Gemini API, OAuth, and GCP configurations
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access
 - **[ZAI Backend](backends/zai.md)** - Zhipu/Z.ai configuration
