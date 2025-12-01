@@ -456,6 +456,19 @@ class StreamingSamplerConfig(DomainModel):
     """Maximum number of samples to retain in memory."""
 
 
+class CodebuffConfig(DomainModel):
+    """Codebuff WebSocket server configuration."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = False
+    websocket_path: str = "/ws"
+    heartbeat_timeout_seconds: int = 60
+    session_cleanup_hours: int = 1
+    max_connections: int = 1000
+    max_message_size_bytes: int = 1048576  # 1MB
+
+
 class SessionConfig(DomainModel):
     """Session management configuration."""
 
@@ -918,6 +931,9 @@ class AppConfig(DomainModel, IConfig):
     # Sandboxing settings
     sandboxing: SandboxingConfiguration = Field(default_factory=SandboxingConfiguration)
 
+    # Codebuff WebSocket server settings
+    codebuff: CodebuffConfig = Field(default_factory=CodebuffConfig)
+
     # FastAPI app instance
     app: Any = None
 
@@ -961,6 +977,7 @@ class AppConfig(DomainModel, IConfig):
             "reasoning_aliases",
             "model_aliases",
             "sandboxing",
+            "codebuff",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
         # Ensure nested sections only include serializable primitives

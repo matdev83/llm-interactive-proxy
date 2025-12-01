@@ -435,7 +435,9 @@ class ToolCallRepairService(IToolCallRepairService):
 
         # Also add generic matches for any other XML elements
         generic_matches = list(self._XML_SNIPPET_PATTERN.finditer(content))
-        for match in generic_matches:
+        # Sort by length (longest first) so outer wrappers like <apply_diff> are
+        # evaluated before nested tags such as <content>.
+        for match in sorted(generic_matches, key=lambda m: len(m.group(0)), reverse=True):
             snippet = match.group(0)
             # Avoid duplicates
             if snippet not in candidate_snippets:
@@ -457,6 +459,11 @@ class ToolCallRepairService(IToolCallRepairService):
 
             # Use heuristics to determine if this is a tool call or not
             if not self._is_likely_tool_call(root, xml_snippet):
+                continue
+
+            # Skip plain <content> wrappers to avoid misclassifying diff bodies
+            # as independent tool calls (e.g., inside <apply_diff>).
+            if root.tag.lower() == "content":
                 continue
 
             # Special handling for use_mcp_tool wrapper

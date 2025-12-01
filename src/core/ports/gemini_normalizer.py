@@ -193,6 +193,7 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
         # Extract content and tool calls from parts
         content_text = ""
         tool_calls: list[dict[str, Any]] = []
+        usage = json_obj.get("usage")
 
         for part in parts:
             # Extract text content
@@ -214,7 +215,33 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
         is_done = finish_reason is not None
 
         # Determine if this is an empty chunk
-        is_empty = not content_text and not tool_calls
+        is_empty = not content_text and not tool_calls and not usage
+
+        # If this is the terminal usage chunk with no text/tool calls, emit an
+        # OpenAI-style payload so usage reaches the client.
+        if is_done and usage and not content_text and not tool_calls:
+            content_payload: dict[str, Any] = {
+                "choices": [
+                    {
+                        "index": metadata.get("index", 0),
+                        "delta": {"role": metadata.get("role", "assistant")},
+                        "finish_reason": finish_reason,
+                    }
+                ],
+                "usage": usage,
+            }
+            if "model" in metadata:
+                content_payload["model"] = metadata["model"]
+            if "id" in metadata:
+                content_payload["id"] = metadata["id"]
+
+            return self.create_normalized_chunk(
+                content=content_payload,
+                metadata=metadata,
+                is_done=True,
+                is_empty=False,
+                stream_id=stream_id,
+            )
 
         # Create normalized chunk
         chunk = self.create_normalized_chunk(
@@ -224,6 +251,13 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
             is_empty=is_empty,
             stream_id=stream_id,
         )
+
+        # Preserve usage on terminal chunks that also carry content/tool calls
+        if is_done and usage:
+            chunk.metadata["usage"] = usage
+            if isinstance(chunk.content, dict):
+                chunk.content = dict(chunk.content)
+                chunk.content["usage"] = usage
 
         return chunk
 

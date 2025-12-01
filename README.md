@@ -46,6 +46,7 @@ graph TD
 ## Key Features
 
 - **Connect Any App to Any Model**: Route requests from any LLM client to any backend, even across protocols
+- **Codebuff Backend Compatibility**: WebSocket server implementing the Codebuff protocol for coding agents
 - **Model Override**: Force applications to use your chosen model, regardless of hardcoded defaults
 - **API Key Rotation**: Aggregate and auto-rotate API keys to maximize free-tier usage
 - **Test Execution Reminder**: Automatically reminds agents to run tests before completing tasks (14+ languages)

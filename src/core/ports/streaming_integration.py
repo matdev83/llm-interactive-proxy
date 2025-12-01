@@ -25,6 +25,11 @@ from src.core.ports.streaming_processors import (
 from src.core.ports.streaming_processors import (
     ToolCallRepairProcessor as PortsToolCallRepairProcessor,
 )
+from src.core.services.streaming.tool_call_repair_processor import (
+    ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
+)
+from src.core.services.tool_call_repair_service import ToolCallRepairService
+from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +94,33 @@ async def integrate_streaming_pipeline(
     def _default_tool_call_repair_processor() -> IStreamProcessor:
         return PortsToolCallRepairProcessor()
 
+    def _default_service_tool_call_repair_processor() -> IStreamProcessor:
+        # Fallback instance when DI provider is unavailable
+        from src.core.di.services import get_or_build_service_provider
+        from src.core.interfaces.tool_call_repair_service_interface import (
+            IToolCallRepairService,
+        )
+        
+        provider = get_or_build_service_provider()
+        tool_call_repair_service = provider.get_required_service(IToolCallRepairService)
+        registry = provider.get_required_service(StreamingContextRegistry)
+        
+        return ServiceToolCallRepairProcessor(
+            tool_call_repair_service=tool_call_repair_service,
+            registry=registry,
+        )
+
     if enable_loop_detection:
         processors.append(
             _resolve_processor(
                 PortsLoopDetectionProcessor, _default_loop_detection_processor
+            )
+        )
+    if enable_tool_call_repair:
+        processors.append(
+            _resolve_processor(
+                ServiceToolCallRepairProcessor,
+                _default_service_tool_call_repair_processor,
             )
         )
     if enable_tool_call_repair:

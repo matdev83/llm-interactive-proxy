@@ -188,3 +188,13 @@ properties:
       path_parameter_names:
         type: array
         items: { type: string }
+  codebuff:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      websocket_path: { type: string }
+      heartbeat_timeout_seconds: { type: integer, minimum: 1 }
+      session_cleanup_hours: { type: integer, minimum: 1 }
+      max_connections: { type: integer, minimum: 1 }
+      max_message_size_bytes: { type: integer, minimum: 1024 }

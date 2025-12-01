@@ -18,6 +18,7 @@ from typing import Any, ClassVar, Protocol
 
 import httpx
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     APIConnectionError,
     APITimeoutError,
@@ -162,14 +163,16 @@ class StopChunkWithUsage(dict):
         if not isinstance(data, dict):
             raise ValueError(f"Expected dict, got {type(data).__name__}")
         instance = cls(data)
-        # Log creation at DEBUG level for diagnostic tracking
-        logger.debug(
-            "[STREAMING] StopChunkWithUsage.from_dict: Created instance, "
-            "chunk_id=%s, has_usage=%s, usage=%s",
-            data.get("id", "unknown"),
-            "usage" in data,
-            data.get("usage"),
-        )
+        # Log creation at TRACE level for diagnostic tracking
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "[STREAMING] StopChunkWithUsage.from_dict: Created instance, "
+                "chunk_id=%s, has_usage=%s, usage=%s",
+                data.get("id", "unknown"),
+                "usage" in data,
+                data.get("usage"),
+            )
         return instance
 
     @classmethod
@@ -183,18 +186,22 @@ class StopChunkWithUsage(dict):
             StopChunkWithUsage if chunk has usage, otherwise returns original dict
         """
         if isinstance(chunk, cls):
-            logger.debug(
-                "[STREAMING] StopChunkWithUsage.wrap: Already wrapped, " "chunk_id=%s",
-                chunk.get("id", "unknown"),
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "[STREAMING] StopChunkWithUsage.wrap: Already wrapped, chunk_id=%s",
+                    chunk.get("id", "unknown"),
+                )
             return chunk
         if isinstance(chunk, dict) and chunk.get("usage") and chunk.get("choices"):
-            logger.debug(
-                "[STREAMING] StopChunkWithUsage.wrap: Wrapping chunk with usage, "
-                "chunk_id=%s, usage=%s",
-                chunk.get("id", "unknown"),
-                chunk.get("usage"),
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "[STREAMING] StopChunkWithUsage.wrap: Wrapping chunk with usage, "
+                    "chunk_id=%s, usage=%s",
+                    chunk.get("id", "unknown"),
+                    chunk.get("usage"),
+                )
             return cls(chunk)
         return chunk  # type: ignore[return-value]
 
@@ -383,19 +390,21 @@ class StreamingContent:
             is serialized at the top level of the SSE chunk, not embedded in
             delta.content. This is critical for proper billing/usage reporting.
         """
-        # Log SSE serialization at DEBUG level for diagnostic tracking
-        content_type = type(self.content).__name__
-        has_usage = (
-            isinstance(self.content, dict) and "usage" in self.content
-        ) or self.usage is not None
-        logger.debug(
-            "[STREAMING] StreamingContent.to_bytes: Serializing chunk to SSE, "
-            "content_type=%s, is_done=%s, has_usage=%s, is_stop_chunk_with_usage=%s",
-            content_type,
-            self.is_done,
-            has_usage,
-            isinstance(self.content, StopChunkWithUsage),
-        )
+        # Log SSE serialization at TRACE level for diagnostic tracking
+        if logger.isEnabledFor(TRACE_LEVEL):
+            content_type = type(self.content).__name__
+            has_usage = (
+                isinstance(self.content, dict) and "usage" in self.content
+            ) or self.usage is not None
+            logger.log(
+                TRACE_LEVEL,
+                "[STREAMING] StreamingContent.to_bytes: Serializing chunk to SSE, "
+                "content_type=%s, is_done=%s, has_usage=%s, is_stop_chunk_with_usage=%s",
+                content_type,
+                self.is_done,
+                has_usage,
+                isinstance(self.content, StopChunkWithUsage),
+            )
 
         # CRITICAL: Handle StopChunkWithUsage at the very start to ensure
         # usage data is serialized correctly at the top level, not in delta.content.
@@ -674,28 +683,31 @@ class StreamingContent:
     @classmethod
     def from_raw(cls, raw_data: Any) -> StreamingContent:
         """Create a StreamingContent instance from raw backend data."""
-        # Log chunk entering the pipeline at DEBUG level for diagnostic tracking
-        raw_type = type(raw_data).__name__
-        raw_keys = (
-            list(raw_data.keys())
-            if isinstance(raw_data, dict)
-            else (
-                list(raw_data.content.keys())
-                if hasattr(raw_data, "content") and isinstance(raw_data.content, dict)
-                else "N/A"
+        # Log chunk entering the pipeline at TRACE level for diagnostic tracking
+        if logger.isEnabledFor(TRACE_LEVEL):
+            raw_type = type(raw_data).__name__
+            raw_keys = (
+                list(raw_data.keys())
+                if isinstance(raw_data, dict)
+                else (
+                    list(raw_data.content.keys())
+                    if hasattr(raw_data, "content")
+                    and isinstance(raw_data.content, dict)
+                    else "N/A"
+                )
             )
-        )
-        is_stop_chunk = isinstance(raw_data, StopChunkWithUsage) or (
-            hasattr(raw_data, "content")
-            and isinstance(raw_data.content, StopChunkWithUsage)
-        )
-        logger.debug(
-            "[STREAMING] StreamingContent.from_raw: Chunk entering pipeline, "
-            "type=%s, keys=%s, is_stop_chunk_with_usage=%s",
-            raw_type,
-            raw_keys,
-            is_stop_chunk,
-        )
+            is_stop_chunk = isinstance(raw_data, StopChunkWithUsage) or (
+                hasattr(raw_data, "content")
+                and isinstance(raw_data.content, StopChunkWithUsage)
+            )
+            logger.log(
+                TRACE_LEVEL,
+                "[STREAMING] StreamingContent.from_raw: Chunk entering pipeline, "
+                "type=%s, keys=%s, is_stop_chunk_with_usage=%s",
+                raw_type,
+                raw_keys,
+                is_stop_chunk,
+            )
 
         content: str | dict | bytes = ""
         is_done = False

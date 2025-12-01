@@ -118,6 +118,62 @@ async def test_chat_completions_streaming_success(
 
 
 @pytest.mark.asyncio
+async def test_chat_completions_streaming_usage_chunk(
+    gemini_backend: GeminiBackend,
+    httpx_mock: HTTPXMock,
+    sample_chat_request_data: ChatRequest,
+    sample_processed_messages: list[ChatMessage],
+):
+    sample_chat_request_data = sample_chat_request_data.model_copy(
+        update={"stream": True}
+    )
+
+    stream_url = (
+        f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:streamGenerateContent"
+    )
+
+    # Two JSON-line events: content chunk then terminal usage chunk with finishReason STOP
+    stream_payload = (
+        b'{"id": "chatcmpl-1", "candidates": [{"content": {"parts": [{"text": "Step 1"}]}}]}\n'
+        b'{"id": "chatcmpl-1", "candidates": [{"content": {"parts": []}, "finishReason": "STOP"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}\n'
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url=stream_url,
+        status_code=200,
+        stream=httpx.ByteStream(stream_payload),
+        headers={"Content-Type": "text/event-stream"},
+    )
+
+    envelope = await gemini_backend.chat_completions(
+        request_data=sample_chat_request_data,
+        processed_messages=sample_processed_messages,
+        effective_model="test-model",
+        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
+        api_key="FAKE_KEY",
+    )
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
+
+    saw_usage = False
+    async for chunk in envelope.content:  # type: ignore[union-attr]
+        assert isinstance(chunk, ProcessedResponse)
+        assert isinstance(chunk.content, bytes)
+        chunk_str = chunk.content.decode("utf-8")
+        if '"usage":' in chunk_str:
+            saw_usage = True
+            assert '"prompt_tokens"' in chunk_str
+            assert '"completion_tokens"' in chunk_str
+            break
+
+    assert saw_usage, "Expected terminal usage chunk to be forwarded to client"
+
+    # Ensure the stream is closed to avoid pending tasks in tests
+    if hasattr(envelope.content, "aclose"):
+        await envelope.content.aclose()  # type: ignore[func-returns-value]
+
+
+@pytest.mark.asyncio
 async def test_chat_completions_streaming_cancel_request(
     gemini_backend: GeminiBackend,
     httpx_mock: HTTPXMock,

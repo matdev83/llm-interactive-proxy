@@ -228,6 +228,11 @@ class ToolCallRepairProcessor(IStreamProcessor):
             raw_data=content.raw_data,
         )  # Return empty if nothing to yield
 
+    def reset(self) -> None:
+        """Reset buffer state for a fresh stream."""
+        # Clear tracked tags and pending text for all streams
+        self._registry.reset()
+
     def _trim_buffer(self, buffer: str) -> str:
         """Flush enough leading content to honor the buffer cap."""
 
@@ -294,6 +299,27 @@ class ToolCallRepairProcessor(IStreamProcessor):
         if isinstance(chunk, bytes | bytearray):
             return chunk.decode("utf-8", errors="ignore")
         if isinstance(chunk, dict):
+            # Special-case OpenAI-style chunks to extract the plain textual delta
+            # instead of JSON-encoding the entire payload (which escapes XML).
+            choices = chunk.get("choices")
+            if isinstance(choices, list) and choices:
+                first_choice = choices[0]
+                if isinstance(first_choice, dict):
+                    delta = first_choice.get("delta") or {}
+                    if isinstance(delta, dict):
+                        text_parts: list[str] = []
+                        # Preserve both tool_call text (if any) and regular content
+                        for key in ("content", "_tool_call_text", "reasoning_content", "reasoning"):
+                            value = delta.get(key)
+                            if isinstance(value, str) and value:
+                                text_parts.append(value)
+                        if text_parts:
+                            return "".join(text_parts)
+                    message = first_choice.get("message") or {}
+                    if isinstance(message, dict):
+                        message_content = message.get("content")
+                        if isinstance(message_content, str):
+                            return message_content
             try:
                 return json.dumps(chunk)
             except (TypeError, ValueError):

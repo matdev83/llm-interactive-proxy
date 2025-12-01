@@ -117,6 +117,76 @@ class TestBufferHandlingWithToolCalls:
         )
         assert has_tool_call
 
+    @pytest.mark.asyncio
+    async def test_openai_chunk_apply_diff_not_truncated(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """OpenAI-style chunk dictionaries should keep full apply_diff text."""
+        session_id = "apply-diff-openai-chunk"
+        stream_id = "chatcmpl-openai-chunk"
+
+        # First chunk mirrors the backend delta payload (dict with choices/delta/content)
+        chunk1 = StreamingContent(
+            content={
+                "id": stream_id,
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "gpt-test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "<apply_diff>"},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            is_done=False,
+            metadata={"session_id": session_id},
+        )
+        await processor.process(chunk1)
+
+        diff_body = """<args>
+  <file>
+    <path>src/example.py</path>
+    <diff>
+      <content><![CDATA[
+<<<<<<< SEARCH
+old
+=======
+new
+>>>>>>> REPLACE
+]]></content>
+    </diff>
+  </file>
+</args>
+</apply_diff>"""
+
+        chunk2 = StreamingContent(
+            content={
+                "id": stream_id,
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "gpt-test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": diff_body},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            is_done=True,
+            metadata={"session_id": session_id},
+        )
+
+        final_chunk = await processor.process(chunk2)
+        assert final_chunk is not None
+        assert "<apply_diff>" in final_chunk.content
+        assert "src/example.py" in final_chunk.content
+        tool_calls = final_chunk.metadata.get("tool_calls", [])
+        assert tool_calls
+        assert tool_calls[0]["function"]["name"] == "apply_diff"
+
 
 class TestToolCallMarkerDetection:
     """Test that dynamic tool markers are protected without hardcoded lists."""

@@ -1,62 +1,61 @@
+"""Mock backend factory for testing."""
+
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
-from src.connectors.base import LLMBackend
 from src.core.config.app_config import AppConfig, BackendConfig
-from src.core.domain.configuration.app_identity_config import AppIdentityConfig
-from src.core.domain.responses import ResponseEnvelope
-from src.core.services.backend_factory import BackendFactory
 
 
-class MockBackend(LLMBackend):
-    def __init__(self) -> None:
-        self.last_request_headers: dict[str, str] = {}
-        self.identity: AppIdentityConfig | None = None
+class MockBackend:
+    """Mock LLM backend for testing."""
 
-    async def chat_completions(
-        self,
-        request_data: Any,  # type: ignore
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: Any | None = None,  # type: ignore
-        **kwargs: Any,
-    ) -> ResponseEnvelope:
-        self.identity = identity  # type: ignore
-        self.last_request_headers = self.get_headers()
-        return ResponseEnvelope(content={}, status_code=200, headers={})
+    def __init__(self):
+        self.backend_type = "mock"
+        self.chat_completions = AsyncMock()
+        self.initialize = AsyncMock()
 
-    async def initialize(self, **kwargs: Any) -> None:
-        pass
-
-    def get_headers(self) -> dict[str, str]:
-        if not self.identity:
-            return {}
-        return self.identity.get_resolved_headers(None)
+    async def chat_completions_impl(self, *args, **kwargs):
+        """Mock chat completions implementation."""
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Mock response",
+                    }
+                }
+            ]
+        }
 
 
-import httpx
-from src.core.services.backend_registry import BackendRegistry
-from src.core.services.translation_service import TranslationService
+class MockBackendFactory:
+    """Mock backend factory for testing."""
 
+    def __init__(self):
+        self._config = AppConfig()
+        self._backends = {}
 
-class MockBackendFactory(BackendFactory):
-    def __init__(self) -> None:
-        super().__init__(
-            httpx.AsyncClient(),
-            BackendRegistry(),
-            AppConfig(),
-            TranslationService(),
-        )
-        self._backends: dict[str, MockBackend] = {}
+    def create_backend(self, backend_type: str, config: AppConfig | None = None):
+        """Create a mock backend."""
+        backend = MockBackend()
+        backend.backend_type = backend_type
+        self._backends[backend_type] = backend
+        return backend
+
+    async def initialize_backend(self, backend, init_config: dict[str, Any]):
+        """Initialize a mock backend."""
+        await backend.initialize(**init_config)
 
     async def ensure_backend(
         self,
         backend_type: str,
         app_config: AppConfig,
         backend_config: BackendConfig | None = None,
-    ) -> LLMBackend:
+    ):
+        """Ensure a mock backend exists."""
         if backend_type not in self._backends:
-            self._backends[backend_type] = MockBackend()
+            backend = self.create_backend(backend_type, app_config)
+            await self.initialize_backend(backend, {})
+            self._backends[backend_type] = backend
         return self._backends[backend_type]
 
-    def get_backend(self, backend_type: str) -> MockBackend:
-        return self._backends[backend_type]

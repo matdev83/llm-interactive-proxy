@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.chat import (
     CanonicalChatRequest,
     CanonicalChatResponse,
@@ -340,10 +341,11 @@ class TranslationService:
             "responses",
         }
 
-        # Log transformation at DEBUG level for diagnostic tracking
-        chunk_keys = list(chunk.keys()) if isinstance(chunk, dict) else "N/A"
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        # Log transformation at TRACE level for diagnostic tracking
+        if logger.isEnabledFor(TRACE_LEVEL):
+            chunk_keys = list(chunk.keys()) if isinstance(chunk, dict) else "N/A"
+            logger.log(
+                TRACE_LEVEL,
                 "[STREAMING] TranslationService.to_domain_stream_chunk: "
                 "Transforming chunk, source_format=%s, chunk_keys=%s",
                 source_format,
@@ -369,11 +371,12 @@ class TranslationService:
                 f"Stream chunk converter for format '{source_format}' not implemented."
             )
 
-        # Log transformation result at DEBUG level
-        result_type = type(result).__name__
-        result_keys = list(result.keys()) if isinstance(result, dict) else "N/A"
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        # Log transformation result at TRACE level
+        if logger.isEnabledFor(TRACE_LEVEL):
+            result_type = type(result).__name__
+            result_keys = list(result.keys()) if isinstance(result, dict) else "N/A"
+            logger.log(
+                TRACE_LEVEL,
                 "[STREAMING] TranslationService.to_domain_stream_chunk: "
                 "Transformation complete, result_type=%s, result_keys=%s",
                 result_type,
