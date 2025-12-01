@@ -55,6 +55,7 @@ graph TD
 - **Dangerous Command Protection**: Block destructive git operations before they cause damage
 - **File Access Sandboxing**: Restrict file operations to safe directories
 - **Wire Capture & Debugging**: Inspect and analyze all traffic for debugging
+- **Random Model Replacement**: Probabilistically swap models for session resilience and diversity - [Feature Guide](docs/user_guide/features/random-model-replacement.md)
 - **Edit Precision Tuning**: Auto-adjust parameters when models struggle with precise edits
 - **Angel Verification**: Real-time response verification with automatic correction
 - **And 10+ more features** - See [User Guide](docs/user_guide/index.md) for complete list

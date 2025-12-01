@@ -49,6 +49,7 @@ async def anthropic_oauth_backend_fixture(
             await backend.initialize(
                 anthropic_oauth_path=str(oauth_creds_tmp),
                 anthropic_api_base_url=ANTHROPIC_DEFAULT_BASE_URL,
+                enable_anthropic_oauth_backend_debugging_override=True,
             )
             # Set the credentials for the test
             backend._oauth_credentials = {"access_token": "oauth_test_token"}
@@ -102,3 +103,58 @@ async def test_anthropic_oauth_sends_x_api_key(
     assert sent.headers.get("anthropic-version") == ANTHROPIC_VERSION_HEADER
     # The oauth access_token must be used as x-api-key
     assert sent.headers.get("x-api-key") == "oauth_test_token"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_oauth_blocked_without_flag(
+    oauth_creds_tmp: Path,
+) -> None:
+    async with httpx.AsyncClient() as client:
+        from unittest.mock import patch
+
+        from fastapi import HTTPException
+        from src.core.config.app_config import AppConfig
+        from src.core.services.translation_service import TranslationService
+
+        cfg = AppConfig()
+        ts = TranslationService()
+        backend = AnthropicOAuthBackend(client, cfg, ts)
+
+        # Initialize WITHOUT the flag
+        with (
+            patch.object(
+                backend, "_validate_credentials_file_exists", return_value=(True, [])
+            ),
+            patch.object(
+                backend, "_validate_credentials_structure", return_value=(True, [])
+            ),
+            patch.object(backend, "_start_file_watching"),
+        ):
+            await backend.initialize(
+                anthropic_oauth_path=str(oauth_creds_tmp),
+                anthropic_api_base_url=ANTHROPIC_DEFAULT_BASE_URL,
+                # enable_anthropic_oauth_backend_debugging_override defaults to False
+            )
+            backend._oauth_credentials = {"access_token": "oauth_test_token"}
+
+        req = ChatRequest(
+            model="anthropic-oauth:claude-3-haiku-20240307",
+            messages=[ChatMessage(role="user", content="hello")],
+            max_tokens=32,
+            stream=False,
+        )
+
+        # Attempt to call chat_completions should raise HTTPException(403)
+        with pytest.raises(HTTPException) as exc_info:
+            await backend.chat_completions(
+                request_data=req,
+                processed_messages=[ChatMessage(role="user", content="hello")],
+                effective_model="claude-3-haiku-20240307",
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "Forbidden" in exc_info.value.detail
+        assert (
+            "--enable-anthropic-oauth-backend-debugging-override"
+            in exc_info.value.detail
+        )

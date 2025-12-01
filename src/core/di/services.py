@@ -87,6 +87,7 @@ from src.core.services.json_repair_service import JsonRepairService
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
+from src.core.services.model_replacement_service import ModelReplacementService
 from src.core.services.path_validation_service import PathValidationService
 from src.core.services.pytest_compression_service import PytestCompressionService
 from src.core.services.request_processor_service import RequestProcessor
@@ -2009,6 +2010,59 @@ def register_core_services(
             logger.warning(f"Failed to register IFailoverCoordinator interface: {e}")
         # Continue if concrete FailoverCoordinator is registered
 
+    # Register model replacement service
+    def _model_replacement_service_factory(
+        provider: IServiceProvider,
+    ) -> ModelReplacementService | None:
+        """Factory for creating ModelReplacementService.
+
+        Returns None if replacement is disabled in config.
+        """
+        from src.core.services.backend_registry import BackendRegistry
+        from src.core.services.model_replacement_service import ModelReplacementService
+
+        app_config: AppConfig = provider.get_required_service(AppConfig)
+
+        # Check if replacement is enabled
+        if not app_config.replacement.enabled:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Model replacement is disabled in configuration")
+            return None
+
+        # Get backend registry
+        backend_registry: BackendRegistry = provider.get_required_service(
+            BackendRegistry
+        )
+
+        # Create and return the service
+        return ModelReplacementService(
+            config=app_config.replacement,
+            backend_registry=backend_registry,
+        )
+
+    # Register the concrete service
+    _add_singleton(
+        ModelReplacementService,
+        implementation_factory=_model_replacement_service_factory,
+    )
+
+    # Register the interface
+    try:
+        from src.core.interfaces.model_replacement_service_interface import (
+            IModelReplacementService,
+        )
+
+        services.add_singleton(
+            cast(type, IModelReplacementService),
+            implementation_factory=_model_replacement_service_factory,
+        )  # type: ignore[type-abstract]
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"Failed to register IModelReplacementService interface: {e}"
+            )
+        # Continue if concrete ModelReplacementService is registered
+
     # Register request processor
     def _request_processor_factory(provider: IServiceProvider) -> RequestProcessor:
         # Get required services
@@ -2018,6 +2072,9 @@ def register_core_services(
         response_manager = provider.get_required_service(IResponseManager)  # type: ignore[type-abstract]
         app_state = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
 
+        # Get replacement service (optional)
+        replacement_service = provider.get_service(ModelReplacementService)
+
         # Return request processor with decomposed services
         return RequestProcessor(
             command_processor,
@@ -2025,6 +2082,7 @@ def register_core_services(
             backend_request_manager,
             response_manager,
             app_state=app_state,
+            replacement_service=replacement_service,
         )
 
     # Register request processor and bind to interface

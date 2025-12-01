@@ -6,10 +6,10 @@ This guide documents all available CLI parameters, environment variables, and co
 
 Configuration is resolved in the following order (highest to lowest priority):
 
-1.  **CLI Arguments** - Command-line flags override everything
-2.  **Environment Variables** - Environment variables override config files
-3.  **YAML Configuration File** - Config file provides defaults
-4.  **Built-in Defaults** - Hardcoded defaults if nothing else is specified
+1. **CLI Arguments** - Command-line flags override everything
+2. **Environment Variables** - Environment variables override config files
+3. **YAML Configuration File** - Config file provides defaults
+4. **Built-in Defaults** - Hardcoded defaults if nothing else is specified
 
 ---
 
@@ -257,6 +257,17 @@ Configuration is resolved in the following order (highest to lowest priority):
 | :--- | :--- | :--- |
 | N/A | `REWRITING_ENABLED` | Enable content rewriting. |
 | N/A | `REWRITING_CONFIG_PATH` | Path to rewriting configuration. |
+
+### Random Model Replacement
+
+See [Random Model Replacement Feature Guide](features/random-model-replacement.md) for detailed documentation.
+
+ | CLI Argument | Environment Variable | Description |
+ | :--- | :--- | :--- |
+ | `--enable-replacement` | `REPLACEMENT_ENABLED=true` | Enable random model replacement. |
+ | `--replacement-probability FLOAT` | `REPLACEMENT_PROBABILITY` | Probability of replacement (0.0 to 1.0). |
+ | `--replacement-backend-model BACKEND:MODEL` | `REPLACEMENT_BACKEND_MODEL` | Backend and model to use for replacement. |
+ | `--replacement-turn-count N` | `REPLACEMENT_TURN_COUNT` | Number of turns to stay on replacement. |
 
 ### Other Features
 

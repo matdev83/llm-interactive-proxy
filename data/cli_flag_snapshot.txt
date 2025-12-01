@@ -41,6 +41,7 @@
 --edit-precision-override-top-p
 --edit-precision-target-top-k
 --edit-precision-temperature
+--enable-anthropic-oauth-backend-debugging-override
 --enable-antigravity-backend-debugging-override
 --enable-brute-force-protection
 --enable-cline-backend-debugging-override
@@ -49,6 +50,7 @@
 --enable-gemini-oauth-plan-backend-debugging-override
 --enable-llm-assessment
 --enable-llm-loop-assessment
+--enable-openai-codex-backend-debugging-override
 --enable-planning-phase
 --enable-pytest-compression
 --enable-pytest-context-saving

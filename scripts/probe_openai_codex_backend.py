@@ -410,7 +410,10 @@ async def async_main(args: argparse.Namespace) -> int:
             config=config,
             translation_service=di_translation_service,
         )
-        await connector.initialize(openai_codex_path=args.auth_path)
+        await connector.initialize(
+            openai_codex_path=args.auth_path,
+            enable_openai_codex_backend_debugging_override=True,
+        )
 
         try:
             reports: list[dict[str, Any]] = []

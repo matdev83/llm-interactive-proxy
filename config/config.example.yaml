@@ -186,6 +186,16 @@ failover_routes:
 #   - pattern: "^(.*)$"
 #     replacement: "gemini-oauth-plan:gemini-1.5-pro"
 
+# Random Model/Backend Replacement
+# Probabilistically replace user-specified backend:model with an alternative
+# to improve session diversity and provide resilience when models encounter difficulties
+# See docs/user_guide/features/random-model-replacement.md for complete documentation
+# replacement:
+#   enabled: false  # Set to true to enable random model replacement
+#   probability: 0.3  # Probability (0.0-1.0) of triggering replacement (0.3 = 30% chance)
+#   backend_model: "qwen-oauth:qwen3-coder-plus"  # Replacement backend:model to use
+#   turn_count: 3  # Number of consecutive turns to use replacement model once activated
+
 # Codebuff WebSocket server settings
 # Enables WebSocket server implementing the Codebuff protocol for coding agents
 # See docs/user_guide/features/codebuff-backend.md for complete documentation

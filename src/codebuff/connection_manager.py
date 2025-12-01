@@ -47,6 +47,18 @@ class ConnectionManager:
             heartbeat_timeout_seconds,
         )
 
+    @staticmethod
+    def _safe(value: object) -> str:
+        """Convert potentially invalid strings to safe UTF-8 for logging."""
+        try:
+            return (
+                str(value)
+                .encode("utf-8", errors="replace")
+                .decode("utf-8", errors="replace")
+            )
+        except Exception:
+            return repr(value)
+
     def connect(self, websocket: WebSocket, session_id: str) -> None:
         """Register a new WebSocket connection.
 
@@ -60,7 +72,10 @@ class ConnectionManager:
             CodebuffSessionError: If the session ID is already in use.
         """
         if session_id in self._session_id_to_websocket:
-            logger.warning("Attempted to register duplicate session ID: %s", session_id)
+            logger.warning(
+                "Attempted to register duplicate session ID: %s",
+                self._safe(session_id),
+            )
             raise CodebuffSessionError(
                 f"Session ID {session_id} is already in use",
                 details={"session_id": session_id},
@@ -76,7 +91,7 @@ class ConnectionManager:
         self._connections[websocket] = session
         self._session_id_to_websocket[session_id] = websocket
 
-        logger.info("Connection registered: session_id=%s", session_id)
+        logger.info("Connection registered: session_id=%s", self._safe(session_id))
 
     def disconnect(self, websocket: WebSocket) -> None:
         """Remove a connection and clean up its session.
@@ -108,7 +123,7 @@ class ConnectionManager:
         # Remove the connection
         del self._connections[websocket]
 
-        logger.info("Connection disconnected: session_id=%s", session_id)
+        logger.info("Connection disconnected: session_id=%s", self._safe(session_id))
 
     def get_session(self, websocket: WebSocket) -> SessionState | None:
         """Get session data for a connection.
@@ -141,7 +156,9 @@ class ConnectionManager:
             )
 
         session.last_seen = datetime.utcnow()
-        logger.debug("Updated last_seen for session: %s", session.session_id)
+        logger.debug(
+            "Updated last_seen for session: %s", self._safe(session.session_id)
+        )
 
     def subscribe(self, websocket: WebSocket, topics: list[str]) -> None:
         """Add subscriptions for a connection.
@@ -172,7 +189,7 @@ class ConnectionManager:
 
         logger.info(
             "Subscribed session %s to topics: %s",
-            session.session_id,
+            self._safe(session.session_id),
             ", ".join(topics),
         )
 
@@ -207,7 +224,7 @@ class ConnectionManager:
 
         logger.info(
             "Unsubscribed session %s from topics: %s",
-            session.session_id,
+            self._safe(session.session_id),
             ", ".join(topics),
         )
 
@@ -244,7 +261,7 @@ class ConnectionManager:
         for websocket, session_id in stale_connections:
             logger.warning(
                 "Closing stale connection: session_id=%s, last_seen=%s",
-                session_id,
+                self._safe(session_id),
                 self._connections[websocket].last_seen,
             )
             try:
@@ -252,7 +269,7 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(
                     "Error closing stale connection %s: %s",
-                    session_id,
+                    self._safe(session_id),
                     str(e),
                     exc_info=True,
                 )

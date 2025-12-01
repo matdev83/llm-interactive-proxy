@@ -249,6 +249,9 @@ class OpenAICredentialsFileHandler(FileSystemEventHandler):
 
 class OpenAICodexConnector(OpenAIConnector):
     backend_type: str = "openai-codex"
+    _DEBUG_OVERRIDE_DEFAULT = os.environ.get(
+        "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
+    ).lower() not in {"0", "false", "no"}
     CODEX_PROMPT_RESOURCE_PACKAGE = "src.resources.codex"
     CODEX_PROMPT_RESOURCE_NAME = "gpt_5_codex_prompt.md"
     CODEX_ORIGINATOR = "codex_cli_rs"
@@ -456,6 +459,9 @@ class OpenAICodexConnector(OpenAIConnector):
             response_processor=response_processor,
         )
         self.name = "openai-codex"
+        self._enable_codex_backend_debugging_override: bool = (
+            self._DEBUG_OVERRIDE_DEFAULT
+        )
         self._oauth_dir_override: Path | None = None
         self._auth_path: Path | None = None
         self._last_modified: float = 0.0
@@ -3387,6 +3393,22 @@ class OpenAICodexConnector(OpenAIConnector):
         if isinstance(base, str) and base:
             self.api_base_url = base
 
+        # Enable debugging override if requested (internal use only)
+        self._enable_codex_backend_debugging_override = kwargs.get(
+            "enable_openai_codex_backend_debugging_override",
+            self._enable_codex_backend_debugging_override,
+        )
+        # Check extras as well for config-based enabling
+        backend_config = getattr(self.config.backends, "openai_codex", None)
+        if backend_config and hasattr(backend_config, "extra"):
+            extras = (
+                backend_config.extra
+                if isinstance(backend_config.extra, Mapping)
+                else {}
+            )
+            if extras.get("enable_openai_codex_backend_debugging_override"):
+                self._enable_codex_backend_debugging_override = True
+
         # Optional directory override for auth.json
         dir_override = kwargs.get("openai_codex_path")
         if isinstance(dir_override, str) and dir_override:
@@ -3433,6 +3455,21 @@ class OpenAICodexConnector(OpenAIConnector):
         identity: Any | None = None,
         **kwargs: Any,
     ):
+        # Validate restricted access
+        if not self._enable_codex_backend_debugging_override:
+            logger.warning(
+                "Blocked attempt to use OpenAI Codex backend without debugging override flag."
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: This backend is reserved for internal development and "
+                    "debugging. To enable it, use the "
+                    "--enable-openai-codex-backend-debugging-override CLI flag. "
+                    "See documentation for legal disclaimers and usage restrictions."
+                ),
+            )
+
         # Runtime validation with throttling
         ok = await self._validate_runtime_credentials()
         errors = self.get_validation_errors()

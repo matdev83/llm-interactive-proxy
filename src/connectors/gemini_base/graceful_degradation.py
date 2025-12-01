@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 
 
 # Fallback mapping from "pro" models to "flash" variants
-DEFAULT_FALLBACK_MAP: dict[str, str | None] = {
+DEFAULT_FALLBACK_MAP: dict[str, str | list[str] | None] = {
     # Gemini 3.x series
-    "gemini-3-pro": "gemini-3-flash",
-    "gemini-3-pro-high": "gemini-3-flash",
+    "gemini-3-pro": ["gemini-2.5-pro", "gemini-2.5-flash"],
+    "gemini-3-pro-high": ["gemini-2.5-pro", "gemini-2.5-flash"],
     "gemini-3-flash": None,  # No fallback for flash variants
     "gemini-3-flash-lite": None,
     # Gemini 2.5 series
@@ -47,8 +47,8 @@ DEFAULT_FALLBACK_MAP: dict[str, str | None] = {
 
 def get_fallback_model(
     original_model: str,
-    fallback_map: dict[str, str | None] | None = None,
-) -> str | None:
+    fallback_map: dict[str, str | list[str] | None] | None = None,
+) -> str | list[str] | None:
     """Get the fallback model for a given model.
 
     Args:
@@ -56,7 +56,7 @@ def get_fallback_model(
         fallback_map: Optional custom fallback mapping. Defaults to DEFAULT_FALLBACK_MAP.
 
     Returns:
-        The fallback model name, or None if no fallback available.
+        The fallback model name(s), or None if no fallback available.
     """
     if fallback_map is None:
         fallback_map = DEFAULT_FALLBACK_MAP
@@ -176,7 +176,7 @@ class GracefulDegradationManager:
         self.model_retry_states: dict[str, ModelRetryState] = {}
         self.permanently_failed = False
 
-    def get_fallback_model(self, original_model: str) -> str | None:
+    def get_fallback_model(self, original_model: str) -> str | list[str] | None:
         """Get the fallback model for a given model."""
         return get_fallback_model(original_model)
 
@@ -229,7 +229,10 @@ class GracefulDegradationManager:
         if not disable_fallback:
             fallback = self.get_fallback_model(original_model)
             if fallback:
-                models.append(fallback)
+                if isinstance(fallback, list):
+                    models.extend(fallback)
+                else:
+                    models.append(fallback)
         return models
 
     def record_attempt(self) -> None:

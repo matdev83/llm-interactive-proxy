@@ -524,6 +524,18 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=False,
         help="Enable the Qwen OAuth backend connector for debugging. Reserved for internal development.",
     )
+    debugging_overrides_group.add_argument(
+        "--enable-openai-codex-backend-debugging-override",
+        action="store_true",
+        default=False,
+        help="Enable the OpenAI Codex backend connector for debugging. Reserved for internal development.",
+    )
+    debugging_overrides_group.add_argument(
+        "--enable-anthropic-oauth-backend-debugging-override",
+        action="store_true",
+        default=False,
+        help="Enable the Anthropic OAuth backend connector for debugging. Reserved for internal development.",
+    )
 
     brute_force_toggle_group = parser.add_mutually_exclusive_group()
     brute_force_toggle_group.add_argument(
@@ -1763,7 +1775,33 @@ def apply_cli_args(
             "--enable-qwen-oauth-backend-debugging-override",
         )
 
-    # Add backend overrides to main overrides if any
+    if getattr(args, "enable_openai_codex_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        codex_overrides = backend_overrides.setdefault("openai-codex", {})
+        codex_overrides["extra"] = codex_overrides.get("extra", {})
+        codex_overrides["extra"][
+            "enable_openai_codex_backend_debugging_override"
+        ] = True
+        record_cli(
+            "backends.openai-codex.extra.enable_openai_codex_backend_debugging_override",
+            True,
+            "--enable-openai-codex-backend-debugging-override",
+        )
+
+    if getattr(args, "enable_anthropic_oauth_backend_debugging_override", False):
+        backend_overrides = cli_overrides.setdefault("backends", {})
+        anthropic_overrides = backend_overrides.setdefault("anthropic-oauth", {})
+        anthropic_overrides["extra"] = anthropic_overrides.get("extra", {})
+        anthropic_overrides["extra"][
+            "enable_anthropic_oauth_backend_debugging_override"
+        ] = True
+        record_cli(
+            "backends.anthropic-oauth.extra.enable_anthropic_oauth_backend_debugging_override",
+            True,
+            "--enable-anthropic-oauth-backend-debugging-override",
+        )
+
+        # Add backend overrides to main overrides if any
     if backend_overrides:
         cli_overrides["backends"] = backend_overrides
 
@@ -2227,6 +2265,8 @@ async def main(
 
     try:
         await asyncio.gather(*servers)
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         logging.exception("Server failed: %s", e)
         raise

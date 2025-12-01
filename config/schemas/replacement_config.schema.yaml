@@ -1,0 +1,27 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: Replacement Configuration
+description: Configuration schema for random model/backend replacement feature
+type: object
+additionalProperties: false
+properties:
+  enabled:
+    type: boolean
+    default: false
+    description: Enable or disable the random model replacement feature
+  probability:
+    type: number
+    minimum: 0.0
+    maximum: 1.0
+    default: 0.0
+    description: Probability (0.0-1.0) of triggering model replacement for a new session. 0.0 means never replace, 1.0 means always replace.
+  backend_model:
+    type: string
+    default: ""
+    pattern: "^[^:]+:[^:]+$"
+    description: Replacement backend and model in the format "backend:model" (e.g., "qwen-oauth:qwen3-coder-plus")
+  turn_count:
+    type: integer
+    minimum: 1
+    default: 1
+    description: Number of consecutive turns to use the replacement model once activated
+required: []

@@ -1,0 +1,441 @@
+"""Property-based tests for request processor integration with replacement service.
+
+Feature: random-model-replacement
+Property: 26
+Validates: Requirements 7.1
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, Mock
+
+from hypothesis import given
+from hypothesis import strategies as st
+from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.configuration.replacement_config import ReplacementConfig
+from src.core.domain.processed_result import ProcessedResult
+from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import ResponseEnvelope
+from src.core.services.backend_registry import BackendRegistry
+from src.core.services.model_replacement_service import ModelReplacementService
+from src.core.services.request_processor_service import RequestProcessor
+from tests.utils.hypothesis_config import property_test_settings
+
+
+def create_mock_command_processor() -> AsyncMock:
+    """Create a mock command processor."""
+    processor = AsyncMock()
+    processor.process_messages = AsyncMock(
+        return_value=ProcessedResult(
+            command_executed=False,
+            modified_messages=[],
+            command_results=[],
+        )
+    )
+    return processor
+
+
+def create_mock_session_manager() -> AsyncMock:
+    """Create a mock session manager."""
+    manager = AsyncMock()
+    manager.resolve_session_id = AsyncMock(return_value="test-session")
+
+    # Create a mock session with agent attribute
+    mock_session = Mock()
+    mock_session.agent = None
+    mock_session.state = Mock()
+    mock_session.state.project_dir_resolution_attempted = False
+
+    manager.get_session = AsyncMock(return_value=mock_session)
+    manager.update_session_agent = AsyncMock(return_value=mock_session)
+    manager.update_session_history = AsyncMock()
+    return manager
+
+
+def create_mock_backend_request_manager() -> AsyncMock:
+    """Create a mock backend request manager."""
+    manager = AsyncMock()
+
+    # Mock prepare_backend_request to return a ChatRequest
+    async def mock_prepare(request_data, command_result):
+        return request_data
+
+    manager.prepare_backend_request = AsyncMock(side_effect=mock_prepare)
+
+    # Mock process_backend_request to return a ResponseEnvelope
+    manager.process_backend_request = AsyncMock(
+        return_value=ResponseEnvelope(
+            content={"choices": [], "model": "test-model"},
+            headers=None,
+            status_code=200,
+            media_type="application/json",
+            usage=None,
+        )
+    )
+    return manager
+
+
+def create_mock_response_manager() -> AsyncMock:
+    """Create a mock response manager."""
+    manager = AsyncMock()
+    manager.process_command_result = AsyncMock(
+        return_value=ResponseEnvelope(
+            content={"choices": [], "model": "test-model"},
+            headers=None,
+            status_code=200,
+            media_type="application/json",
+            usage=None,
+        )
+    )
+    return manager
+
+
+def create_test_replacement_service(
+    probability: float = 1.0,
+    backend_model: str = "replacement-backend:replacement-model",
+) -> ModelReplacementService:
+    """Create a test replacement service."""
+    registry = BackendRegistry()
+
+    def mock_factory() -> None:
+        pass
+
+    # Register both original and replacement backends
+    registry.register_backend("test-backend", mock_factory)
+    registry.register_backend("replacement-backend", mock_factory)
+
+    config = ReplacementConfig(
+        enabled=True,
+        probability=probability,
+        backend_model=backend_model,
+        turn_count=1,
+    )
+
+    return ModelReplacementService(config, registry)
+
+
+@given(
+    original_model=st.text(
+        min_size=1, max_size=50, alphabet=st.characters(blacklist_characters=[":"])
+    ),
+    message_content=st.text(min_size=1, max_size=100),
+)
+@property_test_settings()
+async def test_property_26_command_processing_order(
+    original_model: str, message_content: str
+) -> None:
+    """
+    Property 26: Command processing order.
+
+    For any request with command prefix, replacement logic must execute after
+    command processing completes.
+
+    Validates: Requirements 7.1
+    """
+    # Track the order of operations
+    operation_order: list[str] = []
+
+    # Create mock command processor that tracks when it's called
+    command_processor = create_mock_command_processor()
+
+    async def track_command_processing(messages, session_id, context):
+        operation_order.append("command_processing")
+        return ProcessedResult(
+            command_executed=False,
+            modified_messages=[],
+            command_results=[],
+        )
+
+    command_processor.process_messages = AsyncMock(side_effect=track_command_processing)
+
+    # Create mock session manager
+    session_manager = create_mock_session_manager()
+
+    # Create mock backend request manager that tracks when it's called
+    backend_request_manager = create_mock_backend_request_manager()
+
+    async def track_backend_request(request_data, command_result):
+        operation_order.append("backend_request_preparation")
+        return request_data
+
+    backend_request_manager.prepare_backend_request = AsyncMock(
+        side_effect=track_backend_request
+    )
+
+    # Create mock response manager
+    response_manager = create_mock_response_manager()
+
+    # Create replacement service with probability=1.0 to ensure it triggers
+    replacement_service = create_test_replacement_service(probability=1.0)
+
+    # Track when replacement logic is called by wrapping should_replace
+    original_should_replace = replacement_service.should_replace
+
+    def track_should_replace(session_id, request_context):
+        operation_order.append("replacement_check")
+        return original_should_replace(session_id, request_context)
+
+    replacement_service.should_replace = track_should_replace
+
+    # Create request processor with all mocks
+    processor = RequestProcessor(
+        command_processor=command_processor,
+        session_manager=session_manager,
+        backend_request_manager=backend_request_manager,
+        response_manager=response_manager,
+        app_state=None,
+        replacement_service=replacement_service,
+    )
+
+    # Create test request
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+    )
+    context.backend = "test-backend"
+
+    request_data = ChatRequest(
+        model=original_model,
+        messages=[ChatMessage(role="user", content=message_content)],
+    )
+
+    # Process the request
+    await processor.process_request(context, request_data)
+
+    # Verify that command processing happened before replacement check
+    assert "command_processing" in operation_order, "Command processing did not occur"
+    assert "replacement_check" in operation_order, "Replacement check did not occur"
+
+    command_index = operation_order.index("command_processing")
+    replacement_index = operation_order.index("replacement_check")
+
+    assert command_index < replacement_index, (
+        f"Replacement logic executed before command processing. "
+        f"Order: {operation_order}"
+    )
+
+    # Verify that replacement check happened before backend request preparation
+    if "backend_request_preparation" in operation_order:
+        backend_index = operation_order.index("backend_request_preparation")
+        assert replacement_index < backend_index, (
+            f"Backend request preparation executed before replacement check. "
+            f"Order: {operation_order}"
+        )
+
+
+@given(
+    original_model=st.text(
+        min_size=1, max_size=50, alphabet=st.characters(blacklist_characters=[":"])
+    ),
+    message_content=st.text(min_size=1, max_size=100),
+    turn_count=st.integers(min_value=1, max_value=5),
+)
+@property_test_settings()
+async def test_property_38_streaming_turn_completion(
+    original_model: str, message_content: str, turn_count: int
+) -> None:
+    """
+    Property 38: Streaming turn completion.
+
+    For any streaming request that completes with replacement active, the
+    turns_remaining counter must be decremented by 1.
+
+    Validates: Requirements 10.3
+    """
+    # Create mock command processor
+    command_processor = create_mock_command_processor()
+
+    # Create mock session manager
+    session_manager = create_mock_session_manager()
+
+    # Create mock backend request manager
+    backend_request_manager = create_mock_backend_request_manager()
+
+    # Create mock response manager
+    response_manager = create_mock_response_manager()
+
+    # Create replacement service with probability=1.0 and specified turn_count
+    registry = BackendRegistry()
+
+    def mock_factory() -> None:
+        pass
+
+    # Register both original and replacement backends
+    registry.register_backend("test-backend", mock_factory)
+    registry.register_backend("replacement-backend", mock_factory)
+
+    config = ReplacementConfig(
+        enabled=True,
+        probability=1.0,
+        backend_model="replacement-backend:replacement-model",
+        turn_count=turn_count,
+    )
+
+    replacement_service = ModelReplacementService(config, registry)
+
+    # Create request processor
+    processor = RequestProcessor(
+        command_processor=command_processor,
+        session_manager=session_manager,
+        backend_request_manager=backend_request_manager,
+        response_manager=response_manager,
+        app_state=None,
+        replacement_service=replacement_service,
+    )
+
+    # Create test request
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+    )
+    context.backend = "test-backend"
+
+    request_data = ChatRequest(
+        model=original_model,
+        messages=[ChatMessage(role="user", content=message_content)],
+    )
+
+    # Get initial state - should not be active
+    session_id = "test-session"
+    initial_state = replacement_service.get_state(session_id)
+    assert not initial_state.active, "Replacement should not be active initially"
+
+    # Process the request - this should activate replacement and then complete the turn
+    await processor.process_request(context, request_data)
+
+    # Check state after first request
+    # Note: The turn is completed in the finally block, so turns_remaining is decremented
+    state_after_first = replacement_service.get_state(session_id)
+
+    if turn_count == 1:
+        # With turn_count=1, replacement should be deactivated after first request
+        assert (
+            not state_after_first.active
+        ), "Replacement should be deactivated after first request with turn_count=1"
+        assert state_after_first.turns_remaining == 0
+        # No need to test further turns
+        return
+    else:
+        # With turn_count>1, replacement should still be active
+        assert (
+            state_after_first.active
+        ), "Replacement should be active after first request"
+        assert state_after_first.turns_remaining == turn_count - 1, (
+            f"Expected {turn_count - 1} turns remaining after first request, "
+            f"got {state_after_first.turns_remaining}"
+        )
+
+    # Process additional requests to verify turn counter decrements
+    for i in range(1, turn_count):
+        await processor.process_request(context, request_data)
+
+        state = replacement_service.get_state(session_id)
+        expected_remaining = turn_count - i - 1
+
+        if expected_remaining > 0:
+            assert state.active, f"Replacement should still be active on turn {i + 1}"
+            assert state.turns_remaining == expected_remaining, (
+                f"Expected {expected_remaining} turns remaining on turn {i + 1}, "
+                f"got {state.turns_remaining}"
+            )
+        else:
+            assert (
+                not state.active
+            ), f"Replacement should be deactivated after {turn_count} turns"
+            assert state.turns_remaining == 0, (
+                f"Expected 0 turns remaining after deactivation, "
+                f"got {state.turns_remaining}"
+            )
+
+
+@given(
+    original_model=st.text(
+        min_size=1, max_size=50, alphabet=st.characters(blacklist_characters=[":"])
+    ),
+    message_content=st.text(min_size=1, max_size=100),
+)
+@property_test_settings()
+async def test_turn_completion_on_error(
+    original_model: str, message_content: str
+) -> None:
+    """
+    Test that turn completion happens even when backend request fails.
+
+    This ensures that replacement state is properly updated even in error cases.
+    """
+    # Create mock command processor
+    command_processor = create_mock_command_processor()
+
+    # Create mock session manager
+    session_manager = create_mock_session_manager()
+
+    # Create mock backend request manager that raises an error
+    backend_request_manager = create_mock_backend_request_manager()
+    backend_request_manager.process_backend_request = AsyncMock(
+        side_effect=Exception("Backend error")
+    )
+
+    # Create mock response manager
+    response_manager = create_mock_response_manager()
+
+    # Create replacement service with probability=1.0 and turn_count=2
+    registry = BackendRegistry()
+
+    def mock_factory() -> None:
+        pass
+
+    # Register both original and replacement backends
+    registry.register_backend("test-backend", mock_factory)
+    registry.register_backend("replacement-backend", mock_factory)
+
+    config = ReplacementConfig(
+        enabled=True,
+        probability=1.0,
+        backend_model="replacement-backend:replacement-model",
+        turn_count=2,
+    )
+
+    replacement_service = ModelReplacementService(config, registry)
+
+    # Create request processor
+    processor = RequestProcessor(
+        command_processor=command_processor,
+        session_manager=session_manager,
+        backend_request_manager=backend_request_manager,
+        response_manager=response_manager,
+        app_state=None,
+        replacement_service=replacement_service,
+    )
+
+    # Create test request
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+    )
+    context.backend = "test-backend"
+
+    request_data = ChatRequest(
+        model=original_model,
+        messages=[ChatMessage(role="user", content=message_content)],
+    )
+
+    session_id = "test-session"
+
+    # Process the request - should raise an error but still complete turn
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        await processor.process_request(context, request_data)
+
+    # Check that turn was completed despite error
+    state = replacement_service.get_state(session_id)
+    assert state.active, "Replacement should still be active after error"
+    assert (
+        state.turns_remaining == 1
+    ), f"Expected 1 turn remaining after error, got {state.turns_remaining}"

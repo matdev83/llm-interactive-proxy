@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -93,6 +94,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
         super().__init__(client, config, translation_service)
         self.name = "anthropic-oauth"
         self.is_functional: bool = False
+        self._enable_anthropic_oauth_backend_debugging_override: bool = False
         self._oauth_credentials: dict[str, Any] | None = None
         self._credentials_path: Path | None = None
         self._last_modified: float = 0.0
@@ -474,6 +476,21 @@ class AnthropicOAuthBackend(AnthropicBackend):
         if isinstance(override, str) and override:
             self._oauth_dir_override = Path(override)
 
+        # Enable debugging override if requested (internal use only)
+        self._enable_anthropic_oauth_backend_debugging_override = kwargs.get(
+            "enable_anthropic_oauth_backend_debugging_override", False
+        )
+        # Check extras as well for config-based enabling
+        backend_config = getattr(self.config.backends, "anthropic_oauth", None)
+        if backend_config and hasattr(backend_config, "extra"):
+            extras = (
+                backend_config.extra
+                if isinstance(backend_config.extra, Mapping)
+                else {}
+            )
+            if extras.get("enable_anthropic_oauth_backend_debugging_override"):
+                self._enable_anthropic_oauth_backend_debugging_override = True
+
         # Base URL override or default
         self.anthropic_api_base_url = kwargs.get(
             "anthropic_api_base_url", ANTHROPIC_DEFAULT_BASE_URL
@@ -518,6 +535,22 @@ class AnthropicOAuthBackend(AnthropicBackend):
         identity: Any | None = None,
         **kwargs: Any,
     ):
+        # Validate restricted access
+        if not self._enable_anthropic_oauth_backend_debugging_override:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Blocked attempt to use Anthropic OAuth backend without debugging override flag."
+                )
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: This backend is reserved for internal development and "
+                    "debugging. To enable it, use the "
+                    "--enable-anthropic-oauth-backend-debugging-override CLI flag. "
+                    "See documentation for legal disclaimers and usage restrictions."
+                ),
+            )
+
         # Runtime validation with throttling
         ok = await self._validate_runtime_credentials()
         errors = self.get_validation_errors()

@@ -175,7 +175,7 @@ The proxy also supports an `openai-codex` backend that uses ChatGPT login tokens
 python -m src.core.cli --default-backend openai-codex
 ```
 
-For detailed configuration options, see the [OpenAI Codex documentation](../../docs_old/openai_codex.md).
+For detailed configuration options, see the [OpenAI Codex documentation](openai-codex.md).
 
 ## Model Parameters
 

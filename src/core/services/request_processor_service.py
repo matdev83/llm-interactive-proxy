@@ -23,6 +23,9 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.command_processor_interface import ICommandProcessor
+from src.core.interfaces.model_replacement_service_interface import (
+    IModelReplacementService,
+)
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
@@ -62,6 +65,7 @@ class RequestProcessor(IRequestProcessor):
         backend_request_manager: IBackendRequestManager,
         response_manager: IResponseManager,
         app_state: IApplicationState | None = None,
+        replacement_service: IModelReplacementService | None = None,
     ) -> None:
         """Initialize the request processor with decomposed services."""
         self._command_processor = command_processor
@@ -69,6 +73,7 @@ class RequestProcessor(IRequestProcessor):
         self._backend_request_manager = backend_request_manager
         self._response_manager = response_manager
         self._app_state = app_state
+        self._replacement_service = replacement_service
 
     async def process_request(
         self, context: RequestContext, request_data: Any
@@ -217,6 +222,37 @@ class RequestProcessor(IRequestProcessor):
             return await self._response_manager.process_command_result(
                 command_result, session
             )
+
+        # Apply model replacement if enabled
+        original_backend = getattr(context, "backend", None)
+        original_model = request_data.model
+
+        if self._replacement_service is not None and original_backend is not None:
+            # Check if replacement should be triggered
+            should_replace = self._replacement_service.should_replace(
+                session_id, context
+            )
+
+            if should_replace:
+                # Activate replacement if not already active
+                state = self._replacement_service.get_state(session_id)
+                if not state.active:
+                    await self._replacement_service.activate_replacement(
+                        session_id, original_backend, original_model
+                    )
+
+                # Get effective backend:model
+                effective_backend, effective_model = (
+                    self._replacement_service.get_effective_backend_model(
+                        session_id, original_backend, original_model
+                    )
+                )
+
+                # Update backend and model
+                original_backend = effective_backend
+                request_data = request_data.model_copy(
+                    update={"model": effective_model}
+                )
 
         # Prepare backend request
         backend_request = await self._backend_request_manager.prepare_backend_request(
@@ -915,32 +951,40 @@ class RequestProcessor(IRequestProcessor):
             logger.info(
                 f"Calling backend for session {session_id} with model: {getattr(backend_request, 'model', 'unknown')}"
             )
-        backend_response = await self._backend_request_manager.process_backend_request(
-            backend_request, session_id, context
-        )
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"Backend response for session {session_id}: {type(backend_response).__name__}"
+
+        try:
+            backend_response = (
+                await self._backend_request_manager.process_backend_request(
+                    backend_request, session_id, context
+                )
+            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Backend response for session {session_id}: {type(backend_response).__name__}"
+                )
+
+            # Update session history with the backend interaction
+            await self._session_manager.update_session_history(
+                request_data, backend_request, backend_response, session_id
             )
 
-        # Update session history with the backend interaction
-        await self._session_manager.update_session_history(
-            request_data, backend_request, backend_response, session_id
-        )
-
-        # Update session fingerprint for continuity detection
-        if hasattr(self._session_manager, "update_session_fingerprint"):
-            try:
-                await self._session_manager.update_session_fingerprint(
-                    session_id, list(backend_request.messages)
-                )
-            except Exception as e:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Failed to update session fingerprint: {e}", exc_info=True
+            # Update session fingerprint for continuity detection
+            if hasattr(self._session_manager, "update_session_fingerprint"):
+                try:
+                    await self._session_manager.update_session_fingerprint(
+                        session_id, list(backend_request.messages)
                     )
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Failed to update session fingerprint: {e}", exc_info=True
+                        )
 
-        return backend_response
+            return backend_response
+        finally:
+            # Complete turn after response (or error) to update replacement state
+            if self._replacement_service is not None:
+                self._replacement_service.complete_turn(session_id)
 
     def _clear_active_hybrid_disable_flag(self, session_id: str) -> None:
         """Remove the active hybrid disable marker for the given session if present."""

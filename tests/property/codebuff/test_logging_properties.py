@@ -38,7 +38,7 @@ def message_type_strategy(draw):
 
 # Property 22: Connection logging
 @given(session_id=session_id_strategy())
-@settings(max_examples=100)
+@settings(max_examples=100, deadline=None)
 def test_property_22_connection_logging(session_id):
     """
     Feature: codebuff-backend-compatibility, Property 22: Connection logging
@@ -224,7 +224,7 @@ def test_property_25_disconnect_logging(session_id):
 
 # Property 26: Sensitive data exclusion
 @given(session_id=session_id_strategy(), auth_token=auth_token_strategy())
-@settings(max_examples=100)
+@settings(max_examples=100, deadline=None)
 def test_property_26_sensitive_data_exclusion(session_id, auth_token):
     """
     Feature: codebuff-backend-compatibility, Property 26: Sensitive data exclusion

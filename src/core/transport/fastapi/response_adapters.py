@@ -1018,6 +1018,72 @@ def to_fastapi_streaming_response(
                 return chunk.content, chunk.metadata or {}
             return chunk, {}
 
+        def _extract_usage_from_metadata(
+            metadata: dict[str, Any] | None
+        ) -> dict[str, Any] | None:
+            if not metadata:
+                return None
+            usage_block = metadata.get("usage")
+            return usage_block if isinstance(usage_block, dict) else None
+
+        def _normalize_usage(usage: dict[str, Any] | None) -> dict[str, Any] | None:
+            """Coerce usage fields to integers and recompute totals."""
+            if not isinstance(usage, dict):
+                return None
+            normalized = dict(usage)
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                try:
+                    value = int(normalized.get(key, 0) or 0)
+                except Exception:
+                    value = 0
+                normalized[key] = max(value, 0)
+            prompt = normalized.get("prompt_tokens", 0) or 0
+            completion = normalized.get("completion_tokens", 0) or 0
+            total = normalized.get("total_tokens", 0) or 0
+            summed = prompt + completion
+            if total < summed:
+                normalized["total_tokens"] = summed
+            return normalized
+
+        def _merge_usage_max(
+            current: dict[str, Any] | None, previous: dict[str, Any] | None
+        ) -> dict[str, Any] | None:
+            """Combine usage dicts, keeping the highest observed values."""
+            normalized_current = _normalize_usage(current)
+            normalized_previous = _normalize_usage(previous)
+            if normalized_current is None and normalized_previous is None:
+                return None
+            if normalized_previous is None:
+                return normalized_current
+            if normalized_current is None:
+                return normalized_previous
+
+            merged = dict(normalized_previous)
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                merged[key] = max(
+                    normalized_previous.get(key, 0) or 0,
+                    normalized_current.get(key, 0) or 0,
+                )
+
+            # Preserve higher cost when available
+            for cost_key in ("cost", "total_cost"):
+                prev_cost = normalized_previous.get(cost_key)
+                curr_cost = normalized_current.get(cost_key)
+                if isinstance(curr_cost, (int, float)):
+                    if not isinstance(prev_cost, (int, float)) or curr_cost > prev_cost:
+                        merged[cost_key] = curr_cost
+                elif isinstance(prev_cost, (int, float)):
+                    merged[cost_key] = prev_cost
+
+            for detail_key in (
+                "prompt_tokens_details",
+                "completion_tokens_details",
+                "cost_details",
+            ):
+                if detail_key not in merged and detail_key in normalized_current:
+                    merged[detail_key] = normalized_current[detail_key]
+            return merged
+
         def _merge_metadata_from_payload(
             payload: Any, metadata: dict[str, Any] | None
         ) -> dict[str, Any]:
@@ -1105,6 +1171,54 @@ def to_fastapi_streaming_response(
             if isinstance(delta, dict):
                 return delta
             return None
+
+        def _extract_text_for_usage(payload: Any) -> str:
+            """Extract textual content for usage calculation without mutating the payload."""
+            if isinstance(payload, dict):
+                text_parts: list[str] = []
+                choices = payload.get("choices")
+                if isinstance(choices, list):
+                    for choice in choices:
+                        if not isinstance(choice, dict):
+                            continue
+                        block = choice.get("delta") or choice.get("message") or {}
+                        if not isinstance(block, dict):
+                            continue
+                        content_val = block.get("content")
+                        if isinstance(content_val, str) and content_val:
+                            text_parts.append(content_val)
+                    if text_parts:
+                        return "".join(text_parts)
+
+                for key in ("content", "text"):
+                    candidate = payload.get(key)
+                    if isinstance(candidate, str) and candidate:
+                        return candidate
+                return ""
+
+            if isinstance(payload, bytes | bytearray):
+                try:
+                    return payload.decode("utf-8")
+                except Exception:
+                    return payload.decode("utf-8", errors="ignore")
+            if isinstance(payload, str):
+                return payload
+            return ""
+
+        def _resolve_prompt_hint(
+            metadata: dict[str, Any] | None, envelope_meta: dict[str, Any]
+        ) -> int:
+            """Find outbound/prompt token hint from chunk metadata or envelope metadata."""
+            for source in (metadata, envelope_meta):
+                if not isinstance(source, dict):
+                    continue
+                outbound_tokens = source.get("outbound_tokens")
+                if isinstance(outbound_tokens, (int, float)):
+                    try:
+                        return int(outbound_tokens)
+                    except Exception:
+                        continue
+            return 0
 
         def _resolve_stream_key(metadata: dict[str, Any]) -> str:
             # Priority: stream_id (from StreamNormalizer) > session_id (consistent per request) > id (per-chunk, NOT suitable for buffering)
@@ -1266,6 +1380,8 @@ def to_fastapi_streaming_response(
         ) -> AsyncIterator[StreamingContent]:
             try:
                 chunk_count = 0
+                accumulated_text_parts: list[str] = []
+                best_usage: dict[str, Any] | None = None
                 async for chunk in source:
                     chunk_count += 1
                     if logger.isEnabledFor(TRACE_LEVEL):
@@ -1299,6 +1415,13 @@ def to_fastapi_streaming_response(
                     computed_usage = (
                         usage_payload if isinstance(usage_payload, dict) else None
                     )
+                    if computed_usage is None:
+                        computed_usage = _extract_usage_from_metadata(metadata)
+                    best_usage = _merge_usage_max(computed_usage, best_usage)
+
+                    text_for_usage = _extract_text_for_usage(enriched)
+                    if text_for_usage:
+                        accumulated_text_parts.append(text_for_usage)
 
                     # Check if this chunk signals completion
                     is_done = forced_done or _chunk_signals_done(enriched, metadata)
@@ -1337,58 +1460,92 @@ def to_fastapi_streaming_response(
                             except Exception:
                                 force_usage_recalc = False
 
-                        if (
-                            accumulated_content is not None
-                            or computed_usage is not None
-                        ):
-                            try:
-                                from src.core.services.usage_calculation_service import (
-                                    get_usage_calculation_service,
-                                )
+                        if accumulated_content is None:
+                            accumulated_content = "".join(accumulated_text_parts)
 
-                                service = get_usage_calculation_service()
-                                computed_usage = service.merge_streaming_usage(
-                                    accumulated_content=accumulated_content or "",
-                                    final_chunk_usage=computed_usage,
-                                    context=context,
-                                    model=model_name,
-                                    force_recalculation=force_usage_recalc,
-                                )
+                        prompt_hint = _resolve_prompt_hint(metadata, envelope_metadata)
 
-                                prompt_hint = envelope_metadata.get("outbound_tokens")
-                                if (
-                                    isinstance(prompt_hint, int | float)
-                                    and isinstance(computed_usage, dict)
-                                    and computed_usage.get("prompt_tokens", 0) == 0
+                        try:
+                            from src.core.services.usage_calculation_service import (
+                                get_usage_calculation_service,
+                            )
+
+                            service = get_usage_calculation_service()
+                            computed_usage = service.merge_streaming_usage(
+                                accumulated_content=accumulated_content or "",
+                                final_chunk_usage=computed_usage,
+                                context=context,
+                                model=model_name,
+                                force_recalculation=force_usage_recalc,
+                            )
+
+                            normalized_usage = _normalize_usage(computed_usage) or {}
+                            # Preserve prompt tokens from earlier hints/usages
+                            if isinstance(best_usage, dict):
+                                prompt_from_best = best_usage.get("prompt_tokens", 0) or 0
+                                if prompt_from_best > normalized_usage.get(
+                                    "prompt_tokens", 0
                                 ):
-                                    prompt_tokens = int(prompt_hint)
-                                    computed_usage["prompt_tokens"] = prompt_tokens
-                                    computed_usage["total_tokens"] = prompt_tokens + (
-                                        computed_usage.get("completion_tokens", 0)
+                                    normalized_usage["prompt_tokens"] = prompt_from_best
+
+                            if (
+                                prompt_hint > 0
+                                and normalized_usage.get("prompt_tokens", 0) == 0
+                            ):
+                                normalized_usage["prompt_tokens"] = prompt_hint
+
+                            # For completion tokens, honor recalculation when requested,
+                            # otherwise keep the higher value to avoid regressions.
+                            if isinstance(best_usage, dict):
+                                best_completion = (
+                                    best_usage.get("completion_tokens", 0) or 0
+                                )
+                                if not force_usage_recalc and (
+                                    best_completion
+                                    > normalized_usage.get("completion_tokens", 0)
+                                ):
+                                    normalized_usage["completion_tokens"] = (
+                                        best_completion
                                     )
 
-                                if isinstance(computed_usage, dict) and isinstance(
-                                    enriched, dict
-                                ):
-                                    try:
-                                        enriched["usage"] = computed_usage
-                                    except Exception:
-                                        enriched = dict(enriched)
-                                        enriched["usage"] = computed_usage
-                            except Exception:
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        "Failed to merge streaming usage", exc_info=True
-                                    )
+                            # Recompute totals after adjustments
+                            prompt_val = normalized_usage.get("prompt_tokens", 0) or 0
+                            completion_val = (
+                                normalized_usage.get("completion_tokens", 0) or 0
+                            )
+                            normalized_usage["total_tokens"] = prompt_val + completion_val
+
+                            # Preserve higher cost if we had one before
+                            if isinstance(best_usage, dict):
+                                for cost_key in ("cost", "total_cost"):
+                                    prev_cost = best_usage.get(cost_key)
+                                    curr_cost = normalized_usage.get(cost_key)
+                                    if isinstance(prev_cost, (int, float)) and (
+                                        not isinstance(curr_cost, (int, float))
+                                        or prev_cost > curr_cost
+                                    ):
+                                        normalized_usage[cost_key] = prev_cost
+
+                            best_usage = normalized_usage if normalized_usage else best_usage
+
+                            if isinstance(best_usage, dict) and isinstance(enriched, dict):
+                                try:
+                                    enriched["usage"] = best_usage
+                                except Exception:
+                                    enriched = dict(enriched)
+                                    enriched["usage"] = best_usage
+                        except Exception:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Failed to merge streaming usage", exc_info=True
+                                )
 
                     streaming_content = StreamingContent(
                         content=enriched,
                         metadata=metadata,
                         is_done=is_done,
                         stream_id=metadata.get("stream_id") if metadata else None,
-                        usage=(
-                            computed_usage if isinstance(computed_usage, dict) else None
-                        ),
+                        usage=best_usage if isinstance(best_usage, dict) else None,
                     )
 
                     yield streaming_content

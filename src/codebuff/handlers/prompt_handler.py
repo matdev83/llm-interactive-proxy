@@ -61,6 +61,17 @@ class PromptHandler:
         websocket: WebSocket,
         action: PromptAction,
     ) -> None:
+        def _safe(value: object) -> str:
+            """Convert potentially invalid strings to safe UTF-8 for logging."""
+            try:
+                return (
+                    str(value)
+                    .encode("utf-8", errors="replace")
+                    .decode("utf-8", errors="replace")
+                )
+            except Exception:
+                return repr(value)
+
         """Process a prompt action and stream the response.
 
         Args:
@@ -82,9 +93,9 @@ class PromptHandler:
 
         logger.info(
             "Handling prompt: session_id=%s, prompt_id=%s, model=%s",
-            session.session_id,
-            action.promptId,
-            action.model,
+            _safe(session.session_id),
+            _safe(action.promptId),
+            _safe(action.model),
         )
 
         # Store fingerprint ID if provided

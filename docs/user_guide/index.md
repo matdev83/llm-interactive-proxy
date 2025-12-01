@@ -26,6 +26,8 @@ Advanced features that enhance the proxy's capabilities:
 - **[Model Name Rewrites](features/model-name-rewrites.md)** - Transform model names dynamically with aliases and patterns
 - **[URI Model Parameters](features/uri-model-parameters.md)** - Specify model parameters directly in model name strings
 - **[Planning Phase Overrides](features/planning-phase.md)** - Use stronger models for planning phases in coding workflows
+- **[Random Model Replacement](features/random-model-replacement.md)** - Probabilistically replace models to improve session diversity and resilience
+- **[Replacement Metrics](features/replacement-metrics.md)** - Track activation rates, turn counts, and opt-outs for replacements
 
 ### Response Processing
 
@@ -54,7 +56,9 @@ Backend provider configuration and usage:
 
 - **[Backend Overview](backends/overview.md)** - Supported backends, choosing a backend, and switching between providers
 - **[OpenAI Backend](backends/openai.md)** - OpenAI API and ChatGPT OAuth configuration
+- **[OpenAI Codex Backend](backends/openai-codex.md)** - Codex CLI authentication and debugging-only usage
 - **[Anthropic Backend](backends/anthropic.md)** - Claude API and OAuth configuration
+- **[Anthropic OAuth Backend](backends/anthropic-oauth.md)** - Claude Code OAuth configuration
 - **[Cline Backend](backends/cline.md)** - Internal development & debugging backend
 - **[Gemini Backends](backends/gemini.md)** - Google Gemini API, OAuth, and GCP configurations
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access

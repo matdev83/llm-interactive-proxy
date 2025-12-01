@@ -81,6 +81,8 @@ class SessionState(ValueObject):
     command_prefix_override: str | None = None
     planning_phase_original_backend: str | None = None
     planning_phase_original_model: str | None = None
+    replacement_state: dict[str, Any] | None = None
+    replacement_disabled: bool = False
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -180,6 +182,30 @@ class SessionState(ValueObject):
             New SessionState with all updates applied
         """
         return self.model_copy(update=updates)
+
+    def get_replacement_state(self) -> Any:
+        """Get replacement state from session.
+
+        Returns:
+            ReplacementState instance created from stored dict, or a new inactive state
+        """
+        # Import here to avoid circular dependency
+        from src.core.domain.replacement_state import ReplacementState
+
+        if self.replacement_state is None:
+            return ReplacementState()
+        return ReplacementState.from_dict(self.replacement_state)
+
+    def set_replacement_state(self, state: Any) -> SessionState:
+        """Set replacement state in session.
+
+        Args:
+            state: ReplacementState instance to store
+
+        Returns:
+            New SessionState with updated replacement state
+        """
+        return self.model_copy(update={"replacement_state": state.to_dict()})
 
 
 class SessionStateAdapter(ISessionState, ISessionStateMutator):

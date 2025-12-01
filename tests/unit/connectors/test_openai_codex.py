@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from pytest_httpx import HTTPXMock
 from src.connectors.openai_codex import (
     OpenAICodexConnector,
@@ -44,7 +45,10 @@ async def openai_codex_backend_fixture(auth_dir: Path):
             ),
             patch.object(backend, "_start_file_watching"),
         ):
-            await backend.initialize(openai_codex_path=str(auth_dir))
+            await backend.initialize(
+                openai_codex_path=str(auth_dir),
+                enable_openai_codex_backend_debugging_override=True,
+            )
             # Set the credentials for the test
             backend._auth_credentials = {"tokens": {"access_token": "chatgpt_token"}}
             yield backend
@@ -450,3 +454,55 @@ async def test_file_handler_on_modified_different_file(auth_dir: Path):
         with patch.object(backend, "_schedule_credentials_reload") as mock_schedule:
             handler.on_modified(mock_event)
             mock_schedule.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_openai_codex_blocked_without_flag(auth_dir: Path):
+        """Test that the backend raises 403 Forbidden when the debugging flag is not enabled."""
+        async with httpx.AsyncClient() as client:
+            from unittest.mock import MagicMock
+
+            from src.core.services.translation_service import TranslationService
+
+            # Mock the config to ensure no environmental pollution
+            mock_config = MagicMock()
+            mock_config.backends.openai_codex = None
+
+            ts = TranslationService()
+            backend = OpenAICodexConnector(
+                client, mock_config, translation_service=ts
+            )  # Initialize WITHOUT the flag
+        with (
+            patch.object(
+                backend, "_validate_credentials_file_exists", return_value=(True, [])
+            ),
+            patch.object(
+                backend, "_validate_credentials_structure", return_value=(True, [])
+            ),
+            patch.object(backend, "_start_file_watching"),
+        ):
+            await backend.initialize(
+                openai_codex_path=str(auth_dir),
+                enable_openai_codex_backend_debugging_override=False,
+            )
+            backend._auth_credentials = {"tokens": {"access_token": "chatgpt_token"}}
+
+        req = ChatRequest(
+            model="openai-codex:gpt-4o-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+            max_tokens=16,
+            stream=False,
+        )
+
+        # Attempt to call chat_completions should raise HTTPException(403)
+        with pytest.raises(HTTPException) as exc_info:
+            await backend.chat_completions(
+                request_data=req,
+                processed_messages=[ChatMessage(role="user", content="hi")],
+                effective_model="gpt-4o-mini",
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "Forbidden" in exc_info.value.detail
+        assert (
+            "--enable-openai-codex-backend-debugging-override" in exc_info.value.detail
+        )

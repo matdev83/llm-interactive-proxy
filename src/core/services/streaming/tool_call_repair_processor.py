@@ -61,6 +61,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         stream_id = get_stream_id(content)
         buffer_state = self._get_buffer_state(stream_id)
         metadata = dict(content.metadata or {})
+        is_done = content.is_done
         detected_tool_calls: list[dict[str, Any]] = []
 
         existing_calls = self._register_existing_tool_calls(buffer_state, metadata)
@@ -200,6 +201,10 @@ class ToolCallRepairProcessor(IStreamProcessor):
                 # Force override backend's finish_reason (e.g., "stop") when tool calls are detected
                 # Using direct assignment instead of setdefault to ensure clients recognize tool calls
                 metadata["finish_reason"] = "tool_calls"
+                # Tool calls are terminal for the current assistant turn; mark the
+                # chunk as done so downstream processors (usage, SSE assembler)
+                # emit final accounting and end-of-stream markers.
+                is_done = True
                 # Add index field to each tool call for OpenAI streaming format compliance
                 sanitized_calls = self._sanitize_and_dedupe_tool_calls(
                     existing_calls, registered_calls, buffer_state
@@ -214,10 +219,13 @@ class ToolCallRepairProcessor(IStreamProcessor):
             metadata.setdefault("reasoning_content", reasoning_value)
             metadata.setdefault("reasoning", reasoning_value)
 
-        if new_content_str or detected_tool_calls or content.is_done:
+        if is_done or content.is_cancellation:
+            self._registry.clear_tool_call_buffer(stream_id)
+
+        if new_content_str or detected_tool_calls or is_done:
             return StreamingContent(
                 content=new_content_str,
-                is_done=content.is_done,
+                is_done=is_done,
                 is_cancellation=content.is_cancellation,
                 metadata=metadata,
                 usage=content.usage,

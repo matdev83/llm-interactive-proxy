@@ -6,10 +6,10 @@ The LLM Interactive Proxy supports multiple configuration methods with a clear p
 
 Configuration values are resolved in the following order (highest to lowest priority):
 
-1.  **CLI Arguments** - Command-line flags (highest priority)
-2.  **Environment Variables** - Shell environment variables
-3.  **YAML Configuration File** - Configuration file specified with `--config`
-4.  **Default Values** - Built-in defaults (lowest priority)
+1. **CLI Arguments** - Command-line flags (highest priority)
+2. **Environment Variables** - Shell environment variables
+3. **YAML Configuration File** - Configuration file specified with `--config`
+4. **Default Values** - Built-in defaults (lowest priority)
 
 When the same setting is specified in multiple places, the higher priority source wins.
 
@@ -306,6 +306,19 @@ assessment:
   turn_threshold: 30
   confidence_threshold: 0.9
   history_window: 20
+
+### Random Model Replacement (`replacement`)
+
+See [Random Model Replacement Feature Guide](features/random-model-replacement.md) for detailed documentation.
+
+```yaml
+replacement:
+  enabled: false
+  probability: 0.0             # 0.0 to 1.0
+  backend_model: null          # "backend:model"
+  turn_count: 1                # Number of turns to stay on replacement
+```
+
 ```
 
 ### Client Identity (`identity`)

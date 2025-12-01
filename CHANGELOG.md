@@ -98,6 +98,34 @@
   - **Migration Notes**: Explains why the change was made and benefits of new approach
   - **PHASE2_IMPROVEMENTS.md**: Technical documentation of implementation changes
 
+## [2025-12-01] - Random Model Replacement
+
+### New Feature: Probabilistic Model Replacement for Session Resilience
+
+- **Random Model Replacement**: Enables probabilistic swapping of user-specified backend:model pairs with alternative models during a session
+  - **Resilience**: Automatically falls back to alternative models when primary models might struggle
+  - **Diversity**: Introduces variety in model responses for testing and development
+  - **Cost Optimization**: Probabilistically routes to more cost-effective models
+  - **Transparent Operation**: Works seamlessly with existing features (tool filtering, wire capture, usage accounting)
+
+- **Configuration Options**:
+  - `replacement.enabled`: Enable/disable the feature (default: false)
+  - `replacement.probability`: Probability (0.0-1.0) of triggering replacement
+  - `replacement.backend_model`: Replacement backend:model pair (e.g., "qwen-oauth:qwen3-coder-plus")
+  - `replacement.turn_count`: Number of turns to stay on replacement (default: 1)
+
+- **Key Capabilities**:
+  - **Multi-Turn Persistence**: Replacement remains active for a configurable number of turns
+  - **Per-Session State**: Independent replacement state for each concurrent session
+  - **Opt-Out Mechanisms**: Header-based (`X-Disable-Replacement`) and session-level opt-out
+  - **Streaming Support**: Full support for streaming responses with replacement models
+  - **Metrics Tracking**: Comprehensive metrics for activation rates and turn counts
+
+- **Integration**:
+  - **CLI Support**: New flags `--enable-replacement`, `--replacement-probability`, etc.
+  - **Environment Variables**: `REPLACEMENT_ENABLED`, `REPLACEMENT_PROBABILITY`, etc.
+  - **Documentation**: Complete user guide at `docs/user_guide/features/random-model-replacement.md`
+
 ## [2025-12-01] - Test Execution Reminder System
 
 ### New Feature: Intelligent Test Execution Steering for Agentic Workflows

@@ -3097,7 +3097,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         return openai_response
 
-    def _get_fallback_model(self, original_model: str) -> str | None:
+    def _get_fallback_model(self, original_model: str) -> str | list[str] | None:
         """Get the fallback model for a given model."""
         return get_fallback_model(original_model)
 
@@ -3253,7 +3253,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             None if disable_fallback else self._get_fallback_model(original_model)
         )
         if fallback_model:
-            models_to_try.append(fallback_model)
+            if isinstance(fallback_model, list):
+                models_to_try.extend(fallback_model)
+            else:
+                models_to_try.append(fallback_model)
 
         start_time = time.time()
         self._graceful_metrics.total_invocations += 1
@@ -3309,7 +3312,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     continue
 
             # Try the model with retries
-            is_fallback_model = fallback_model is not None and model == fallback_model
+            is_fallback_model = False
+            if fallback_model:
+                if isinstance(fallback_model, list):
+                    is_fallback_model = model in fallback_model
+                else:
+                    is_fallback_model = model == fallback_model
+
             fallback_recorded = False
             max_attempts_for_model = len(self._degradation_config.retry_delays) + 1
             if model == original_model and fallback_model:
@@ -3399,7 +3408,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     self._recovery_probe_task = asyncio.create_task(
                         self._recovery_probing_loop()
                     )
-            elif model == fallback_model:
+            elif is_fallback_model:
                 # Fallback model failed - put it in cooldown too
                 self._set_cooldown(model)
                 logger.info("Fallback model %s exhausted, put in cooldown", model)
